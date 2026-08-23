@@ -59,9 +59,16 @@ from apps.api.billing.rates import (
     PREPAID_TIERS,
     ROUNDING,
     billable_tier,
+    llm_surcharge_applies,
+    llm_surcharge_billed_inr,
     prepaid_billed_inr,
 )
-from apps.api.billing.service import charge_for_call, month_increment, plan_tier_of
+from apps.api.billing.service import (
+    UNSURCHARGED_MODEL,
+    charge_for_call,
+    month_increment,
+    plan_tier_of,
+)
 from apps.api.compliance.deletion import refile_erasure_for_late_records
 from apps.api.compliance.disclosure import disclosure_spoken
 from apps.api.compliance.optout import (
@@ -2019,6 +2026,23 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # rupee against and `rates.py` says at length why inventing one would be worse than
         # the gap. This is the identifier the gap will be closed WITH, not a charge.
         llm = resolve_llm_model(agent_model=agent_model, organization_model=organization_model)
+        # WHICH SURCHARGE BUCKET THIS CALL'S MINUTES LAND IN (D-455). The paragraph above
+        # ends "NOT PRICED HERE, deliberately ... this is the identifier the gap will be
+        # closed WITH, not a charge", and that is still true of the LEG: the engine reports
+        # no tokens and nothing meters the language leg's supplier cost. What D-455 prices
+        # is not the leg — it is the CLIENT's upgrade, per minute, at the plan's own rate,
+        # and the stamp below is what decides which minutes it applies to.
+        #
+        # Computed in Python here and in SQL in `billing.service._SURCHARGED_MODEL_SQL`,
+        # because this call has to be placed in the same buckets the month is re-read in.
+        # Both spellings are built from the same two constants in `billing/rates.py` and
+        # `tests/llm_model_surcharge_test.py` runs them against each other over every
+        # model x source pair — the twin exists, so it is guarded rather than trusted.
+        llm_bucket = (
+            llm.model
+            if llm_surcharge_applies(model=llm.model, source=llm.source)
+            else UNSURCHARGED_MODEL
+        )
         already = (
             await session.execute(
                 text(
@@ -2152,7 +2176,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 text(
                     plan_in_effect_sql(
                         "COALESCE(included_min, 0) AS included_min, "
-                        "overage_rate, overage_rate_value"
+                        "overage_rate, overage_rate_value, llm_model_surcharge"
                     )
                 ),
                 {"tid": tenant_id, "at": month_pricing_instant(month)},
@@ -2181,6 +2205,15 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             if plan_rates is not None and plan_rates[2] is not None
             else None
         )
+        # WHAT THIS CLIENT PAYS FOR CHOOSING A DEARER LANGUAGE MODEL (D-455). NULL is "this
+        # plan quotes no model surcharge" and never "the upgrade is free" — the same
+        # reading as the value rate above, on the column beside it, and the state every
+        # plan is in until a founder decides the number.
+        llm_surcharge = (
+            Decimal(str(plan_rates[3]))
+            if plan_rates is not None and plan_rates[3] is not None
+            else None
+        )
 
         # Prepaid credits move with the metering, keyed by call_id so a pipeline
         # re-run cannot double-charge (D-39). Managed tenants are invoiced against a
@@ -2193,9 +2226,20 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
+                # THE LIST PRICE FOR THE MINUTES, PLUS THE UPGRADE THE CLIENT CHOSE
+                # (D-455). Two named terms rather than one blended rate, because they
+                # answer two questions and come from two places: the minute price is a
+                # config value the runway framing and the top-up flow also read, and the
+                # surcharge is a term of this tenant's plan row. A prepaid tenant normally
+                # has no plan row at all, so `llm_surcharge` is None and this adds ₹0.00 —
+                # the wallet drains exactly as it did before.
                 amount_inr=prepaid_billed_inr(
                     minutes=minutes,
                     self_serve_rate=get_settings().self_serve_inr_per_min,
+                )
+                + llm_surcharge_billed_inr(
+                    minutes=minutes if llm_bucket != UNSURCHARGED_MODEL else Decimal("0"),
+                    surcharge=llm_surcharge,
                 ),
             )
 
@@ -2227,9 +2271,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             minutes=minutes,
             seconds=duration_s,
             tts_tier=tts_tier,
+            llm_model_bucket=llm_bucket,
             included_min=included_min,
             rate=overage_rate,
             rate_value=overage_rate_value,
+            llm_surcharge=llm_surcharge,
         )
         billed = increment.billed_inr
         counters = (
@@ -2327,9 +2373,11 @@ async def _counter_increment(
     minutes: Decimal,
     seconds: Decimal,
     tts_tier: str,
+    llm_model_bucket: str,
     included_min: Decimal,
     rate: Decimal,
     rate_value: Decimal | None,
+    llm_surcharge: Decimal | None,
 ) -> _CounterIncrement:
     """This call's contribution to the two `spend_state` counters the cap is judged on.
 
@@ -2383,10 +2431,12 @@ async def _counter_increment(
         tenant_id=tenant_id,
         month=month,
         tier=tts_tier,
+        llm_model_bucket=llm_model_bucket,
         seconds=seconds,
         included_min=included_min,
         rate=rate,
         rate_value=rate_value,
+        llm_surcharge=llm_surcharge,
     )
     if plan_tier in PREPAID_TIERS:
         return _CounterIncrement(
@@ -2397,12 +2447,26 @@ async def _counter_increment(
             # wallet IS their bill (D-39). `charge_for_call` was handed exactly this
             # figure a few lines above, from this same function, so the counter and the
             # ledger of record cannot drift by a paisa.
+            # The MODEL SURCHARGE is added from the same function that was just handed to
+            # `charge_for_call`, for the identical reason the minute price is: the wallet
+            # IS a prepaid client's bill, so this counter has to be the sum of the debits
+            # actually taken off it, to the paisa.
             billed_inr=prepaid_billed_inr(
                 minutes=minutes,
                 self_serve_rate=get_settings().self_serve_inr_per_min,
+            )
+            + llm_surcharge_billed_inr(
+                minutes=minutes if llm_model_bucket != UNSURCHARGED_MODEL else Decimal("0"),
+                surcharge=llm_surcharge,
             ),
         )
-    return _CounterIncrement(minutes=increment.minutes, billed_inr=increment.overage_inr)
+    # MANAGED: the overage this call added, PLUS the model surcharge it added — both
+    # differences of the same month read with and without this call, so both telescope to
+    # the figures `usage_summary` publishes and the invoice prints.
+    return _CounterIncrement(
+        minutes=increment.minutes,
+        billed_inr=increment.overage_inr + increment.llm_surcharge_inr,
+    )
 
 
 async def _maybe_notify_hot_lead(

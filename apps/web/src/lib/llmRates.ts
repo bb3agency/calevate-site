@@ -3,13 +3,18 @@
  *
  * ## Why this exists at all
  *
- * Choosing a model is a money decision: `platform_cost_inr_per_minute` is what a minute of a
- * five-minute call costs on that model, and the whole point of the picker is that a
- * client can see what swapping one for another does to their bill. A picker that shows
- * two rates and leaves the reader to subtract them in their head is the trap this module
+ * Choosing a model is a money decision: `client_surcharge_inr_per_minute` is what that
+ * model ADDS to the client's bill per minute (D-455), and the whole point of the picker is
+ * that a client can see what swapping one for another does to it. A picker that shows two
+ * rates and leaves the reader to subtract them in their head is the trap this module
  * closes — and the obvious way to close it, `Number(a) - Number(b)`, is the exact defect
  * hard rule 7 exists for. `Number("0.4830") - Number("0.2400")` is 0.24300000000000002,
  * which prints as a price nobody was ever charged.
+ *
+ * Kind-agnostic on purpose: the admin console compares the SUPPLIER cost with the same
+ * two functions (`platform_cost_inr_per_minute`, which never appears on a client screen).
+ * These take decimal strings and say how they differ; which figure a sentence is about is
+ * the caller's label.
  *
  * So every function here works on the DIGIT STRING the server sent. Numbers appear in
  * exactly one place — reading a run of digits as an integer count of the smallest unit
@@ -17,13 +22,16 @@
  * (`Number.isSafeInteger`), which is what makes "we cannot compare these" a state this
  * module can return instead of a wrong figure it can invent.
  *
- * ## Why not `usage/page.tsx::addRupees`
+ * ## Why this is the last money arithmetic in the browser
  *
- * That helper converts to whole PAISE, which is right for the totals it adds and wrong
- * here by exactly the same argument `formatRupeeRate` makes against `formatINR`: a rate
- * is NUMERIC(12,4)-shaped, and truncating ₹0.2425 to ₹0.24 loses the digits two adjacent
- * models actually differ by. This works at whatever scale the two values arrive with, so
- * the answer carries the server's own precision and no more.
+ * There was a second: a paise-based `addRupees` that summed the usage panel's three
+ * charge components into a "Total so far". It is gone — `UsagePanelOut.month_charges_inr`
+ * is now the server's own total — and this module is deliberately NOT the place that work
+ * would return to. Whole paise is right for a TOTAL and wrong here by exactly the argument
+ * `formatRupeeRate` makes against `formatINR`: a rate is NUMERIC(12,4)-shaped, and
+ * truncating ₹0.2425 to ₹0.24 loses the digits two adjacent models actually differ by.
+ * What survives in the browser is COMPARING two rates the server sent, at whatever scale
+ * they arrived with — never adding money, and never pricing anything.
  *
  * ## What is deliberately NOT here
  *

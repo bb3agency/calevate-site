@@ -11,12 +11,38 @@ Role tables (DATA-MODEL §2):
 - admin realm `operator`   — runs onboarding and support across tenants.
 - admin realm `superadmin` — adds the dangerous switches (big red switch, cap raises),
   each of which additionally needs step-up confirmation.
+
+═══ THE ADMIN REALM IS TWO TIERS, AND THE SPLIT IS STRUCTURAL RATHER THAN WRITTEN OUT ═══
+
+`superadmin` holds EVERY permission, and it holds them by DERIVATION (`SUPERADMIN_
+PERMISSIONS = KNOWN_PERMISSIONS`) rather than by a hand-kept list that used to be
+maintained beside `operator`'s. That is the product rule — the person who owns the
+platform can do everything on it — expressed once, in the one place it can never drift
+from the `Permission` type.
+
+What it buys is the DEFAULT for everything added later, and the default is DENY. A new
+permission joins the type, is granted to `superadmin` by construction, and reaches a
+normal admin only if somebody adds it to `ROLE_PERMISSIONS["operator"]` on purpose.
+So a route can never be "neither super-admin-only nor normal-admin-allowed":
+
+  * a permission no role holds fails `assert_policy_registry_complete` (a lock with no
+    key — the route would 403 the entire population);
+  * a permission `operator` does not hold is superadmin-only, which is the safe end;
+  * an admin-path route that forgot `realm="admin"` fails the same assertion, because
+    the realm — not the permission — is what keeps a client `owner` out of a surface
+    whose permission their role also happens to hold (`org:manage`, `agents:write`).
+
+The old shape wrote `superadmin`'s set out longhand, which meant adding a permission and
+forgetting that list produced a superadmin who could not use their own console, and
+adding it to `operator` and forgetting `superadmin` produced the reverse. Neither is
+possible now: the only editorial decision left when a permission is added is whether the
+NORMAL admin tier gets it, and that decision is one line in one dict.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
-from typing import Literal, get_args
+from typing import Final, Literal, cast, get_args
 
 from fastapi import FastAPI
 from fastapi.dependencies.models import Dependant
@@ -36,6 +62,22 @@ Permission = Literal[
     "kb:write",
     "admin:tenants",
     "admin:impersonate",
+    # THE OPERATOR ALLOWLIST ITSELF — creating an operator account, changing its role,
+    # revoking it, and re-issuing its setup link (`admin/operator_routes.py`).
+    #
+    # SUPERADMIN-ONLY, AND THAT IS THE WHOLE SECURITY PROPERTY OF THE TWO TIERS. If a
+    # normal admin could reach this surface they could give themselves `platform:secrets`
+    # in one request, and every other line of this file would be decoration: the tiers
+    # would differ only in how many clicks the escalation took. So the permission that
+    # edits the role table is the one permission that must never be in
+    # `ROLE_PERMISSIONS["operator"]`, and `tests/admin_operators_test.py` drives an
+    # `operator` at all five routes to prove it.
+    #
+    # A SEPARATE PERMISSION RATHER THAN A REUSE OF `admin:tenants`, on the same argument
+    # `platform:config` makes above: `admin:tenants` is "act on one client" and is held
+    # by everybody who onboards. This is "decide who may act on the platform at all",
+    # which is the authority that CONTAINS every other authority here.
+    "admin:operators",
     "ops:manage",
     # Reading and changing PLATFORM configuration — the engine selection, the calling
     # windows, the rate limits (PLATFORM-CONFIG §7).
@@ -71,6 +113,36 @@ Permission = Literal[
     "platform:secrets",
 ]
 
+#: Every string the `Permission` Literal admits. Read off the type rather than restated,
+#: so widening the type cannot leave the boot assertion — or `superadmin` — behind.
+KNOWN_PERMISSIONS: frozenset[str] = frozenset(get_args(Permission))
+
+#: THE SUPER ADMIN HOLDS EVERYTHING, LITERALLY EVERYTHING — the founder's own words for
+#: the tier that owns the platform, and the module docstring argues why it is derived
+#: from the type rather than written out beside `operator`'s set.
+#:
+#: IT IS `KNOWN_PERMISSIONS`, cast — the same object, not a second computation of it, so
+#: "the super admin holds every permission" is true by identity rather than by two
+#: expressions that happen to agree. The cast is needed only because `get_args` is typed
+#: `tuple[Any, ...]`; the alternative is restating every string in the `Permission` type,
+#: which is precisely the hand-kept list this replaces.
+SUPERADMIN_PERMISSIONS: frozenset[Permission] = cast("frozenset[Permission]", KNOWN_PERMISSIONS)
+
+#: The two roles `ck_admin_users_role_enum` admits, in one place because three modules
+#: name them — this one, `tenancy/models` (which renders the CHECK constraint) and
+#: `authn/bootstrap` (which validates `--role`) — and a fourth spelling is how a role
+#: table and the constraint built from it come to disagree about what a role is called.
+SUPERADMIN_ROLE: Final = "superadmin"
+NORMAL_ADMIN_ROLE: Final = "operator"
+
+#: The pair, in the order `ck_admin_users_role_enum` spells it. `tenancy/models` builds
+#: that CHECK constraint from this tuple and `authn/bootstrap` validates its `--role`
+#: argument against it, so the database's vocabulary and the role table's are one string
+#: each. The ORDER is load-bearing only in that the constraint's stored text is rendered
+#: from it — reversing it would make the model's constraint and the migrated one differ
+#: textually while meaning the same thing, which is a diff no reviewer should have to read.
+ADMIN_ROLES: Final[tuple[str, str]] = (SUPERADMIN_ROLE, NORMAL_ADMIN_ROLE)
+
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     "staff": frozenset(
         {
@@ -95,7 +167,29 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "kb:write",
         }
     ),
-    "operator": frozenset(
+    # THE NORMAL ADMIN TIER, and the ONLY hand-kept set in this dict. Everything a new
+    # permission does NOT appear in here is superadmin-only, which is the deliberate
+    # default (module docstring). Adding a line here is the whole act of widening the
+    # normal tier, and it is reviewable as one line.
+    #
+    # WHAT IS DELIBERATELY ABSENT, because these are the four the founder's question
+    # ("admins who are NOT super admins ... the ops config panel where I put in all the
+    # API keys") turns on:
+    #
+    #   `platform:secrets` — PLATFORM-CONFIG §10 accepts "one compromised admin session
+    #     is enough to steal every vendor credential" ONLY because this permission is
+    #     "held by fewer people than any other on this list". Granting it to every
+    #     operator deletes the mitigation the documented risk acceptance rests on, so it
+    #     is a decision-log change and not a lane's judgement call. It also covers the
+    #     masked READ (`GET /v1/ops/secrets`), because an inventory of which vendor
+    #     credentials are installed and which are missing is a targeting oracle — the
+    #     same argument D-128 uses to gate `/healthz/ready`'s detail behind `ops:manage`.
+    #   `platform:config` — "change what every client's platform does at the same
+    #     instant"; the comment on the permission itself argues it.
+    #   `ops:manage`     — the incident surface (big red switch, DLQ replay).
+    #   `admin:operators`— the role table itself. See the permission's own comment: a
+    #     normal admin who could edit it could grant themselves the other three.
+    NORMAL_ADMIN_ROLE: frozenset(
         {
             "agents:read",
             "agents:write",
@@ -110,26 +204,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "admin:impersonate",
         }
     ),
-    "superadmin": frozenset(
-        {
-            "agents:read",
-            "agents:write",
-            "calls:read",
-            "calls:read_raw",
-            "leads:read",
-            "leads:write",
-            "leads:dispatch",
-            "billing:read",
-            "org:read",
-            "org:manage",
-            "kb:write",
-            "admin:tenants",
-            "admin:impersonate",
-            "ops:manage",
-            "platform:config",
-            "platform:secrets",
-        }
-    ),
+    SUPERADMIN_ROLE: SUPERADMIN_PERMISSIONS,
 }
 
 # Permissions that mutate. An impersonating admin (D-22, read-only "view as client")
@@ -143,6 +218,13 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         "kb:write",
         "ops:manage",
         "admin:tenants",
+        # Creating, promoting, demoting and revoking an operator account. Listed for the
+        # same reason `platform:secrets` is, one step further in: a read-only view-as
+        # session must never be able to hand somebody an admin account. It makes
+        # `GET /v1/admin/operators` invisible under impersonation too, which is correct —
+        # the operator directory is an admin-console read with no client-realm
+        # counterpart, so it is listed in `ADMIN_CONSOLE_GETS`.
+        "admin:operators",
         # An impersonating admin (D-22, read-only "view as client") is refused this even
         # though `superadmin` grants it. A view-as session exists to SEE a client's
         # screens; nothing about that job needs to change what engine the platform dials
@@ -175,19 +257,32 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/v1/auth/",
 )
 
+#: Path prefixes whose every route must enforce `realm="admin"`.
+#:
+#: THE PERMISSION IS NOT WHAT KEEPS A CLIENT OUT OF THE ADMIN CONSOLE, and this is the
+#: check that says so. `ROLE_PERMISSIONS` is one flat dict over both realms, so a client
+#: `owner` holds `org:manage`, `agents:write` and `kb:write` — the same strings a dozen
+#: `/v1/admin/**` routes declare. What refuses them is `requires(..., realm="admin")`,
+#: which resolves the caller against `admin_users` instead of `memberships`; a route
+#: that declares the permission and omits the realm reads as guarded in the schema, in
+#: the generated client and in review, and is open to every tenant owner on the platform.
+#:
+#: Asserted one-directionally: an admin-realm route may live outside these prefixes
+#: (`/v1/organizations/{org_id}/llm-defaults`, the billing and compliance admin routers),
+#: and this says nothing about those. What it forbids is the reverse — a route sitting
+#: under the console's own paths that any signed-in client could call.
+ADMIN_REALM_PREFIXES: tuple[str, ...] = ("/v1/admin/", "/v1/ops/")
+
 
 # The attribute `auth.requires()` stamps on the dependency it returns, and the names of
 # the dependencies that resolve an identity without checking a permission. Read by
 # attribute rather than imported, because `core.auth` imports THIS module.
 PERMISSION_ATTR = "calevate_permission"
+REALM_ATTR = "calevate_realm"
 IDENTITY_DEPENDENCIES: frozenset[str] = frozenset(
     {"current_any", "current_admin", "current_principal", "current_identity"}
 )
 
-
-#: Every string the `Permission` Literal admits. Read off the type rather than restated,
-#: so widening the type cannot leave the boot assertion behind.
-KNOWN_PERMISSIONS: frozenset[str] = frozenset(get_args(Permission))
 
 #: Every permission SOME role holds. A permission held by no role names a lock with no
 #: key: `role_has` answers False for every role the DB enums allow, so the route is a
@@ -256,6 +351,33 @@ def route_enforcement(route: APIRoute) -> tuple[frozenset[str], bool]:
     return frozenset(permissions), identified
 
 
+def route_realms(route: APIRoute) -> frozenset[str]:
+    """Which realm(s) this route's permission dependencies resolve the caller against.
+
+    Read off `requires()`'s `calevate_realm` attribute the same way `route_enforcement`
+    reads `calevate_permission`, and for the same reason: the registry must compare what
+    a route DOES against what it says, and importing `core.auth` here is impossible
+    (that module imports this one).
+
+    Empty means "no `requires()` in the tree" — a route that resolves a bare identity, or
+    none at all. `assert_policy_registry_complete` has already refused both by the time
+    it asks this, so the caller never has to decide what an empty set means.
+    """
+    realms: set[str] = set()
+
+    def _walk(dependant: Dependant) -> None:
+        call = dependant.call
+        if call is not None:
+            realm = getattr(call, REALM_ATTR, None)
+            if isinstance(realm, str):
+                realms.add(realm)
+        for sub in dependant.dependencies:
+            _walk(sub)
+
+    _walk(route.dependant)
+    return frozenset(realms)
+
+
 def assert_policy_registry_complete(app: FastAPI) -> None:
     """Called from `main.py` after routers are mounted. Every non-public route must
     DECLARE a permission in its `openapi_extra` and actually enforce it.
@@ -313,6 +435,16 @@ def assert_policy_registry_complete(app: FastAPI) -> None:
                 f"{name} declares {declared} but enforces "
                 f"{sorted(enforced) if enforced else 'nothing — it only resolves an identity'}"
             )
+        elif route.path.startswith(ADMIN_REALM_PREFIXES) and route_realms(route) != {"admin"}:
+            # See `ADMIN_REALM_PREFIXES`: on the console's own paths the permission is
+            # not the thing keeping clients out, the realm is. A route here that resolves
+            # `realm="any"` (the `requires()` default) is reachable by any tenant `owner`
+            # whose own role holds the same string — and eleven of these paths declare a
+            # permission `owner` holds.
+            offenders.append(
+                f"{name} is an admin-console path but enforces realm "
+                f"{sorted(route_realms(route))} — it must be realm='admin'"
+            )
     if checked == 0:
         # A registry that checks nothing is worse than no registry: it reads as a
         # passing guardrail. If route discovery ever breaks again, fail loudly.
@@ -337,13 +469,19 @@ def permission_meta(permission: Permission) -> dict[str, object]:
 
 
 __all__ = [
+    "ADMIN_REALM_PREFIXES",
+    "ADMIN_ROLES",
     "GRANTED_PERMISSIONS",
     "IDENTITY_DEPENDENCIES",
     "KNOWN_PERMISSIONS",
     "MUTATING_PERMISSIONS",
+    "NORMAL_ADMIN_ROLE",
     "PERMISSION_ATTR",
     "PUBLIC_PREFIXES",
+    "REALM_ATTR",
     "ROLE_PERMISSIONS",
+    "SUPERADMIN_PERMISSIONS",
+    "SUPERADMIN_ROLE",
     "MissingPolicyError",
     "Permission",
     "assert_policy_registry_complete",
@@ -351,4 +489,5 @@ __all__ = [
     "permission_meta",
     "role_has",
     "route_enforcement",
+    "route_realms",
 ]

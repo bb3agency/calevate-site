@@ -537,11 +537,23 @@ async def _load_admin_principal(
     async with admin_session() as session:
         row = (
             await session.execute(
-                # BY PRIMARY KEY, and that is also the admin realm's whole liveness rule:
-                # `admin_users` is an ops-managed allowlist, so an operator is removed by
-                # deleting the row and "no row" is the only revocation there is
-                # (`authn/subjects.py` argues against adding a second way to say it).
-                text("SELECT id, role FROM admin_users WHERE id = :sid"),
+                # BY PRIMARY KEY, AND WITH THE LIVENESS PREDICATE — the admin realm's
+                # equivalent of the `deactivated_at IS NULL` `_load_client_principal`
+                # re-reads on every request (BACKEND-PATTERNS §7). This used to be the
+                # bare id lookup, because "no row" was the only revocation the realm had;
+                # eight `ON DELETE RESTRICT` references made that DELETE impossible for
+                # any operator who had done the job, so revocation is now a column
+                # (migration f2c74b81a9d3, `authn/subjects._ADMIN_SELECT`).
+                #
+                # RE-READ HERE rather than trusted from the session, which is what makes
+                # `POST /v1/admin/operators/{id}/revocation` take effect on the revoked
+                # operator's NEXT request rather than whenever their cookie expires. The
+                # session rows are revoked in the same transaction as belt and braces
+                # (ASVS 5.0 V7), but correctness does not depend on that write landing.
+                #
+                # `role` comes from the same row for the same reason: a demotion is a
+                # `requires()` refusal on the next request, not on the next sign-in.
+                text("SELECT id, role FROM admin_users WHERE id = :sid AND deactivated_at IS NULL"),
                 {"sid": verified.subject_id},
             )
         ).first()

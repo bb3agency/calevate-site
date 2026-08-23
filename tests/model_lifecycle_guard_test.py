@@ -20,11 +20,11 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from calevate_shared.engine import Evidence
 from calevate_shared.model_lifecycle import (
     ATTESTATION_PATH,
     MODEL_LIFECYCLE,
     WARN_LEAD,
-    Evidence,
     ModelLifecycle,
     load_attestation,
 )
@@ -33,10 +33,11 @@ from scripts import check_model_lifecycle as guard
 TODAY = date(2026, 8, 22)
 
 
-def _entry(name: str, retires_on: date, **kwargs: object) -> ModelLifecycle:
+def _entry(name: str, retires_on: date | None, **kwargs: object) -> ModelLifecycle:
     evidence = Evidence(source="fixture", read_on=TODAY, verified=True)
     base = {
         "model": name,
+        "provider": "azure_openai",
         "version": "2024-07-18",
         "retires_on": retires_on,
         "stage": "GA",
@@ -49,6 +50,17 @@ def _entry(name: str, retires_on: date, **kwargs: object) -> ModelLifecycle:
     return ModelLifecycle(**base)  # type: ignore[arg-type]
 
 
+def _all_selectable(table: dict[str, ModelLifecycle]) -> frozenset[str]:
+    """Every model in a DOCTORED table, handed to the guard as the selectable set.
+
+    THE SEAM EXISTS BECAUSE THE SPLIT DOES. `failures()` scores only models somebody can
+    choose — a retired model nobody may run is a dated record, not a build failure — so a
+    doctored table whose names are in no real catalogue would otherwise be scored against an
+    EMPTY selectable set and every failure case below would pass for the wrong reason.
+    """
+    return frozenset(table)
+
+
 # --------------------------------------------------------------------------- refusals
 
 
@@ -56,7 +68,7 @@ def test_empty_allow_list_refuses() -> None:
     """The trap CLAUDE.md names: a guard whose subject vanished must not report OK."""
     problems = guard.refusals(frozenset(), {})
     assert problems
-    assert any("AZURE_OPENAI_MODELS is empty" in p for p in problems)
+    assert any("LLM_MODEL_NAMES is empty" in p for p in problems)
 
 
 def test_model_without_a_lifecycle_entry_refuses() -> None:
@@ -67,7 +79,7 @@ def test_model_without_a_lifecycle_entry_refuses() -> None:
 def test_entry_for_a_model_nobody_can_select_refuses() -> None:
     table = dict(MODEL_LIFECYCLE) | {"gpt-gone": _entry("gpt-gone", date(2030, 1, 1))}
     problems = guard.refusals(frozenset({"gpt-4o-mini", "gpt-4.1-mini"}), table)
-    assert any("gpt-gone" in p and "not in AZURE_OPENAI_MODELS" in p for p in problems)
+    assert any("gpt-gone" in p and "not in LLM_MODEL_NAMES" in p for p in problems)
 
 
 def test_evidence_read_in_the_future_refuses() -> None:
@@ -137,7 +149,7 @@ def test_a_date_that_has_passed_is_a_build_failure() -> None:
         "gpt-4o-mini": _entry("gpt-4o-mini", TODAY - timedelta(days=1)),
         "gpt-4.1-mini": _entry("gpt-4.1-mini", TODAY + timedelta(days=900)),
     }
-    problems = guard.failures(table, TODAY, None)
+    problems = guard.failures(table, TODAY, None, _all_selectable(table))
     assert any("gpt-4o-mini retired on" in p and "1 days ago" in p for p in problems)
 
 
@@ -145,14 +157,14 @@ def test_retirement_today_counts_as_passed() -> None:
     """`<= 0`, not `< 0`: a model retires ON its date, and a guard that let the last day
     through would be green on the one day it mattered."""
     table = {"gpt-4o-mini": _entry("gpt-4o-mini", TODAY)}
-    assert guard.failures(table, TODAY, None)
+    assert guard.failures(table, TODAY, None, _all_selectable(table))
 
 
 def test_nothing_outlives_the_lead_time_is_a_build_failure() -> None:
     """'Past its date with no replacement configured' — the replacement half."""
     inside = TODAY + timedelta(days=WARN_LEAD.days - 1)
     table = {"a": _entry("a", inside), "b": _entry("b", inside)}
-    problems = guard.failures(table, TODAY, None)
+    problems = guard.failures(table, TODAY, None, _all_selectable(table))
     assert any("NO REPLACEMENT IS CONFIGURED" in p for p in problems)
 
 
@@ -161,7 +173,7 @@ def test_one_survivor_is_enough() -> None:
         "a": _entry("a", TODAY + timedelta(days=WARN_LEAD.days - 1)),
         "b": _entry("b", TODAY + timedelta(days=WARN_LEAD.days + 1)),
     }
-    assert guard.failures(table, TODAY, None) == []
+    assert guard.failures(table, TODAY, None, _all_selectable(table)) == []
 
 
 def test_attested_global_deployment_is_a_build_failure() -> None:
@@ -213,8 +225,9 @@ def test_inside_the_lead_time_warns_without_failing() -> None:
         "a": _entry("a", TODAY + timedelta(days=30)),
         "b": _entry("b", TODAY + timedelta(days=900)),
     }
-    assert guard.failures(table, TODAY, None) == []
-    assert any("retires in 30 days" in n for n in guard.warnings(table, TODAY, None))
+    selectable = _all_selectable(table)
+    assert guard.failures(table, TODAY, None, selectable) == []
+    assert any("retires in 30 days" in n for n in guard.warnings(table, TODAY, None, selectable))
 
 
 def test_an_unverified_entry_is_visibly_unverified() -> None:
@@ -276,11 +289,170 @@ def test_the_default_not_offered_on_the_mandated_type_is_named() -> None:
     assert "REGION moves" in named[0], named
 
 
-def test_the_shipped_table_covers_the_shipped_allow_list() -> None:
-    from calevate_shared.engine import AZURE_OPENAI_MODELS
+def test_the_shipped_table_covers_the_shipped_catalogue() -> None:
+    """Every model on every declared leg, not only the Azure ones. The widening is the whole
+    of what a second and third leg cost this registry: a withdrawn model is exactly the kind
+    that sits undated for a year, and `gemini-2.5-flash` has 55 days on it."""
+    from calevate_shared.engine import LLM_MODEL_NAMES
 
-    assert guard.refusals(AZURE_OPENAI_MODELS, dict(MODEL_LIFECYCLE)) == []
+    assert guard.refusals(LLM_MODEL_NAMES, dict(MODEL_LIFECYCLE)) == []
 
 
 def test_the_repo_as_it_stands_passes() -> None:
     assert guard.main() == 0
+
+
+# --------------------------------------------------- three legs, three evidence classes
+
+
+def test_an_undated_model_nobody_can_select_is_fine() -> None:
+    """`retires_on=None` is a READING, not a blank, and this is the arm that makes it usable.
+
+    Microsoft publishes a dated retirement schedule this repository can read at a named
+    commit. OpenAI publishes deprecations on a page every egress path here refuses. Inventing
+    a far-off date to satisfy a `date` annotation would be the D-31/D-32 error class — a
+    guess wearing the shape of a fact — so the registry records the absence and the guard
+    tolerates it on a model nobody may run.
+    """
+    table = {
+        "gpt-5.9-imaginary": _entry(
+            "gpt-5.9-imaginary", None, provider="openai", offered_in_region=frozenset()
+        )
+    }
+    assert guard.refusals(frozenset(table), table, frozenset(), {}) == []
+    assert guard.failures(table, TODAY, None, frozenset()) == []
+
+
+def test_an_undated_model_somebody_can_select_refuses_to_score() -> None:
+    """The other arm, and the whole reason `retires_on` is allowed to be `None` at all.
+
+    An unread date is honest. An unread date under a model an operator or a client can flip a
+    live picker onto is the exact state this guard exists to end, restated with a `None`
+    instead of a missing row — so it REFUSES rather than warns: the answer is not "act
+    sooner", it is "you cannot measure this and you are running it anyway".
+    """
+    table = {
+        "gpt-5.9-imaginary": _entry(
+            "gpt-5.9-imaginary", None, provider="openai", offered_in_region=frozenset()
+        )
+    }
+    problems = guard.refusals(frozenset(table), table, frozenset(table), {})
+    assert len(problems) == 1, problems
+    assert "read no retirement date" in problems[0] and "withdrawn_reason" in problems[0]
+
+
+def test_a_deployment_type_on_a_leg_that_has_none_refuses() -> None:
+    """Regional availability matrices and SKUs are AZURE facts.
+
+    On a leg with no deployments there is no SKU for a model to be offered on, so a non-empty
+    reading is a fact nobody could have read — and it would make the availability warning
+    fire about a matrix that does not exist for that vendor.
+    """
+    table = {
+        "gemini-x": _entry(
+            "gemini-x",
+            TODAY + timedelta(days=900),
+            provider="google",
+            offered_in_region=frozenset({"standard-regional"}),
+        )
+    }
+    problems = guard.refusals(frozenset(table), table, frozenset(), {})
+    assert any("no deployment types at all" in p for p in problems), problems
+
+    # …and empty is correct on that leg rather than merely tolerated.
+    fine = {
+        "gemini-x": _entry(
+            "gemini-x",
+            TODAY + timedelta(days=900),
+            provider="google",
+            offered_in_region=frozenset(),
+        )
+    }
+    assert guard.refusals(frozenset(fine), fine, frozenset(), {}) == []
+
+
+def test_two_registries_disagreeing_about_a_models_leg_refuses() -> None:
+    """Which leg a model runs on decides its endpoint, its credential entry and which human
+    gate is owed. Two registries name it — this one and `LLM_MODELS` — and they are written
+    by hand in different files on purpose, so disagreement means one of them is describing a
+    model that does not exist and every per-leg reading is aimed wrong."""
+    table = {"gpt-4o-mini": _entry("gpt-4o-mini", TODAY + timedelta(days=900), provider="openai")}
+    catalogue = {"gpt-4o-mini": MODEL_LIFECYCLE["gpt-4o-mini"]}  # .provider is azure_openai
+    problems = guard.refusals(frozenset(table), table, frozenset(), catalogue)
+    assert any("two answers is none" in p for p in problems), problems
+
+
+def test_a_retired_model_nobody_can_select_warns_instead_of_failing() -> None:
+    """THE SPLIT THIS GUARD LEARNED WHEN THE CATALOGUE OPENED, and it is the one that keeps
+    both halves honest.
+
+    A retired model an operator can flip a live switch onto is a 410 Gone on the next call
+    and must turn the build red. A retired model nobody may choose is the dated record of WHY
+    it is withdrawn — `gemini-2.5-flash` is in the table precisely because Google turns it
+    off on 16 Oct 2026 — and failing the build on the day its own refusal comes true is a
+    countdown to a day nobody can act on, which is what D-410 deleted and what teaches a
+    reader to ignore a red build.
+
+    FAILS IF: `failures()` goes back to scoring the whole table, which would turn this
+    repository red on 16 Oct 2026 over a model no client can reach.
+    """
+    table = {
+        "gemini-old": _entry(
+            "gemini-old",
+            TODAY - timedelta(days=1),
+            provider="google",
+            offered_in_region=frozenset(),
+        )
+    }
+    assert guard.failures(table, TODAY, None, frozenset()) == []
+    notes = guard.warnings(table, TODAY, None, frozenset())
+    assert any("retired 1 days ago" in n and "withdrawn" in n for n in notes), notes
+    assert any("dated record of why it is not on offer" in n for n in notes), notes
+
+    # …and the same entry, selectable, is a build failure.
+    assert guard.failures(table, TODAY, None, frozenset(table))
+
+
+def test_the_unread_date_is_reported_on_every_run() -> None:
+    """The per-leg difference, made visible rather than left in a docstring. It is not a
+    defect in the registry: it IS the reading, and printing it once a run is what stops "no
+    date" being mistaken for "no clock"."""
+    notes = guard.warnings(dict(MODEL_LIFECYCLE), TODAY, None)
+    unread = [n for n in notes if "NO RETIREMENT DATE HAS BEEN READ" in n]
+    assert len(unread) == 2, notes
+    assert all("openai" in n for n in unread), unread
+    assert all("egress-blocked" in n for n in unread), unread
+
+
+def test_the_shipped_gemini_rows_carry_a_real_date_and_are_inside_the_lead() -> None:
+    """The founder's stated ground for withholding them, asserted against the registry
+    rather than against a paragraph: 16 Oct 2026, which is inside `WARN_LEAD` as this lands.
+
+    FAILS IF: a Gemini row loses its date, or becomes selectable — either of which would
+    move the refusal from "checked" back to "remembered".
+    """
+    from calevate_shared.engine import SELECTABLE_LLM_MODELS
+
+    for name in ("gemini-2.5-flash", "gemini-2.5-flash-lite"):
+        entry = MODEL_LIFECYCLE[name]
+        assert entry.retires_on == date(2026, 10, 16), name
+        assert entry.provider == "google"
+        assert name not in SELECTABLE_LLM_MODELS, name
+        left = entry.days_left(TODAY)
+        assert left is not None and 0 < left <= WARN_LEAD.days, (name, left)
+
+
+def test_an_attestation_naming_a_model_from_another_leg_is_a_build_failure() -> None:
+    """An Azure attestation describes an Azure deployment. A model from another leg has no
+    deployment to attest, and the thing that is deployed must be something this repository
+    can price and date."""
+    attested = guard.Attestation(
+        resource_location="eastus2",
+        deployment_model="gemini-2.5-flash",
+        deployment_type="standard-regional",
+        read_on=TODAY,
+        read_by="founder",
+        deprecation_date=None,
+    )
+    problems = guard.failures(dict(MODEL_LIFECYCLE), TODAY, attested)
+    assert any("not in AZURE_OPENAI_MODELS" in p for p in problems), problems

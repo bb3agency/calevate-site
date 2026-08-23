@@ -76,7 +76,8 @@ _BODY_KEY = "dev_message"
 #: digits long cannot be printed as a code an operator would then type.
 _CODE_RE = re.compile(r"code to .*? is:\s*(\d{4,10})", re.S)
 
-#: The other secret these emails carry: a single-use link (password reset, invitation).
+#: The other secret these emails carry: a single-use link (password reset, invitation,
+#: operator setup — the last of which is the ONLY copy of a new administrator's way in).
 #: Same dev-flow problem — it exists only in the body — so it is surfaced the same way.
 _LINK_RE = re.compile(r"(https?://\S+\?token=\S+)")
 

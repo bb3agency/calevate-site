@@ -69,9 +69,13 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final, Literal, get_args
 
-from calevate_shared.engine import AZURE_OPENAI_MODELS, DECLARED_POSTURE, LlmProvider
+from calevate_shared.engine import AZURE_OPENAI_MODELS, LlmProvider, leg_for_model
 
-from apps.api.billing.rates import PRICED_LLM_MODELS, llm_cost_inr_per_minute
+from apps.api.billing.rates import (
+    PRICED_LLM_MODELS,
+    is_surchargeable_llm_model,
+    llm_cost_inr_per_minute,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 
@@ -139,6 +143,18 @@ class SelectableModel:
     provider: LlmProvider
     inr_per_minute: Decimal
     is_platform_default: bool
+    #: **Does CHOOSING this model add the plan's per-minute surcharge to the client's
+    #: bill?** (D-455.) A property of the MODEL and not of the tenant — what the surcharge
+    #: IS lives on `plans.llm_model_surcharge`, and this catalogue deliberately reads no
+    #: database. The route pairs the two, so one place decides which models are upgrades
+    #: and one place holds the price of an upgrade.
+    #:
+    #: False for `rates.BASE_RATE_LLM_MODEL`, which is the model every plan's per-minute
+    #: rate is struck at — and note it is NOT keyed on `is_platform_default`: an operator
+    #: flipping `Settings.azure_openai_model` must not silently re-classify what an
+    #: account is billed for, which is the same frozen-baseline argument
+    #: `BASE_RATE_LLM_MODEL` carries.
+    is_surcharged: bool
     #: Can this deployment actually put this model on the wire? Everything the API does
     #: with a model choice keys off this, never off allow-list membership alone.
     is_available: bool
@@ -297,11 +313,16 @@ def available_models() -> tuple[SelectableModel, ...]:
     return tuple(
         SelectableModel(
             model=model,
-            # OUR vocabulary for the leg, from the DECLARED posture rather than a literal
-            # (D-432): a posture move must not leave a provider name behind on a screen.
-            provider=DECLARED_POSTURE.llm_provider,
+            # OUR vocabulary for the leg, from the MODEL rather than from the posture as a
+            # whole (D-456): the posture now declares three legs, so "which provider" is a
+            # property of the model chosen and no longer a property of the product. Still
+            # never a literal (D-432) — a leg leaving the declared set must not leave a
+            # provider name behind on a screen, and `leg_for_model` raises rather than
+            # guessing for a model no declared leg claims.
+            provider=leg_for_model(model).provider,
             inr_per_minute=quoted_inr_per_minute(model),
             is_platform_default=model == default,
+            is_surcharged=is_surchargeable_llm_model(model),
             is_available=model in addressable,
             unavailable_reason=None if model in addressable else UNAVAILABLE_REASON,
         )

@@ -277,9 +277,11 @@ async def build_invoice(
 
     Line items: the plan fee whenever the tenant has a plan (with a fee), the tenant's
     one-time charges for this month (the onboarding setup fee — `billing/charges.py`),
-    plus an overage line only when overage actually cost something. A ₹0.00 line on an
-    invoice invites a dispute about nothing, so zero-amount overage (under the included
-    minutes, or a zero/absent rate) and a zero or absent setup fee simply do not appear.
+    an overage line only when overage actually cost something, and — since D-455 — an
+    AI MODEL UPGRADE line only when the client's own model choice was surcharged. A ₹0.00
+    line on an invoice invites a dispute about nothing, so zero-amount overage (under the
+    included minutes, or a zero/absent rate), a zero or absent setup fee, and a plan that
+    quotes no model surcharge simply do not appear.
 
     **This function WRITES NOTHING.** It used to append the setup charge to
     `one_time_charges` the first time the onboarding month's statement was built, which
@@ -400,6 +402,43 @@ async def build_invoice(
                 for rung in rungs
                 if rung.minutes > 0
             )
+
+    # THE LANGUAGE-MODEL SURCHARGE (D-455), as its own line — never folded into the
+    # overage above.
+    #
+    # **WHY A SEPARATE LINE AND NOT A HIGHER RATE ON THE MINUTES.** Rule 46(f)-(h) wants
+    # the description, quantity and taxable value of each supply, and the two things being
+    # supplied here are different: minutes of the voice service, and an upgrade the client
+    # chose on a settings screen. A blended rate would also break the one arithmetic a
+    # client actually does — the overage line's own `qty x unit` — and would leave a
+    # client who has just seen a bigger number with nothing on the document naming the
+    # decision that caused it. It is the same supply for SAC purposes (one code is applied
+    # to every line below), so this changes the presentation and not the classification.
+    #
+    # PRINTED FROM THE PUBLISHED FIGURES, exactly as the overage rungs above are re-priced
+    # from theirs: the minutes, the rate and the amount all come from `usage_summary`,
+    # which is the computation that priced them, so this line IS its `llm_surcharge_inr`
+    # with nothing to reconcile — and `priced_llm_surcharge` quantized `minutes x rate`
+    # once, so the line multiplies out in a client's hand.
+    surcharge_minutes: Decimal = usage["llm_surcharge_minutes"]
+    surcharge_rate: Decimal | None = usage["llm_surcharge_rate_inr"]
+    surcharge_amount: Decimal = usage["llm_surcharge_inr"]
+    if surcharge_rate is not None and surcharge_minutes > 0 and surcharge_amount > 0:
+        # The MODELS are named because they are the thing the client chose and the only
+        # way they can connect this line to the screen they chose it on. A model id is a
+        # configuration identifier rather than anyone's data (hard rule 6), and it is
+        # already printed on their own settings screen.
+        chosen = ", ".join(usage["llm_surcharge_models"])
+        line_items.append(
+            {
+                "description": (
+                    f"AI model upgrade, {chosen} ({surcharge_minutes} min at ₹{surcharge_rate}/min)"
+                ),
+                "qty": surcharge_minutes,
+                "unit_inr": surcharge_rate,
+                "amount_inr": surcharge_amount,
+            }
+        )
 
     supplier = supplier_identity(get_settings())
     recipient_gstin = await _recipient_gstin(session, tenant_id=tenant_id)

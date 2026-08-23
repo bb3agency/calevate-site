@@ -72,6 +72,8 @@ function plan(over: Partial<PlanRow> = {}): PlanRow {
     included_minutes: 100,
     overage_rate_inr: "7.1250",
     overage_rate_value_inr: null,
+    // D-455: what this client pays extra, per minute, for a model THEY chose.
+    llm_model_surcharge_inr: null,
     hard_cap_minutes: 500,
     hard_cap_spend_inr: "20000.0000",
     client_cap_minutes: null,

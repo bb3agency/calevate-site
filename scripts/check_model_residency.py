@@ -1,147 +1,153 @@
 """Guardrail: this tree cannot construct a model endpoint except through the one builder
-its DECLARED residency posture names, and the region that posture pins has exactly one
-spelling in code (D-410, made a declared choice by D-432).
+the LEG that owns it names, and every region a leg pins has exactly one spelling in code
+(D-410, made a declared choice by D-432, opened to a set of legs when clients gained a
+provider choice).
 
-**WHAT D-432 CHANGED, IN ONE PARAGRAPH.** Until D-432 the India posture was not declared
-anywhere: it was IMPLIED by about thirty files agreeing with each other — a `Final` region,
-a provider `Literal`, a builder, four settings, two price tables, a console panel and two
-guards. Nothing named the decision, so nothing could check the pieces still agreed, and
-changing it was a refactor nobody would attempt. That is not a decision that has been made;
-it is one frozen by accident, with the freezing mistaken for rigour. So the posture is now a
-NAME declared once in source (`DECLARED_POSTURE_NAME` in `CONTRACT`), and `POSTURES` below —
-written HERE, never imported from there — says what each name OBLIGES the tree to look like.
+**WHAT A POSTURE IS NOW.** It is a NAME declared once in source (`DECLARED_POSTURE_NAME` in
+`CONTRACT`) plus a CLOSED, ORDERED SET OF LEGS (`DECLARED_LEGS`), each of which says where
+one provider's traffic goes and what it costs to prove it. `POSTURES` below — written HERE,
+never imported from there — says what each name OBLIGES the tree to look like, leg by leg.
 The mechanism is the COMPARISON of two independent statements, which is strictly more than
-the tree could prove before, because before there was nothing to disagree with:
+the tree could prove before D-432, because before there was nothing to disagree with:
 
 * **check 0** (`declaration_failures`) fails when the DECLARATION drifts from the code — the
   one-line direction, and therefore the likely one. An unknown posture name is a hard
-  failure; so is a `DECLARED_POSTURE` record whose `region`, `llm_provider` or
-  `addresses_a_deployment` says something the declared posture's spec does not.
-* **checks 1-4** fail when the CODE drifts from the declaration. Each is now stated over the
-  declared spec rather than over Azure: under `india-azure-openai` they are
-  character-for-character D-410's checks; under a posture pinning no region they INVERT and
-  require that no shipped constant freezes one at all.
+  failure; so is a `DECLARED_LEGS` tuple that is not the legs this spec expects, in order;
+  so is a `PostureLeg` record whose region, provider, builder, host or gate says something
+  the spec does not.
+* **checks 1-4** fail when the CODE drifts from the declaration. Each is stated over EVERY
+  declared leg rather than over one vendor.
+* **check 7** (`inert_leg_failures`) is new and has no analogue in the mechanism it
+  replaces: a declared leg that no model names, or whose builder nothing in the tree ever
+  calls, is a FAILURE. Without it the permitted set rots into a wish list — a leg nobody
+  exercises reads exactly like a leg that is enforced, and every check stated over it prints
+  OK on an empty set.
 
-**WHAT D-449 CHANGED.** The declared posture moved from `india-azure-openai`
-(`southindia`) to `us-azure-openai` (`eastus2`) — still Azure OpenAI, still Regional
-Standard rather than Global. **That is a WITHDRAWAL of the India residency claim and never
-an upgrade of anything**, and this file says so on every run (`delegated_notice`) because a
-reader who has seen the old wording will otherwise supply the old meaning. It is also the
-change that showed this mechanism could express only two shapes — "pins southindia" and
-"pins nothing" — because the region was a module constant every check compared against
-rather than a property of the declared spec. It is now the latter, and `KNOWN_REGIONS`
-carries the WITHDRAWN region alongside the declared one, so the leftover a half-finished
-posture move produces (`AZURE_LOCATION: Final = "southindia"` in a tree declaring the US
-posture) is found and named rather than passed over by a scan looking only for `eastus2`.
+================================================================================
+**WHAT THIS GUARD NOW PROVES LESS OF — READ THIS BEFORE THE GREEN LINE.**
+================================================================================
 
-**IT IS NOT A KNOB AND MUST NEVER BECOME ONE.** The declaration is a `Final` string literal
-in the portability contract. It is not a `Settings` field, not an environment variable and
-not a `platform_config` row — check 2 refuses any settings name carrying `posture`,
-`residency`, `region` or `location`, and check 0 refuses a declaration that is not a bare
-`Final` literal in `CONTRACT`. D-95 §4 is unchanged: a residency posture invertible from a
-web form at 3am is not a posture. What D-432 bought is that changing it is a small reviewed
-commit plus a decision-log entry instead of a thirty-file refactor — not that it is cheap.
+This file's doctrine is that a guard quietly checking less while still printing `OK` is
+worse than a deleted one, so the weakening is recorded here rather than left in a diff.
 
-**THIS CHECK CHANGED JOB AT D-410 AND IS WEAKER THAN IT WAS. THAT IS RECORDED HERE RATHER
-THAN PAPERED OVER, BECAUSE A GUARD THAT QUIETLY CHECKS LESS THAN IT USED TO WHILE STILL
-PRINTING `OK` IS WORSE THAN A DELETED ONE.**
+**THE WRONG-VENDOR CLAUSE WENT FROM REFUSING THREE HOSTS OUT OF FOUR TO REFUSING ONE.**
+Under `us-azure-openai` exactly one of the four watched hosts belonged to the declared
+posture, so a literal naming any of the other three — `api.openai.com`,
+`generativelanguage.googleapis.com`, `<region>.api.cognitive.microsoft.com` — was refused
+for naming a vendor this product does not use. Under `multi-provider-byok` three of the four
+belong to a declared leg, and the only host refused for belonging to NO leg is Azure's
+REGIONAL form. That is a real reduction in what a hand-written endpoint has to get past, and
+no amount of per-leg strictness gives it back: adopting a vendor means the guard can no
+longer refuse that vendor's host on sight.
 
-WHAT IT USED TO PROVE. Vertex AI put `asia-south1` in the hostname AND in the `locations/`
-path segment (`https://asia-south1-aiplatform.googleapis.com/v1/projects/{p}/locations/
-asia-south1/...`). So residency was a fact about a STRING, and this file could settle it
-from the AST with no network and no credential: every Google model URL in the tree
-demonstrably named Mumbai, or the build was red. D-127's whole posture was checkable.
+**AND THE OPENAI BAN IS GONE, NOT NARROWED.** `api.openai.com` used to be refused outright
+with D-410's reason (their India residency covers storage at rest; inference runs in the
+US). D-449 withdrew the India requirement, so that ground stopped discriminating, and the
+host is now a declared leg's. What replaced the ban is weaker in kind (a single-literal rule
+instead of a prohibition) and stronger in one respect (see below) — but the sentence "this
+tree may not name OpenAI's API" is no longer true, and a reader who remembers it will be
+wrong.
 
-WHAT IT PROVES NOW. Azure OpenAI's shipped endpoint is
-`https://<resource>.openai.azure.com/openai/v1` and **it names no region at all** — the
-region is a property of the Azure RESOURCE, chosen by whoever created it in the portal and
-invisible in every request. No amount of reading this tree will find it. So the four
-things below are what is left, and they are structural rather than evidential: they prove
-there is no code path by which model traffic is aimed somewhere else WITHOUT editing one
-`Final` constant, which is a different and lesser claim than "the traffic goes to Mumbai".
+**TWO THINGS ARE BOUGHT BACK, AND THEY ARE WHY THE TRADE IS WORTH MAKING.**
 
-1. **ONE SPELLING OF THE REGION.** `AZURE_LOCATION: Final = "eastus2"` in the
-   portability contract is the only place the region is written. A second `Final`, a
-   default argument, a dict value — anything else spelling it is refused. Stricter than
-   the Vertex version, which permitted any `Final`: with the region no longer checkable
-   against a URL, "there is one of it" is doing more of the work and has to hold harder.
+1. **A REGION THIS GUARD CAN ACTUALLY PROVE, ON ONE LEG.** Azure's shipped endpoint names no
+   region — the region is a property of the RESOURCE, and gates 20/20c are two standing
+   human attestations. OpenAI's regional endpoints put it back in the authority:
+   `us.api.openai.com` (VERIFIED-VENDOR-DOCS, `openai/openai-python@e43b422412a9`,
+   `src/openai/_data_residency.py`). So `leg_builder_failures` reads the label off
+   `openai_base_url()`'s own return template and requires it to be a `Final` holding that
+   leg's region — the same machinery the dormant Azure regional-host branch has carried
+   since D-410, now with a live subject. That leg delegates NOTHING: no gate 20, no gate
+   20c, no portal reading. It is the first time since D-127 that any residency claim in this
+   tree is provable from the AST.
+2. **A LEG NOBODY USES IS A BUILD FAILURE** (check 7). The old table could hold a spec that
+   nothing in the tree exercised — D-453 found exactly that, twice, when a posture's
+   `permitted_host` was absent from a hand-written watched-host tuple and every check over
+   it printed OK on an empty set. A declared leg must now be named by at least one model in
+   the catalogue AND its builder must be called somewhere, or the run is red.
+
+**AND ONE RULE GOT STRICTER RATHER THAN LOOSER.** The Google leg carries `builder=None` and
+`builder_suffix=None`, because the engine's Google provider builds its own client from a
+single API key and never reads a base URL of ours. So its obligation is not "exactly one
+literal may name this host" — it is **ZERO literals anywhere, including in the contract**.
+That is stronger than any other leg's rule, and it retires the marked assumption the old
+`google-direct` spec carried about WHICH Google surface a path would name: with no builder
+there is no path to be wrong about.
+
+================================================================================
+
+WHAT THE FOUR STRUCTURAL CHECKS STILL SAY, PER LEG:
+
+1. **ONE SPELLING OF EACH PINNED REGION.** `AZURE_LOCATION: Final = "eastus2"` and
+   `OPENAI_DATA_RESIDENCY: Final = "us"` in the portability contract are the only places
+   those regions are written. A second `Final`, a default argument, a dict value — anything
+   else spelling one is refused, and a constant holding a region no declared leg pins (the
+   withdrawn `southindia`, or `us` under a posture with no OpenAI leg) is refused by VALUE.
 2. **NO `Settings` FIELD CAN CARRY A REGION**, by NAME or by default VALUE, and none can
-   carry a hand-typed model endpoint for ANY vendor this file knows a posture for either.
-   `platform_config.managed_fields()` derives
-   the ops console's editable set from `Settings.model_fields` minus the bootstrap keys
-   minus credential-shaped names, so a field called `azure_location` would be editable
-   from a web form the day it was declared, and a residency posture invertible by a click
-   at 3am is not a posture. This property is UNCHANGED from D-127 and is the one part of
-   the old guard that lost nothing in the migration — **except for one thing, which is
-   named here rather than left as a diff**: the ENDPOINT half of it carried a hard-coded
-   tuple of Azure token pairs, so `openai_base_url` or `gemini_api_base` passed under
-   every posture including the declared one, and this file printed OK while enforcing the
-   client DPA's "no configuration setting may carry … an endpoint" for one vendor out of
-   three. The vendor half now comes from `POSTURES` (`KNOWN_VENDOR_TOKENS`) and the union
-   is deliberate: the field a half-finished posture move leaves behind names the vendor
-   the tree has just LEFT, so a check stated over the declared vendor alone is blind to
-   precisely the case it exists for. Same argument `frozen_region_constants()` makes for
-   scanning every posture's region rather than only the declared one.
-3. **NO AZURE ENDPOINT IS CONSTRUCTIBLE EXCEPT THROUGH `azure_openai_base_url()`.**
-   Exactly ONE string literal in `apps/`, `packages/` and `scripts/` may contain an Azure
-   OpenAI host: the `Final` suffix that builder is assembled from. Every other literal
-   naming one is a second way to build an endpoint, which is the shape check 4 could then
-   say nothing about.
-4. **THE BUILDER CANNOT EMIT A REGION OTHER THAN THE DECLARED POSTURE'S.** It takes ONE
-   argument, that argument is not region-shaped, its output template interpolates only that
-   argument and module-level `Final`s, and it RAISES rather than interpolating a resource
-   that is not a single DNS label. There is no region input, so there is no OTHER region to
-   emit — the claim is about SINGULARITY, not about which country wins it, which is why
-   D-449 could move the region without touching this check at all — and because
-   the resource lands at the FRONT of the authority, refusing anything but a DNS label is
-   what stops `resource = "evil.example/x"` producing a URL whose host is somebody else's.
+   carry a hand-typed model endpoint for ANY vendor this file knows a leg for.
+   `platform_config.managed_fields()` derives the ops console's editable set from
+   `Settings.model_fields` minus the bootstrap keys minus credential-shaped names, so a
+   field called `azure_location` would be editable from a web form the day it was declared,
+   and a residency posture invertible by a click at 3am is not a posture. The vendor half is
+   the union over EVERY known leg, never the declared ones alone: the field a half-finished
+   posture move leaves behind names the vendor the tree has just LEFT.
+3. **NO ENDPOINT IS CONSTRUCTIBLE EXCEPT THROUGH ITS LEG'S BUILDER.** For a leg with a
+   builder, exactly ONE string literal in `apps/`, `packages/` and `scripts/` may contain
+   its host: the `Final` suffix that builder is assembled from, in `BUILDER_HOME`, frozen.
+   For a leg with no builder, ZERO.
+4. **NO BUILDER CAN EMIT A REGION OTHER THAN ITS LEG'S.** It takes the arity the leg
+   permits, no argument is region-shaped, its output template interpolates only that
+   argument and module-level `Final`s, it RAISES rather than interpolating a caller value
+   that is not a single DNS label (required only above arity zero — a fixed vendor endpoint
+   has no hostile label to refuse), and where the leg's region IS in the host, the label in
+   front of the host must resolve to the `Final` holding that region.
 
-WHAT NO VERSION OF THIS CHECK CAN PROVE, AND WHO OWNS IT INSTEAD. Two facts, both
-properties of the Azure resource rather than of this repository, both invisible from the
-endpoint, and the second is the more dangerous:
+WHAT NO VERSION OF THIS CHECK CAN PROVE ON THE AZURE LEG, AND WHO OWNS IT INSTEAD. Two
+facts, both properties of the Azure resource rather than of this repository, both invisible
+from the endpoint, and the second is the more dangerous:
 
-* **Is the resource in the DECLARED region (`eastus2` since D-449)?** OPERATIONS §2
-  **gate 20** — a human reads the
-  Location field on the resource's Overview blade, confirms it with
-  `az cognitiveservices account show --query location`, and files the reading in
+* **Is the resource in the region the leg pins (`eastus2` since D-449)?** OPERATIONS §2
+  **gate 20** — a human reads the Location field on the resource's Overview blade, confirms
+  it with `az cognitiveservices account show --query location`, and files the reading in
   `docs/evidence/` with a date and a name.
 * **Is the deployment REGIONAL Standard rather than GLOBAL?** OPERATIONS §2 **gate 20c**.
   Global is Azure's DEFAULT deployment type and processes worldwide. A Global deployment
-  inside the declared resource passes every check in this file and breaks the DPA.
-  It costs money to get right (Regional runs ~5-10% above Global list), which is precisely
-  why nobody will notice having left the default.
+  inside the declared resource passes every check in this file and breaks the DPA. It costs
+  money to get right (Regional runs ~5-10% above Global list), which is precisely why nobody
+  will notice having left the default.
 
 `delegation_failures()` is not decoration: it fails this build if those gates stop being
 written down, because the honest half of a weakened guard is the pointer to whoever holds
-the other half.
+the other half. And it is now stated PER LEG, so a leg that delegates nothing has to say so
+in its spec rather than by omission.
 
-THE REGIONAL HOSTNAME, AND WHY THIS FILE IS BUILT SO ADOPTING IT IS ONE LINE. Azure also
-serves `<region>.api.cognitive.microsoft.com`, documented as interchangeable with the
-custom subdomain — a hostname that CARRIES THE REGION, which would hand check 1 back its
-evidence and make this guard as strong as the Vertex one was. D-410 rejects it FOR NOW on
-one ground: the OpenAI-compatible v1 surface is documented only on the custom-subdomain
-form (and custom subdomains are what Entra ID requires), so shipping it would trade a
-confirmed-working endpoint for a stronger guard on an unconfirmed one. **OPERATIONS §2
-gate 20d is the call that settles it**, and the machinery is already here and already
-tested: flip `REGIONAL_HOST_ADOPTED`, and the same scan that today REFUSES that hostname
-starts requiring the label in front of it to be `AZURE_LOCATION`. Both branches are
-exercised by `tests/model_residency_guard_test.py`, so the dormant one is not a promise.
+THE AZURE REGIONAL HOSTNAME, AND WHY THIS FILE IS BUILT SO ADOPTING IT IS ONE LINE. Azure
+also serves `<region>.api.cognitive.microsoft.com`, documented as interchangeable with the
+custom subdomain — a hostname that CARRIES THE REGION, which would give the Azure leg the
+property the OpenAI leg now has. D-410 rejects it FOR NOW on one ground: the
+OpenAI-compatible v1 surface is documented only on the custom-subdomain form (and custom
+subdomains are what Entra ID requires), so shipping it would trade a confirmed-working
+endpoint for a stronger guard on an unconfirmed one. **OPERATIONS §2 gate 20d is the call
+that settles it**: flip `REGIONAL_HOST_ADOPTED`, and the same scan that today REFUSES that
+hostname starts requiring the label in front of it to be the Azure leg's region. Both
+branches are exercised by `tests/model_residency_guard_test.py`, so the dormant one is not a
+promise.
 
 WHY THERE IS NO BLACKLIST OF OTHER AZURE REGIONS (`eastus`, `swedencentral`, or — since
-D-449 — `southindia` itself). It was the
-obvious replacement for the `us-central1` check and it is unreachable: a region string can
-only affect where a call lands by reaching an endpoint, no endpoint is constructible
-outside the builder (check 3), and the builder has no region input (check 4). A ban on
-strings that cannot reach anything is a check with no failure mode, and it would rot into
-"add your region to the list" the first time somebody names a variable after a datacentre.
+D-449 — `southindia` itself). It was the obvious replacement for the `us-central1` check and
+it is unreachable: a region string can only affect where a call lands by reaching an
+endpoint, no endpoint is constructible outside a leg's builder (check 3), and no builder has
+a region input (check 4). A ban on strings that cannot reach anything is a check with no
+failure mode, and it would rot into "add your region to the list" the first time somebody
+names a variable after a datacentre.
 
 MECHANISM: the Python half reads the **AST**, not the source text, and reconstructs
 f-strings into templates (`f"https://{X}{SUFFIX}"` becomes `https://{X}{SUFFIX}` with each
 hole carrying the interpolated expression's source). Two reasons, both learned here. First,
 `sarvam_model_identifier_test`'s: a correction has to be EXPLAINED somewhere, and a regex
 over source flags the paragraph explaining it — this very docstring names every watched
-host. Second, provenance: "the region came from `AZURE_LOCATION`" and "the region came
-from `self._loc`" are the same string to a grep and are not the same fact.
+host. Second, provenance: "the region came from `OPENAI_DATA_RESIDENCY`" and "the region
+came from `self._loc`" are the same string to a grep and are not the same fact.
 
 A CONSEQUENCE WORTH STATING RATHER THAN DISCOVERING: `"https://{r}.openai.azure.com/…"
 .format(r=X)` is refused, because the template says `{r}` and nothing about `X`. Call the
@@ -156,31 +162,28 @@ URL is invisible to it — which is why check 2 exists and why it is a name-and-
 on `Settings` rather than a URL check: if the value never appears in the tree, the tree
 cannot be asked, and the only remaining defence is that there is nowhere console-editable
 for it to live. The RUNTIME half of that blind spot is covered elsewhere and deliberately:
-`ModelConfig._llm_endpoint_is_coherent` refuses any `llm_base_url` our own builder could not
-have emitted, so the static check covers the literal and the validator covers the value.
+`ModelConfig._llm_endpoint_is_coherent` refuses any `llm_base_url` the naming leg's own
+builder could not have emitted, so the static check covers the literal and the validator
+covers the value.
 
-The two literals that DEFINE the watched hosts in this file are its whole self-exemption —
-see `SELF` and `_host_definition`; a URL written anywhere else in this file is judged like
-any other file's. The non-Python half is a LINE scan (`.ts`, `.json`, shell, nginx): a line
+The literals that DEFINE the watched hosts in this file are its whole self-exemption — see
+`SELF` and `_host_definition`; a URL written anywhere else in this file is judged like any
+other file's. The non-Python half is a LINE scan (`.ts`, `.json`, shell, nginx): a line
 naming a watched host becomes a reference and is judged by the same rules, so an Azure URL
 in a TypeScript file is caught — but with no AST there is no way to tell code from a `//`
 comment, so a comment naming one in those files WILL be reported. That false positive is
 accepted rather than engineered away: this repo has no non-Python caller of a model
-provider, CLAUDE.md forbids one, and a comment about an Azure OpenAI host in the frontend is
-worth a human look anyway. It is a tripwire, not a workhorse —
-`tests/model_residency_guard_test.py` steps on it deliberately, because a tripwire with no
-subject in the tree is one nobody has evidence is connected.
+provider, CLAUDE.md forbids one, and a comment about a model host in the frontend is worth a
+human look anyway.
 
 NOT IN SCOPE: `oauth2.googleapis.com`, `sheets.googleapis.com` and
-`www.googleapis.com/auth/spreadsheets` in `workers/google_sheets.py`. Those are the
-tenant's OWN destination, chosen by them, disclosed in their DPA, and carry no model
-inference. This check is about where a MODEL runs. (Google left the model legs entirely at
-D-410; it remains a sub-processor for Sheets alone, SECURITY-COMPLIANCE §4.)
-IN SCOPE, AND THE LINE BETWEEN THEM IS A FULL HOSTNAME RATHER THAN A DOMAIN:
-`generativelanguage.googleapis.com` is the Gemini Developer API, it is a MODEL host, and
-`google-direct` is a posture in the table below — so it is watched exactly like
-`api.openai.com` is. Matching `.googleapis.com` instead would have swept every CRM export
-into a residency check, which is the false positive that gets a guard switched off.
+`www.googleapis.com/auth/spreadsheets` in `workers/google_sheets.py`. Those are the tenant's
+OWN destination, chosen by them, disclosed in their DPA, and carry no model inference. This
+check is about where a MODEL runs. IN SCOPE, AND THE LINE BETWEEN THEM IS A FULL HOSTNAME
+RATHER THAN A DOMAIN: `generativelanguage.googleapis.com` is the Gemini Developer API, it is
+a MODEL host, and it is a declared leg's — so it is watched, and the zero-literal rule above
+is what judges it. Matching `.googleapis.com` instead would have swept every CRM export into
+a residency check, which is the false positive that gets a guard switched off.
 
 Run: `uv run python -m scripts.check_model_residency`   (also in `make guardrails`)
 """
@@ -189,428 +192,439 @@ from __future__ import annotations
 
 import ast
 import sys
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[1]
 
-#: THE REGIONS THIS CHECK KNOWS HOW TO ENFORCE — one `Final` per pinning posture, spelled
-#: HERE rather than imported, for the reason `check_bootstrap_keys.BOOTSTRAP_KEYS` gives: a
-#: guardrail that imported the value it is checking would be asking the code whether it
-#: agrees with itself. They are also this check's own blindness canary (check 5) — the
-#: provenance scan must be able to find EVERY one of these lines, or it is not reading
+#: THE REGIONS THIS CHECK KNOWS HOW TO ENFORCE — one `Final` per region any known leg pins,
+#: spelled HERE rather than imported, for the reason `check_bootstrap_keys.BOOTSTRAP_KEYS`
+#: gives: a guardrail that imported the value it is checking would be asking the code
+#: whether it agrees with itself. They are also this check's own blindness canary (check 5)
+#: — the provenance scan must be able to find EVERY one of these lines, or it is not reading
 #: anything.
 #:
-#: **WHY THE WITHDRAWN REGION KEEPS A CONSTANT HERE (D-449).** Deleting
-#: `AZURE_REGION_INDIA` when the declaration moved to `us-azure-openai` would have been one
-#: line, and it would have blinded this check to the single most likely product of a
-#: half-finished posture move: a leftover `AZURE_LOCATION: Final = "southindia"` in a tree
-#: that now declares the US posture. A scan that looked only for the DECLARED region walks
-#: straight past that constant and reports "one spelling of the region" — true, and
-#: useless. So `frozen_region_constants()` scans `KNOWN_REGIONS`, which is every region any
-#: KNOWN posture pins, and `single_spelling_failures()` refuses a constant holding a region
-#: the declaration has moved off, by name and by value.
+#: **WHY THE WITHDRAWN REGION KEEPS A CONSTANT HERE (D-449).** Deleting `AZURE_REGION_INDIA`
+#: when the declaration moved off `southindia` would have been one line, and it would have
+#: blinded this check to the single most likely product of a half-finished posture move: a
+#: leftover `AZURE_LOCATION: Final = "southindia"` in a tree that has moved on. A scan that
+#: looked only for the DECLARED regions walks straight past that constant and reports "one
+#: spelling of the region" — true, and useless.
 AZURE_REGION_INDIA: Final = "southindia"
 AZURE_REGION_US: Final = "eastus2"
 
-#: The name and home of the ONE constant in shipped code allowed to hold that string.
+#: **THE SHORTEST REGION TOKEN IN THIS FILE, AND THE COST IS NAMED RATHER THAN DISCOVERED.**
+#: OpenAI's residency regions are two-letter (`DataResidency = Literal["global","us","eu",
+#: "ae"]`), so `loose_region_literals` will refuse a bare `"us"` anywhere in `apps/`,
+#: `packages/` or `scripts/` that is not a `Final`'s value. There are zero such literals
+#: today (measured 22 Aug 2026) and a future one — a locale, a country column, a dict key —
+#: turns the build red with a message naming `OPENAI_DATA_RESIDENCY`. That is the correct
+#: trade: the alternative is a region this leg pins that no check can see, which is the
+#: property the leg was adopted FOR.
+OPENAI_REGION_US: Final = "us"
+
+#: The name and home of the constants in shipped code allowed to hold those strings.
 #: Both are asserted (check 1): a second constant, or the same one moved somewhere a
-#: reader would not look for it, is a second spelling of the residency decision.
+#: reader would not look for it, is a second spelling of a residency decision.
 REGION_CONSTANT: Final = "AZURE_LOCATION"
+OPENAI_REGION_CONSTANT: Final = "OPENAI_DATA_RESIDENCY"
 BUILDER_HOME: Final = "packages/shared/src/calevate_shared/engine.py"
 
-#: The one function permitted to produce an Azure OpenAI endpoint (checks 3 and 4).
+#: The functions permitted to produce each leg's endpoint (checks 3 and 4).
 BUILDER: Final = "azure_openai_base_url"
+OPENAI_BUILDER: Final = "openai_base_url"
 
 #: Azure OpenAI's CUSTOM-SUBDOMAIN host suffix — the form D-410 ships, and the form that
-#: **carries no region**. Everything this file lost is downstream of that fact.
+#: **carries no region**. The Azure leg's two human gates are downstream of that fact.
 AZURE_HOST_SUFFIX: Final = ".openai.azure.com"
 
-#: The rest of the endpoint, exactly as `azure_openai_base_url` assembles it. The one
+#: The rest of the Azure endpoint, exactly as `azure_openai_base_url` assembles it. The one
 #: literal in the whole tree permitted to name an Azure host is this string, declared as a
 #: `Final` in `BUILDER_HOME` (`_AZURE_ENDPOINT_SUFFIX`).
 #:
 #: SPELLED HERE RATHER THAN IMPORTED, like the region constants, and it buys something
-#: extra: the
-#: v1 path shape is VERIFIED EVIDENCE (Microsoft Learn, 19 Aug 2026 — no `api-version`,
-#: key in `Authorization: Bearer`), not a preference. If somebody edits the path in
-#: `BUILDER_HOME`, this guard goes red and the edit has to be made deliberately in both
-#: places, which is the correct amount of friction for a change that moves what a third
+#: extra: the v1 path shape is VERIFIED EVIDENCE (Microsoft Learn, 19 Aug 2026 — no
+#: `api-version`, key in `Authorization: Bearer`), not a preference. If somebody edits the
+#: path in `BUILDER_HOME`, this guard goes red and the edit has to be made deliberately in
+#: both places, which is the correct amount of friction for a change that moves what a third
 #: party is handed.
 BUILDER_SUFFIX: Final = ".openai.azure.com/openai/v1"
 
 #: Azure's REGIONAL host form, which puts the region back in the URL where a static check
 #: can read it. Rejected FOR NOW by D-410 (the v1 surface is documented only on the custom
 #: subdomain); OPERATIONS §2 gate 20d is the call that reopens it. See
-#: `REGIONAL_HOST_ADOPTED`.
+#: `REGIONAL_HOST_ADOPTED`. It belongs to NO leg, which is what leaves it the only watched
+#: host the wrong-vendor clause still refuses outright.
 AZURE_REGIONAL_HOST_SUFFIX: Final = ".api.cognitive.microsoft.com"
 
-#: OpenAI's own API. DISQUALIFIED on residency and named here so the refusal is a check
-#: rather than a memory: OpenAI's India data residency covers **storage at rest only** —
-#: inference still runs in the US, and in-region GPU inference exists only in the US and
-#: Europe. For a phone call the transcript IS the inference input, so the half of that
-#: promise that would matter to us is the half it does not make.
+#: OpenAI's own API.
 #:
-#: THIS IS THE ONE BAN THAT SURVIVED THE MIGRATION INTACT. It is the direct successor to
-#: D-127's ban on the AI Studio Developer API, and the risk is HIGHER now rather than
-#: lower: Azure's v1 surface is OpenAI-compatible, so the client that talks to it would
-#: talk to `api.openai.com` unchanged. One edited base URL is the whole distance between
-#: the shipped posture and a disqualified one.
+#: ⚠ **THIS USED TO BE A BAN AND IS NOW A DECLARED LEG'S HOST.** D-410 refused it because
+#: OpenAI's India data residency covers storage at rest only and inference ran in the US;
+#: D-449 stopped asking for Indian inference, so that ground stopped discriminating, and the
+#: leg was adopted for the opposite reason — it is the ONLY host in this file that carries
+#: its region in the authority. The watched string stays the BARE host (`api.openai.com`)
+#: rather than the regional form, deliberately: `us.api.openai.com` contains it, so both
+#: forms are seen, and the label in front of it is what tells the pinned endpoint from the
+#: GLOBAL one. A watched string of `us.api.openai.com` would make the global endpoint —
+#: the one that makes no regional claim at all — invisible.
 OPENAI_DIRECT_HOST: Final = "api.openai.com"
 
-#: Google's Gemini DEVELOPER API — the AI Studio surface, not Vertex. Named here for
-#: OPENAI_DIRECT_HOST's exact reason: it is the third vendor a `PostureSpec` can express,
-#: so the scan has to be able to SEE it before the spec below means anything.
+#: The rest of that endpoint, kept beside the host for `BUILDER_SUFFIX`'s reason. It carries
+#: the LEADING DOT because the dot belongs to the join between the residency label and the
+#: host: a suffix starting at `api` would let a builder emit `https://usapi.openai.com/v1`,
+#: which is somebody else's domain.
+OPENAI_BUILDER_SUFFIX: Final = ".api.openai.com/v1"
+
+#: Google's Gemini DEVELOPER API — the AI Studio surface, not Vertex.
 #:
-#: VERIFIED-VENDOR-DOCS via `docs/evidence/gemini-direct-api.md:270-273` (Microsoft's
-#: `azure-docs` repository on github.com, read 22 Aug 2026 — every Google documentation
-#: host is egress-blocked here, so the vendor's own page was NOT read). Base URL
-#: `https://generativelanguage.googleapis.com/v1beta/openai`, `POST /chat/completions`,
-#: a STATIC key in `Authorization: Bearer`.
+#: ⚠ **ZERO LITERALS IN THIS TREE MAY NAME IT, INCLUDING IN `BUILDER_HOME`.** Its leg
+#: carries no builder, because the engine's Google provider constructs its client from a
+#: single API key and never reads a base URL of ours (`bolna/llms/gemini_llm.py:48-49` @
+#: `0172347b601e`, VERIFIED-OSS; the credential is one entry named `GOOGLE`,
+#: `providers.md:105-109`). So there is no suffix to assemble and nothing to exempt — a
+#: stronger obligation than every other leg's "exactly one", and the thing that retires the
+#: old spec's marked assumption about which Google surface a path would name.
 #:
-#: IT IS THE FULL HOST AND NOT `.googleapis.com`, deliberately. `sheets.googleapis.com`
-#: and `oauth2.googleapis.com` are the tenant's OWN destination on the Sheets leg and
-#: carry no inference (see "NOT IN SCOPE" above); a suffix match would drag every CRM
-#: export into a check about where a MODEL runs, which is how a guard gets turned off.
+#: IT IS THE FULL HOST AND NOT `.googleapis.com`, deliberately. `sheets.googleapis.com` and
+#: `oauth2.googleapis.com` are the tenant's OWN destination on the Sheets leg and carry no
+#: inference (see "NOT IN SCOPE" above); a suffix match would drag every CRM export into a
+#: check about where a MODEL runs, which is how a guard gets turned off.
 GEMINI_DIRECT_HOST: Final = "generativelanguage.googleapis.com"
 
-#: The rest of that endpoint, kept beside the host for `BUILDER_SUFFIX`'s reason: the path
-#: shape is evidence, and an edit to it should be deliberate rather than incidental.
-GEMINI_DIRECT_PATH: Final = "/v1beta/openai"
-
-#: WOULD THE REGIONAL HOSTNAME RESTORE THE AST PROOF? Yes — and this flag is the whole
-#: cost of adopting it, which is why the machinery below is written now rather than
+#: WOULD THE AZURE REGIONAL HOSTNAME RESTORE THE AST PROOF ON THAT LEG? Yes — and this flag
+#: is the whole cost of adopting it, which is why the machinery is written now rather than
 #: promised. `False`: naming `AZURE_REGIONAL_HOST_SUFFIX` in shipped code is a failure,
 #: because D-410 ships the custom subdomain and a second endpoint form would be a second
-#: residency posture. `True`: it becomes the EXPECTED form and the label in front of it is
-#: checked against the declared posture's region — check 1's lost evidence, back.
+#: residency story for one leg. `True`: it becomes the EXPECTED form and the label in front
+#: of it is checked against the Azure leg's region — which is exactly the check the OpenAI
+#: leg already runs on its own builder, so the branch is no longer hypothetical machinery.
 #:
 #: FLIPPING IT IS NOT THE WHOLE CHANGE and the comment says so rather than letting somebody
 #: find out: gate 20d has to pass first (does v1 actually answer there), then
 #: `azure_openai_base_url()` moves to the regional form, then this flag, then a decision-log
-#: entry naming the gate as the evidence. What the flag buys is that the GUARD is not the
-#: thing standing in the way, and that the stronger branch is tested before it is needed.
+#: entry naming the gate as the evidence.
 REGIONAL_HOST_ADOPTED: Final = False
 
 
-# --- 0: WHICH POSTURE IS DECLARED (D-432) -------------------------------------
-#
-# Before D-432 the India posture was not declared anywhere. It was IMPLIED by ~30 files
-# agreeing with each other, so nothing could check that they still agreed and changing it
-# was a refactor nobody would attempt — a decision frozen by accident, with the freezing
-# mistaken for rigour. The posture is now a NAME in source (`CONTRACT`'s
-# `DECLARED_POSTURE_NAME`) and the table below is what each name OBLIGES the tree to look
-# like. The two statements are independent and are COMPARED, which is what makes this
-# mechanism stronger than the hard-wiring it replaced rather than a flag the guard shrugs
-# at: checks 1-4 fail when the code drifts from the declaration, and check 0 fails when
-# the declaration drifts from the code.
+# --- 0: WHICH POSTURE IS DECLARED, AND WHICH LEGS IT CONTAINS -----------------
 
-#: The portability contract: where the declaration lives and where the builder lives.
+#: The portability contract: where the declaration lives and where the builders live.
 #: A separate name from `BUILDER_HOME` even though they are the same path today, because
-#: they are two different obligations — a posture that moved its builder would still have
+#: they are two different obligations — a posture that moved its builders would still have
 #: to declare itself here.
 CONTRACT: Final = "packages/shared/src/calevate_shared/engine.py"
 
-#: The `Final` that NAMES the posture, and the record built from it that the RUNTIME reads.
+#: The `Final` that NAMES the posture, the record built from it that the RUNTIME reads, and
+#: the tuple of leg constants that record carries.
 DECLARATION_CONSTANT: Final = "DECLARED_POSTURE_NAME"
 POSTURE_RECORD_CONSTANT: Final = "DECLARED_POSTURE"
+LEGS_CONSTANT: Final = "DECLARED_LEGS"
+
+
+@dataclass(frozen=True)
+class LegSpec:
+    """What ONE leg of a declared posture obliges the tree to look like.
+
+    HELD HERE AND NEVER IMPORTED FROM THE CONTRACT, for `AZURE_REGION_INDIA`'s reason and
+    more sharply. The contract states which legs are in force; this table states what each
+    one costs. If the spec were imported, editing the declaration would edit the obligation
+    in the same commit and the guard would agree with any tree it was shown — the "reads a
+    flag and shrugs" failure this mechanism exists to avoid.
+
+    **THE LEG IS THE UNIT AND THE POSTURE IS THE SET, WHICH IS WHAT CHANGED.** Every field
+    below used to sit on `PostureSpec`, because there was one leg and its properties were the
+    posture's. A client choosing their own provider makes each of them a per-leg fact, and
+    the checks below are stated over `spec.legs` rather than over a vendor.
+    """
+
+    #: The name of the module `Final` in `CONTRACT` that declares this leg. Check 0 reads
+    #: `DECLARED_LEGS` as a tuple of NAMES and compares it to these, in order, so a leg
+    #: renamed or reordered in the contract is caught before any of its fields are read.
+    constant: str
+    #: Our closed vocabulary's member for this leg (`calevate_shared.engine.LlmProvider`).
+    provider: str
+    #: The region this leg PINS, or `None` for one making no regional claim.
+    region: str | None
+    #: The single frozen constant permitted to spell it. `None` means the guard requires that
+    #: NO shipped constant spells a region FOR THIS LEG — and, across the whole table, that a
+    #: constant holding a region no declared leg pins cannot sit in the tree at all.
+    region_constant: str | None
+    #: Is that region in the endpoint's AUTHORITY, where check 4 can read it off the
+    #: builder's own return template? The single most consequential field here: `True` means
+    #: a build proves the region and `delegated_gate` is legitimately `None`; `False` means
+    #: the region is a property of an account and a human owes an attestation.
+    region_in_host: bool
+    #: Does the API address a DEPLOYMENT id the operator chose, rather than the model's own
+    #: name? Cross-checked against the declared record because it is the field a reader would
+    #: call cosmetic, and it is what decides whether `azure_openai_deployment` and
+    #: `azure_openai_model` are two things or one (`engine.ModelBinding`).
+    addresses_a_deployment: bool
+    #: The ONE function permitted to build this leg's endpoint, and how many arguments it may
+    #: take. Zero means a fixed vendor endpoint with no caller input — and with no caller
+    #: input there is no hostile label to refuse, which is why the DNS-label refusal is
+    #: required only above arity zero. `None`/`None` means this leg takes NO base URL from us
+    #: at all, and then `builder_suffix` is `None` too and the host's literal budget is ZERO.
+    builder: str | None
+    builder_arity: int | None
+    #: The one literal in the tree permitted to name this leg's host: only in `BUILDER_HOME`,
+    #: only as a `Final`, and only this exact string. `None` on a builder-less leg.
+    builder_suffix: str | None
+    #: The watched host this leg may name at all. Every other watched host is refused on it.
+    permitted_host: str
+    #: The word(s) a `Settings` field name would carry if it named THIS leg's vendor. Read by
+    #: `console_config_failures` through `KNOWN_VENDOR_TOKENS`, which is the union over every
+    #: leg of every posture — never over the declared ones alone.
+    #:
+    #: STATED HERE RATHER THAN DERIVED FROM `provider` OR `permitted_host`, and both
+    #: rejections are worth keeping. Splitting `provider` ("google") would miss
+    #: `gemini_base_url`, because a vendor's PRODUCT name and its provider slug are routinely
+    #: different words and a field is named after whichever one the engineer had in mind.
+    #: Splitting `permitted_host` would yield "api", "com" and "googleapis" — tokens so broad
+    #: that `sarvam_api_url` would be refused, which is the false positive that gets a name
+    #: check deleted rather than obeyed.
+    vendor_tokens: tuple[str, ...]
+    #: `(constant, word)` that must share a line in `OPERATIONS_DOC`, naming the human gate
+    #: that owns what this check cannot prove. `None` for a leg that delegates nothing —
+    #: itself a claim the spec has to make out loud rather than by omission.
+    delegated_gate: tuple[str, str] | None
+    #: One line printed on every run saying what a green result does and does not mean here.
+    warrant: str
+
+
+#: The three legs the declared posture contains, as specs. Written out one per constant for
+#: the same reason the contract writes them that way: check 0 compares SCALARS read from the
+#: AST, and a leg inlined into a tuple would arrive as one opaque source string.
+AZURE_LEG: Final = LegSpec(
+    constant="AZURE_OPENAI_LEG",
+    provider="azure_openai",
+    region=AZURE_REGION_US,
+    region_constant=REGION_CONSTANT,
+    region_in_host=False,
+    addresses_a_deployment=True,
+    builder=BUILDER,
+    builder_arity=1,
+    builder_suffix=BUILDER_SUFFIX,
+    permitted_host=AZURE_HOST_SUFFIX,
+    vendor_tokens=("azure",),
+    delegated_gate=(REGION_CONSTANT, "portal"),
+    warrant=(
+        "the region is spelled once and it is not an Indian one, no Settings field can "
+        "carry a region, no Azure endpoint is constructible outside the one builder, and "
+        "that builder has no region input — but NOTHING HERE CLAIMS INDIAN RESIDENCY ANY "
+        "MORE (D-449), and the region itself is attested by a human in the portal rather "
+        "than proved here"
+    ),
+)
+
+AZURE_LEG_INDIA: Final = LegSpec(
+    constant="AZURE_OPENAI_LEG",
+    provider="azure_openai",
+    region=AZURE_REGION_INDIA,
+    region_constant=REGION_CONSTANT,
+    region_in_host=False,
+    addresses_a_deployment=True,
+    builder=BUILDER,
+    builder_arity=1,
+    builder_suffix=BUILDER_SUFFIX,
+    permitted_host=AZURE_HOST_SUFFIX,
+    vendor_tokens=("azure",),
+    delegated_gate=(REGION_CONSTANT, "portal"),
+    warrant=(
+        "the region is spelled once, no Settings field can carry one, no Azure endpoint is "
+        "constructible outside the one builder, and that builder has no region input"
+    ),
+)
+
+OPENAI_LEG: Final = LegSpec(
+    constant="OPENAI_DIRECT_LEG",
+    provider="openai",
+    region=OPENAI_REGION_US,
+    region_constant=OPENAI_REGION_CONSTANT,
+    # THE ONE `True` IN THE TABLE, AND THE REASON THE LEG IS WORTH HAVING.
+    region_in_host=True,
+    addresses_a_deployment=False,
+    builder=OPENAI_BUILDER,
+    builder_arity=0,
+    builder_suffix=OPENAI_BUILDER_SUFFIX,
+    permitted_host=OPENAI_DIRECT_HOST,
+    vendor_tokens=("openai",),
+    # NOTHING IS DELEGATED, AND IT IS A CLAIM RATHER THAN AN OMISSION. The region is in the
+    # authority and check 4 reads it off the builder, so there is no residency fact left for
+    # a person to confirm. The one thing this file cannot see — the project entitlement
+    # behind the regional host — fails LOUD at the vendor rather than silently falling back
+    # to the global endpoint, so sending somebody to a console to re-observe an error the
+    # first call would raise is not a gate, it is paperwork.
+    delegated_gate=None,
+    warrant=(
+        "the region is IN THE HOSTNAME and this file proves it from the builder's own "
+        "return template — one endpoint constructor, one literal naming it, one frozen "
+        "constant holding the region, and NO human attestation owed. It is the only leg "
+        "here whose residency claim a build can settle"
+    ),
+)
+
+GOOGLE_LEG: Final = LegSpec(
+    constant="GOOGLE_DIRECT_LEG",
+    provider="google",
+    # NO REGION, AND THE DISTINCTION FROM `OPENAI_LEG` IS WORTH THE SENTENCE. OpenAI HAS
+    # regions and this posture pins one. Google's Developer API has none AT ALL — the region
+    # is not unset, it is UNEXPRESSIBLE: `googleapis/python-genai@66807187f212`,
+    # `google/genai/_api_client.py:681-682` raises `ValueError("Gemini API does not support
+    # project/location.")` before a packet leaves the machine.
+    region=None,
+    region_constant=None,
+    region_in_host=False,
+    addresses_a_deployment=False,
+    # NO BUILDER, WHICH IS A STRONGER OBLIGATION THAN ONE. See `GEMINI_DIRECT_HOST`.
+    builder=None,
+    builder_arity=None,
+    builder_suffix=None,
+    permitted_host=GEMINI_DIRECT_HOST,
+    # BOTH WORDS, because the vendor and the product are named differently by different
+    # people and a `Settings` field gets whichever the author had in mind.
+    # `Settings.gemini_api_key` already exists in this tree (the AI Studio key no surface
+    # opens), which is the evidence that "gemini" is the word people reach for here — and a
+    # token list that had only "google" would let `gemini_base_url` through.
+    vendor_tokens=("google", "gemini"),
+    # NOTHING IS DELEGATED because there is no regional claim to confirm. ⚠ WHAT WOULD NEED A
+    # GATE ON THE DAY ANY MODEL ON THIS LEG BECAME SELECTABLE is COMMERCIAL rather than
+    # residency-shaped and is NOT invented here: Google's free tier states it uses submitted
+    # prompts and responses to improve its products with human reviewers able to read them,
+    # and only the PAID tier does not — so "is this key a paid key" is an OPERATIONS §2 gate
+    # somebody has to write, together with the decision that makes a Gemini model selectable.
+    delegated_gate=None,
+    warrant=(
+        "NO REGIONAL CLAIM IS MADE OR CHECKABLE on this leg, and unlike every other row "
+        "here the vendor could not make one if it wanted to — the Developer API has no "
+        "region in its host, none in its path and no field in which to ask for one. What IS "
+        "proved is stronger than the other legs' rule in one respect: ZERO literals in this "
+        "tree may name its host, because there is no builder for one to be the suffix of"
+    ),
+)
 
 
 @dataclass(frozen=True)
 class PostureSpec:
-    """What one declared posture obliges the tree to look like.
+    """What one declared posture obliges the tree to look like: a name and a set of legs.
 
-    HELD HERE AND NEVER IMPORTED FROM THE CONTRACT, for `AZURE_REGION_INDIA`'s reason and
-    more
-    sharply. The contract states which posture is in force; this table states what that
-    posture costs. If the spec were imported, editing the declaration would edit the
-    obligation in the same commit and the guard would agree with any tree it was shown —
-    the "reads a flag and shrugs" failure this mechanism exists to avoid.
-
-    ADDING A POSTURE IS DELIBERATELY NOT FREE. A name this table does not know is a hard
-    failure, so a new posture is a spec written HERE by somebody who has had to say, in
+    ADDING A POSTURE OR A LEG IS DELIBERATELY NOT FREE. A name this table does not know is a
+    hard failure, so a new posture is a spec written HERE by somebody who has had to say, in
     advance and in one place, what would PROVE the tree is really in it — plus a
-    decision-log entry. That is the reviewed change D-432 traded a thirty-file refactor
-    for; it is not a smaller version of the same freeze.
+    decision-log entry. That is the reviewed change D-432 traded a thirty-file refactor for;
+    it is not a smaller version of the same freeze.
     """
 
-    #: The declared name, carried on the record as well as being the `POSTURES` key so a
-    #: failure message can say WHICH posture refused rather than describing it.
     name: str
-    #: The region this posture PINS, or `None` for one making no regional claim.
-    region: str | None
-    #: The single frozen constant permitted to spell it. `None` means the guard requires
-    #: that NO shipped constant spells a region at all — so a leftover `AZURE_LOCATION`
-    #: cannot sit in a tree whose declaration has moved on.
-    region_constant: str | None
-    #: Our closed vocabulary's member for this leg (`calevate_shared.engine.LlmProvider`).
-    llm_provider: str
-    #: The word(s) a `Settings` field name would carry if it named THIS posture's vendor.
-    #: Read by `console_config_failures` through `KNOWN_VENDOR_TOKENS`, which is the union
-    #: over every posture — never over the declared one alone.
-    #:
-    #: STATED HERE RATHER THAN DERIVED FROM `llm_provider` OR `permitted_host`, and both
-    #: rejections are worth keeping. Splitting `llm_provider` ("google") would miss
-    #: `gemini_base_url`, because a vendor's PRODUCT name and its provider slug are
-    #: routinely different words and a field is named after whichever one the engineer had
-    #: in mind. Splitting `permitted_host` would yield "api", "com" and "googleapis" —
-    #: tokens so broad that `sarvam_api_url` would be refused, which is the false positive
-    #: that gets a name check deleted rather than obeyed. So the spec's author states the
-    #: vendor's words, in the same place they state everything else this posture costs.
-    vendor_tokens: tuple[str, ...]
-    #: Does the API address a DEPLOYMENT id the operator chose rather than the model's own
-    #: name? Cross-checked against the declared record because it is the field a reader
-    #: would call cosmetic, and it is what decides whether `azure_openai_deployment` and
-    #: `azure_openai_model` are two things or one (`engine.ModelBinding`).
-    addresses_a_deployment: bool
-    #: The ONE function permitted to build this posture's endpoint, and how many arguments
-    #: it may take. Zero means a fixed vendor endpoint with no caller input — and with no
-    #: caller input there is no hostile label to refuse, which is why the DNS-label refusal
-    #: is required only above arity zero.
-    builder: str
-    builder_arity: int
-    #: The one literal in the tree permitted to name this posture's host: only in
-    #: `BUILDER_HOME`, only as a `Final`, and only this exact string.
-    builder_suffix: str
-    #: The watched host this posture may name at all. Every other watched host is refused.
-    permitted_host: str
-    #: `(constant, word)` that must share a line in `OPERATIONS_DOC`, naming the human gate
-    #: that owns what this check cannot prove. `None` for a posture that delegates nothing
-    #: — itself a claim the spec has to make out loud rather than by omission.
-    delegated_gate: tuple[str, str] | None
-    #: One line printed on every run saying what a green result does and does not mean.
+    #: Ordered, and the order is compared: `DECLARED_LEGS` in the contract must name these
+    #: constants in this sequence. Order carries no dispatch, but a tuple compared as a SET
+    #: would let a reordering pass unread, and the first leg is the one every failure message
+    #: names first.
+    legs: tuple[LegSpec, ...]
     warrant: str
+
+    def leg(self, provider: str) -> LegSpec | None:
+        return next((one for one in self.legs if one.provider == provider), None)
+
+    @property
+    def permitted_hosts(self) -> frozenset[str]:
+        return frozenset(one.permitted_host for one in self.legs)
 
 
 #: EVERY POSTURE THIS TREE KNOWS HOW TO CHECK. Exactly one of them is declared.
 #:
-#: `india-azure-openai` IS HERE AND IT IS NO LONGER DECLARED (D-449). It stays for the same
-#: reason `openai-direct` earns its row, and the argument is if anything sharper for a
-#: posture the product has actually left: a mechanism that can only express the posture in
-#: force proves nothing about the posture in force. With the withdrawn spec still present,
-#: `tests/residency_posture_test.py` can state the SHIPPED tree against it and watch this
-#: guard name both regions in its refusal — which is what turns "the generalization is
-#: load-bearing" from a design intention into an observed fact. Deleting the row would also
-#: delete the only way to ask "would this tree pass as an Indian one", which is the question
-#: an auditor reading a superseded DPA will arrive with.
+#: THE FOUR UNDECLARED ROWS ARE FIXTURES WITH A JOB, not history. A mechanism that can only
+#: express the posture in force proves nothing about the posture in force, so
+#: `tests/residency_posture_test.py` states the SHIPPED tree against every one of them and
+#: watches this guard refuse. Between them they exercise every shape the checks can take: a
+#: single-leg posture (does the guard notice a leg the tree HAS and the declaration does
+#: not?), a posture pinning a DIFFERENT region on the same vendor (does it compare region
+#: values, or only names?), and two whose builder does not exist in the contract at all.
 #:
-#: `openai-direct` IS HERE AND IT IS NOT AN OFFER. It is the posture D-410 DISQUALIFIED on
-#: residency (OpenAI's India residency covers storage at rest; inference runs in the US, and
-#: for a phone call the transcript IS the inference input), and it earns its row for one
-#: reason: a mechanism that can only express the posture already in force proves nothing
-#: about the posture already in force. With a second spec present,
-#: `tests/residency_posture_test.py` declares it over the REAL tree and watches this guard
-#: refuse — which turns "the guard fails when code and declaration disagree" from a design
-#: intention into an observed fact. Declaring it for real would also have to change
-#: `apps/web/src/lib/legal/dpa.ts`, which warrants the declared posture to clients in an
-#: executed agreement; that is a legal act, not a config change.
-#:
-#: `google-direct` IS HERE AND IT IS NOT AN OFFER EITHER. It is the second posture D-448
-#: refused, and it is a row rather than a paragraph because a table that could express two
-#: vendors was a table whose vendor-independence nobody could observe: every check stated
-#: over "Azure or not Azure" reads as general and is not, and the only way to tell the
-#: difference is to state a THIRD vendor and watch what breaks. Two things break, both
-#: fixed in the same change that added this row and neither of them decorative — the
-#: `Settings`-endpoint check knew only Azure's name (so `openai_base_url` sailed through
-#: under EVERY posture, including the declared one), and the watched-host set was a
-#: hand-written tuple (so this posture's own host would have been invisible to check 3 and
-#: its `permitted_host` inert). ⚠ TWO FACTS THIS ROW DOES NOT CARRY, and they are no longer
-#: unknown — they are simply not this file's to hold. The engine-side wire value for the
-#: provider and the name of the credential entry it is stored under are both settled, to
-#: the vendor's own enum and OpenAPI rather than to a dashboard label
-#: (`docs/evidence/llm-provider-postures.md` §1 and §2). They stay out because a
-#: `PostureSpec` states what the TREE must look like; an adapter that read a wire value
-#: from this table would be reading it from the file least likely to be checked against the
-#: vendor, which is the D-417 failure wearing a different hat.
+#: `us-azure-openai` AND `india-azure-openai` ARE THE TWO THIS PRODUCT HAS ACTUALLY BEEN IN.
+#: Keeping them is what lets an auditor arriving with a superseded DPA ask "would this tree
+#: pass as the posture that document describes" and get an answer rather than an opinion.
 POSTURES: Final[dict[str, PostureSpec]] = {
+    "multi-provider-byok": PostureSpec(
+        name="multi-provider-byok",
+        legs=(AZURE_LEG, OPENAI_LEG, GOOGLE_LEG),
+        warrant=(
+            "three legs, checked one at a time: each pinned region has exactly one frozen "
+            "spelling, no Settings field can carry a region or any known vendor's endpoint, "
+            "each leg's endpoint has exactly one constructor (and the Google leg has NONE, "
+            "so zero literals may name its host), no builder has a region input, and no "
+            "declared leg is inert. ⚠ ONLY THE OPENAI LEG'S REGION IS PROVED HERE — Azure's "
+            "is attested by a human in the portal (gates 20/20c) and Google's does not exist"
+        ),
+    ),
     "us-azure-openai": PostureSpec(
         name="us-azure-openai",
-        region=AZURE_REGION_US,
-        region_constant=REGION_CONSTANT,
-        llm_provider="azure_openai",
-        vendor_tokens=("azure",),
-        addresses_a_deployment=True,
-        builder=BUILDER,
-        builder_arity=1,
-        builder_suffix=BUILDER_SUFFIX,
-        permitted_host=AZURE_HOST_SUFFIX,
-        delegated_gate=(REGION_CONSTANT, "portal"),
+        legs=(AZURE_LEG,),
         warrant=(
-            "the region is spelled once and it is not an Indian one, no Settings field "
-            "can carry a region, no Azure endpoint is constructible outside the one "
-            "builder, and that builder has no region input — but NOTHING HERE CLAIMS "
-            "INDIAN RESIDENCY ANY MORE, because D-449 withdrew that claim"
+            "one Azure leg, in East US 2 — the posture D-449 declared and D-454's provider "
+            "choice superseded. NOTHING HERE CLAIMS INDIAN RESIDENCY: D-449 withdrew that "
+            "claim rather than narrowing it"
         ),
     ),
     "india-azure-openai": PostureSpec(
         name="india-azure-openai",
-        region=AZURE_REGION_INDIA,
-        region_constant=REGION_CONSTANT,
-        llm_provider="azure_openai",
-        vendor_tokens=("azure",),
-        addresses_a_deployment=True,
-        builder=BUILDER,
-        builder_arity=1,
-        builder_suffix=BUILDER_SUFFIX,
-        permitted_host=AZURE_HOST_SUFFIX,
-        delegated_gate=(REGION_CONSTANT, "portal"),
+        legs=(AZURE_LEG_INDIA,),
         warrant=(
-            "the region is spelled once, no Settings field can carry one, no Azure "
-            "endpoint is constructible outside the one builder, and that builder has no "
-            "region input"
+            "one Azure leg, in South India — the posture D-449 WITHDREW. It is kept "
+            "checkable so the question 'would this tree still pass as an Indian one' has an "
+            "answer rather than an opinion"
         ),
     ),
     "openai-direct": PostureSpec(
         name="openai-direct",
-        region=None,
-        region_constant=None,
-        llm_provider="openai",
-        vendor_tokens=("openai",),
-        addresses_a_deployment=False,
-        builder="openai_base_url",
-        builder_arity=0,
-        # An f-string, so this file does not itself spell a watched host outside
-        # `SELF_DECLARATIONS` — `_render` turns it into `https://{OPENAI_DIRECT_HOST}/v1`,
-        # which mentions no host, while the VALUE is the literal the tree would have to
-        # carry. The same trick the docstring exemption would otherwise have to grow for.
-        builder_suffix=f"https://{OPENAI_DIRECT_HOST}/v1",
-        permitted_host=OPENAI_DIRECT_HOST,
-        delegated_gate=None,
+        legs=(OPENAI_LEG,),
         warrant=(
-            "NO REGIONAL CLAIM IS MADE OR CHECKABLE under this posture — inference runs "
-            "where the vendor runs it. What is still proved is one endpoint constructor, "
-            "one literal naming it, and no Settings field able to carry a region or an "
-            "endpoint"
+            "one OpenAI-direct leg, pinned to the `us` residency endpoint and provable from "
+            "the AST, with no Azure endpoint constructible anywhere in the tree"
         ),
     ),
     "google-direct": PostureSpec(
-        # ⚠ CHECKABLE, AND REFUSED ON MERIT — the two are different claims and this table
-        # only makes the first. A spec here means the guard could hold the tree to this
-        # posture, exactly as `openai-direct`'s row does; it has never meant the posture is
-        # on offer. `docs/evidence/llm-provider-postures.md` refuses this one, and NOT on
-        # residency (D-449 spent that argument and it is not recycled here): Gemini's
-        # thinking tokens draw on the SAME `max_output_tokens` budget as the reply and can
-        # return a candidate carrying no `content` field at all. On a phone call that is
-        # SILENCE, not a clipped sentence — a failure mode with no analogue on the other
-        # two providers, mitigated by the engine only on `gemini-2.5-flash`, which retires
-        # 16 Oct, while every `gemini-3.*` successor takes a non-zero thinking level with
-        # no way to zero it. The row stays because a mechanism that can only express the
-        # postures we like proves nothing about the posture in force.
         name="google-direct",
-        # NO REGION, AND THE DISTINCTION FROM `openai-direct` IS WORTH THE SENTENCE.
-        # OpenAI HAS regions and none of them is India (D-448: `DataResidency` is a closed
-        # `Literal` of four). Google's Developer API has none AT ALL — the region is not
-        # unset, it is UNEXPRESSIBLE: no region in the host, none in the path, no field in
-        # which to ask for one, and Google's own docs say to use Vertex if residency
-        # matters (`docs/evidence/gemini-direct-api.md:55-68`). Both spell `region=None`
-        # here because this table records what the tree must LOOK like, and the two arrive
-        # at the same obligation — zero frozen region constants — by different routes.
-        region=None,
-        region_constant=None,
-        # OUR vocabulary's member, not the engine's wire value. `LlmProvider` is closed to
-        # `azure_openai` today, so this name — like `openai-direct`'s — is a member the
-        # tree would have to GROW before the posture could be declared, which is part of
-        # what makes declaring one a reviewed commit rather than an edited word. The
-        # engine-side value is a SEPARATE fact that happens to be the same string, and the
-        # coincidence is why it is worth saying: it is `"google"`, VERIFIED to the vendor's
-        # own enum rather than to a dashboard label
-        # (`docs/evidence/llm-provider-postures.md:134`, and the credential entry is a
-        # single `GOOGLE` at `:225`). It is still not carried here — a `PostureSpec` says
-        # what the TREE must look like, and an adapter reading a wire value out of this
-        # table would be reading it from the file least likely to be checked against the
-        # vendor. D-417 is the row about what guessing one costs.
-        llm_provider="google",
-        # BOTH WORDS, because the vendor and the product are named differently by
-        # different people and a `Settings` field gets whichever the author had in mind.
-        # `Settings.gemini_api_key` already exists in this tree (the AI Studio key no
-        # surface opens), which is the evidence that "gemini" is the word people reach for
-        # here — and a token list that had only "google" would let `gemini_base_url`
-        # through, which is the whole defect this field exists to close.
-        vendor_tokens=("google", "gemini"),
-        # The Developer API addresses the model by its own published name
-        # (`gemini-2.5-flash`); there is no operator-chosen deployment id to indirect
-        # through, which is Azure's peculiarity and not a general one.
-        addresses_a_deployment=False,
-        builder="gemini_base_url",
-        # A fixed vendor endpoint with no caller input, like `openai-direct` — so there is
-        # no hostile label to interpolate at the front of the authority and the DNS-label
-        # refusal check 4 requires above arity zero does not apply.
-        builder_arity=0,
-        # An f-string for `openai-direct`'s reason: `_render` turns it into
-        # `https://{GEMINI_DIRECT_HOST}{GEMINI_DIRECT_PATH}`, which names no host, while
-        # the VALUE is the literal the tree would have to carry.
-        #
-        # ⚠ MARKED ASSUMPTION — WHICH OF TWO SURFACES, NOT WHICH HOST. The host is settled
-        # and it is the only part any check here reads. The PATH is not: this is the
-        # OpenAI-COMPATIBLE base (`/v1beta/openai`, VERIFIED-VENDOR-DOCS via Microsoft's
-        # `azure-docs`, `docs/evidence/gemini-direct-api.md:270-273`), chosen because every
-        # leg in this product speaks the OpenAI wire format. Google's own client instead
-        # sets `base_url = "https://generativelanguage.googleapis.com/"` with
-        # `api_version = "v1beta"` and speaks the NATIVE protocol
-        # (`docs/evidence/llm-provider-postures.md:829-837`) — and that is the client the
-        # engine's Google leg actually is. So whichever surface a declaration adopts, this
-        # string is set DELIBERATELY in the same commit: the guard goes red the moment the
-        # builder's own `Final` disagrees with it, which is the friction `BUILDER_SUFFIX`
-        # was written to create rather than a gap in it.
-        builder_suffix=f"https://{GEMINI_DIRECT_HOST}{GEMINI_DIRECT_PATH}",
-        permitted_host=GEMINI_DIRECT_HOST,
-        # NOTHING IS DELEGATED, AND THAT IS A CLAIM RATHER THAN AN OMISSION. A delegated
-        # gate names the human who confirms a fact this check cannot prove; under a
-        # posture where the region is unexpressible there is no such fact, and sending a
-        # person to a console to confirm a region that does not exist would be worse than
-        # sending them nowhere. ⚠ WHAT WOULD STILL NEED A GATE ON THE DAY THIS POSTURE IS
-        # DECLARED is COMMERCIAL rather than residency-shaped and is NOT invented here:
-        # Google's free tier states it uses submitted prompts and responses to improve its
-        # products with human reviewers able to read them, and only the PAID tier does not
-        # (D-448) — so "is this key a paid key" is an OPERATIONS §2 gate somebody has to
-        # write, in a file this lane does not own, together with the decision-log entry
-        # that declares the posture.
-        delegated_gate=None,
+        legs=(GOOGLE_LEG,),
         warrant=(
-            "NO REGIONAL CLAIM IS MADE OR CHECKABLE under this posture, and unlike every "
-            "other row here the vendor could not make one if it wanted to — the Developer "
-            "API has no region in its host, none in its path and no field in which to ask "
-            "for one. What is still proved is one endpoint constructor, one literal "
-            "naming it, and no Settings field able to carry a region or an endpoint"
+            "one Gemini Developer API leg, which makes NO REGIONAL CLAIM and cannot, with "
+            "no endpoint literal permitted anywhere at all"
         ),
     ),
 }
 
-#: EVERY region any known posture pins — DERIVED from `POSTURES`, never a second list
-#: written beside it. Two properties follow and both were bought by D-449's move. It cannot
-#: drift when a posture is added (the `AZURE_LIST_PRICE_USD_PER_MTOK` failure class: a
-#: parallel table nobody updates), and because it holds the WITHDRAWN region as well as the
-#: declared one, check 1 can see a frozen constant the declaration has moved off — the one
-#: thing a declared-region-only scan is structurally unable to notice.
+#: EVERY leg any known posture declares, deduplicated by constant+region. Derived, never a
+#: second list: the three sets below are all stated over it, and a leg added to a posture
+#: with a host, a vendor word or a region missing from them would be a spec nothing enforces
+#: — which is the exact defect D-453 found twice.
+KNOWN_LEGS: Final[tuple[LegSpec, ...]] = tuple(
+    dict.fromkeys(leg for spec in POSTURES.values() for leg in spec.legs)
+)
+
+#: EVERY region any known leg pins. It holds the WITHDRAWN region as well as the declared
+#: ones, so check 1 can see a frozen constant the declaration has moved off — the one thing a
+#: declared-region-only scan is structurally unable to notice.
 KNOWN_REGIONS: Final[frozenset[str]] = frozenset(
-    spec.region for spec in POSTURES.values() if spec.region is not None
+    leg.region for leg in KNOWN_LEGS if leg.region is not None
 )
 
-#: EVERY model host any known posture may name — DERIVED from `POSTURES`, for exactly the
-#: reasons `KNOWN_REGIONS` is. It feeds `WATCHED_HOSTS` (what the scan can SEE) and
-#: `endpoint_failures` (what it refuses), so a posture added to the table above cannot land
-#: with a `permitted_host` no scan looks for and no clause judges — which is the shape a
-#: spec that was decorative rather than enforced would have, and it would have printed OK.
-KNOWN_POSTURE_HOSTS: Final[frozenset[str]] = frozenset(
-    spec.permitted_host for spec in POSTURES.values()
-)
+#: EVERY model host any known leg may name. It feeds `WATCHED_HOSTS` (what the scan can SEE)
+#: and `endpoint_failures` (what it refuses), so a leg cannot land with a `permitted_host` no
+#: scan looks for and no clause judges.
+KNOWN_POSTURE_HOSTS: Final[frozenset[str]] = frozenset(leg.permitted_host for leg in KNOWN_LEGS)
 
-#: EVERY vendor word any known posture answers to — DERIVED from `POSTURES`, never a second
-#: list beside it. Read by `console_config_failures` and by nothing else.
+#: EVERY vendor word any known leg answers to. Read by `console_config_failures` and by
+#: nothing else.
 #:
-#: **WHY THE UNION AND NOT THE DECLARED POSTURE'S OWN TOKENS**, which is the whole of what
-#: this constant buys and is the argument `frozen_region_constants()` already makes one
-#: level down. The artefact a half-finished posture move leaves behind is a `Settings`
-#: field for the vendor the tree has just LEFT — `azure_openai_base_url` surviving a move
-#: to OpenAI direct, `openai_base_url` surviving a move back — so a check that knew only
-#: the declared vendor would be blind to precisely the case it most needs to catch, while
-#: still printing OK. The union also makes the check bite BEFORE any second posture is
-#: declared: under today's Azure declaration an `openai_base_url` field is refused, which
-#: is correct, because there is no leg in this product for it to configure.
+#: **WHY THE UNION AND NOT THE DECLARED POSTURE'S OWN TOKENS.** The artefact a half-finished
+#: posture move leaves behind is a `Settings` field for the vendor the tree has just LEFT —
+#: `azure_openai_base_url` surviving a move to OpenAI direct, `openai_base_url` surviving a
+#: move back — so a check that knew only the declared vendors would be blind to precisely the
+#: case it most needs to catch, while still printing OK.
 KNOWN_VENDOR_TOKENS: Final[frozenset[str]] = frozenset(
-    token for spec in POSTURES.values() for token in spec.vendor_tokens
+    token for leg in KNOWN_LEGS for token in leg.vendor_tokens
 )
 
 #: Where a URL literal can ship. `scripts/` is in for `sarvam_model_identifier_test`'s
@@ -646,66 +660,39 @@ TEXT_SUFFIXES: Final[frozenset[str]] = frozenset(
 #:
 #: IT IS NOT A WHOLE-FILE SKIP, and the reason is worth keeping: the guard is edited by
 #: whoever is relaxing the guard, so making it the one module where a hand-built endpoint
-#: passes would put the single hole in the worst possible place. The file has to name the
-#: hosts to watch them, and `_host_definition` below says exactly what that costs — a
-#: template that IS one of the watched host strings and nothing else.
+#: passes would put the single hole in the worst possible place.
 SELF: Final = "scripts/check_model_residency.py"
 
 #: `Settings` field-name fragments that would put a model region under console control.
 #: Names, not values, because the dangerous field is the one whose value is EMPTY in the
 #: tree and supplied from the store — see "what this check cannot see".
 #:
-#: `vertex`/`aiplatform` are GONE from this tuple and `azure` did NOT replace them, which
-#: is the one place D-410 required this check to get LOOSER. Under D-127 no `Settings`
-#: field had any business naming the model vendor at all. Azure's endpoint is built from
-#: four legitimate `azure_openai_*` settings — a resource, a key, a deployment id and a
-#: model — so a fragment banning the vendor's name would ban the configuration the leg
-#: cannot run without. `ENDPOINT_KNOB_WORDS` below, paired with `KNOWN_VENDOR_TOKENS`, is
-#: what took over the part of that job which still makes sense: the vendor's name is fine
-#: on a field holding a resource or a key, and refused on one holding a URL.
-#:
-#: THIS TUPLE NEEDS NO POSTURE AND THAT IS WHY IT IS THE MODEL THE ENDPOINT HALF WAS
-#: REBUILT AGAINST. "region", "location", "residency", "datacenter" and "posture" mean the
-#: same thing whoever is serving the model, so this check has never had a vendor to fall
-#: behind. The endpoint half had Azure's name hard-coded in it and did fall behind, which
-#: is the asymmetry `KNOWN_VENDOR_TOKENS` closes.
+#: THIS TUPLE NEEDS NO VENDOR AND THAT IS WHY IT IS THE MODEL THE ENDPOINT HALF WAS REBUILT
+#: AGAINST. "region", "location", "residency", "datacenter" and "posture" mean the same thing
+#: whoever is serving the model, so this check has never had a vendor to fall behind.
 REGION_KNOB_FRAGMENTS: Final[tuple[str, ...]] = (
     "region",
     "location",
     "residency",
     "datacenter",
     # D-432: the DECLARED POSTURE is source, never configuration. A field called
-    # `llm_posture` would invert the residency decision from a text box, which is the one
-    # thing the declaration mechanism must never become — so the word joins the list the
-    # day the concept exists rather than the day somebody tries it.
+    # `llm_posture` would invert the residency decision from a text box.
     "posture",
 )
 
-#: The ENDPOINT half of the same rule, and the half `REGION_KNOB_FRAGMENTS` above was
-#: already principled about while this one was not. A `Settings` field whose name pairs a
-#: vendor word (`KNOWN_VENDOR_TOKENS`, derived from `POSTURES`) with one of these is a
-#: model endpoint in a text box. Check 3 says the endpoint has exactly one constructor; a
-#: console field called `azure_openai_base_url` would be a second one, made of a web form.
+#: The ENDPOINT half of the same rule. A `Settings` field whose name pairs a vendor word
+#: (`KNOWN_VENDOR_TOKENS`, derived from the leg table) with one of these is a model endpoint
+#: in a text box. Check 3 says each leg's endpoint has exactly one constructor; a console
+#: field called `azure_openai_base_url` would be a second one, made of a web form.
 #:
-#: **THIS TUPLE USED TO CARRY THE VENDOR TOO — `("azure", "url")` and two siblings — AND
-#: THAT WAS A HOLE RATHER THAN A SIMPLIFICATION.** It meant `openai_base_url` and
-#: `gemini_api_base` were accepted under every posture including the declared one, so the
-#: DPA's warranty that "no configuration setting may carry … an endpoint"
-#: (`apps/web/src/lib/legal/dpa.ts`) had a vendor-shaped gap in its enforcement that no
-#: run of this guard would ever mention. The vendor half now comes from the posture table,
-#: where a vendor is a thing somebody had to declare; this tuple keeps only the part that
-#: is genuinely vendor-independent — the words that mean "a URL".
+#: STILL A PAIR AND NEVER THE WORDS ALONE, because plenty of settings are legitimately URLs
+#: (`webhook_base_url`, `database_url`, `object_store_endpoint`) and banning the word would
+#: be a check people route around by renaming.
 #:
-#: STILL A PAIR AND NEVER THE WORDS ALONE, because plenty of settings are legitimately
-#: URLs (`webhook_base_url`, `database_url`, `object_store_endpoint`) and banning the word
-#: would be a check people route around by renaming. The vendor's name beside it is what
-#: makes the intent unambiguous.
-#:
-#: `base` IS IN THE LIST AND IS NOT PADDING. `AZURE_OPENAI_API_BASE` is the vendor's OWN
-#: name for this value — it is one of the four flat credential entries the engine stores
-#: (D-417) — so `azure_openai_api_base` is the single likeliest spelling of the field this
-#: check exists to refuse, and it carries no `url`, `endpoint` or `host` at all. The three
-#: fragments this file shipped with would have waved it through.
+#: `base` IS IN THE LIST AND IS NOT PADDING. `AZURE_OPENAI_API_BASE` is the vendor's OWN name
+#: for this value — one of the four flat credential entries the engine stores (D-417) — and
+#: OpenAI's SDK reads `OPENAI_API_BASE`, so it is the likeliest spelling of the field this
+#: check exists to refuse and it carries no `url`, `endpoint` or `host` at all.
 ENDPOINT_KNOB_WORDS: Final[tuple[str, ...]] = ("url", "endpoint", "host", "base")
 
 
@@ -732,10 +719,7 @@ class DatedAllowance:
 
     A DEFERRAL, not an exemption, and the difference is `stale_allowances()`: the moment
     the file stops carrying the literal, this entry FAILS as stale and must be deleted.
-    So the registry can only ever shrink, and only by the defect being fixed. Identical
-    contract to `check_wiring.UNWIRED_BASELINE` and `check_docs_drift.DEFERRED_MIRRORS`,
-    for the identical reason — an exemption nobody can take away is one nobody can prove
-    still describes reality.
+    So the registry can only ever shrink, and only by the defect being fixed.
     """
 
     host: str
@@ -748,10 +732,6 @@ class DatedAllowance:
 #: under D-127 (`apps/workers/extraction.py`, whose `GEMINI_CHAT_URL` named the AI Studio
 #: Developer API); the work that closed it landed and `stale_allowances()` then REQUIRED
 #: the entry to go, which is exactly the contract it was written under.
-#:
-#: Kept as a declared, typed, empty mapping rather than deleted along with its machinery:
-#: the NEXT bounded exception has to land as a dated row with a closer, and a registry
-#: that has to be re-invented is a registry somebody replaces with a `continue`.
 ALLOWANCES: Final[dict[str, DatedAllowance]] = {}
 
 
@@ -760,10 +740,9 @@ class Reference:
     """One URL-shaped literal, with where it is, what it renders to, and whether it is
     frozen.
 
-    `frozen` is carried because the ONE permitted Azure literal in the tree is permitted
-    on three conditions together — the right file, the exact string, and `Final` — and a
-    reader of `endpoint_failures` should not have to re-derive the third from somewhere
-    else.
+    `frozen` is carried because a leg's ONE permitted literal is permitted on three
+    conditions together — the right file, the exact string, and `Final` — and a reader of
+    `endpoint_failures` should not have to re-derive the third from somewhere else.
     """
 
     path: str
@@ -804,8 +783,9 @@ def _rel(path: Path) -> str:
 def _render(node: ast.JoinedStr) -> str:
     """An f-string as a template: literal pieces kept, each hole as `{<expression>}`.
 
-    The hole's SOURCE is what makes checks 1 and 4 possible — and, on the day gate 20d
-    passes, what will make the regional-host region check possible too.
+    The hole's SOURCE is what makes checks 1 and 4 possible — and it is what lets the
+    region-in-host check read `{OPENAI_DATA_RESIDENCY}` off a builder rather than reading
+    `us` and having to trust it came from the constant.
     """
     parts: list[str] = []
     for piece in node.values:
@@ -866,13 +846,65 @@ def _frozen_value_ids(tree: ast.AST) -> set[int]:
     }
 
 
+def _frozen_strings(tree: ast.AST) -> dict[str, str]:
+    """`NAME -> value` for every module-level `NAME: Final = "literal"` in one parsed file.
+
+    Read by the region-in-host check, which has to resolve a builder's template holes far
+    enough to see the hostname WITHOUT resolving the one hole whose provenance is the whole
+    point — see `_resolve_holes`.
+    """
+    return {
+        node.target.id: node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and _is_final(node.annotation)
+    }
+
+
+#: The contract's own counterpart of `_host_definition`: a leg record has to NAME the host
+#: it permits, in the same way and for the same reason this guard has to name the hosts it
+#: watches. `PostureLeg(permitted_host="api.openai.com")` is a DECLARATION, and reporting it
+#: as a hand-built endpoint would report the declaration as the offence — the failure mode
+#: `_docstrings` exists to prevent, one level up.
+#:
+#: IT IS A STRUCTURAL CONDITION, NOT A STRING ONE, and that is what keeps the hole smaller
+#: than `SELF`'s. `SELF` is exempted by exact string anywhere in the file, which is
+#: acceptable there because the guard calls no vendor. `CONTRACT` is the file that HOLDS the
+#: builders, so a by-string exemption would license `HOST = ".openai.azure.com"` followed by
+#: an f-string over it — precisely the runtime-assembly blind spot this file admits to. Only
+#: a literal standing in the `permitted_host=` position of a `PostureLeg(...)` call is
+#: exempt, and nothing can be interpolated out of that position.
+LEG_RECORD: Final = "PostureLeg"
+LEG_HOST_KEYWORD: Final = "permitted_host"
+
+
+def _leg_host_declarations(tree: ast.AST) -> set[int]:
+    """Ids of the Constant nodes standing in `PostureLeg(permitted_host=...)`."""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != LEG_RECORD:
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == LEG_HOST_KEYWORD and isinstance(keyword.value, ast.Constant):
+                ids.add(id(keyword.value))
+    return ids
+
+
 def _templates(path: Path) -> Iterator[tuple[str, int, bool]]:
     """Every string template in one Python file — plain constants and rendered f-strings —
     with a flag saying whether it is a `Final`'s value.
 
-    Two exclusions. Docstrings, per `_docstrings`. And constants nested INSIDE an f-string:
+    Three exclusions. Docstrings, per `_docstrings`. Constants nested INSIDE an f-string:
     the rendered whole already covers them, and yielding both would report one literal
-    twice with the second report missing the context it is being judged on.
+    twice with the second report missing the context it is being judged on. And, in
+    `CONTRACT` only, the leg records' own `permitted_host=` declarations — see
+    `_leg_host_declarations`.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     frozen = _frozen_value_ids(tree)
@@ -883,6 +915,8 @@ def _templates(path: Path) -> Iterator[tuple[str, int, bool]]:
         for inner in ast.walk(node)
         if inner is not node
     }
+    if _rel(path) == CONTRACT:
+        skipped |= _leg_host_declarations(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.JoinedStr):
             yield _render(node), node.lineno, False
@@ -894,19 +928,16 @@ def _templates(path: Path) -> Iterator[tuple[str, int, bool]]:
             yield node.value, node.lineno, id(node) in frozen
 
 
-#: The hosts a literal has to mention before this check has an opinion about it: EVERY
-#: known posture's own host, plus the one form that belongs to no posture.
+#: The hosts a literal has to mention before this check has an opinion about it: EVERY known
+#: leg's own host, plus the one form that belongs to no leg.
 #:
 #: DERIVED RATHER THAN LISTED (and it was listed, which is how it fell a vendor behind the
-#: table above). A hand-written tuple beside `POSTURES` is the `KNOWN_REGIONS` failure
-#: class in a second place: a posture added to the table with a host missing from here has
-#: a `permitted_host` no scan ever looks for, so `endpoint_failures` sees no reference,
-#: says nothing, and the posture's own single-constructor rule is unenforced under the one
-#: posture it exists for. `AZURE_REGIONAL_HOST_SUFFIX` is appended because it is not any
-#: posture's permitted host — it is the rejected-FOR-NOW form of one, and its clause in
-#: `endpoint_failures` is what gives it a reason to be watched at all (see
-#: `test_the_raw_transcript_host_is_deliberately_not_a_watched_host` for the rule this
-#: obeys: a host with no clause behind it is cost with no check).
+#: table). A hand-written tuple beside the specs is the `KNOWN_REGIONS` failure class in a
+#: second place: a leg whose host is missing from here has a `permitted_host` no scan ever
+#: looks for, so `endpoint_failures` sees no reference, says nothing, and that leg's rule is
+#: unenforced under the one posture it exists for. `AZURE_REGIONAL_HOST_SUFFIX` is appended
+#: because it is not any leg's permitted host — it is the rejected-FOR-NOW form of one, and
+#: its clause in `endpoint_failures` is what gives it a reason to be watched at all.
 WATCHED_HOSTS: Final[tuple[str, ...]] = (*sorted(KNOWN_POSTURE_HOSTS), AZURE_REGIONAL_HOST_SUFFIX)
 
 
@@ -919,64 +950,65 @@ def _mentions_watched_host(text: str) -> bool:
 #:
 #: TODAY THAT IS THE SARVAM CHAT HOST, and it is PROPHYLACTIC: no `Settings` field points
 #: at it, so this clause guards a field nobody has written yet. It is here because
-#: `managed_fields()` derives the console-editable set by SUBTRACTION — `Settings` minus
-#: bootstrap keys minus credential-shaped names — so a future `sarvam_base_url` would be
-#: editable from a web form the day it was declared, with nothing to notice. A text box
-#: that re-points THIS leg is worse than one that re-points Azure's: Sarvam runs the first
-#: post-call extraction over the RAW transcript (`GEMINI_EXTRACTION_DEFAULT is False`), so
-#: the payload is caller PII rather than redacted prose.
+#: `managed_fields()` derives the console-editable set by SUBTRACTION, so a future
+#: `sarvam_base_url` would be editable from a web form the day it was declared, with nothing
+#: to notice. A text box that re-points THIS leg is worse than one that re-points a language
+#: leg: Sarvam runs the first post-call extraction over the RAW transcript
+#: (`GEMINI_EXTRACTION_DEFAULT is False`), so the payload is caller PII rather than redacted
+#: prose.
 #:
-#: WHY IT IS NOT IN `WATCHED_HOSTS`, which is the obvious-looking place and was the wrong
-#: suggestion. That tuple feeds `endpoint_failures`, and every failure clause there names
-#: its OWN host and its own remedy — Azure's builder, the regional form, OpenAI-direct's
-#: disqualification. A host with no clause of its own produces exactly zero findings
-#: there. What adding it WOULD do is widen `SELF_DECLARATIONS`, i.e. grow the set of
-#: strings this file exempts from its own scan, and pull the host into the docs-prose
-#: machinery — cost with no check behind it. One reader, one constant, one clause.
+#: WHY IT IS NOT IN `WATCHED_HOSTS`: that tuple feeds `endpoint_failures`, where every
+#: failure clause names its OWN host and its own remedy, so a host with no clause there
+#: produces exactly zero findings. What adding it WOULD do is widen `SELF_DECLARATIONS` and
+#: pull the host into the docs-prose machinery — cost with no check behind it.
 SETTINGS_ENDPOINT_HOSTS: Final[tuple[str, ...]] = ("api.sarvam.ai",)
 
 
-#: The strings `SELF` is allowed to spell: every watched host, plus the builder suffix it
-#: grants the tree's one exemption FOR. Nothing is a URL and nothing carries a scheme —
-#: see `_host_definition`. Derived, so a watched host this file could not declare would be
-#: this file failing its own check rather than a silent hole.
-SELF_DECLARATIONS: Final[tuple[str, ...]] = (*WATCHED_HOSTS, BUILDER_SUFFIX)
+#: The strings `SELF` is allowed to spell: every watched host, plus each builder suffix it
+#: grants the tree's exemptions FOR. Nothing is a URL and nothing carries a scheme — see
+#: `_host_definition`. Derived, so a watched host this file could not declare would be this
+#: file failing its own check rather than a silent hole.
+SELF_DECLARATIONS: Final[tuple[str, ...]] = (
+    *WATCHED_HOSTS,
+    *sorted({leg.builder_suffix for leg in KNOWN_LEGS if leg.builder_suffix is not None}),
+)
 
 
 def _host_definition(template: str) -> bool:
     """Is this template the DECLARATION of a watched host rather than a use of one?
 
     Exactly the strings in `SELF_DECLARATIONS`, standing alone. `AZURE_HOST_SUFFIX: Final =
-    ".openai.azure.com"` is the name this file watches things BY, and `BUILDER_SUFFIX` is
+    ".openai.azure.com"` is the name this file watches things BY, and each builder suffix is
     the string it permits in `BUILDER_HOME`; judging either would report the watch as the
     violation.
 
-    THE EXEMPTION IS A HANDFUL OF EXACT STRINGS, NOT A FILE — one per watched host plus
-    the builder suffix, and `SELF_DECLARATIONS` derives them so the count follows the
-    posture table rather than a comment. Not one of them has a scheme or a host label in
-    front of it, so none of them is an endpoint — a URL written anywhere in this file is
-    judged like any other file's, which matters because a guardrail is edited by whoever
-    is relaxing the guardrail.
+    THE EXEMPTION IS A HANDFUL OF EXACT STRINGS, NOT A FILE — one per watched host plus one
+    per builder suffix, derived so the count follows the leg table rather than a comment. Not
+    one of them has a scheme or a host label in front of it, so none of them is an endpoint.
 
     Applied ONLY inside `SELF` (see that constant). Tree-wide it would be a real hole —
     `HOST = ".openai.azure.com"` followed by `f"https://x{HOST}/…"` is precisely the
-    runtime-assembly shape "what this check cannot see" already admits to, and exempting
-    the first half by name would turn an admitted blind spot into a supported idiom.
+    runtime-assembly shape "what this check cannot see" already admits to, and exempting the
+    first half by name would turn an admitted blind spot into a supported idiom.
     """
     return template in SELF_DECLARATIONS
 
 
-def _is_builder_suffix(reference: Reference, spec: PostureSpec) -> bool:
-    """The ONE literal in the tree allowed to name an Azure host: the builder's suffix.
+def _is_builder_suffix(reference: Reference, leg: LegSpec) -> bool:
+    """The ONE literal in the tree allowed to name this leg's host: its builder's suffix.
 
-    THREE CONDITIONS, ALL OF THEM, and each one is load bearing. The right FILE, because
-    the exemption is for the constructor and not for the string. The exact STRING, because
-    a suffix that had grown a query parameter or lost `/v1` would be a different endpoint
+    THREE CONDITIONS, ALL OF THEM, and each one is load bearing. The right FILE, because the
+    exemption is for the constructor and not for the string. The exact STRING, because a
+    suffix that had grown a query parameter or lost `/v1` would be a different endpoint
     wearing the exemption. And `Final`, because a rebindable module global is a knob.
+
+    A leg with no builder has no suffix and therefore no exemption at all, which is the
+    zero-literal rule stated as an early `False` rather than as a separate branch.
     """
     return (
-        reference.path == BUILDER_HOME
-        and reference.template == spec.builder_suffix
+        leg.builder_suffix is not None
+        and reference.path == BUILDER_HOME
+        and reference.template == leg.builder_suffix
         and reference.frozen
     )
 
@@ -1060,26 +1092,27 @@ def declared_posture_name(
     if only.path != CONTRACT:
         return None, [
             f"`{DECLARATION_CONSTANT}` is declared in {only.path}, not in {CONTRACT}. The "
-            "declaration belongs in the portability contract beside the builder it governs "
+            "declaration belongs in the portability contract beside the builders it governs "
             "— that is where a reader checking residency looks, and where the runtime reads "
             "it from."
         ]
     return only.template, []
 
 
-def _declared_record(source: str) -> dict[str, object] | None:
-    """The keyword arguments of `DECLARED_POSTURE: Final = ResidencyPosture(...)`.
+def _record_keywords(source: str, constant: str) -> dict[str, object] | None:
+    """The keyword arguments of `<constant>: Final = SomeRecord(...)`.
 
     Constants come back as their VALUES; anything else comes back as its unparsed SOURCE,
     because "the region came from `AZURE_LOCATION`" and "the region came from a literal
     beside it" are the same string to a value check and are not the same fact — the
-    identical argument `_render` makes for f-string holes.
+    identical argument `_render` makes for f-string holes, and the reason a leg's `region`
+    can be compared to the NAME of the constant that must hold it.
     """
     for node in ast.walk(ast.parse(source)):
         if (
             not isinstance(node, ast.AnnAssign)
             or not isinstance(node.target, ast.Name)
-            or node.target.id != POSTURE_RECORD_CONSTANT
+            or node.target.id != constant
             or node.value is None
         ):
             continue
@@ -1097,18 +1130,43 @@ def _declared_record(source: str) -> dict[str, object] | None:
     return None
 
 
+def _tuple_elements(source: str, constant: str) -> list[str] | None:
+    """The unparsed elements of `<constant>: Final = (A, B, C)`.
+
+    SOURCE RATHER THAN VALUES, deliberately: what has to be compared is that the contract
+    names THESE leg constants in THIS order, and resolving them to records would compare the
+    fields twice while proving nothing about which names carry them.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == constant
+            and node.value is not None
+            and _is_final(node.annotation)
+            and isinstance(node.value, ast.Tuple)
+        ):
+            return [ast.unparse(element) for element in node.value.elts]
+    return None
+
+
 def declaration_failures(
-    name: str, record: dict[str, object] | None = None, spec: PostureSpec | None = None
+    name: str,
+    record: dict[str, object] | None = None,
+    spec: PostureSpec | None = None,
+    source: str | None = None,
 ) -> list[str]:
-    """Check 0: the declared name is one this guard knows, and the RECORD built from it says
-    what that posture is supposed to say.
+    """Check 0: the declared name is one this guard knows, the posture RECORD says what that
+    posture is supposed to say, and every LEG it names says what that leg is supposed to say.
 
     THIS IS THE HALF THAT FAILS WHEN THE DECLARATION DRIFTS FROM THE CODE. Checks 1-4 fail
-    when the code drifts from the declaration; this fails when somebody edits the
-    declaration to describe a tree that has not moved — the cheaper and therefore likelier
-    direction, because it is one line. `region=AZURE_LOCATION` under a posture that makes no
-    regional claim, or `llm_provider="azure_openai"` under one that does not run on Azure,
-    is a tree in two states at once and is refused here by name.
+    when the code drifts from the declaration; this fails when somebody edits the declaration
+    to describe a tree that has not moved — the cheaper and therefore likelier direction,
+    because it is one line.
+
+    IT READS SCALARS, WHICH IS WHY EACH LEG IS ITS OWN MODULE `Final` IN THE CONTRACT. An
+    inline tuple of records would arrive here as one opaque source string and this whole
+    check would degrade to string matching against a rendering nobody controls.
     """
     known = POSTURES.get(name) if spec is None else spec
     if known is None:
@@ -1119,11 +1177,8 @@ def declaration_failures(
             "as a name the guard shrugs at. An unknown name is the one input that would let "
             "this whole mechanism be bypassed with a single word."
         ]
-    fields = (
-        _declared_record((REPO_ROOT / CONTRACT).read_text(encoding="utf-8"))
-        if record is None
-        else record
-    )
+    text = (REPO_ROOT / CONTRACT).read_text(encoding="utf-8") if source is None else source
+    fields = _record_keywords(text, POSTURE_RECORD_CONSTANT) if record is None else record
     if fields is None:
         return [
             f"{CONTRACT} declares no `{POSTURE_RECORD_CONSTANT}: Final = ResidencyPosture("
@@ -1131,14 +1186,8 @@ def declaration_failures(
             "what the RUNTIME reads (`agents.service.in_call_llm`, `engine.bind_model`), so "
             "a name with no record beside it is a declaration nothing obeys."
         ]
-    expected: dict[str, object] = {
-        "name": DECLARATION_CONSTANT,
-        "llm_provider": known.llm_provider,
-        "region": known.region_constant,
-        "addresses_a_deployment": known.addresses_a_deployment,
-    }
     failures: list[str] = []
-    for field, want in sorted(expected.items()):
+    for field, want in sorted({"name": DECLARATION_CONSTANT, "legs": LEGS_CONSTANT}.items()):
         got = fields.get(field, "<absent>")
         if got != want:
             failures.append(
@@ -1149,6 +1198,59 @@ def declaration_failures(
                 "entry move with it; if only this line moved, it is a residency change made "
                 "by accident."
             )
+    if record is not None:
+        # A doctored record is a fixture for the two fields above; reading the real leg
+        # constants underneath it would judge a tree the fixture is not describing.
+        return failures
+    return failures + _leg_declaration_failures(known, text)
+
+
+def _leg_declaration_failures(spec: PostureSpec, source: str) -> list[str]:
+    """The leg half of check 0: `DECLARED_LEGS` names these constants in this order, and each
+    one's `PostureLeg(...)` keywords say what the spec requires."""
+    declared = _tuple_elements(source, LEGS_CONSTANT)
+    if declared is None:
+        return [
+            f"{CONTRACT} declares no `{LEGS_CONSTANT}: Final = (...)` this check can read. "
+            "A posture is a name plus a closed set of legs; with no tuple to read, the name "
+            "describes nothing and every per-leg check below has no subject."
+        ]
+    expected_constants = [leg.constant for leg in spec.legs]
+    if declared != expected_constants:
+        return [
+            f"{CONTRACT}'s `{LEGS_CONSTANT}` is {declared}, but posture {spec.name!r} "
+            f"requires {expected_constants} in that order. A leg the declaration adds is a "
+            "vendor this product may send a client's caller's words to; a leg it drops is "
+            "one the tree still builds endpoints for. Both are decision-log changes."
+        ]
+    failures: list[str] = []
+    for leg in spec.legs:
+        fields = _record_keywords(source, leg.constant)
+        if fields is None:
+            failures.append(
+                f"{CONTRACT} declares no `{leg.constant}: Final = PostureLeg(...)` this "
+                f"check can read, though `{LEGS_CONSTANT}` names it. Each leg is its own "
+                "module constant precisely so this comparison reads SCALARS — an inline "
+                "record would arrive as one opaque source string."
+            )
+            continue
+        expected: dict[str, object] = {
+            "provider": leg.provider,
+            "region": leg.region_constant,
+            "region_in_host": leg.region_in_host,
+            "addresses_a_deployment": leg.addresses_a_deployment,
+            "builder": leg.builder,
+            "builder_arity": leg.builder_arity,
+            "permitted_host": leg.permitted_host,
+        }
+        for field, want in sorted(expected.items()):
+            got = fields.get(field, "<absent>")
+            if got != want:
+                failures.append(
+                    f"{CONTRACT}'s `{leg.constant}` declares {field}={got!r} but posture "
+                    f"{spec.name!r} requires {want!r} on the {leg.provider!r} leg. The "
+                    "declaration and the code are in two different postures at once."
+                )
     return failures
 
 
@@ -1159,8 +1261,7 @@ def declared_spec() -> PostureSpec:
     the point: "which posture is this tree in" has no safe default answer, and a guard that
     invented one would enforce a posture nobody declared. `main()` resolves the declaration
     FIRST and returns before any check runs, so in the shipped path this cannot fire; it is
-    reachable only by calling a check directly against a tree whose declaration is broken,
-    which is what `tests/residency_posture_test.py` does to it.
+    reachable only by calling a check directly against a tree whose declaration is broken.
     """
     name, failures = declared_posture_name()
     if name is None or name not in POSTURES:
@@ -1171,19 +1272,17 @@ def declared_spec() -> PostureSpec:
     return POSTURES[name]
 
 
-# --- 1: one spelling of the region --------------------------------------------
+# --- 1: one spelling of each pinned region ------------------------------------
 
 
 def frozen_region_constants(roots: Iterable[Path] | None = None) -> dict[str, tuple[str, str]]:
     """`NAME: Final = "<any region in KNOWN_REGIONS>"` — name to (file, region held).
 
-    IT SCANS FOR EVERY KNOWN REGION AND CARRIES THE ONE IT FOUND, which is D-449's whole
-    widening rather than a convenience. Until the posture moved, "the region" was one
-    string, so a name and a file said everything; a scan for the DECLARED region alone
-    would now report a leftover `AZURE_LOCATION: Final = "southindia"` as no region
-    constant at all, and every check downstream would agree the tree spells its region
-    once. Carrying the value is what lets `single_spelling_failures` say WHICH region is
-    frozen and refuse it against the one the declaration pins.
+    IT SCANS FOR EVERY KNOWN REGION AND CARRIES THE ONE IT FOUND. A scan for the DECLARED
+    regions alone would report a leftover `AZURE_LOCATION: Final = "southindia"` as no region
+    constant at all, and every check downstream would agree the tree spells its regions once.
+    Carrying the value is what lets `single_spelling_failures` say WHICH region is frozen and
+    refuse it against the ones the declaration pins.
     """
     constants: dict[str, tuple[str, str]] = {}
     for path in _files(roots, frozenset({".py"})):
@@ -1205,12 +1304,12 @@ def loose_region_literals(roots: Iterable[Path] | None = None) -> list[str]:
     """Check 1, first half: a bare region literal that is NOT a `Final` constant's value.
 
     The shape this is really aimed at is not a second constant — it is
-    `def __init__(self, location: str = "eastus2")`, a default argument that reads like
-    a pin and is one keyword away from not being one.
+    `def __init__(self, location: str = "eastus2")`, a default argument that reads like a pin
+    and is one keyword away from not being one.
 
-    STATED OVER `KNOWN_REGIONS` RATHER THAN OVER THE DECLARED ONE (D-449), because the
-    loose literal a posture move leaves behind spells the region the tree just left, and a
-    scan for the region it just arrived at would never look at it.
+    STATED OVER `KNOWN_REGIONS` RATHER THAN OVER THE DECLARED ONES, because the loose literal
+    a posture move leaves behind spells the region the tree just left, and a scan for the
+    region it just arrived at would never look at it.
     """
     failures: list[str] = []
     for path in _files(roots, frozenset({".py"})):
@@ -1224,97 +1323,96 @@ def loose_region_literals(roots: Iterable[Path] | None = None) -> list[str]:
             ):
                 failures.append(
                     f"{_rel(path)}:{node.lineno} spells {node.value!r} somewhere other "
-                    "than a `Final` constant's value. D-410 pins the region so it cannot "
-                    "be varied per call site or per caller — reference "
-                    f"`calevate_shared.engine.{REGION_CONSTANT}` instead. This matters "
-                    "MORE than it did under Vertex, not less: the endpoint no longer "
-                    "carries the region, so 'there is one spelling of it' is the whole of "
-                    "what code can still say."
+                    "than a `Final` constant's value. Each leg's region is pinned so it "
+                    "cannot be varied per call site or per caller — reference the constant "
+                    f"that holds it ({sorted(_region_constants())}). On the Azure leg this "
+                    "matters MORE than it did under Vertex, not less: the endpoint no "
+                    "longer carries the region, so 'there is one spelling of it' is the "
+                    "whole of what code can still say."
                 )
     return failures
+
+
+def _region_constants() -> frozenset[str]:
+    """Every constant name any known leg permits to hold a region."""
+    return frozenset(leg.region_constant for leg in KNOWN_LEGS if leg.region_constant is not None)
 
 
 def single_spelling_failures(
     constants: Mapping[str, tuple[str, str]] | None = None, spec: PostureSpec | None = None
 ) -> list[str]:
-    """Check 1, second half: outside this guard, `AZURE_LOCATION` in the portability
-    contract is the ONLY frozen constant holding the region.
+    """Check 1, second half: outside this guard, each declared leg's region constant is the
+    ONLY frozen constant holding that leg's region, and nothing freezes a region no declared
+    leg pins.
 
-    STRICTER THAN THE VERTEX GUARD, WHICH ACCEPTED ANY `Final`, and the strictness is
-    bought by the weakening. When the region appeared in every model URL, a second
-    constant holding the same string was untidy and harmless — checks 2 and 4 read the
-    URLs and would have caught a divergence the moment one was used. There are no such
-    URLs now. A second constant is a second answer to "which region is this product in",
-    with nothing downstream able to notice when the two stop agreeing.
+    STRICTER THAN THE VERTEX GUARD, WHICH ACCEPTED ANY `Final`, and the strictness is bought
+    by the weakening. When the region appeared in every model URL, a second constant holding
+    the same string was untidy and harmless — checks on the URLs would have caught a
+    divergence the moment one was used. On the Azure leg there are no such URLs. A second
+    constant is a second answer to "which region is this product in", with nothing downstream
+    able to notice when the two stop agreeing.
 
-    IT NOW JUDGES THE VALUE AND NOT ONLY THE NAME (D-449). While there was one known
-    region, "a frozen constant named `AZURE_LOCATION`, in the contract" was the whole
-    obligation, because there was nothing else it could be holding. Once a second region is
-    knowable the name proves nothing: `AZURE_LOCATION: Final = "southindia"` under a
-    declaration that says `us-azure-openai` is exactly the tree a half-finished posture move
-    leaves, and it satisfies every name-shaped check ever written here.
+    IT JUDGES THE VALUE AND NOT ONLY THE NAME. `AZURE_LOCATION: Final = "southindia"` under a
+    declaration that says otherwise is exactly the tree a half-finished posture move leaves,
+    and it satisfies every name-shaped check ever written here.
 
-    `SELF` is excluded because this file spells both known regions as its own canaries (see
-    `AZURE_REGION_INDIA`), which is the not-imported doctrine and not a second decision.
+    `SELF` is excluded because this file spells every known region as its own canaries, which
+    is the not-imported doctrine and not a second decision.
     """
     posture = declared_spec() if spec is None else spec
     found = frozen_region_constants() if constants is None else constants
     shipped = {name: where for name, where in found.items() if where[0] != SELF}
-    # THE INVERSION D-432 ADDED, and it is the half that makes the declaration mean
-    # something. Under a posture that PINS a region there must be exactly one frozen
-    # constant spelling it, in the contract. Under a posture that pins NONE there must be
-    # ZERO — a leftover `AZURE_LOCATION` in a tree whose declaration has moved on is a
-    # residency claim the product is no longer making, still sitting in the source a
-    # reader (or an auditor) would check it against.
-    if posture.region_constant is None:
-        if not shipped:
-            return []
-        return [
-            f"posture {posture.name!r} pins no region, but shipped code still "
-            f"freezes one: {sorted(shipped.items())}. A region constant under a posture "
-            "that makes no regional claim is a promise nothing keeps. Delete it, or "
-            "declare the posture that actually holds."
-        ]
-    if shipped == {posture.region_constant: (BUILDER_HOME, posture.region)}:
+    expected = {
+        leg.region_constant: (BUILDER_HOME, leg.region)
+        for leg in posture.legs
+        if leg.region_constant is not None and leg.region is not None
+    }
+    if shipped == expected:
         return []
-    if not shipped:
-        return [
-            f"no shipped module defines `{posture.region_constant}: Final = "
-            f"{posture.region!r}`. The "
-            "region is the one residency fact this tree still states; if it has moved, "
-            f"point `REGION_CONSTANT`/`BUILDER_HOME` at its new home deliberately, "
-            "because every other check here reads it."
-        ]
-    # THE WRONG-REGION ARM IS SEPARATE FROM THE TWO-SPELLINGS ARM ON PURPOSE (D-449). They
-    # are different defects with different fixes and, more to the point, different
-    # consequences: two constants holding the SAME region is a tidiness failure that will
-    # one day become a contradiction, while ONE constant holding a region the declaration
-    # does not pin is the contradiction already — the tree quietly running (or claiming to
-    # run) somewhere the declared posture, the DPA and the operations gates all say it does
-    # not. A message that lumped them together would name neither region, and naming both
-    # is the only way a reader can tell which half of the move was left undone.
-    misplaced = {name: where for name, where in shipped.items() if where[1] != posture.region}
-    if misplaced:
-        return [
-            f"posture {posture.name!r} pins the region {posture.region!r}, but shipped "
-            f"code freezes a different one: "
-            f"{sorted((name, held, home) for name, (home, held) in misplaced.items())}. "
-            "This is what a half-finished posture move looks like — the declaration has "
-            "moved and a constant has not, or the reverse. Whichever it is, the tree is "
-            "asserting two regions at once and only one of them can be where the "
-            "deployment is. Fix it DELIBERATELY: a region constant is not a rename."
-        ]
-    return [
-        f"the region {posture.region!r} is frozen in more than one place, or somewhere "
-        f"other than `{posture.region_constant}` in {BUILDER_HOME}: "
-        f"{sorted(shipped.items())}. D-410 "
-        "permits ONE spelling. Two constants holding the same region is two answers to "
-        "where this product's models run, and — unlike under D-127 — no URL in this tree "
-        "would reveal the day they stop agreeing."
-    ]
+    failures: list[str] = []
+    for constant, want in sorted(expected.items()):
+        got = shipped.get(constant)
+        if got is None:
+            failures.append(
+                f"no shipped module defines `{constant}: Final = {want[1]!r}`. On this leg "
+                "the region is a residency fact this tree states; if it has moved, point "
+                f"the `LegSpec` in {SELF} at its new home deliberately, because every other "
+                "check here reads it."
+            )
+        elif got != want:
+            # THE WRONG-REGION ARM IS SEPARATE FROM THE TWO-SPELLINGS ARM ON PURPOSE. They
+            # are different defects with different fixes and, more to the point, different
+            # consequences: two constants holding the SAME region is a tidiness failure that
+            # will one day become a contradiction, while ONE constant holding a region the
+            # declaration does not pin is the contradiction already.
+            failures.append(
+                f"posture {posture.name!r} pins {want[1]!r} on its {constant} leg, but "
+                f"shipped code freezes {got[1]!r} in {got[0]}. This is what a half-finished "
+                "posture move looks like — the declaration has moved and a constant has "
+                "not, or the reverse. The tree is asserting two regions at once and only "
+                "one of them can be where the deployment is."
+            )
+    stray = {name: where for name, where in shipped.items() if name not in expected}
+    if stray:
+        failures.append(
+            f"posture {posture.name!r} permits region constants {sorted(expected) or 'none'}, "
+            f"but shipped code also freezes {sorted(stray.items())}. A region constant no "
+            "declared leg pins is a promise nothing keeps — either the leg that needs it is "
+            "missing from the declaration, or the constant is a leftover. Delete it, or "
+            "declare the posture that actually holds. (This is also the arm that catches a "
+            "SECOND spelling of a region a leg does pin: `AZURE_REGION_FOR_BILLING` beside "
+            "`AZURE_LOCATION` is two answers to where this product's models run, and — "
+            "unlike under D-127 — no URL in this tree would reveal the day they diverge.)"
+        )
+    # NO CATCH-ALL ARM BELOW, and its absence is deliberate rather than an oversight. The
+    # three arms above are exhaustive over `shipped != expected`: a key expected and absent,
+    # a key expected with a different value, and a key nobody expected. A fourth "something
+    # else is wrong" branch could not be reached by any input, and an unreachable defensive
+    # arm is a suppression the coverage ratchet counts and a reader cannot evaluate.
+    return failures
 
 
-# --- 3: no endpoint outside the one builder -----------------------------------
+# --- 3: no endpoint outside each leg's builder --------------------------------
 
 
 def _labelled_hosts(template: str, suffix: str) -> Iterator[str]:
@@ -1334,17 +1432,17 @@ def _labelled_hosts(template: str, suffix: str) -> Iterator[str]:
 
 
 def _region_ok(token: str, frozen: Mapping[str, tuple[str, str]], region: str | None) -> bool:
-    """Does this label in a REGIONAL hostname name the region the declared posture pins?
+    """Does this label in a hostname name the region the leg pins?
 
-    IT COMPARES THE CONSTANT'S VALUE, NOT MERELY THAT THE NAME IS FROZEN, and since D-449
-    that is a real distinction rather than pedantry: `frozen` now holds every constant
-    spelling any KNOWN region, so `{AZURE_LOCATION}` resolving to a frozen constant says
-    nothing about WHICH region it resolves to. Accepting a name because it is frozen would
-    wave through exactly the leftover-constant tree check 1 exists to refuse.
+    IT COMPARES THE CONSTANT'S VALUE, NOT MERELY THAT THE NAME IS FROZEN, and that is a real
+    distinction rather than pedantry: `frozen` holds every constant spelling any KNOWN
+    region, so `{AZURE_LOCATION}` resolving to a frozen constant says nothing about WHICH
+    region it resolves to. Accepting a name because it is frozen would wave through exactly
+    the leftover-constant tree check 1 exists to refuse.
 
-    `region is None` (a posture making no regional claim) accepts nothing: there is no
-    region for a hostname to be carrying, so a regional hostname under such a posture is a
-    claim the declaration does not make.
+    `region is None` (a leg making no regional claim) accepts nothing: there is no region for
+    a hostname to be carrying, so a regional label under such a leg is a claim the
+    declaration does not make.
     """
     if region is None:
         return False
@@ -1362,14 +1460,11 @@ def endpoint_failures(
     allowances: Mapping[str, DatedAllowance] | None = None,
     spec: PostureSpec | None = None,
 ) -> list[str]:
-    """Check 3 over the literals the scan found, plus the two hosts that are refused outright.
+    """Check 3 over the literals the scan found, plus the host that belongs to no leg.
 
     `frozen` and `allowances` are injectable for the reason
-    `check_redaction_exposure.check`'s exemptions are: a guardrail whose exemptions cannot
-    be taken away in a test is a guardrail nobody can prove still sees anything. `frozen`
-    is unused while `REGIONAL_HOST_ADOPTED` is False and is NOT removed for it — it is the
-    parameter the restored region check reads, and deleting it would make adopting the
-    regional hostname a signature change in four places instead of one flag.
+    `check_redaction_exposure.check`'s exemptions are: a guardrail whose exemptions cannot be
+    taken away in a test is a guardrail nobody can prove still sees anything.
     """
     posture = declared_spec() if spec is None else spec
     constants = frozen_region_constants() if frozen is None else frozen
@@ -1378,45 +1473,15 @@ def endpoint_failures(
 
     for reference in references:
         allowed = permitted.get(reference.path)
-        #: Hosts already reported for THIS literal, so the general clause below cannot
-        #: repeat a refusal one of the specific clauses has already made with its own
-        #: reason. Same discipline as `console_config_failures`' `continue`s.
-        reported: set[str] = set()
 
-        # The OpenAI-direct ban is POSTURE-CONDITIONAL since D-432 and nothing else about
-        # it moved — D-449 did not touch it. Under the declared Azure posture (whichever
-        # region it pins) it is exactly the ban D-410 wrote; this comment used to say
-        # "the declared India posture", which stopped being true when D-449 moved the
-        # declaration to `us-azure-openai` and would have had the next reader believe the
-        # ban was a consequence of the India claim that was withdrawn. It is not: the
-        # ground is that OpenAI direct offers no in-region INFERENCE anywhere, which is a
-        # different sentence from "not in India" and survives the withdrawal.
-        # Under a posture whose permitted host IS `api.openai.com` it would be banning the
-        # endpoint the product runs on — so it stands down there and the single-literal
-        # rule below takes over, which is the same rule Azure gets, not a weaker one.
-        if (
-            posture.permitted_host != OPENAI_DIRECT_HOST
-            and OPENAI_DIRECT_HOST in reference.template
-            and (allowed is None or allowed.host != OPENAI_DIRECT_HOST)
-        ):
-            reported.add(OPENAI_DIRECT_HOST)
-            failures.append(
-                f"{reference} names {OPENAI_DIRECT_HOST} — OpenAI's own API, which D-410 "
-                "DISQUALIFIES on residency. Their India data residency covers storage at "
-                "rest only; inference still runs in the US, and for a phone call the "
-                "transcript IS the inference input. Azure OpenAI's v1 surface is "
-                "OpenAI-compatible, which is exactly why this is one edited base URL away "
-                # THE REMEDY IS THE DECLARED POSTURE'S BUILDER, not Azure's by name. This
-                # clause fires under every posture whose permitted host is not OpenAI's,
-                # `google-direct` included, and it used to end "use azure_openai_base_url()"
-                # unconditionally — pointing a reader at a constructor for a vendor their
-                # declaration has nothing to do with.
-                f"— use {posture.builder}()."
-            )
-
+        # THE HOST THAT BELONGS TO NO LEG. Azure's regional form is not a residency defect —
+        # it is the STRONGER form, and refusing it for the same reason as a hand-built
+        # subdomain URL would teach the next reader that a region in a hostname is somehow
+        # suspect. What makes it a failure today is that one leg ships ONE endpoint form.
         for label in _labelled_hosts(reference.template, AZURE_REGIONAL_HOST_SUFFIX):
             if allowed is not None and allowed.host == AZURE_REGIONAL_HOST_SUFFIX:
                 continue
+            azure = posture.leg("azure_openai")
             if not REGIONAL_HOST_ADOPTED:
                 failures.append(
                     f"{reference} names Azure's REGIONAL host form "
@@ -1424,90 +1489,110 @@ def endpoint_failures(
                     f"custom-subdomain form ({BUILDER}()) and records this one as "
                     "rejected-FOR-NOW: the OpenAI-compatible v1 surface is documented only "
                     "on the custom subdomain. It is not rejected on residency — it would "
-                    "IMPROVE residency by putting the region back in the URL — so the way "
-                    "in is OPERATIONS §2 gate 20d, then the builder, then "
-                    "`REGIONAL_HOST_ADOPTED`, then a decision-log entry. Two endpoint "
-                    "forms at once is two residency postures."
+                    "IMPROVE residency by putting the region back in the URL, which is "
+                    f"exactly what {OPENAI_BUILDER}() already does on its own leg — so the "
+                    "way in is OPERATIONS §2 gate 20d, then the builder, then "
+                    "`REGIONAL_HOST_ADOPTED`, then a decision-log entry. Two endpoint forms "
+                    "at once is two residency stories for one leg."
                 )
                 continue
-            if not _region_ok(label, constants, posture.region):
+            if azure is None:
                 failures.append(
-                    f"{reference} sends model traffic to region {label!r}. Posture "
-                    f"{posture.name!r} permits {posture.region!r} only — literally, or "
+                    f"{reference} names Azure's regional host form, but posture "
+                    f"{posture.name!r} declares no Azure leg at all."
+                )
+                continue
+            if not _region_ok(label, constants, azure.region):
+                failures.append(
+                    f"{reference} sends model traffic to region {label!r}. The Azure leg of "
+                    f"posture {posture.name!r} permits {azure.region!r} only — literally, or "
                     f"through a `Final` constant holding THAT VALUE (known: "
                     f"{sorted(constants) or 'none'}). This is a residency change, not a "
                     "config change."
                 )
 
-        # THE WRONG-VENDOR RULE, stated over EVERY known posture's host rather than over
-        # Azure's. It used to name `AZURE_HOST_SUFFIX` and nothing else, which was right
-        # while Azure was the only host any posture could permit and became a hole the
-        # moment a third vendor got a row: a Gemini endpoint literal under the declared
-        # Azure posture matched no clause at all and fell through to the `continue` below,
-        # so this guard refused a hand-written OpenAI URL and accepted a hand-written
-        # Google one. Two things follow from stating it over `KNOWN_POSTURE_HOSTS`, and
-        # the second is what makes the declaration bite: any vendor the table knows is
-        # refused unless the declaration names it, and under any posture but Azure's the
-        # Azure suffix stops being permitted AT ALL — including in the contract — so a
-        # tree that still builds Azure endpoints cannot quietly wear a declaration saying
-        # it does not.
-        foreign = sorted(
-            host
-            for host in KNOWN_POSTURE_HOSTS - reported - {posture.permitted_host}
-            if host in reference.template and (allowed is None or allowed.host != host)
-        )
-        if foreign:
-            failures.append(
-                f"{reference} names {', '.join(foreign)} — a model host this guard knows "
-                f"as some posture's, and not the DECLARED posture's. {posture.name!r} "
-                f"builds its endpoint with {posture.builder}() and permits only "
-                f"{posture.permitted_host}. Either the tree has not been moved to the "
-                "posture it declares, or the declaration was edited without the tree. "
-                "Both are residency changes; neither is a tidy-up."
-            )
-            continue
-        if posture.permitted_host not in reference.template:
-            continue
-        if _is_builder_suffix(reference, posture):
-            continue
-        if allowed is not None and allowed.host == posture.permitted_host:
-            continue
-        # WHY THE HOSTILE-LABEL SENTENCE IS CONDITIONAL, and why this clause names the
-        # POSTURE's host rather than Azure's. This is the GENERAL single-literal rule —
-        # it fires for whichever host the declared posture permits — but it used to be
-        # written as though that host were always Azure's: it said "builds an Azure
-        # OpenAI endpoint" and illustrated the attack with `AZURE_HOST_SUFFIX`, so under
-        # `openai-direct` or `google-direct` it would have named the wrong vendor and
-        # then shown an example URL from a vendor the tree does not use. Worse, the
-        # attack it describes only EXISTS above arity zero: the danger is a caller-
-        # supplied label interpolated at the FRONT of the authority, and a fixed vendor
-        # endpoint (`builder_arity == 0`) has no caller input to interpolate. Printing it
-        # anyway would teach the reader that this guard's explanations are boilerplate.
-        if posture.builder_arity:
-            hostile = (
-                " This is not tidiness: the caller-supplied label lands at the FRONT of "
-                "the authority, so a hand-written f-string is where "
-                f"`https://evil.example/x{posture.permitted_host}` comes from, and the "
-                "builder is the only thing that refuses it."
-            )
-        else:
-            hostile = (
-                f" {posture.builder}() takes no caller input, so there is no hostile "
-                "label to refuse here — what a second literal costs is that the endpoint "
-                "stops having one definition to read."
-            )
-        failures.append(
-            f"{reference} builds a {posture.name} model endpoint by hand. Exactly ONE "
-            f"literal in this tree may name {posture.permitted_host} — the `Final` suffix "
-            f"{posture.builder_suffix!r} in {BUILDER_HOME}, which {posture.builder}() "
-            "assembles — and every other caller goes through that function."
-            + hostile
-            + " It is also "
-            "what check 4 rests on — a second constructor is a constructor nothing here "
-            "has read."
-        )
+        # THE PER-LEG RULES. Every watched host in this literal is either some DECLARED leg's
+        # — in which case that leg's own budget applies — or it belongs to no declared leg,
+        # which is the wrong-vendor refusal.
+        for host in sorted(KNOWN_POSTURE_HOSTS):
+            if host not in reference.template:
+                continue
+            if allowed is not None and allowed.host == host:
+                continue
+            leg = next((one for one in posture.legs if one.permitted_host == host), None)
+            if leg is None:
+                failures.append(
+                    f"{reference} names {host} — a model host this guard knows as some "
+                    f"leg's, and not one posture {posture.name!r} declares (it declares "
+                    f"{sorted(posture.permitted_hosts)}). Either the tree has not been "
+                    "moved to the posture it declares, or the declaration was edited "
+                    "without the tree. Both are residency changes; neither is a tidy-up."
+                )
+                continue
+            failures.extend(_leg_literal_failures(reference, leg, constants))
 
     return failures
+
+
+def _leg_literal_failures(
+    reference: Reference, leg: LegSpec, constants: Mapping[str, tuple[str, str]]
+) -> list[str]:
+    """What ONE declared leg permits a literal naming its host to be.
+
+    Three outcomes, and the first is the only quiet one: the builder's own frozen suffix in
+    `BUILDER_HOME`; a leg with NO builder, where the budget is zero and every literal is a
+    failure; and everything else, which is an endpoint built by hand.
+    """
+    if _is_builder_suffix(reference, leg):
+        return []
+    if leg.builder is None:
+        # THE ZERO-LITERAL RULE, WHICH IS STRONGER THAN EVERY OTHER LEG'S. It reads as an
+        # absence and is the opposite: this leg takes no base URL from us, so a literal
+        # naming its host is not a second constructor, it is a first one — for an endpoint
+        # the engine would never read.
+        return [
+            f"{reference} names {leg.permitted_host}, and the {leg.provider!r} leg permits "
+            "ZERO literals naming its host anywhere in this tree — including in "
+            f"{BUILDER_HOME}. It has no builder because the engine builds its own client "
+            "from a single API key and never reads a base URL of ours, so this string "
+            "cannot be an endpoint anybody sends: it is either dead configuration or a "
+            "second, undeclared way to reach the vendor. If this leg is meant to take an "
+            f"endpoint, that is a `builder` and a `builder_suffix` in the `LegSpec` in "
+            f"{SELF}, in the contract, and a decision-log entry — together."
+        ]
+    if leg.region_in_host and not any(
+        _region_ok(label.removesuffix("."), constants, leg.region)
+        for label in _labelled_hosts(reference.template, leg.permitted_host)
+    ):
+        # A LITERAL ON A REGION-PINNING LEG THAT DOES NOT CARRY THE REGION. On this leg the
+        # difference between the pinned endpoint and the vendor's GLOBAL one is a label, and
+        # the global one makes no regional claim at all — so it earns its own sentence rather
+        # than being lumped in with "built by hand".
+        return [
+            f"{reference} names {leg.permitted_host} without the {leg.region!r} residency "
+            f"label in front of it. On the {leg.provider!r} leg that is the vendor's GLOBAL "
+            "endpoint — inference wherever they have capacity, which is not a regional "
+            f"claim — and it is one label away from the pinned one. {leg.builder}() is the "
+            f"only thing that spells it, from `{leg.region_constant}`."
+        ]
+    hostile = (
+        " This is not tidiness: the caller-supplied label lands at the FRONT of the "
+        f"authority, so a hand-written f-string is where `https://evil.example/x"
+        f"{leg.permitted_host}` comes from, and the builder is the only thing that refuses it."
+        if leg.builder_arity
+        else (
+            f" {leg.builder}() takes no caller input, so there is no hostile label to refuse "
+            "here — what a second literal costs is that the endpoint stops having one "
+            "definition to read."
+        )
+    )
+    return [
+        f"{reference} builds a {leg.provider} model endpoint by hand. Exactly ONE literal in "
+        f"this tree may name {leg.permitted_host} — the `Final` suffix "
+        f"{leg.builder_suffix!r} in {BUILDER_HOME}, which {leg.builder}() assembles — and "
+        "every other caller goes through that function." + hostile + " It is also what "
+        "check 4 rests on — a second constructor is a constructor nothing here has read."
+    ]
 
 
 def stale_allowances(
@@ -1561,19 +1646,16 @@ def console_config_failures(
     bootstrap keys minus credential-shaped names) — a new field is managed by default, so
     a check that read only the derived set would be reporting on a symptom.
 
-    THIS IS THE CHECK D-410 DID NOT WEAKEN, and it is worth knowing that while reading the
-    rest of this file. It never depended on the region appearing in a URL; it depends on
-    the region having nowhere console-editable to live, which is as true of Azure as it
-    was of Vertex.
+    THIS IS THE CHECK D-410 DID NOT WEAKEN. It never depended on the region appearing in a
+    URL; it depends on the region having nowhere console-editable to live, which is as true
+    of three legs as it was of one.
 
     **IT IS ALSO THE CLAUSE THE CLIENT DPA POINTS AT.** `apps/web/src/lib/legal/dpa.ts`
     warrants that "no configuration setting may carry a region, an endpoint or a posture";
-    the region and posture halves have always been vendor-neutral (`REGION_KNOB_FRAGMENTS`
-    names no vendor), and the endpoint half was Azure-only until it was stated over
-    `KNOWN_VENDOR_TOKENS`. That asymmetry meant the warranty's middle term stopped being
-    enforced for any vendor the tree had not yet moved to — and, worse, for the vendor it
-    had just moved off, which is the field a half-finished migration actually leaves
-    behind. It is deliberately NOT stated over the DECLARED posture alone for that reason.
+    the region and posture halves have always been vendor-neutral, and the endpoint half is
+    stated over `KNOWN_VENDOR_TOKENS` — deliberately NOT over the declared legs alone,
+    because the field a half-finished migration leaves behind names the vendor the tree has
+    just left.
     """
     posture = declared_spec() if spec is None else spec
     if fields is None or managed is None:
@@ -1581,27 +1663,23 @@ def console_config_failures(
         fields = live_fields if fields is None else fields
         managed = live_managed if managed is None else managed
     editable = set(managed)
+    pinning = [leg for leg in posture.legs if leg.region_constant is not None]
     failures: list[str] = []
     for name, default in sorted(fields.items()):
         lowered = name.lower()
         where = "console-editable" if name in editable else "declared"
         if any(fragment in lowered for fragment in REGION_KNOB_FRAGMENTS):
-            # THE REMEDY IS THE DECLARED POSTURE'S, not always Azure's. The rule itself
-            # has never had a vendor (`REGION_KNOB_FRAGMENTS` names none), but this
-            # sentence used to send every reader to `AZURE_LOCATION` by name — so under a
-            # posture that pins no region at all (`region_constant is None`) it would
-            # have told them to move the field into a constant whose whole point is that
-            # such a posture must NOT have one, which is the opposite instruction.
             remedy = (
-                f"the region is a frozen constant (`{posture.region_constant}`) precisely "
-                "so it cannot be changed from a web form at 3am — the same rule D-95 §4 "
-                "applies to APP_ENV. Move it to a `Final` constant in code."
-                if posture.region_constant is not None
+                "each leg's region is a frozen constant "
+                f"({sorted(leg.region_constant for leg in pinning)}) precisely so it cannot "
+                "be changed from a web form at 3am — the same rule D-95 §4 applies to "
+                "APP_ENV. Move it to a `Final` constant in code."
+                if pinning
                 else (
-                    f"posture {posture.name!r} pins NO region, so there is no constant to "
-                    "move this into — the field should not exist. A console knob naming a "
-                    "region under a posture that makes no regional claim is a promise the "
-                    "declaration does not make."
+                    f"posture {posture.name!r} pins NO region on any leg, so there is no "
+                    "constant to move this into — the field should not exist. A console "
+                    "knob naming a region under a posture that makes no regional claim is a "
+                    "promise the declaration does not make."
                 )
             )
             failures.append(
@@ -1612,7 +1690,11 @@ def console_config_failures(
         word = next((fragment for fragment in ENDPOINT_KNOB_WORDS if fragment in lowered), None)
         if vendor is not None and word is not None:
             builders = sorted(
-                {spec.builder for spec in POSTURES.values() if vendor in spec.vendor_tokens}
+                {
+                    leg.builder or "no builder at all — that leg takes no base URL"
+                    for leg in KNOWN_LEGS
+                    if vendor in leg.vendor_tokens
+                }
             )
             failures.append(
                 f"Settings.{name} is {where} and its name pairs the model vendor "
@@ -1622,18 +1704,16 @@ def console_config_failures(
                 "field beside it is a second one — check 3 exists to make sure there is "
                 "only ever the one. Store the vendor's ACCOUNT-shaped inputs (a resource "
                 "id, a key, a deployment name) and let the builder assemble the URL. "
-                "THE VENDOR DOES NOT HAVE TO BE THE DECLARED ONE and this is checked "
-                f"against every posture's ({sorted(KNOWN_VENDOR_TOKENS)}): the field a "
+                "THE VENDOR DOES NOT HAVE TO BE A DECLARED ONE and this is checked "
+                f"against every known leg's ({sorted(KNOWN_VENDOR_TOKENS)}): the field a "
                 "half-finished posture move leaves behind names the vendor the tree just "
-                "LEFT, so a check that knew only the declared vendor would be blind to "
+                "LEFT, so a check that knew only the declared vendors would be blind to "
                 "exactly the case it exists for."
             )
             continue
         if isinstance(default, str) and any(host in default for host in SETTINGS_ENDPOINT_HOSTS):
             # BEFORE the watched-host clause and with its own `continue`, so the two never
-            # report one field twice. See `SETTINGS_ENDPOINT_HOSTS` for why this host is
-            # deliberately absent from `WATCHED_HOSTS` and therefore from every other
-            # check in this file.
+            # report one field twice.
             failures.append(
                 f"Settings.{name} defaults to a model endpoint ({default!r}) on the leg "
                 "that reads the RAW transcript. `managed_fields()` derives the "
@@ -1652,7 +1732,7 @@ def console_config_failures(
     return failures
 
 
-# --- 4: the builder cannot emit a region other than the declared one ----------
+# --- 4: no builder can emit a region other than its leg's ---------------------
 
 
 def _is_pattern_guarded_raise(node: ast.AST, arguments: set[str]) -> bool:
@@ -1664,9 +1744,7 @@ def _is_pattern_guarded_raise(node: ast.AST, arguments: set[str]) -> bool:
     check. Both contain an `ast.Raise`, so the coarse check passes either, and the
     difference is the whole security property.
 
-    It still cannot prove the predicate can FIRE — see `builder_failures`. It is aimed at
-    the realistic regression (somebody simplifies the guard) rather than at a contrived
-    one, and the runtime test named there is what covers the rest.
+    It still cannot prove the predicate can FIRE — see `leg_builder_failures`.
     """
     if not isinstance(node, ast.If):
         return False
@@ -1686,72 +1764,80 @@ def _is_pattern_guarded_raise(node: ast.AST, arguments: set[str]) -> bool:
     return False
 
 
-def builder_failures(source: str | None = None, spec: PostureSpec | None = None) -> list[str]:
-    """Check 4, read off `azure_openai_base_url` itself.
+def _resolve_holes(template: str, values: Mapping[str, str], keep: Iterable[str]) -> str:
+    """Substitute `{NAME}` holes with the `Final` values they name, EXCEPT the ones in `keep`.
 
-    THE CHECK THAT REPLACED "the region in the URL is Mumbai", and it answers a different
-    question because Azure only permits a different question. There is no region in the URL
-    to judge, so what is judged is that **there is no region INPUT**: one parameter, not
-    region-shaped, interpolated with nothing but module `Final`s, and refused unless it is
-    a single DNS label. A builder shaped like that has no OTHER region to emit, which
-    is a structural argument rather than an evidential one — and saying which of the two
-    you have is the whole point of this file's rewrite.
-
-    THE WORDING USED TO NAME INDIA, AND THAT WAS A LATENT FALSEHOOD RATHER THAN A TYPO.
-    Check 4 never proved anything about a COUNTRY: it proves the builder admits no region
-    input, so whatever region the declared posture pins is the only one constructible.
-    D-449 moved the declared region from `southindia` to `eastus2` and this function needed
-    no edit — which is the proof the property was always singularity. The prose survived
-    the move naming a country the tree had left, so a reader checking whether the guard
-    still meant what it said would have found it asserting the opposite of the posture.
-
-    THE DNS-LABEL REFUSAL IS PART OF CHECK 4 AND NOT A SEPARATE CONCERN. `VERTEX_LOCATION`
-    sat at the FRONT of its host, so whatever a caller interpolated after it landed in a
-    PATH and the host stayed Google's. Azure's custom subdomain puts the CALLER'S value at
-    the very front of the authority, so a builder that interpolated freely would let
-    `resource = "evil.example/x"` produce a URL whose host is somebody else's and whose
-    tail merely reads like Azure — a region change and a vendor change in one string.
-
-    ⚠ **THIS IS A SHAPE CHECK AND IT CANNOT PROVE THE REFUSAL IS EFFECTIVE**, which was
-    learned by sabotaging it rather than by reasoning about it. It asserts that a `raise`
-    exists and that it is guarded by a pattern match on the argument; a guard rewritten to
-    `if False and not _RE.fullmatch(resource)` keeps both and refuses nothing, and no
-    amount of AST reading distinguishes a predicate that can fire from one that cannot.
-    THE BEHAVIOUR IS PROVED ELSEWHERE AND DELIBERATELY: `tests/in_call_llm_provider_test
-    .py::test_a_resource_that_is_not_one_dns_label_is_refused_rather_than_interpolated`
-    CALLS the builder with the attack strings and requires a `ValueError`. Between the two
-    there is a static check on the shape and a runtime check on the effect, which is the
-    same split `ModelConfig._llm_endpoint_is_coherent` and this whole file already make.
-
-    `source` is injectable so the negative controls can hand it a builder that has grown a
-    `location=` parameter, which the real file cannot be made to do without editing it.
+    THE EXCEPTION IS THE WHOLE POINT. A builder's return template is
+    `https://{OPENAI_DATA_RESIDENCY}{_OPENAI_ENDPOINT_SUFFIX}` — the hostname is inside the
+    second constant, so nothing can be read off the template until it is resolved, and
+    resolving BOTH would yield `https://us.api.openai.com/v1`, which proves the string and
+    loses the provenance. Keeping the region hole unresolved leaves
+    `https://{OPENAI_DATA_RESIDENCY}.api.openai.com/v1`, where `_region_ok` can do what it
+    was written for: check that the label came from the constant that must hold it.
     """
+    protected = set(keep)
+    resolved = template
+    for name, value in values.items():
+        if name in protected:
+            continue
+        resolved = resolved.replace("{" + name + "}", value)
+    return resolved
+
+
+def builder_failures(source: str | None = None, spec: PostureSpec | None = None) -> list[str]:
+    """Check 4 over every declared leg that has a builder."""
     posture = declared_spec() if spec is None else spec
     text = (REPO_ROOT / BUILDER_HOME).read_text(encoding="utf-8") if source is None else source
-    tree = ast.parse(text)
-    frozen_names = {
-        node.target.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and _is_final(node.annotation)
-    }
+    return [failure for leg in posture.legs for failure in leg_builder_failures(leg, text)]
+
+
+def leg_builder_failures(leg: LegSpec, source: str) -> list[str]:
+    """Check 4, read off ONE leg's builder.
+
+    THE CHECK THAT REPLACED "the region in the URL is Mumbai", and on two of the three legs it
+    answers a different question because those vendors only permit a different question. Where
+    the region is not in the URL, what is judged is that there is no region INPUT: the arity
+    the leg permits, no region-shaped parameter, interpolation of nothing but that argument
+    and module `Final`s, and a refusal of anything that is not a single DNS label. A builder
+    shaped like that has no OTHER region to emit — a structural argument rather than an
+    evidential one, and saying which of the two you have is the whole point of this file.
+
+    **WHERE THE REGION *IS* IN THE URL, THE EVIDENTIAL ANSWER IS BACK.** On a leg with
+    `region_in_host`, this reads the label immediately before the permitted host out of the
+    builder's own return template and requires it to be the `Final` holding that leg's
+    region. That is the check D-127 had and D-410 lost, running again — on the OpenAI leg
+    today, and on the Azure leg the day gate 20d flips `REGIONAL_HOST_ADOPTED`.
+
+    ⚠ **THE DNS-LABEL HALF IS A SHAPE CHECK AND CANNOT PROVE THE REFUSAL IS EFFECTIVE**,
+    which was learned by sabotaging it rather than by reasoning about it. A guard rewritten to
+    `if False and not _RE.fullmatch(resource)` keeps the raise and the pattern call and
+    refuses nothing. THE BEHAVIOUR IS PROVED ELSEWHERE AND DELIBERATELY:
+    `tests/in_call_llm_provider_test.py` CALLS the builder with the attack strings and
+    requires a `ValueError`.
+    """
+    if leg.builder is None:
+        # A LEG WITH NO BUILDER HAS NOTHING FOR THIS CHECK TO READ, and that is not a gap:
+        # its whole obligation is the zero-literal rule in check 3. Demanding a function here
+        # would be demanding an endpoint the engine would never read.
+        return []
+    tree = ast.parse(source)
+    frozen_values = _frozen_strings(tree)
+    frozen_names = set(frozen_values)
     builder = next(
         (
             node
             for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == posture.builder
+            if isinstance(node, ast.FunctionDef) and node.name == leg.builder
         ),
         None,
     )
     if builder is None:
         return [
-            f"{BUILDER_HOME} defines no `{posture.builder}()`. It is the ONE constructor "
-            f"posture {posture.name!r} permits for a model endpoint, and the thing "
-            "check 3's single exemption is granted "
-            "for; if it has been renamed or moved, this file has to be pointed at it "
-            "deliberately, because a guard that cannot find its subject has verified "
-            "nothing."
+            f"{BUILDER_HOME} defines no `{leg.builder}()`. It is the ONE constructor the "
+            f"{leg.provider!r} leg permits for a model endpoint, and the thing check 3's "
+            "single exemption is granted for; if it has been renamed or moved, this file "
+            "has to be pointed at it deliberately, because a guard that cannot find its "
+            "subject has verified nothing."
         ]
 
     failures: list[str] = []
@@ -1762,83 +1848,68 @@ def builder_failures(source: str | None = None, spec: PostureSpec | None = None)
         extra.append(f"*{arguments.vararg.arg}")
     if arguments.kwarg is not None:
         extra.append(f"**{arguments.kwarg.arg}")
-    if len(positional) != posture.builder_arity or extra:
+    if len(positional) != leg.builder_arity or extra:
         failures.append(
-            f"{posture.builder}() takes {positional + extra} — the declared posture "
-            f"permits exactly {posture.builder_arity}. Every extra parameter is a way for a "
-            "caller to vary the "
-            "endpoint, and the endpoint is the only thing standing between our "
+            f"{leg.builder}() takes {positional + extra} — the {leg.provider!r} leg permits "
+            f"exactly {leg.builder_arity}. Every extra parameter is a way for a caller to "
+            "vary the endpoint, and the endpoint is the only thing standing between our "
             "configuration and where a third party sends a client's caller's words."
         )
     for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs):
         if any(fragment in argument.arg.lower() for fragment in REGION_KNOB_FRAGMENTS):
-            # WHY THE SECOND HALF IS POSTURE-CONDITIONAL. The refusal itself is universal —
-            # no posture's builder may take a region — but the REASON differs, and the
-            # message used to give only one of them: "`AZURE_LOCATION` cannot be the only
-            # spelling of the region". Under a posture that pins no region there is no such
-            # constant and nothing for the parameter to be a second spelling OF; the
-            # objection there is that the parameter asserts a regional control the
-            # declaration says does not exist.
             why = (
-                f"because `{posture.region_constant}` cannot be the only spelling of the "
-                "region if a caller can pass another one. This vendor's endpoint has "
-                "nowhere to put a region anyway; a parameter that changed nothing would be "
-                "worse than its absence."
-                if posture.region_constant is not None
+                f"because `{leg.region_constant}` cannot be the only spelling of the region "
+                "if a caller can pass another one."
+                if leg.region_constant is not None
                 else (
-                    f"because posture {posture.name!r} pins NO region — a region parameter "
-                    "here would be a residency control the declaration says does not "
-                    "exist, which is worse than a wrong one because it reads as reassuring."
+                    f"because the {leg.provider!r} leg pins NO region — a region parameter "
+                    "here would be a residency control the declaration says does not exist, "
+                    "which is worse than a wrong one because it reads as reassuring."
                 )
             )
             failures.append(
-                f"{posture.builder}() takes a parameter named {argument.arg!r}. The builder "
-                "must have NO region input at all — that absence is the whole of check 4, " + why
+                f"{leg.builder}() takes a parameter named {argument.arg!r}. A builder must "
+                "have NO region input at all — that absence is the structural half of check "
+                "4, " + why
             )
 
-    # THE DNS-LABEL REFUSAL IS REQUIRED ONLY WHERE THERE IS A CALLER INPUT TO REFUSE.
-    # It exists because Azure puts the caller's resource at the FRONT of the authority; a
-    # posture whose builder takes no argument has no hostile label to interpolate, and
-    # demanding a raise there would be a check with no failure mode.
-    if posture.builder_arity and not any(isinstance(node, ast.Raise) for node in ast.walk(builder)):
+    # THE DNS-LABEL REFUSAL IS REQUIRED ONLY WHERE THERE IS A CALLER INPUT TO REFUSE. It
+    # exists because Azure puts the caller's resource at the FRONT of the authority; a leg
+    # whose builder takes no argument has no hostile label to interpolate, and demanding a
+    # raise there would be a check with no failure mode.
+    if leg.builder_arity and not any(isinstance(node, ast.Raise) for node in ast.walk(builder)):
         failures.append(
-            f"{posture.builder}() never raises. It must REFUSE a resource that is not a "
-            "single DNS "
-            "label rather than interpolate it: the resource lands at the front of the "
-            # The example is built from the POSTURE's host. Only Azure has arity above
-            # zero today, so this reads identically — but the clause is guarded by arity
-            # rather than by vendor, so the day a second posture takes a caller argument
-            # the illustration would otherwise name the wrong vendor's domain.
-            f"authority, so `https://evil.example/x{posture.permitted_host}` is a URL "
-            "whose HOST is an attacker's and whose tail merely reads like ours."
+            f"{leg.builder}() never raises. It must REFUSE a value that is not a single DNS "
+            "label rather than interpolate it: it lands at the front of the authority, so "
+            f"`https://evil.example/x{leg.permitted_host}` is a URL whose HOST is an "
+            "attacker's and whose tail merely reads like ours."
         )
-    elif posture.builder_arity and not any(
+    elif leg.builder_arity and not any(
         _is_pattern_guarded_raise(node, set(positional)) for node in ast.walk(builder)
     ):
         failures.append(
-            f"{posture.builder}() raises, but not behind a pattern match on {positional}. A "
-            "refusal "
-            "conditioned on emptiness or on `None` accepts `evil.example/x`, which is the "
-            "only input that matters — the resource becomes the first label of the "
+            f"{leg.builder}() raises, but not behind a pattern match on {positional}. A "
+            "refusal conditioned on emptiness or on `None` accepts `evil.example/x`, which "
+            "is the only input that matters — the value becomes the first label of the "
             "hostname, so what has to be checked is its SHAPE, against a regex, not its "
-            "presence. (This check reads the shape and cannot prove the predicate can "
-            "fire; `tests/in_call_llm_provider_test.py` calls the builder with the attack "
-            "strings and is what proves that.)"
+            "presence. (This check reads the shape and cannot prove the predicate can fire; "
+            "`tests/in_call_llm_provider_test.py` calls the builder with the attack strings "
+            "and is what proves that.)"
         )
 
     returns = [node for node in ast.walk(builder) if isinstance(node, ast.Return)]
     if not returns:
-        failures.append(f"{posture.builder}() returns nothing this check can read.")
+        failures.append(f"{leg.builder}() returns nothing this check can read.")
     permitted_holes = set(positional) | frozen_names
     for statement in returns:
         value = statement.value
         if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            failures.extend(_region_in_host_failures(leg, value.value, frozen_values, statement))
             continue
         if not isinstance(value, ast.JoinedStr):
             failures.append(
-                f"{posture.builder}() line {statement.lineno} returns an expression that is "
-                "not a "
-                "string template, so this check cannot tell what URL it produces. Build "
+                f"{leg.builder}() line {statement.lineno} returns an expression that is not "
+                "a string template, so this check cannot tell what URL it produces. Build "
                 "the endpoint as one f-string over the argument and module `Final`s — a "
                 "constructor whose output is unreadable from the AST is a constructor "
                 "check 3's exemption cannot be granted for."
@@ -1850,14 +1921,44 @@ def builder_failures(source: str | None = None, spec: PostureSpec | None = None)
             hole = ast.unparse(piece.value)
             if hole not in permitted_holes:
                 failures.append(
-                    f"{posture.builder}() line {statement.lineno} interpolates {hole!r} "
-                    "into the "
-                    f"endpoint. Only the resource argument and module-level `Final`s may "
+                    f"{leg.builder}() line {statement.lineno} interpolates {hole!r} into "
+                    f"the endpoint. Only the argument(s) and module-level `Final`s may "
                     f"appear (known: {sorted(permitted_holes)}). Anything else is a value "
                     "computed at runtime, which is exactly the shape this file says under "
                     "'what this check cannot see' that it is blind to."
                 )
+        failures.extend(_region_in_host_failures(leg, _render(value), frozen_values, statement))
     return failures
+
+
+def _region_in_host_failures(
+    leg: LegSpec,
+    template: str,
+    frozen_values: Mapping[str, str],
+    statement: ast.Return,
+) -> list[str]:
+    """THE PRIZE: on a leg whose region is in the authority, prove it from the builder.
+
+    Everything else in check 4 argues that a builder has no OTHER region to emit. This
+    READS the region it does emit, off the label in front of the host, and requires it to
+    have come from the constant that holds it. It is the only evidential residency check
+    left in this tree, and the reason the OpenAI leg owes no human attestation.
+    """
+    if not leg.region_in_host or leg.region_constant is None:
+        return []
+    resolved = _resolve_holes(template, frozen_values, keep=(leg.region_constant,))
+    labels = [label.removesuffix(".") for label in _labelled_hosts(resolved, leg.permitted_host)]
+    constants = {leg.region_constant: (BUILDER_HOME, frozen_values.get(leg.region_constant, ""))}
+    if labels and all(_region_ok(label, constants, leg.region) for label in labels):
+        return []
+    return [
+        f"{leg.builder}() line {statement.lineno} emits {resolved!r}, which does not carry "
+        f"the {leg.region!r} residency label in front of {leg.permitted_host}. This leg was "
+        "adopted BECAUSE its region is in the authority where a build can read it — an "
+        "endpoint without the label is the vendor's GLOBAL surface, which routes wherever "
+        f"they have capacity. The label must be `{leg.region_constant}`, whose value is "
+        f"{frozen_values.get(leg.region_constant, '<not a Final in this file>')!r}."
+    ]
 
 
 # --- 5: the check can still see -----------------------------------------------
@@ -1875,21 +1976,17 @@ def blindness_failures(
     spec: PostureSpec | None = None,
 ) -> list[str]:
     posture = declared_spec() if spec is None else spec
+    found = list(references)
     failures: list[str] = []
     if templates < MINIMUM_TEMPLATES:
         failures.append(
             f"the AST walk found only {templates} string templates across {SCANNED_TREES} "
             "— it is blind. Fix the scan rather than lowering MINIMUM_TEMPLATES."
         )
-    # THE PARSE CANARY IS NOW ONE PROBE PER KNOWN REGION (D-449), which is strictly stronger
-    # than the single `AZURE_REGION` probe it replaces AND keeps working where that one
-    # would have gone dark. This file defines a `Final` for every region in `KNOWN_REGIONS`,
-    # so every one of them must come back from the scan of `SELF`; a scan that found the
-    # declared region and missed the withdrawn one is precisely the half-blind scan that
-    # would report a leftover constant as absent. The old probe also had a failure of its
-    # own: under a posture pinning NO region it asserted a constant this file might not
-    # define, so it could only ever be right for as long as the declared posture pinned
-    # something.
+    # THE PARSE CANARY IS ONE PROBE PER KNOWN REGION. This file defines a `Final` for every
+    # region in `KNOWN_REGIONS`, so every one of them must come back from the scan of `SELF`;
+    # a scan that found the declared regions and missed the withdrawn one is precisely the
+    # half-blind scan that would report a leftover constant as absent.
     unseen = sorted(
         region
         for region in KNOWN_REGIONS
@@ -1904,107 +2001,230 @@ def blindness_failures(
             "which checks 1 and 3 silently accept nothing and reject everything, or the "
             "reverse. Fix `frozen_region_constants`."
         )
-    # The SUBJECT canary is posture-conditional: under a posture that pins no region
-    # there is no region constant to find, and its ABSENCE is what
-    # `single_spelling_failures` requires instead. Asserting presence unconditionally
-    # would make the guard demand a residency claim the declaration does not make.
-    if posture.region_constant is not None and posture.region_constant not in constants:
+    # The SUBJECT canary is per-leg: a leg that pins no region has no constant to find, and
+    # its ABSENCE is what `single_spelling_failures` requires instead.
+    absent = sorted(
+        leg.region_constant
+        for leg in posture.legs
+        if leg.region_constant is not None and leg.region_constant not in constants
+    )
+    if absent:
         failures.append(
-            f"the scan cannot find `{posture.region_constant}: Final` in shipped code. That "
-            "is the "
-            "SUBJECT canary rather than the parse canary: the KNOWN_REGIONS probe above "
-            "proves this "
+            f"the scan cannot find {absent} as `Final` in shipped code. That is the SUBJECT "
+            "canary rather than the parse canary: the KNOWN_REGIONS probe above proves this "
             "file can still read a `Final`, and this proves there is still a residency "
             "decision in the tree for it to be reading."
         )
-    if not list(references):
-        # NAMED FROM THE POSTURE, not from Azure. This is the third canary — the scan
-        # found no model-host literal at all — and it fires under whichever posture is
-        # declared, so hard-coding "an Azure OpenAI host" here would have told a reader
-        # under `openai-direct` or `google-direct` to go looking for a vendor their tree
-        # does not use, while the real cause (the scan stopped reading files) went
-        # unnamed. Same defect class as the general clause in `endpoint_failures`.
-        failures.append(
-            f"no literal anywhere in the tree mentions {posture.permitted_host}, the host "
-            f"posture {posture.name!r} permits — not even the builder's own `Final` suffix "
-            f"({posture.builder_suffix!r}) in {BUILDER_HOME}. Either the scan stopped "
-            f"reading files, or {posture.builder}(), the one constructor this check is "
-            "built around, has gone."
-        )
+    # THE REFERENCE CANARY IS PER LEG WITH A BUILDER, and it cannot be stated over legs
+    # without one: the Google leg's whole rule is that NO literal names its host, so
+    # demanding a reference for it would demand the violation.
+    for leg in posture.legs:
+        if leg.builder is None:
+            continue
+        if not any(leg.permitted_host in reference.template for reference in found):
+            failures.append(
+                f"no literal anywhere in the tree mentions {leg.permitted_host}, the host "
+                f"the {leg.provider!r} leg permits — not even the builder's own `Final` "
+                f"suffix ({leg.builder_suffix!r}) in {BUILDER_HOME}. Either the scan stopped "
+                f"reading files, or {leg.builder}(), the one constructor that leg is built "
+                "around, has gone."
+            )
     return failures
 
 
 # --- 6: the half a human owns is written down ---------------------------------
 
 
-#: Where the two facts this file cannot prove are owned. Named as data because
+#: Where the facts this file cannot prove are owned. Named as data because
 #: `delegation_failures` reads it and `main()` prints it, and a delegation stated in two
 #: places is one that will eventually name two different gates.
 OPERATIONS_DOC: Final = "docs/OPERATIONS.md"
 
 
 def delegated_notice(spec: PostureSpec) -> str:
-    """What a green run of this check does NOT cover, in the DECLARED posture's own region.
+    """What a green run of this check does NOT cover, leg by leg.
 
-    A FUNCTION SINCE D-449, and it had to become one: it names the region, and the region
-    is a property of the posture rather than of this file. As a module `Final` it read the
-    one region that was hard-wired, so under any other declaration it would have printed
-    the wrong region under a green result — a guard telling a reader the opposite of what
-    it had just verified, in the one paragraph a reader relies on for what was NOT verified.
+    IT SAYS THE WITHDRAWAL OUT LOUD. Anyone who has read the pre-D-449 text will supply the
+    old meaning — "the models run in India, a human just has to confirm it" — from memory,
+    and a notice that merely swapped one region name into the same sentence would let them.
 
-    IT SAYS THE WITHDRAWAL OUT LOUD. Anyone who has read the old text will supply the old
-    meaning — "the models run in India, a human just has to confirm it" — from memory, and
-    a notice that merely swapped one region name into the same sentence would let them.
-    D-449 did not improve residency; it gave the claim up.
+    **AND IT NAMES THE LEG THAT OWES NOTHING, WHICH IS NEW AND IS NOT DECORATION.** A reader
+    who meets a delegation notice and finds every leg in it learns that this guard proves no
+    region anywhere. One of the three legs now proves its own, and saying which one is the
+    difference between an honest report and a pessimistic one.
     """
+    lines: list[str] = []
+    for leg in spec.legs:
+        if leg.delegated_gate is None:
+            if leg.region_in_host:
+                lines.append(
+                    f"* {leg.provider}: NOTHING IS DELEGATED. Its region ({leg.region}) is "
+                    f"the first label of the authority and {leg.builder}() is proved to "
+                    "emit it, so no human attestation is owed on this leg at all."
+                )
+            else:
+                lines.append(
+                    f"* {leg.provider}: NOTHING IS DELEGATED, because there is no regional "
+                    "claim to confirm — the vendor cannot express one. There is nothing "
+                    "here for a person to check and nothing for a DPA to warrant beyond "
+                    "'somewhere in the vendor's cloud'."
+                )
+            continue
+        lines.append(
+            f"* {leg.provider}: NOT PROVED HERE, AND NO VERSION OF THIS CHECK CAN PROVE IT — "
+            f"that the resource named by `azure_openai_resource` is in {leg.region}, and "
+            f"that its deployment is REGIONAL Standard rather than GLOBAL. Both are "
+            f"properties of the RESOURCE, invisible in "
+            f"`https://<resource>{AZURE_HOST_SUFFIX}/openai/v1`; Global is Azure's DEFAULT "
+            f"deployment type and processes worldwide. A human confirms both once in the "
+            f"Azure portal — {OPERATIONS_DOC} §2 gates 20 and 20c — and files the reading "
+            f"in docs/evidence/."
+        )
     return (
-        f"NOT PROVED HERE, AND NO VERSION OF THIS CHECK CAN PROVE IT: that the Azure "
-        f"resource named by `azure_openai_resource` is in {spec.region}, and that its "
-        f"deployment is REGIONAL Standard rather than GLOBAL. Both are properties of the "
-        f"RESOURCE, invisible in `https://<resource>{AZURE_HOST_SUFFIX}/openai/v1`; Global "
-        f"is Azure's DEFAULT deployment type and processes worldwide. A human confirms both "
-        f"once in the Azure portal — {OPERATIONS_DOC} §2 gates 20 and 20c — and files the "
-        f"reading in docs/evidence/. Under D-127 this file proved the region from the AST. "
-        f"It no longer can, and that is D-410's recorded cost rather than an oversight. "
-        f"⚠ AND UNDER D-449 THE REGION IT DELEGATES IS NO LONGER AN INDIAN ONE: the India "
-        f"residency claim was WITHDRAWN, not upgraded. Gates 20/20c now confirm a US "
-        f"resource; nothing in this tree promises a client that their callers' words stay "
-        f"in India, and any document that still does is out of date."
+        "WHAT A GREEN RUN DOES NOT COVER, PER LEG:\n"
+        + "\n".join(lines)
+        + "\n⚠ UNDER D-449 THE REGION THE AZURE LEG DELEGATES IS NO LONGER AN INDIAN ONE: "
+        "the India residency claim was WITHDRAWN, not upgraded. Gates 20/20c confirm a US "
+        "resource; nothing in this tree promises a client that their callers' words stay in "
+        "India, and any document that still does is out of date. Under D-127 this file "
+        "proved the region from the AST on every leg; it now does so on exactly one, and "
+        "that is D-410's recorded cost rather than an oversight."
     )
 
 
 def delegation_failures(document: str | None = None, spec: PostureSpec | None = None) -> list[str]:
-    """Check 6: the fact this guard gave up is written down somewhere a human owns it.
+    """Check 6: the facts this guard gave up are written down somewhere a human owns them.
 
-    WHY A GUARDRAIL CHECKS A DOCUMENT. Because the failure this whole rewrite is trying to
+    WHY A GUARDRAIL CHECKS A DOCUMENT. Because the failure this whole design is trying to
     avoid is not "the region is wrong" — it is "the region is nobody's job and the build is
     green". A weakened check plus a live gate is an honest posture; a weakened check plus a
-    deleted gate is the same green output covering strictly less, which is the defect class
-    this repository keeps finding. If somebody tidies gates 20/20c away, this line is what
-    makes the tidying visible in CI instead of in an audit.
+    deleted gate is the same green output covering strictly less.
 
     Deliberately LOOSE about wording and strict about substance: it wants a line naming the
     constant under test and the place a human looks. Pinning the gate's prose would make
-    every rewording of an operations document a red build, which is how a check gets
-    deleted rather than corrected.
+    every rewording of an operations document a red build.
     """
     posture = declared_spec() if spec is None else spec
-    if posture.delegated_gate is None:
+    delegating = [leg for leg in posture.legs if leg.delegated_gate is not None]
+    if not delegating:
         return []
-    constant, word = posture.delegated_gate
     text = (
         (REPO_ROOT / OPERATIONS_DOC).read_text(encoding="utf-8") if document is None else document
     )
-    if any(constant in line and word in line.lower() for line in text.splitlines()):
-        return []
-    return [
-        f"{OPERATIONS_DOC} carries no gate naming `{constant}` and the Azure portal. "
-        "That gate is where the residency fact this check CANNOT prove is confirmed by a "
-        "person, so without it the tree asserts a region nobody has ever read and this "
-        "script prints OK over the gap. Restore the gate (20: the resource's Location; "
-        "20c: Regional rather than Global deployment) or, if the posture genuinely changed, "
-        "change it here deliberately with a decision-log entry."
-    ]
+    lines = text.splitlines()
+    failures: list[str] = []
+    for leg in delegating:
+        assert leg.delegated_gate is not None  # `delegating` selected on it
+        constant, word = leg.delegated_gate
+        if any(constant in line and word in line.lower() for line in lines):
+            continue
+        failures.append(
+            f"{OPERATIONS_DOC} carries no gate naming `{constant}` and the Azure portal, "
+            f"which the {leg.provider!r} leg delegates to. That gate is where the residency "
+            "fact this check CANNOT prove is confirmed by a person, so without it the tree "
+            "asserts a region nobody has ever read and this script prints OK over the gap. "
+            "Restore the gate (20: the resource's Location; 20c: Regional rather than Global "
+            "deployment) or, if the leg genuinely changed, change it here deliberately with "
+            "a decision-log entry."
+        )
+    return failures
+
+
+# --- 7: no declared leg is inert ----------------------------------------------
+
+
+def live_model_providers() -> dict[str, list[str]]:
+    """Which provider each model in the catalogue names — imported, like `live_settings()`.
+
+    IMPORTING IS CORRECT HERE AND NOT A BREACH OF THE NOT-IMPORTED DOCTRINE, and the
+    distinction is worth stating because this file argues the opposite three times above.
+    What may never be imported is the SPEC — the statement of what the tree must look like —
+    because a guard that read its own obligations from the thing it is judging agrees with
+    every tree. The catalogue is the thing being JUDGED, exactly like `Settings` is in check
+    2, and reading it out of the AST would be a second parser for a dict nobody disputes.
+    """
+    from calevate_shared.engine import LLM_MODELS
+
+    providers: dict[str, list[str]] = {}
+    for name, model in sorted(LLM_MODELS.items()):
+        providers.setdefault(model.provider, []).append(name)
+    return providers
+
+
+def builder_call_sites(roots: Iterable[Path] | None = None) -> dict[str, list[str]]:
+    """Every call to a function named like a leg's builder, as `builder -> ["path:line"]`.
+
+    A CALL, NOT A MENTION. `ast.Call` with the name in function position — so a docstring
+    naming the builder, an `__all__` entry and an import do not count. The point of check 7
+    is that somebody actually builds this leg's endpoint; a leg whose builder is only ever
+    imported is a leg nothing runs.
+    """
+    wanted = {leg.builder for leg in KNOWN_LEGS if leg.builder is not None}
+    sites: dict[str, list[str]] = {name: [] for name in sorted(wanted)}
+    for path in _files(roots, frozenset({".py"})):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            name = (
+                function.id
+                if isinstance(function, ast.Name)
+                else function.attr
+                if isinstance(function, ast.Attribute)
+                else None
+            )
+            if name in wanted:
+                sites[name].append(f"{_rel(path)}:{node.lineno}")
+    return sites
+
+
+def inert_leg_failures(
+    providers: Mapping[str, Sequence[str]] | None = None,
+    calls: Mapping[str, Sequence[str]] | None = None,
+    spec: PostureSpec | None = None,
+) -> list[str]:
+    """Check 7: a declared leg that nothing uses is a wish list entry, not a permission.
+
+    **THE DEFECT THIS EXISTS FOR HAS ALREADY HAPPENED TWICE**, which is why it is a check
+    rather than a convention. D-453 found a posture whose `permitted_host` was absent from a
+    hand-written watched-host tuple: nothing scanned for the host, so nothing produced a
+    reference, so every clause stated over that posture ran on an empty set and printed OK.
+    A declared leg has the same shape of hole one level up. If no model names it, nothing can
+    ever be configured onto it and its endpoint rules are enforced against nothing; if
+    nothing calls its builder, the ONE literal check 3 exempts is the suffix of a function
+    that never runs.
+
+    TWO SEPARATE ARMS BECAUSE THEY FAIL APART AND HAVE DIFFERENT FIXES. A leg with models and
+    no caller is a half-wired feature (CLAUDE.md: "a route nobody mounted"). A leg with a
+    caller and no models is a permission granted to nobody. Reporting them as one finding
+    would send the reader to the wrong half.
+    """
+    posture = declared_spec() if spec is None else spec
+    named = live_model_providers() if providers is None else providers
+    sites = builder_call_sites() if calls is None else calls
+    failures: list[str] = []
+    for leg in posture.legs:
+        if not named.get(leg.provider):
+            failures.append(
+                f"posture {posture.name!r} declares a {leg.provider!r} leg and NO model in "
+                "the catalogue names it. A leg no model can be configured onto is a "
+                "permission granted to nobody: every rule this file states about it — one "
+                "builder, one literal, one region constant — is enforced against an empty "
+                "set, and the run prints OK. Either give it an `LlmModelSpec` in "
+                f"{CONTRACT} (a withdrawn one counts — `selectable=False` with a reason is "
+                "still a model that names the leg), or take the leg out of the declaration."
+            )
+        if leg.builder is not None and not sites.get(leg.builder):
+            failures.append(
+                f"nothing in {SCANNED_TREES} ever CALLS {leg.builder}(), the one "
+                f"constructor the {leg.provider!r} leg permits. Check 3 grants that "
+                "function's suffix the tree's single literal exemption, so an uncalled "
+                "builder is an exemption held by dead code — and the leg it belongs to is a "
+                "half-wired feature, which this repository counts as a defect shipped "
+                "rather than progress deferred."
+            )
+    return failures
 
 
 def main() -> int:
@@ -2039,35 +2259,31 @@ def main() -> int:
         + stale_allowances(references)
         + builder_failures(None, posture)
         + delegation_failures(None, posture)
+        + inert_leg_failures(spec=posture)
     )
     if failures:
         print("MODEL RESIDENCY: FAIL")
         for failure in failures:
             print(f"  - {failure}")
-        # THE EPILOGUE IS POSTURE-AWARE, and it has to be: it used to state D-410's
-        # posture as a fact, which under any other declaration would be the guard telling
-        # a reader the opposite of what it had just refused.
         print(
-            f"\nDECLARED POSTURE {posture.name!r} ({DECLARATION_CONSTANT} in {CONTRACT}): "
-            f"{posture.warrant}. If a second endpoint or a second spelling is genuinely "
-            "needed for a bounded reason, it belongs in ALLOWANCES in this script WITH the "
-            "date and the work that removes it — never as a silent skip. If the POSTURE "
-            f"itself is meant to change, that is the `PostureSpec` in {SELF}, this "
-            "declaration, and a decision-log entry — together, in one reviewed commit."
+            f"\nDECLARED POSTURE {posture.name!r} ({DECLARATION_CONSTANT} in {CONTRACT}), "
+            f"legs {[leg.provider for leg in posture.legs]}: {posture.warrant}. If a second "
+            "endpoint or a second spelling is genuinely needed for a bounded reason, it "
+            "belongs in ALLOWANCES in this script WITH the date and the work that removes "
+            "it — never as a silent skip. If the POSTURE itself is meant to change, that is "
+            f"the `PostureSpec` in {SELF}, this declaration, and a decision-log entry — "
+            "together, in one reviewed commit."
         )
-        if posture.delegated_gate is not None:
-            print(f"\n{delegated_notice(posture)}")
+        print(f"\n{delegated_notice(posture)}")
         return 1
 
     print(
-        f"MODEL RESIDENCY: OK — declared posture {name!r} ({templates} string templates "
-        f"scanned; {len(references)} model host literal(s) judged and only "
-        f"{posture.builder}()'s own suffix permitted; {len(ALLOWANCES)} dated allowance(s) "
-        "still current)"
+        f"MODEL RESIDENCY: OK — declared posture {name!r} over "
+        f"{[leg.provider for leg in posture.legs]} ({templates} string templates scanned; "
+        f"{len(references)} model host literal(s) judged and only each leg's own builder "
+        f"suffix permitted; {len(ALLOWANCES)} dated allowance(s) still current)"
     )
     print(f"  what that proves under this posture: {posture.warrant}.")
-    if posture.delegated_gate is None:
-        return 0
     print(f"\n{delegated_notice(posture)}")
     return 0
 

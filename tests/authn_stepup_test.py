@@ -318,7 +318,7 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
             ):
                 sites += 1
                 assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
-    # 17: the sixteen dangerous mutations, plus D-210's door —
+    # 21: the twenty dangerous mutations, plus D-210's door —
     # `admin/routes.py::mint_impersonation_grant`, which is a step-up on ENTERING a
     # client account rather than on changing something. Counted the same way because the
     # census is about the pairing, not about the verb.
@@ -329,7 +329,13 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # each demanded a code; found by walking the console rather than the code, because
     # `test_no_ops_console_write_can_ship_without_the_gate` below scopes itself to
     # `apps/api/ops/` and this route is not there.
-    assert sites == 17, f"found {sites} step-up call sites, expected 17; the census went stale"
+    #
+    # FOUR OF THE TWENTY ARE THE OPERATOR ALLOWLIST (`admin/operator_routes.py`): adding an
+    # administrator, promoting or demoting one, revoking one, and re-issuing a setup link.
+    # They are on this list for a reason none of the others has — their effect OUTLIVES the
+    # session that performed it, so a stolen console session that adds an administrator
+    # keeps a way in after the session it was stolen from has been revoked.
+    assert sites == 21, f"found {sites} step-up call sites, expected 21; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
@@ -348,9 +354,9 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
 def test_no_ops_console_write_can_ship_without_the_gate() -> None:
     """THE OTHER DIRECTION, which the census above cannot see.
 
-    `sites == 16` catches a route that STOPS taking the gate — the count shrinks. It
+    The census above catches a route that STOPS taking the gate — the count shrinks. It
     cannot catch a route that never took it: a new `POST /v1/ops/...` with no `step_up`
-    parameter adds no call site, so the count stays 16 and the census stays green while
+    parameter adds no call site, so the count is unchanged and the census stays green while
     an unconfirmed lever ships on the incident surface. That is the half of scope this
     file's title promises and did not cover.
 

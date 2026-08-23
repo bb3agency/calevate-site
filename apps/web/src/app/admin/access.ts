@@ -139,3 +139,39 @@ export function adminAccess(
 export function useAdminAccess(permission: string, action: string): AdminAccess {
   return adminAccess(useAdminMe(), permission, action);
 }
+
+/**
+ * Has the identity read never ANSWERED — the question `AdminAccess` deliberately cannot
+ * answer, and the one a screen needs before it decides whether to MOUNT a gated panel.
+ *
+ * ## Why a screen would ask
+ *
+ * `adminAccess` fails open on the unknown, which is right for a control and for the nav.
+ * It is the wrong rule for a mount decision on a surface whose READ carries the same
+ * permission as its writes (`/v1/ops/config`, `/v1/ops/secrets`, `/v1/admin/operators`):
+ * mounting there for an unknown session fires a request that, for a normal admin, can
+ * only be a 403 — and the operator watches the panel render, populate, and then be
+ * replaced by a refusal. That is the flicker `admin/layout.tsx` forbids in the sidebar,
+ * plus a guaranteed refusal in the API log.
+ *
+ * ## Why it is NOT `isLoading`, and this is a trap that cost a render loop
+ *
+ * `isLoading` is `isPending && isFetching`, and after a FAILED identity read a refetch
+ * puts the query back into `pending`: query-core's `fetchState` sets
+ * `status: "pending"` and `error: null` whenever a fetch starts with `data === undefined`
+ * (`query.ts`). So `isLoading` goes false → true → false around every retry of a failed
+ * read, and a screen that mounts its body on that boolean UNMOUNTS it again on the next
+ * attempt. Worse, if the body itself observes this query, the mount is what triggers the
+ * retry (`retryOnMount` defaults true) — an unbounded loop of `/v1/admin/me` requests,
+ * measured at ~45 in 300ms, on the one screen an operator opens when authentication is
+ * already misbehaving.
+ *
+ * `isFetched` is the sticky half: it counts settles and never goes back to false, so
+ * "loading AND never answered" is true exactly once per mount, for the first load. The
+ * PAUSED case falls out correctly too — a query query-core will not start while the
+ * browser is offline reports `isLoading` false, so an offline console gets the screen and
+ * its own honest empty-handed states rather than a skeleton that can never resolve.
+ */
+export function identityAnswerPending(me: UseQueryResult<AdminMe>): boolean {
+  return me.isLoading && !me.isFetched;
+}

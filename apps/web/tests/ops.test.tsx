@@ -1946,14 +1946,35 @@ describe("the platform configuration panel", () => {
     expect(container.textContent).toContain("Needs a restart to take effect");
   });
 
-  it("keeps the controls dead for a session without platform:config", async () => {
-    renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+  /**
+   * THIS TEST USED TO STAGE A STATE PRODUCTION CANNOT REACH, and the correction is the
+   * point of the two-tier pass rather than a rename.
+   *
+   * It rendered the config table for an `operator` — from a fixture that answered
+   * `GET /v1/ops/config` with a 200 — and asserted the Change buttons were disabled. But
+   * that GET carries `permission_meta("platform:config")` exactly as the PUT does
+   * (`apps/api/ops/config_routes.py`), and `platform:config` is not in
+   * `ROLE_PERMISSIONS["operator"]`. A normal admin never sees a field name here at all:
+   * they get a 403, and the panel's "we could not read the platform configuration"
+   * notice — the sentence for an OUTAGE — with a Retry button whose only outcome is a
+   * second 403.
+   *
+   * So the shown-and-dead form was being tested on the one screen where it cannot occur,
+   * while the state that DOES occur went untested. The panel is now withheld with the
+   * reason once `/v1/admin/me` has answered, and nothing is fetched.
+   */
+  it("withholds the configuration panel from a session without platform:config", async () => {
+    const { container, calls } = renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
 
-    await screen.findByText("self_serve_inr_per_min");
-    const change = screen.getAllByRole("button", { name: /Change/ })[0] as HTMLButtonElement;
-    // The permission is NOT ops:manage — an operator who may run the recovery tools
-    // still has no business switching the platform's voice engine (§7).
-    expect(change.disabled).toBe(true);
+    // Awaited on the REFUSAL, not on the card title: the title is in both branches, so
+    // finding it proves only that the screen rendered.
+    await screen.findByText(/does not have the platform:config permission/);
+    // Not a disabled control — no control, and no field name to hang one on.
+    expect(screen.queryAllByRole("button", { name: /Change/ })).toEqual([]);
+    expect(container.textContent).not.toContain("self_serve_inr_per_min");
+    // The panel asked the API nothing: a request that can only 403 is not a preview of
+    // anything, it is a log line and a retry button that cannot work.
+    expect(calls.some((call) => call.path === OPS_CONFIG_PATH)).toBe(false);
   });
 
   /**
@@ -2183,10 +2204,65 @@ describe("the key-management panel", () => {
     expect(container.textContent).toContain("will be lost if the retired key is removed");
   });
 
-  it("keeps the rewrap dead for a session without platform:secrets", async () => {
-    renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
-    await screen.findByText("Key management");
-    const button = screen.getByRole("button", { name: /Re-wrap every key/ }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+  /**
+   * The credentials pair, corrected the same way and for a sharper reason.
+   *
+   * `GET /v1/ops/secrets` and `GET /v1/ops/secrets/kek` are `platform:secrets` (see
+   * `apps/api/ops/secret_routes.py`), which `core/rbac.py` keeps out of the normal admin
+   * tier deliberately: PLATFORM-CONFIG §10 accepts "one compromised admin session is
+   * enough" ONLY because that permission is held by fewer people than any other, and the
+   * masked list is a targeting oracle in its own right — which vendor credentials this
+   * deployment holds, and which are missing.
+   *
+   * So the withheld panels must say LESS than the config one: what the panel is for, and
+   * nothing whatever about what is installed. No count, no key name, no "none found".
+   */
+  it("withholds both credential panels from a session without platform:secrets", async () => {
+    const { container, calls } = renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+
+    await screen.findAllByText(/does not have the platform:secrets permission/);
+    expect(screen.getByText("Vendor credentials")).toBeTruthy();
+    expect(screen.getByText("Key management")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Re-wrap every key/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Install/ })).toBeNull();
+    // NOT AN INVENTORY. The fixture holds a Bolna key and a missing Sarvam one; a
+    // withheld panel that leaked either — the name, the last four, or a count — would be
+    // the oracle the permission exists to withhold.
+    expect(container.textContent).not.toContain("bolna_api_key");
+    expect(container.textContent).not.toContain("sarvam_api_key");
+    expect(container.textContent).not.toContain("Not installed");
+    expect(calls.some((call) => call.path.startsWith(OPS_SECRETS_PATH))).toBe(false);
+  });
+
+  /**
+   * The RACE the permission gate cannot cover, and the second half of the same rule.
+   *
+   * `adminAccess` fails OPEN while `/v1/admin/me` is in flight and when it has FAILED —
+   * deliberately, because the ops surface is never load-shed (BACKEND-PATTERNS §6) and a
+   * slow identity read must not lock an operator out of it. In that window the panel is
+   * mounted for a session that may not read it, fires its query, and is refused. The
+   * refusal has to arrive as a refusal and not as "we could not read this", because the
+   * outage sentence comes with a Retry that can only produce the 403 again.
+   */
+  it("renders a 403 on the credential read as a refusal, not as an outage", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), problem(503, { title: "identity unavailable" }), {
+        [OPS_SECRETS_PATH]: problem(403, {
+          title: "Forbidden",
+          detail: "This account does not have the platform:secrets permission.",
+        }),
+        [`${OPS_SECRETS_PATH}/kek`]: problem(403, { title: "Forbidden" }),
+      }),
+    );
+
+    await screen.findByText("Your admin account cannot see this");
+    // The API's own sentence, printed verbatim rather than paraphrased — an
+    // authorization refusal is the server's to word.
+    expect(container.textContent).toContain(
+      "This account does not have the platform:secrets permission.",
+    );
+    expect(container.textContent).not.toContain("We could not read which credentials");
+    expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
   });
 });

@@ -34,10 +34,19 @@ const ME: Me = {
   role: "owner",
   permissions: ["billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
-const STAFF: Me = { ...ME, role: "staff", permissions: ["calls:read", "leads:read"] };
+const STAFF: Me = {
+  ...ME,
+  role: "staff",
+  permissions: ["calls:read", "leads:read"],
+};
 
 const CAPS: Caps = {
   capped: false,
@@ -69,14 +78,49 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     overage_minutes_value: "0.00",
     overage_rate_inr: "6.5000",
     overage_rate_value_inr: null,
+    // D-455: the model surcharge, unset on every plan today — so a ₹0.00 total and no
+    // models named is the shipped shape of this panel.
+    llm_surcharge_rate_inr: null,
+    llm_surcharge_minutes: "0.00",
+    llm_surcharge_inr: "0.00",
+    llm_surcharge_models: [],
+    // THE SERVER'S OWN TOTAL of the three charge components above (retainer +
+    // overage + model surcharge). Stated rather than derived, because it is a FIELD
+    // now: a fixture that computed it would be re-implementing the arithmetic the
+    // screen stopped doing, and would agree with a broken screen.
+    month_charges_inr: "15158.00",
     plan_tier: "managed",
     spend_used_inr: "15158.00",
     ...over,
   };
 }
 
+/**
+ * A month a client's own model choice made dearer (D-455).
+ *
+ * `plans.llm_model_surcharge` is unset on every plan today, so this is the state a
+ * founder's number creates rather than one the fixtures above cover — and it is the one
+ * where the panel and the invoice could disagree, which is what this exercises.
+ */
+function surchargedUsage(): UsagePanel {
+  return usage({
+    llm_surcharge_rate_inr: "1.5000",
+    llm_surcharge_minutes: "40.00",
+    llm_surcharge_inr: "60.00",
+    llm_surcharge_models: ["gpt-4.1-mini"],
+    // ₹4,999.00 + ₹10,159.00 + ₹60.00. The total MOVES with the surcharge, and a fixture
+    // that left it at the base figure would let a screen printing a stale total pass.
+    month_charges_inr: "15218.00",
+  });
+}
+
 function routes(over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/usage": usage(), "/v1/billing/caps": CAPS, ...over };
+  return {
+    "/v1/me": ME,
+    "/v1/usage": usage(),
+    "/v1/billing/caps": CAPS,
+    ...over,
+  };
 }
 
 const page = <UsagePage />;
@@ -99,6 +143,69 @@ describe("the usage panel", () => {
     expect(container.textContent).not.toContain("$");
   });
 
+  it("names the model upgrade on its own line and puts it in the total (D-455)", async () => {
+    // THE DEFECT THIS PINS. `plans.llm_model_surcharge` prices a client's own model
+    // choice, and "Total so far" used to be `plan fee + overage` — so a client who moved
+    // their agents onto the dearer model would have read a total ₹60 below the statement
+    // they were sent. A screen showing one number while the invoice charges another is
+    // exactly what this whole slice exists to remove.
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/usage": surchargedUsage() }),
+    );
+
+    await screen.findByText("Extra charges");
+    // The MODEL is named, because it is the decision that caused the number, and the
+    // line multiplies out: 40.00 × ₹1.5000 = ₹60.00.
+    expect(container.textContent).toContain("AI model upgrade, gpt-4.1-mini");
+    expect(container.textContent).toContain("40.00 min × ₹1.5000");
+    expect(container.textContent).toContain("₹60.00");
+    // 4999.00 + 10159.00 + 60.00, added in paise.
+    expect(container.textContent).toContain("₹15,218.00");
+  });
+
+  /**
+   * THE CHARGE POINTS AT THE CONTROL THAT CAUSED IT.
+   *
+   * A model surcharge is the one line on this panel that an owner can act on themselves:
+   * D-454 made the model a client's choice, so "why am I paying this" and "how do I stop
+   * paying it" have the same answer and it is a screen in this console. Without the link
+   * the honest next step is a support ticket about a charge we deliberately handed them
+   * the control over.
+   *
+   * It is conditional on the same figure as the row itself. A pointer to the model picker
+   * on a month nobody was surcharged for is an invitation to spend money, printed under a
+   * heading about a bill.
+   */
+  it("sends an owner from the upgrade charge to the setting that causes it", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/usage": surchargedUsage() }),
+    );
+
+    await screen.findByText("Extra charges");
+    const link = screen.getByRole("link", { name: "AI model" });
+    expect(link.getAttribute("href")).toBe("/c/acme/settings/models");
+    expect(container.textContent).toContain("ran a model you chose");
+  });
+
+  it("does not offer the model picker from a month nothing was surcharged", async () => {
+    await renderClientPage(page, routes());
+
+    await screen.findByText("Extra charges");
+    expect(screen.queryByRole("link", { name: "AI model" })).toBeNull();
+  });
+
+  it("prints no upgrade line on a month nothing was surcharged", async () => {
+    // Every plan today quotes no surcharge, so this is the shipped shape: a ₹0.00 row
+    // invites a question about nothing, and the total is what it always was.
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Extra charges");
+    expect(container.textContent).not.toContain("AI model upgrade");
+    expect(container.textContent).toContain("₹15,158.00");
+  });
+
   it("quotes the per-minute rate at the precision the server published it", async () => {
     // NUMERIC(12,4). `formatINR` keeps exactly two decimals, so putting a rate through it
     // prints ₹6.50 for a ₹6.5000 rate — harmless here — and ₹7.12 for ₹7.1250, which is
@@ -114,9 +221,10 @@ describe("the usage panel", () => {
     await screen.findByText("Extra charges");
     // Not "does not contain ₹7.12" — that is a prefix of the correct answer. The rate
     // must not appear TRUNCATED to two decimals anywhere on the screen.
-    expect(container.textContent, "a rate must not be rounded to paise").not.toMatch(
-      /₹7\.12(?!5)/,
-    );
+    expect(
+      container.textContent,
+      "a rate must not be rounded to paise",
+    ).not.toMatch(/₹7\.12(?!5)/);
     expect(container.textContent).toContain("₹7.1250 per extra minute");
   });
 
@@ -142,7 +250,10 @@ describe("the usage panel", () => {
     );
 
     await screen.findByText(/limited to the account owner/);
-    expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();
+    expect(
+      screen.queryByRole("alert"),
+      "a permission is not a fault",
+    ).toBeNull();
     expect(container.textContent).not.toContain("₹");
     expect(container.textContent).not.toContain("Total so far");
     // The spending-limit form belongs to the same permission and must not appear either.
@@ -178,7 +289,9 @@ describe("the usage panel", () => {
     await screen.findByText(/Outgoing calls are paused for this month/);
     // The sentence that prevents the support call: a stopped account looks like an
     // outage until someone says which half of it stopped.
-    expect(container.textContent).toContain("People calling you still get through.");
+    expect(container.textContent).toContain(
+      "People calling you still get through.",
+    );
     expect(container.textContent).toContain("About 0 minutes");
   });
 

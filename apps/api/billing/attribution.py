@@ -108,6 +108,7 @@ from apps.api.billing.rates import PREPAID_TIERS
 #   _ROW_COST_SQL       what one usage row contributes to our cost (D-370: a zero-`qty`
 #                       row carries its WHOLE leg cost)
 #   _CORRECTED_TIER_SQL which rung a call's money counts on after a correction (D-372)
+#   _SURCHARGED_MODEL_SQL which model surcharge a row's minutes carry, if any (D-455)
 #   _NOT_AI_UNITS       "...and it is a CALL row" — dashboard-assist rows are ours (D-127 G-3)
 #   _IST_MONTH_WINDOW   the half-open IST month, as a range an index can drive
 #   _month_bounds       the two binds that window reads, so a caller cannot supply half of it
@@ -118,7 +119,9 @@ from apps.api.billing.service import (
     _NOT_AI_UNITS,
     _ROW_COST_SQL,
     _SECONDS_PER_MINUTE,
+    _SURCHARGED_MODEL_SQL,
     _month_bounds,
+    _surcharge_binds,
     allocate_paise,
     calling_revenue_inr,
     plan_tier_of,
@@ -188,6 +191,7 @@ WITH priced AS (
   SELECT call_id,
          unit_type,
          {_CORRECTED_TIER_SQL} AS tier,
+         {_SURCHARGED_MODEL_SQL} AS llm_model,
          qty,
          CASE WHEN unit_type = 'telephony_s' THEN qty ELSE 0 END AS secs,
          {_ROW_COST_SQL} AS cost,
@@ -198,7 +202,7 @@ WITH priced AS (
 ),
 folded AS (
   SELECT GROUPING(unit_type) AS per_call,
-         call_id, tier, unit_type,
+         call_id, tier, llm_model, unit_type,
          COALESCE(SUM(secs), 0) AS secs,
          COALESCE(SUM(qty), 0) AS qty,
          COALESCE(SUM(cost), 0) AS cost,
@@ -208,9 +212,9 @@ folded AS (
          bool_or(currency_stated = 'false') AS currency_assumed,
          min(source_currency) AS currency_lo,
          max(source_currency) AS currency_hi
-    FROM priced GROUP BY GROUPING SETS ((call_id, tier), (unit_type))
+    FROM priced GROUP BY GROUPING SETS ((call_id, tier, llm_model), (unit_type))
 )
-SELECT f.per_call, f.call_id, f.unit_type, f.tier, f.secs, f.qty, f.cost,
+SELECT f.per_call, f.call_id, f.unit_type, f.tier, f.llm_model, f.secs, f.qty, f.cost,
        f.currency_assumed, f.currency_lo, f.currency_hi,
        c.agent_id, c.started_at, c.direction, a.name
   FROM folded f
@@ -384,8 +388,14 @@ class _MonthRead:
     currency: str | None
 
 
-def _rung_rate(tier: str, *, rate: Decimal, rate_value: Decimal | None) -> Decimal:
-    """What a minute on this rung is quoted at.
+def _rung_rate(
+    tier: str, *, rate: Decimal, rate_value: Decimal | None, surcharge: Decimal | None
+) -> Decimal:
+    """What a minute on this rung, on this model, is quoted at.
+
+    `surcharge` is the plan's model surcharge when THESE minutes carry it and `None`
+    otherwise — the caller decides from the bucket the ledger put them in, so this
+    function never sees a model identifier and cannot invent an opinion about one.
 
     Unattributed (`''`) is priced with `value`, never `premium` — SURFACES §2b's rule that
     a call we cannot PROVE got the premium voice is never charged the premium rate, and
@@ -393,9 +403,8 @@ def _rung_rate(tier: str, *, rate: Decimal, rate_value: Decimal | None) -> Decim
     value rate bills both rungs at `rate`, which is what `NULL` means on that column and
     not "the value rung is free".
     """
-    if tier == "premium":
-        return rate
-    return rate if rate_value is None else rate_value
+    base = rate if tier == "premium" or rate_value is None else rate_value
+    return base if surcharge is None else base + surcharge
 
 
 async def _read_month(
@@ -405,6 +414,7 @@ async def _read_month(
     month: str,
     rate: Decimal,
     rate_value: Decimal | None,
+    surcharge: Decimal | None,
 ) -> _MonthRead:
     """The month's ledger, in ONE statement: per call, per unit type, and its currency.
 
@@ -420,7 +430,10 @@ async def _read_month(
     would have made it.
     """
     rows = (
-        await session.execute(text(_CALL_ROWS_SQL), {"tid": tenant_id, **_month_bounds(month)})
+        await session.execute(
+            text(_CALL_ROWS_SQL),
+            {"tid": tenant_id, **_month_bounds(month), **_surcharge_binds()},
+        )
     ).all()
 
     folded: dict[UUID | None, _Bucket] = {}
@@ -432,6 +445,7 @@ async def _read_month(
         call_id,
         unit_type,
         tier,
+        llm_model,
         secs,
         qty,
         cost,
@@ -470,7 +484,18 @@ async def _read_month(
             weight=(prior.weight if prior else Decimal("0"))
             + seconds
             / _SECONDS_PER_MINUTE
-            * _rung_rate(str(tier or ""), rate=rate, rate_value=rate_value),
+            * _rung_rate(
+                str(tier or ""),
+                rate=rate,
+                rate_value=rate_value,
+                # The MODEL SURCHARGE is part of what this call is worth to the month's
+                # bill (D-455), so it belongs in the WEIGHT and not only in the total.
+                # Without it, `period_charge` would grow by the surcharge and then be
+                # spread evenly over calls that did not incur it — a page whose whole job
+                # is "which agent drove this spend" pointing at the wrong agent on exactly
+                # the month a client moved one agent onto the dearer model.
+                surcharge=surcharge if str(llm_model or "") else None,
+            ),
             currency_assumed=(prior.currency_assumed if prior else False) or bool(assumed),
         )
     currency = min(lows) if lows and min(lows) == max(highs) else None
@@ -497,8 +522,20 @@ async def period_attribution(
         if usage["overage_rate_value_inr"] is not None
         else None
     )
+    # The plan's model surcharge, from the SAME `usage_summary` read that priced it —
+    # never a second look at `plans`, which could land on a different row.
+    surcharge = (
+        Decimal(str(usage["llm_surcharge_rate_inr"]))
+        if usage["llm_surcharge_rate_inr"] is not None
+        else None
+    )
     read = await _read_month(
-        session, tenant_id=tenant_id, month=period, rate=rate, rate_value=rate_value
+        session,
+        tenant_id=tenant_id,
+        month=period,
+        rate=rate,
+        rate_value=rate_value,
+        surcharge=surcharge,
     )
     buckets = read.buckets
     # Deterministic before anything is allocated: `allocate_paise` hands its spare paise
@@ -535,6 +572,7 @@ async def period_attribution(
             plan_tier=tier,
             minutes=Decimal(str(usage["minutes_used"])),
             overage_cost_inr=Decimal(str(usage["overage_cost_inr"])),
+            llm_surcharge_inr=Decimal(str(usage["llm_surcharge_inr"])),
         )
     )
     charges, basis, residual_reason = await _allocate_charges(

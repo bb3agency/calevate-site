@@ -609,7 +609,15 @@ Identity & access
     whole control. Declaring the gate there would refuse the action outright rather than
     tighten it. BACKEND-PATTERNS §7 used to list raw-transcript access without saying
     which realm it meant; it now says both halves explicitly.
-- RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
+- RBAC: admin{superadmin,operator}; client{owner,staff}. The two ADMIN tiers are managed
+  from `/v1/admin/operators` — superadmin-only, step-up confirmed, audited — and
+  `superadmin` holds every permission by derivation, so a new one is superadmin-only until
+  somebody adds it to the normal tier on purpose. No operator of either tier may change
+  their own role or revoke their own account, which is what keeps a live superadmin on the
+  platform at all times and what makes each ledger row name two different people.
+  Revocation is `admin_users.deactivated_at` plus the destruction of the password, every
+  session and any outstanding setup link — never a `DELETE`, because eight tables reference
+  the row as the record of who approved, verified or installed what. Staff cannot access billing,
   org settings, raw transcripts, **call recording audio**, or exports containing
   unredacted data.
   - The audio is named explicitly because it was the gap (D-181): the recording is the

@@ -55,6 +55,8 @@ from apps.api.billing.plans import (
     warn_no_plan_in_effect,
 )
 from apps.api.billing.rates import (
+    BASE_RATE_LLM_MODEL,
+    CLIENT_CHOSEN_LLM_SOURCES,
     PREPAID_TIERS,
     ROUNDING,
     TtsTier,
@@ -994,10 +996,82 @@ _CORRECTED_TIER_SQL: Final = (
 )
 
 
-async def rung_seconds(
-    session: AsyncSession, *, tenant_id: UUID, month: str
-) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
-    """(SECONDS, our cost) per TTS rung for one billing month. THE query.
+#: WHICH LANGUAGE MODEL A ROW'S MINUTES CARRY A SURCHARGE FOR — the model's own name when
+#: the plan's `llm_model_surcharge` applies to it, and `''` when it does not (D-455).
+#:
+#: **THE SQL TWIN OF `rates.llm_surcharge_applies`, and the two are held together by a
+#: test rather than by care** (`tests/llm_model_surcharge_test.py` evaluates this
+#: expression against every model x source pair and compares it with the Python predicate).
+#: There has to be a twin: this reader groups a whole month in the database, while
+#: `pipeline._meter` has to place ONE call in the same buckets in Python before the month
+#: is re-read. Both spellings are built from the same two constants in `billing/rates.py`,
+#: so neither can be edited into a different rule without the other noticing.
+#:
+#: Both halves of the D-454 stamp are read and each refuses on its own — a row that names
+#: no model, names the base-rate model, or was chosen by the PLATFORM rather than by the
+#: client carries no surcharge. A row written before the stamp existed has neither key,
+#: `->>` yields NULL, and the row falls to `''`: the same "an unproven row is never billed
+#: the dearer thing" asymmetry `_CORRECTED_TIER_SQL`'s neighbour `billable_tier` applies to
+#: the voice rung.
+#: THE TWO VALUES ARE BOUND, NOT SPLICED, and that is not only a `check_raw_sql` rule.
+#: They are VALUES rather than identifiers, so a bind is what they wanted all along; the
+#: first spelling built them with `", ".join(...)` over `sorted(...)`, which the guard
+#: refused because it cannot follow a comprehension variable through a call — correctly,
+#: since "every character was typed in this repo" is exactly what it cannot prove there.
+#: `_NOT_AI_UNITS` below uses the same join idiom and passes only because it has no
+#: `sorted()`; matching it would have been the smaller change and the worse one, leaving a
+#: value interpolated into SQL for no reason but provability.
+_SURCHARGED_MODEL_SQL: Final = (
+    "CASE WHEN meta->>'llm_model_source' = ANY(:llm_client_sources) "
+    "AND COALESCE(meta->>'llm_model', '') NOT IN ('', :base_rate_llm_model) "
+    "THEN meta->>'llm_model' ELSE '' END"
+)
+
+
+def _surcharge_binds() -> dict[str, object]:
+    """The two binds `_SURCHARGED_MODEL_SQL` reads, for the same reason `_month_bounds`
+    exists: a caller that names the fragment cannot then supply half of what it needs.
+
+    Sorted so the parameter is stable across processes — a frozenset's iteration order is
+    not, and an unstable bind makes two identical queries look different in a slow-query
+    log for no reason.
+    """
+    return {
+        "llm_client_sources": sorted(CLIENT_CHOSEN_LLM_SOURCES),
+        "base_rate_llm_model": BASE_RATE_LLM_MODEL,
+    }
+
+
+#: The bucket key for minutes that carry NO model surcharge. Named because three readers
+#: compare against it and an empty-string literal in a pricing branch reads like an
+#: oversight rather than like the decision it is.
+UNSURCHARGED_MODEL: Final = ""
+
+
+@dataclass(frozen=True, slots=True)
+class MonthSeconds:
+    """One month's ledger, read ONCE and partitioned TWO ways over the same seconds.
+
+    **WHY ONE READ AND NOT TWO.** The TTS rung and the language model are independent
+    facts about the same `telephony_s` rows, and the two partitions must add to the same
+    monthly total to the second — `rung_minutes` and `llm_model_minutes` both allocate the
+    month's paise against `to_paise(total seconds / 60)`, so a second aggregate taken at a
+    second instant (a concurrent `_meter` commits between them) would publish a minute
+    count that the surcharge line and the overage lines disagreed about. `_tier_totals`
+    already carries the same argument one layer up, and `attribution.py` was written
+    because ignoring it turned an ordinary concurrent write into a 500.
+    """
+
+    #: Per TTS rung (`premium` / `value` / `''`), the D-372-corrected attribution.
+    by_rung: dict[str, Decimal]
+    #: Per rung, OUR supplier cost — `unit_cost_paid`, never a client price.
+    cost_by_rung: dict[str, Decimal]
+    #: Per SURCHARGED language model, with everything else under `UNSURCHARGED_MODEL`.
+    by_llm_model: dict[str, Decimal]
+
+
+async def rung_seconds(session: AsyncSession, *, tenant_id: UUID, month: str) -> MonthSeconds:
+    """(SECONDS, our cost) per TTS rung — and per surcharged model — for one month. THE query.
 
     Split out of `_tier_totals` when the meter needed the same month's rungs to price a
     call's increment against (`month_increment`). It returns SECONDS rather than
@@ -1015,52 +1089,107 @@ async def rung_seconds(
     `GROUP BY` — it is the same single scan of the same rows, with one sort added, and
     the month predicate stays INSIDE it so the range still drives
     `ix_usage_events_tenant_occurred`.
+
+    **THE SECOND GROUPING COLUMN IS FREE** (D-455). `_SURCHARGED_MODEL_SQL` reads two more
+    `meta` keys off rows already being scanned and adds them to the `GROUP BY`; the
+    cardinality is (rungs x models a client has chosen this month), which is at most a
+    handful. Adding a second STATEMENT instead would have been the defect: the two
+    partitions must add to the same monthly seconds, and two aggregates at two instants
+    cannot promise that while the meter is writing.
     """
     rows = (
         await session.execute(
             # NUMERIC end to end — a SUM of NUMERIC columns and a SUM of their products.
             # Nothing on this path becomes a float (hard rule 7).
             text(
-                "SELECT tier, COALESCE(SUM(secs), 0), COALESCE(SUM(cost), 0) FROM ("
+                "SELECT tier, llm_model, COALESCE(SUM(secs), 0), COALESCE(SUM(cost), 0) FROM ("
                 f"  SELECT {_CORRECTED_TIER_SQL} AS tier, "
+                f"   {_SURCHARGED_MODEL_SQL} AS llm_model, "
                 "    CASE WHEN unit_type = 'telephony_s' THEN qty ELSE 0 END AS secs, "
                 f"   {_ROW_COST_SQL} AS cost "
                 f"  FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
                 f"  AND {_NOT_AI_UNITS}"
-                ") attributed GROUP BY tier"
+                ") attributed GROUP BY tier, llm_model"
             ),
-            {"tid": tenant_id, **_month_bounds(month)},
+            {"tid": tenant_id, **_month_bounds(month), **_surcharge_binds()},
         )
     ).all()
 
     seconds = dict.fromkeys(_RUNGS, Decimal("0"))
     cost = dict.fromkeys(_RUNGS, Decimal("0"))
-    for label, secs, spent in rows:
+    by_model: dict[str, Decimal] = {UNSURCHARGED_MODEL: Decimal("0")}
+    for label, model, secs, spent in rows:
         # An unrecognised label is treated as unattributed rather than trusted: a tier
         # this module does not know is not a tier it can price.
         key = str(label) if str(label) in ("premium", "value") else ""
-        seconds[key] += Decimal(str(secs or 0))
+        secs_d = Decimal(str(secs or 0))
+        seconds[key] += secs_d
         cost[key] += Decimal(str(spent or 0))
-    return seconds, cost
+        # The model bucket is whatever the SQL decided, verbatim: `''` is the
+        # no-surcharge bucket and anything else is a model identifier the client chose.
+        # No re-validation here — a second Python opinion about which models are
+        # surchargeable is precisely the twin this expression exists to avoid.
+        bucket = str(model or UNSURCHARGED_MODEL)
+        by_model[bucket] = by_model.get(bucket, Decimal("0")) + secs_d
+    return MonthSeconds(by_rung=seconds, cost_by_rung=cost, by_llm_model=by_model)
 
 
-def rung_minutes(seconds: Mapping[str, Decimal]) -> dict[str, Decimal]:
-    """Per-rung SECONDS -> per-rung MINUTES, paise-exact and summing to the month's total.
+def _minutes_from_seconds(
+    seconds: Mapping[str, Decimal], keys: Sequence[str]
+) -> dict[str, Decimal]:
+    """A partition of a month's SECONDS as paise-exact MINUTES that add to the month total.
 
     The division happens here, once per bucket, rather than in SQL: `SUM(a)/60 + SUM(b)/60`
     and `SUM(a+b)/60` are two roundings of one number and Postgres picks the result scale,
     so dividing per bucket in the query would put the parts and the total a hair apart
     before `allocate_paise` could even see them.
+
+    `keys` is passed rather than derived so the caller fixes the ORDER: `allocate_paise`
+    hands its spare paise out by discarded fraction and breaks ties BY POSITION, so an
+    order that varied between two renders of one closed month would move a paisa between
+    two buckets for no reason.
+
+    Called once per partition of the SAME seconds (rungs, and surcharged models), which is
+    why the total is computed from `seconds.values()` rather than from `keys`: both
+    partitions round to the identical monthly minute figure by construction.
     """
-    exact = [seconds[key] / _SECONDS_PER_MINUTE for key in _RUNGS]
+    exact = [seconds[key] / _SECONDS_PER_MINUTE for key in keys]
     total = to_paise(sum(seconds.values(), Decimal("0")) / _SECONDS_PER_MINUTE)
-    return dict(zip(_RUNGS, allocate_paise(exact, total), strict=True))
+    return dict(zip(keys, allocate_paise(exact, total), strict=True))
 
 
-async def _tier_totals(
-    session: AsyncSession, *, tenant_id: UUID, month: str
-) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
-    """(minutes, our cost) per TTS rung for one billing month.
+def rung_minutes(seconds: Mapping[str, Decimal]) -> dict[str, Decimal]:
+    """Per-rung SECONDS -> per-rung MINUTES, paise-exact and summing to the month's total."""
+    return _minutes_from_seconds(seconds, _RUNGS)
+
+
+def llm_model_minutes(seconds: Mapping[str, Decimal]) -> dict[str, Decimal]:
+    """Per-MODEL SECONDS -> per-model MINUTES, the same allocation as `rung_minutes`.
+
+    Sorted keys, because the model set is open where `_RUNGS` is a fixed tuple, and
+    `_minutes_from_seconds` needs a stable order to place its remainder deterministically.
+    `UNSURCHARGED_MODEL` (`''`) sorts first, which is arbitrary and stable — the only
+    property that matters is that it does not depend on dict iteration.
+    """
+    return _minutes_from_seconds(seconds, sorted(seconds))
+
+
+@dataclass(frozen=True, slots=True)
+class MonthTotals:
+    """`MonthSeconds` with the two minute partitions allocated. What every panel prices off.
+
+    Both minute maps are allocations of the SAME monthly total, so `sum(by_rung.values())`
+    and `sum(by_llm_model.values())` are the identical figure — which is what lets the
+    overage lines and the surcharge line sit on one invoice without a reconciliation.
+    """
+
+    by_rung: dict[str, Decimal]
+    cost_by_rung: dict[str, Decimal]
+    by_llm_model: dict[str, Decimal]
+
+
+async def _tier_totals(session: AsyncSession, *, tenant_id: UUID, month: str) -> MonthTotals:
+    """(minutes, our cost) per TTS rung — and minutes per surcharged model — for one month.
 
     THE one definition of "how many minutes ran on which rung". `tier_usage` presents
     it to two panels and `usage_summary` prices against it; a second query would let the
@@ -1105,8 +1234,78 @@ async def _tier_totals(
     sentence is corrected rather than deleted because a reader who finds the old claim
     elsewhere should be able to see it was retired and why.
     """
-    seconds, cost = await rung_seconds(session, tenant_id=tenant_id, month=month)
-    return rung_minutes(seconds), cost
+    read = await rung_seconds(session, tenant_id=tenant_id, month=month)
+    return MonthTotals(
+        by_rung=rung_minutes(read.by_rung),
+        cost_by_rung=read.cost_by_rung,
+        by_llm_model=llm_model_minutes(read.by_llm_model),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PricedLlmSurcharge:
+    """A whole month's language-model surcharge (D-455). The sibling of `PricedOverage`.
+
+    **IT IS ADDITIVE AND IT DOES NOT TOUCH THE ALLOWANCE.** The plan's `included_min` is
+    spent on CALLING minutes by `priced_overage`, which this deliberately does not enter:
+    a client inside their allowance who moves to the dearer model costs us 2.7x more on
+    every one of those included minutes, so a surcharge that vanished under the allowance
+    would leave the defect D-455 exists to close open for every managed client who never
+    goes into overage. The upgrade is priced on the minutes that USED it, which is also
+    the only rule with no allocation policy to invent — `split_overage` had to choose
+    which rung the allowance lands on, and a second such choice across a second dimension
+    would be a founder decision wearing a function.
+    """
+
+    #: Minutes the surcharge was charged on. A PART of `usage_summary.minutes_used`, and
+    #: zero whenever the plan quotes no surcharge — there is no charge to attribute then.
+    minutes: Decimal
+    #: The models those minutes ran on, sorted. Named on the statement, because a client
+    #: seeing a bigger number has to be able to reach the screen where they caused it.
+    models: tuple[str, ...]
+    #: `minutes x rate`, quantized ONCE. What the invoice's single upgrade line says.
+    total_inr: Decimal
+
+
+def priced_llm_surcharge(
+    *, minutes_by_model: Mapping[str, Decimal], surcharge: Decimal | None
+) -> PricedLlmSurcharge:
+    """THE one pricing of a month's model surcharge. The panel and the invoice both call it.
+
+    `minutes_by_model` is `llm_model_minutes`' own output — paise-exact minutes that add to
+    the month's published total — with `UNSURCHARGED_MODEL` holding everything the plan
+    does not surcharge. That key is skipped here rather than filtered upstream, so the
+    minutes handed in are always the whole month and the surcharged share is visibly a
+    part of it.
+
+    **ONE AMOUNT FOR ALL SURCHARGED MODELS, NOT ONE PER MODEL, and that is a deliberate
+    departure from `overage_rungs` next door.** The two rungs there carry two DIFFERENT
+    rates, so a single blended line could not multiply out and had to become two. A plan
+    quotes ONE model surcharge, so every surcharged minute is priced identically and
+    splitting them would print two lines at the same unit price — which reads as two
+    charges — while ALSO costing a paisa: `to_paise(a*r) + to_paise(b*r)` is not
+    `to_paise((a+b)*r)`. One quantization, one line, and `qty x unit = amount` holds
+    exactly. The models are still named, in the line's description.
+
+    **`surcharge is None` is "this plan quotes no model surcharge", never "the surcharge is
+    zero"** — the same reading `rate_value is None` has in `priced_overage`, and the same
+    reason: a plan that gives the better model away is a decision, a plan nobody has asked
+    is not. Both produce nothing to charge and no line, because a ₹0.00 line on an invoice
+    invites a dispute about nothing; what differs is the RATE the panel publishes beside it.
+    """
+    if surcharge is None or surcharge <= 0:
+        return PricedLlmSurcharge(minutes=_ZERO_PAISE, models=(), total_inr=_ZERO_PAISE)
+    surcharged = {
+        model: minutes
+        for model, minutes in sorted(minutes_by_model.items())
+        if model != UNSURCHARGED_MODEL and minutes > 0
+    }
+    minutes = sum(surcharged.values(), _ZERO_PAISE)
+    return PricedLlmSurcharge(
+        minutes=minutes,
+        models=tuple(surcharged),
+        total_inr=to_paise(minutes * surcharge),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1207,6 +1406,11 @@ class MonthIncrement:
     #: still computed rather than branched on here, because the read it comes from is
     #: the same one `minutes` needs and a second query is what the caller would pay.
     overage_inr: Decimal
+    #: What this call adds to the month's LANGUAGE-MODEL SURCHARGE (D-455). Zero on every
+    #: plan that quotes none, and zero for a call the client did not choose the model of.
+    #: A difference of two month totals like the other two, so it telescopes for the same
+    #: reason and needs no separate rule for a month that straddles a model switch.
+    llm_surcharge_inr: Decimal
 
 
 async def month_increment(
@@ -1215,10 +1419,12 @@ async def month_increment(
     tenant_id: UUID,
     month: str,
     tier: str,
+    llm_model_bucket: str,
     seconds: Decimal,
     included_min: Decimal,
     rate: Decimal,
     rate_value: Decimal | None,
+    llm_surcharge: Decimal | None,
 ) -> MonthIncrement:
     """What one call ADDS to a month's minutes and to its overage bill — the panel's and
     the invoice's own arithmetic, in the currency of a counter.
@@ -1264,26 +1470,46 @@ async def month_increment(
     `usage_events` rows are written in the same transaction: the read is the check half
     of a check-then-write over money, and the rows are what makes `after` the after.
 
-    `seconds` is this call's own `telephony_s` quantity and `tier` the rung it was metered
-    on — the two values the caller has just written to the ledger.
+    `seconds` is this call's own `telephony_s` quantity, `tier` the rung it was metered on
+    and `llm_model_bucket` the model bucket it was stamped into
+    (`rates.llm_surcharge_applies` decides, and `UNSURCHARGED_MODEL` is the answer for a
+    call the surcharge does not touch) — the three values the caller has just written to
+    the ledger.
+
+    **THE SURCHARGE IS THE SAME DIFFERENCE-OF-TWO-MONTHS ARITHMETIC** and deliberately not
+    `this call's minutes x the rate`. It has to be: the month's minutes are PAISE-ALLOCATED
+    across buckets (`allocate_paise` distributes a remainder over the whole set, so it is
+    not linear in any one bucket), and a per-call product would drift from the figure the
+    invoice prints by the accumulated remainder. Computed as a difference it telescopes to
+    the month's own surcharge exactly — including across a month that straddles a model
+    switch, where the ledger simply holds two buckets and this call moves one of them.
     """
-    after_seconds, _cost = await rung_seconds(session, tenant_id=tenant_id, month=month)
-    before_seconds = dict(after_seconds)
+    after = await rung_seconds(session, tenant_id=tenant_id, month=month)
+    before_seconds = dict(after.by_rung)
+    before_models = dict(after.by_llm_model)
     # `max(0, …)` cannot bind on the meter's path — the rows for `seconds` are in this
     # transaction and in this month, so they are in the sum we just read. It is kept
     # because a negative bucket would make `allocate_paise` refuse rather than answer,
     # and a caller that passed seconds the ledger does not hold should get the honest
     # "this call added nothing" instead of an exception on a metered call.
     before_seconds[tier] = max(Decimal("0"), before_seconds[tier] - seconds)
-    after_minutes = rung_minutes(after_seconds)
+    before_models[llm_model_bucket] = max(
+        Decimal("0"), before_models.get(llm_model_bucket, Decimal("0")) - seconds
+    )
+    after_minutes = rung_minutes(after.by_rung)
     before_minutes = rung_minutes(before_seconds)
-    after = priced_overage(
+    # Both partitions are re-allocated over the same "before" total, so the surcharge's
+    # before-state is the month the previous call priced against — the property that makes
+    # the increments telescope on this axis too.
+    after_model_minutes = llm_model_minutes(after.by_llm_model)
+    before_model_minutes = llm_model_minutes(before_models)
+    after_overage = priced_overage(
         minutes_by_rung=after_minutes,
         included_min=included_min,
         rate=rate,
         rate_value=rate_value,
     )
-    before = priced_overage(
+    before_overage = priced_overage(
         minutes_by_rung=before_minutes,
         included_min=included_min,
         rate=rate,
@@ -1296,7 +1522,15 @@ async def month_increment(
         # second division would be a fourth spelling of it.
         minutes=sum(after_minutes.values(), _ZERO_PAISE)
         - sum(before_minutes.values(), _ZERO_PAISE),
-        overage_inr=after.total_inr - before.total_inr,
+        overage_inr=after_overage.total_inr - before_overage.total_inr,
+        llm_surcharge_inr=(
+            priced_llm_surcharge(
+                minutes_by_model=after_model_minutes, surcharge=llm_surcharge
+            ).total_inr
+            - priced_llm_surcharge(
+                minutes_by_model=before_model_minutes, surcharge=llm_surcharge
+            ).total_inr
+        ),
     )
 
 
@@ -1338,7 +1572,8 @@ async def usage_summary(
     # `_tier_totals`' second return is `unit_cost_paid` — our supplier cost, which
     # `_spend_used` used to publish for a closed month (P1.3). `tier_usage` still reads
     # both for the ADMIN margin panel, which is what that number is for.
-    tier_minutes, _tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    totals = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    tier_minutes = totals.by_rung
     minutes = sum(tier_minutes.values(), _ZERO_PAISE)
     row = (
         await session.execute(
@@ -1374,7 +1609,8 @@ async def usage_summary(
                 # a client headroom the gate will refuse them.
                 plan_in_effect_sql(
                     "monthly_fee, included_min, overage_rate, "
-                    f"{EFFECTIVE_CAP_MIN_SQL}, {EFFECTIVE_CAP_SPEND_SQL}, overage_rate_value"
+                    f"{EFFECTIVE_CAP_MIN_SQL}, {EFFECTIVE_CAP_SPEND_SQL}, overage_rate_value, "
+                    "llm_model_surcharge"
                 )
             ),
             {"tid": tenant_id, "at": priced_at},
@@ -1411,6 +1647,17 @@ async def usage_summary(
     overage_premium = priced.premium_min
     overage_value = priced.value_min
     overage_cost = priced.total_inr
+
+    # THE MODEL SURCHARGE (D-455), priced off the SAME read and the SAME plan row.
+    #
+    # NULL is not zero here either: "this plan quotes no model surcharge" and "the upgrade
+    # is free" are different plans, and the rate published below says which of the two a
+    # reader is in. It is deliberately NOT netted into `overage_cost_inr`: the overage is
+    # minutes at the plan's rate and this is an upgrade on top of it, so they are two
+    # lines on the statement and two figures on the panel — a client who switched model
+    # must be able to see which of the two moved.
+    surcharge_rate = Decimal(str(plan[6])) if plan and plan[6] is not None else None
+    surcharge = priced_llm_surcharge(minutes_by_model=totals.by_llm_model, surcharge=surcharge_rate)
 
     # THE LIVE COUNTERS, through the one month-aware reader (`billing/caps.py`) that the
     # compliance gate, the admin directory and the health panel already read. The month
@@ -1490,10 +1737,50 @@ async def usage_summary(
         # above were priced at `overage_rate_inr`, and saying None rather than repeating
         # the premium rate is what tells a reader which of those two worlds they are in.
         "overage_rate_value_inr": (rate_to_display(value_rate) if value_rate is not None else None),
+        # THE MODEL SURCHARGE, as three figures a client can check against each other
+        # (D-455): the minutes that carried it, the rate they carried, and the total —
+        # which is `minutes x rate` because `priced_llm_surcharge` quantized it once.
+        #
+        # `llm_surcharge_rate_inr` is None exactly when the plan quotes no surcharge, and
+        # a ₹0.00 total then means "your model choice costs you nothing" rather than "you
+        # ran no upgraded minutes" — the same None-is-not-zero reading as the value rate
+        # above, on the column beside it. Published UNROUNDED through `rate_to_display`
+        # for that function's reason: the invoice re-prices from this figure.
+        "llm_surcharge_rate_inr": (
+            rate_to_display(surcharge_rate) if surcharge_rate is not None else None
+        ),
+        "llm_surcharge_minutes": surcharge.minutes,
+        "llm_surcharge_inr": surcharge.total_inr,
+        # WHICH MODELS. The identifiers the client themselves chose, sorted, so the
+        # statement and the panel can name the cause of the number rather than only its
+        # size. Empty on every plan that quotes no surcharge and on every month nobody
+        # upgraded.
+        "llm_surcharge_models": list(surcharge.models),
         # Quantized to paise like every other money field: NUMERIC(12,4) is the
         # storage precision, two decimals is what a rupee amount means to a reader.
         "monthly_fee_inr": (
             to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
+        ),
+        # THE TOTAL, so no screen has to add rupees in a browser. `month_charges_inr` is
+        # the same expression `margin_for_tenant` books as revenue, quantized to paise here
+        # because that is what a rupee amount means to the client reading it.
+        #
+        # It is deliberately NOT `spend_used_inr`, and confusing the two is the reason this
+        # comment is long. `spend_used_inr` is what has been METERED — the live counter on
+        # an open month, the ledger on a closed one — so on an open month it lags the
+        # retainer entirely and answers "what have my calls drawn down". This answers "what
+        # will this month cost me", retainer included, from the same three published
+        # components a client can add up by hand.
+        "month_charges_inr": to_paise(
+            month_charges_inr(
+                monthly_fee_inr=(
+                    to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
+                ),
+                plan_tier=tier,
+                minutes=minutes,
+                overage_cost_inr=overage_cost,
+                llm_surcharge_inr=surcharge.total_inr,
+            )
         ),
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
         "minutes_left": minutes_left,
@@ -1506,17 +1793,78 @@ async def usage_summary(
                 today,
                 counters.billed_inr,
                 closed_month_billed=calling_revenue_inr(
-                    plan_tier=tier, minutes=minutes, overage_cost_inr=overage_cost
+                    plan_tier=tier,
+                    minutes=minutes,
+                    overage_cost_inr=overage_cost,
+                    llm_surcharge_inr=surcharge.total_inr,
                 ),
             )
         ),
     }
 
 
+def month_charges_inr(
+    *,
+    monthly_fee_inr: Decimal | None,
+    plan_tier: str | None,
+    minutes: Decimal,
+    overage_cost_inr: Decimal,
+    llm_surcharge_inr: Decimal,
+) -> Decimal:
+    """EVERYTHING THIS BILLING PERIOD HAS COST THE CLIENT — the retainer plus the calling.
+
+    **THE ADDITION HAS TO HAPPEN SOMEWHERE, AND THE BROWSER IS THE ONE PLACE IT MUST NOT.**
+    `UsagePanelOut` published three charge components and no total, so both client screens
+    that show "this month so far" had to add rupees in JavaScript. `apps/web/src/lib/money
+    .ts` did it correctly — whole paise, never `Number()` on a rupee string — and said in
+    its own docstring that a field on the endpoint was the better shape and that it could
+    not add one. This is that field's arithmetic. A total computed in the browser is a
+    second implementation of a bill, in a language with one numeric type, on the screen a
+    client checks against their own books.
+
+    **IT IS THE SAME EXPRESSION `margin_for_tenant` CALLS REVENUE, AND THAT IS THE POINT
+    RATHER THAN A COINCIDENCE.** What the client owes us and what we book as revenue for
+    the period are the same number seen from two sides; they were computed by two
+    expressions in two modules, which is how they come to disagree. There is now one, and
+    both surfaces read it.
+
+    **RETURNS UNQUANTIZED `Decimal`, and the two callers quantize differently ON PURPOSE.**
+    `usage_summary` publishes `to_paise(...)` because a rupee amount on a screen means two
+    decimals; `margin_for_tenant` keeps the raw value because it subtracts a cost from it
+    first and `margin_pct` divides by it — rounding before either would round twice.
+    Returning a pre-quantized figure here is the defect `calling_revenue_inr` documents at
+    length one function down, on the same path.
+
+    `monthly_fee_inr` is `None` — not zero — while a client is mid-onboarding with no plan
+    row, which is a real state; it contributes nothing and the total is then the calling
+    alone. A prepaid tenant has no retainer either, and its calling half is priced at the
+    list price rather than out of an allowance: `calling_revenue_inr` already holds that
+    branch and is not re-decided here.
+    """
+    return (monthly_fee_inr or Decimal("0")) + calling_revenue_inr(
+        plan_tier=plan_tier,
+        minutes=minutes,
+        overage_cost_inr=overage_cost_inr,
+        llm_surcharge_inr=llm_surcharge_inr,
+    )
+
+
 def calling_revenue_inr(
-    *, plan_tier: str | None, minutes: Decimal, overage_cost_inr: Decimal
+    *,
+    plan_tier: str | None,
+    minutes: Decimal,
+    overage_cost_inr: Decimal,
+    llm_surcharge_inr: Decimal,
 ) -> Decimal:
     """What the CLIENT owes for a whole billing period's CALLING, at their own rate.
+
+    **THE MODEL SURCHARGE IS ADDED ON BOTH MOTIONS (D-455)**, which is why it is one
+    argument rather than a branch: "a dearer model adds ₹x to every minute the client
+    chose it for" is one rule, and the two motions differ only in what the BASE minute
+    costs. Passed in already priced rather than recomputed here, for the reason the
+    overage is: `usage_summary` derived it from `priced_llm_surcharge`, and `build_invoice`
+    prints its upgrade line from those same published figures — a second derivation here
+    is what would let a panel and a statement disagree.
 
     **THE DEFECT THIS EXISTS FOR.** `margin_for_tenant` computed revenue as
     `monthly_fee_inr + overage_cost_inr`, which is the entire bill for a MANAGED tenant
@@ -1585,8 +1933,8 @@ def calling_revenue_inr(
     move. Neither is ours to pick.
     """
     if plan_tier in PREPAID_TIERS:
-        return get_settings().self_serve_inr_per_min * minutes
-    return overage_cost_inr
+        return get_settings().self_serve_inr_per_min * minutes + llm_surcharge_inr
+    return overage_cost_inr + llm_surcharge_inr
 
 
 def _spend_used(period: str, today: str, live: Decimal, *, closed_month_billed: Decimal) -> Decimal:
@@ -1682,7 +2030,8 @@ async def tier_usage(
     # Validated for the same reason `usage_summary` validates it, and by the same
     # function: two panels reading one ledger must not disagree about what a month is.
     parse_billing_month(period)
-    minutes, cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    totals = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    minutes, cost = totals.by_rung, totals.cost_by_rung
 
     # THE THREE COSTS ARE ALLOCATED, NOT ROUNDED SEPARATELY (D-371) — the same fix the
     # MINUTES beside them already had, on the column nobody had applied it to.
@@ -1922,8 +2271,8 @@ async def margin_for_tenant(
     # arithmetic with one fewer place for a filter to be added to only one of them.
     # NUMERIC throughout — no float anywhere on the path from `unit_cost_paid` to the
     # rupee an operator reads (hard rule 7).
-    _, tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=str(usage["month"]))
-    cost_inr = to_paise(sum(tier_cost.values(), Decimal("0")))
+    totals = await _tier_totals(session, tenant_id=tenant_id, month=str(usage["month"]))
+    cost_inr = to_paise(sum(totals.cost_by_rung.values(), Decimal("0")))
     # REVENUE IS THE CLIENT'S PRICE FOR THIS PERIOD, AND WHICH PRICE THAT IS DEPENDS ON
     # THE MOTION. `monthly_fee + overage_cost` is the managed tenant's bill (it is the
     # invoice's subtotal) and it is ₹0.00 for a prepaid one, whose minutes are charged at
@@ -1932,10 +2281,20 @@ async def margin_for_tenant(
     # stays here because a prepaid tenant has none; the CALLING half is the part that
     # differs, and it has one home now.
     tier = await plan_tier_of(session, tenant_id)
-    revenue = (usage["monthly_fee_inr"] or Decimal("0")) + calling_revenue_inr(
+    # THROUGH `month_charges_inr`, which is also what the client's own panel publishes as
+    # `month_charges_inr`. Revenue and "what the client owes" are the same number seen from
+    # two sides, and they used to be two expressions in two modules. The model surcharge is
+    # REVENUE and belongs on this side of the margin — it is also the only revenue here that
+    # moves with our own cost, since a client on the dearer model raises `cost_inr` through
+    # an Azure invoice we cannot see per tenant, so it is what keeps the two moving together
+    # at all (D-455). Left UNQUANTIZED: the subtraction and `margin_pct`'s division both
+    # happen before anything is rounded.
+    revenue = month_charges_inr(
+        monthly_fee_inr=usage["monthly_fee_inr"],
         plan_tier=tier,
         minutes=usage["minutes_used"],
         overage_cost_inr=usage["overage_cost_inr"],
+        llm_surcharge_inr=usage["llm_surcharge_inr"],
     )
     margin = to_paise(revenue - cost_inr)
     pct = margin_pct(margin_inr=margin, revenue_inr=revenue)
@@ -1959,11 +2318,15 @@ __all__ = [
     "RESTATEMENT_META_KIND",
     "RESTATEMENT_REF_PREFIX",
     "ROUNDING",
+    "UNSURCHARGED_MODEL",
     "Balance",
     "CorrectableEntry",
     "CreditReason",
     "LedgerEntryRef",
+    "MonthSeconds",
+    "MonthTotals",
     "OverageRung",
+    "PricedLlmSurcharge",
     "RecordedPayment",
     "adjustment_ref",
     "allocate_paise",
@@ -1973,11 +2336,14 @@ __all__ = [
     "find_entry_by_ref",
     "find_topup",
     "get_balance",
+    "llm_model_minutes",
     "lock_tenant_credits",
     "margin_for_tenant",
     "margin_pct",
+    "month_charges_inr",
     "overage_rungs",
     "plan_tier_of",
+    "priced_llm_surcharge",
     "rate_to_display",
     "read_correctable_entry",
     "read_recorded_payment",

@@ -174,9 +174,25 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
           ) : (
             <StatTile
               label="Spend this month"
-              value={formatINR(usage.data.overage_cost_inr)}
+              /* THE WHOLE OF WHAT THIS MONTH HAS COST THEM, not one part of it. This tile
+                 printed `overage_cost_inr` — the EXTRA minutes only — under a label that
+                 says "spend", so it omitted the retainer, and after D-455 it also omitted
+                 the model upgrade a client pays for on every minute their own choice runs.
+                 An account inside its allowance on the dearer model therefore read ₹0.00
+                 here and was invoiced an "AI model upgrade" line for the same month.
+
+                 `month_charges_inr` is the same field `/usage` prints as "Total so far"
+                 and the same expression the margin panel books as revenue, so the home
+                 screen, the usage screen and the invoice cannot disagree about one month.
+                 It is the SERVER's sum: nothing here adds rupees. */
+              value={formatINR(usage.data.month_charges_inr)}
               icon={<Sparkles className="h-5 w-5" />}
-              hint={`${usage.data.minutes_used} min used of ${formatCount(usage.data.included_minutes)} included`}
+              hint={
+                <Link href={href(`/c/${slug}/usage`)} className="underline hover:text-ink">
+                  {usage.data.minutes_used} min used of{" "}
+                  {formatCount(usage.data.included_minutes)} included
+                </Link>
+              }
             />
           )}
           {/* `?? {}` here is a PAYLOAD null, not an envelope one, and the difference is

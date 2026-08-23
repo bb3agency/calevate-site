@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * THE MODEL PICKER — one list of choices with a price against each, used by both screens
- * that can change a model.
+ * THE MODEL PICKER — one list of choices with what each ADDS to the bill against it, used
+ * by both screens that can change a model.
  *
  * The organisation default (`/c/[slug]/settings/models`) and the per-agent override
  * (`/c/[slug]/agents/[agentId]`) ask the same question of the same catalogue and differ
@@ -12,12 +12,26 @@
  *
  * ## Why the price is on the row and not in a help link
  *
- * `platform_cost_inr_per_minute` is what a minute of a five-minute call costs on that model. A
- * client changing model is changing what every call costs them, and a picker that hides
- * that is a trap: the choice looks like a quality setting and behaves like a price list.
- * So each row carries the rate as the server's own digits, plus how it compares with what
- * is in force — the comparison because a column of four rupee figures is a table a reader
- * has to do arithmetic on, and the arithmetic is where they get it wrong.
+ * `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's
+ * bill for every minute it runs (D-455) — the plan's own `llm_model_surcharge`, and `0`
+ * on the model their rate is struck at. A client changing model is changing what every
+ * call costs them, and a picker that hides that is a trap: the choice looks like a
+ * quality setting and behaves like a price list. So each row carries the surcharge as the
+ * server's own digits, plus how it compares with what is in force — the comparison
+ * because a column of rupee figures is a table a reader has to do arithmetic on, and the
+ * arithmetic is where they get it wrong.
+ *
+ * **THE FIGURE HERE IS THE CLIENT'S, NOT OURS, AND THAT IS A CORRECTION.** This control
+ * used to render `platform_cost_inr_per_minute` — what the language leg costs CALEVATE at
+ * list price — under the words "what every call costs them". It was wrong twice over
+ * (`apps/api/billing/rates.py::llm_cost_inr_per_minute` states both halves): it printed a
+ * number nobody is charged, and it published our supplier cost, and therefore our margin,
+ * to the account it is a margin on. That figure now stays on the admin console, labelled
+ * as ours; this control shows what the client will actually pay.
+ *
+ * A surcharge of zero — every plan until a founder sets one — reads "no extra charge",
+ * not "₹0.00", because the honest client-facing sentence is that the choice costs them
+ * nothing rather than that it costs them a rupee amount of nothing.
  *
  * The comparison is EXACT (`lib/llmRates.ts`) and refuses rather than rounds: no figure
  * on this control is ever produced by parsing a decimal into a float (hard rule 7).
@@ -35,7 +49,7 @@
  * ## The markup, and why it is a radio group rather than a `<select>`
  *
  * A `<select>` can hold four model names and cannot hold four prices — the option text
- * would have to become "gpt-4o-mini — ₹0.24/min, ₹0.06 more a minute", which is a
+ * would have to become "gpt-4.1-mini — +₹1.50/min, ₹1.50 more a minute", which is a
  * sentence no screen reader user wants read at them four times to compare two. Real
  * `<input type="radio">`s inside their labels, visually hidden rather than replaced:
  * arrow keys move between them, the group announces itself from its `<legend>`, each
@@ -62,12 +76,23 @@ export interface ModelChoice {
   label: string;
   /** The second line — the provider, or what inheriting resolves to. */
   detail: string;
-  /** The per-minute price as the server's digits, or `null` when we cannot say. */
-  rate: string | null;
+  /**
+   * WHAT CHOOSING THIS ROW ADDS TO THE CLIENT'S BILL, per minute, as the server's digits.
+   *
+   * `"0"` is a real answer and means "no extra charge" — the state every plan is in until
+   * a founder sets `plans.llm_model_surcharge`. `null` is "we cannot say", which is a
+   * different thing and renders as `—`: a model withdrawn from the catalogue, or a build
+   * whose API does not carry the field.
+   *
+   * NOT our cost to run the model. That figure exists (`platform_cost_inr_per_minute`)
+   * and belongs on the operator's console; see the module docstring for why it may not
+   * appear on a client's screen.
+   */
+  surcharge: string | null;
   /** A short badge: "Calevate's default", "your organisation default". */
   badge?: string;
   /**
-   * Is this the model in force right now — the one every other row is priced against?
+   * Is this the model in force right now — the one every other row is compared against?
    *
    * It gets "the model running now" instead of a comparison, because "same price" is what a
    * row would otherwise say about itself, and a reader who sees it on two rows cannot
@@ -101,13 +126,30 @@ export interface ModelChoice {
  * costing the same is a claim, and a screen that makes it from an absent figure is the
  * §52 defect applied to money.
  */
-function priceComparison(rate: string | null, baseline: string | null): string | null {
-  const order = compareRates(rate, baseline);
+function priceComparison(surcharge: string | null, baseline: string | null): string | null {
+  const order = compareRates(surcharge, baseline);
   if (order === "unknown") return null;
-  if (order === "same") return "same price";
-  const difference = rateDifference(rate, baseline);
+  // Two rows that both cost nothing extra need no comparison: the row already says "No
+  // extra charge", and "same price" under it is a second way of saying nothing happened.
+  if (order === "same") return compareRates(surcharge, "0") === "same" ? null : "same price";
+  const difference = rateDifference(surcharge, baseline);
   if (difference === null) return null;
   return `${formatRupeeRate(difference)} ${order === "dearer" ? "more" : "less"} a minute`;
+}
+
+/**
+ * The row's own money line: the surcharge, or the words for not having one.
+ *
+ * "No extra charge" rather than "₹0.00 / min" for a zero, because a client asking what a
+ * model costs them is asking a yes/no question first and a rupee question second — and a
+ * column of "₹0.00 / min" on every row reads as a price list nobody has filled in. `—`
+ * stays for `null`, which is the different claim that we cannot say (see `surcharge`).
+ */
+function surchargeLabel(surcharge: string | null): string {
+  if (surcharge === null) return "—";
+  return compareRates(surcharge, "0") === "same"
+    ? "No extra charge"
+    : `+${formatRupeeRate(surcharge)} / min`;
 }
 
 export function ModelPicker({
@@ -116,7 +158,7 @@ export function ModelPicker({
   hint,
   choices,
   value,
-  baselineRate,
+  baselineSurcharge,
   disabled,
   onChange,
 }: {
@@ -127,12 +169,12 @@ export function ModelPicker({
   choices: ModelChoice[];
   value: string | null;
   /**
-   * The rate everything is compared against — the price of the model in force RIGHT NOW,
-   * not of the row the user has selected. Comparing against the selection would make the
-   * differences move as the user clicked around, which is the one thing a price column
-   * must not do.
+   * The surcharge everything is compared against — the one the model in force RIGHT NOW
+   * carries, not the row the user has selected. Comparing against the selection would
+   * make the differences move as the user clicked around, which is the one thing a price
+   * column must not do.
    */
-  baselineRate: string | null;
+  baselineSurcharge: string | null;
   disabled?: boolean;
   onChange: (next: string | null) => void;
 }) {
@@ -143,7 +185,9 @@ export function ModelPicker({
       <div className="mt-2 space-y-2">
         {choices.map((choice) => {
           const checked = choice.value === value;
-          const comparison = choice.baseline ? null : priceComparison(choice.rate, baselineRate);
+          const comparison = choice.baseline
+            ? null
+            : priceComparison(choice.surcharge, baselineSurcharge);
           // `!= null` covers both `null` and an absent property, and nothing else: an
           // empty string would be a reason the server sent and is not a state to swallow.
           const blocked = choice.unavailable != null;
@@ -193,12 +237,14 @@ export function ModelPicker({
                   </span>
                 )}
               </span>
-              {/* The price, as the server's own digits. `—` where there is none: a model
-                  withdrawn from the catalogue, or a build whose API does not price it. An
-                  absent rate is said as absent, never as free. */}
+              {/* WHAT THIS ROW ADDS TO THEIR BILL, as the server's own digits. `—` where
+                  we cannot say: a model withdrawn from the catalogue, or a build whose
+                  API does not carry the field. An absent figure is said as absent, never
+                  as free — "No extra charge" is reserved for a surcharge we HAVE and
+                  which is zero. */}
               <span className="shrink-0 text-right">
                 <span className="block text-sm font-semibold tabular-nums text-ink">
-                  {choice.rate === null ? "—" : `${formatRupeeRate(choice.rate)} / min`}
+                  {surchargeLabel(choice.surcharge)}
                 </span>
                 {(choice.baseline || comparison !== null) && (
                   <span className="mt-0.5 block text-xs text-ink-faint">

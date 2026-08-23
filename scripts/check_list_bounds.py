@@ -119,6 +119,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # decided by a decision-log entry and never by anybody's row count. All four verbs
     # answer with the same `LlmDefaultsOut`, which is why the write paths are declared too:
     # each returns the freshly-read state rather than an acknowledgement.
+    "GET /v1/usage": BoundedByConstruction(
+        by=(
+            "`llm_surcharge_models` names the models this month's minutes actually ran "
+            "on, one entry each, so it is bounded by `AZURE_OPENAI_MODELS` — a closed "
+            "Literal — and not by how much the tenant called. It is a DISTINCT over the "
+            "same month the totals are read from, so it cannot outgrow the allow-list "
+            "even for a tenant that switched model every day of the month."
+        )
+    ),
     "GET /v1/organization/llm-defaults": BoundedByConstruction(
         by="`available` is one row per model in `AZURE_OPENAI_MODELS`, a closed Literal."
     ),
@@ -254,6 +263,16 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/campaigns/templates": BoundedByConstruction(
         by="DLT templates, which only an operator can file (`POST /v1/admin/tenants/"
         "{tenant_id}/dlt-templates`) and which the regulator's own registration bounds."
+    ),
+    # --- bounded by the number of PEOPLE WE EMPLOY ----------------------------------
+    "GET /v1/admin/operators": BoundedByConstruction(
+        by="one row per LIVE operator account — an allowlist only a superadmin can add "
+        "to (`POST /v1/admin/operators`, `admin:operators`), so its length is a hiring "
+        "decision and never a caller's row count. Revoked rows accumulate and are "
+        "deliberately NOT listed: they survive because eight tables reference them as "
+        "the record of who decided what, and 'who was removed and when' is the audit "
+        "log's question. A LIMIT would hide an administrator from the only screen that "
+        "lists who can administer the platform."
     ),
     # --- bounded by the number of CLIENTS, which we provision -----------------------
     "GET /v1/admin/tenants": BoundedByConstruction(

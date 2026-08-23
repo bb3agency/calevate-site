@@ -68,6 +68,8 @@ function twoRungPlan(over: Partial<PlanRow> = {}): PlanRow {
     included_minutes: 100,
     overage_rate_inr: "8.0000",
     overage_rate_value_inr: "5.5000",
+    // D-455: what this client pays extra, per minute, for a model THEY chose.
+    llm_model_surcharge_inr: null,
     hard_cap_minutes: null,
     hard_cap_spend_inr: null,
     client_cap_minutes: null,
@@ -159,7 +161,39 @@ describe("the agreement history prints both rungs of the price", () => {
 
     expect(cells).toContain("₹8.0000");
     expect(cells).not.toContain("₹0.0000");
-    // The value column specifically — the LAST rate cell, immediately before "Recorded".
-    expect(cells.filter((cell) => cell === "—")).toHaveLength(2); // Until, and Value / min
+    // Three dashes now, and the third is the point of the change below: Until, Value /
+    // min, and the model surcharge this fixture also does not quote. Counted rather than
+    // located by index because the count is what caught the column being added without
+    // its em-dash rule.
+    expect(cells.filter((cell) => cell === "—")).toHaveLength(3);
+  });
+
+  /**
+   * THE MODEL SURCHARGE IS A PRICE, SO IT IS IN THE PRICE HISTORY (D-455).
+   *
+   * It reached the form and the "in effect" list in the wave that added the column and
+   * stopped there, so this table — the effective-dated record an invoice is re-derived
+   * from — showed every term of an agreement except the one that had just been invented.
+   * A client querying an "AI model upgrade" line on a statement from two months ago is
+   * answered from the row that was in effect then, and until this column existed the only
+   * way to answer them was psql.
+   *
+   * The same em-dash rule as the two rungs beside it, for the same reason: `plans
+   * .llm_model_surcharge` is NULL on every row today because the number is an open founder
+   * decision, and "₹0.0000" would read as a decided price of zero rather than as a term
+   * nobody has agreed.
+   */
+  it("prints the model surcharge that was in effect, unrounded", async () => {
+    const { container } = await render(twoRungPlan({ llm_model_surcharge_inr: "1.5000" }));
+    await screen.findByText("Every agreement, newest first");
+
+    expect(container.textContent).toContain("Model surcharge / min");
+    const cells = await historyCells();
+    expect(cells).toContain("₹1.5000");
+    // The rungs are untouched by it: a surcharge is ADDED to whichever rate a minute
+    // landed on, and a table that replaced one with the other would be describing a
+    // different plan from the one `billing/rates.py` prices.
+    expect(cells).toContain("₹8.0000");
+    expect(cells).toContain("₹5.5000");
   });
 });

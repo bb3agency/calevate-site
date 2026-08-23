@@ -10,6 +10,7 @@ import {
   BellRing,
   Blocks,
   Bot,
+  BookLock,
   BookOpen,
   BrainCircuit,
   Coins,
@@ -97,6 +98,7 @@ function navigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
         { href: `/c/${slug}/lead-sources`, label: "Lead sources", icon: GitMerge },
         { href: `/c/${slug}/data-rights`, label: "Data rights", icon: ScrollText },
+        { href: `/c/${slug}/caller-notice`, label: "Your privacy notice", icon: BookLock },
       ],
     },
     {

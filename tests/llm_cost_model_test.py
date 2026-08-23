@@ -58,10 +58,26 @@ from apps.api.billing.rates import (
 )
 from apps.api.core.settings import get_settings
 from calevate_shared.engine import (
-    AZURE_LIST_PRICE_USD_PER_MTOK,
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_OPENAI_MODELS,
+    LLM_MODELS,
 )
+
+
+def list_price_usd_per_mtok(model: str) -> dict[str, Decimal]:
+    """The vendor's dollars for `model`, in the `{"in", "out"}` shape this file's
+    arithmetic is written over.
+
+    D-456 DELETED THE TABLE THIS USED TO IMPORT (`AZURE_LIST_PRICE_USD_PER_MTOK`): a
+    price is now a field on the model's own `LlmModelSpec`, so there is no second
+    mapping to fall out of step with the catalogue. Read here rather than retyped,
+    because a literal in a test is exactly the copy this file exists to refuse — and
+    kept as a helper rather than inlined so the three call sites below still say the
+    same thing they said when the table was a module constant.
+    """
+    price = LLM_MODELS[model].price
+    return {"in": price.input_usd_per_mtok, "out": price.output_usd_per_mtok}
+
 
 #: The published curve, ₹/min at 1, 5 and 10 minutes, per model — the six figures TRD
 #: §10.1 quotes and `scripts/check_docs_drift.py` scores the doc against.
@@ -101,7 +117,13 @@ def test_every_model_an_operator_can_select_has_a_published_price() -> None:
     rots unread until it is quoted somewhere by mistake.
     """
     assert PRICED_LLM_MODELS == AZURE_OPENAI_MODELS
-    assert set(AZURE_LIST_PRICE_USD_PER_MTOK) == AZURE_OPENAI_MODELS
+    # STATED OVER THE CATALOGUE'S OWN AZURE LEG (D-456) rather than over a price table
+    # beside it. Same failure caught, one fewer thing to keep in step: a model whose
+    # `provider` said `azure_openai` but which the Literal never listed would be
+    # priced, dated and addressable by nothing.
+    assert {
+        name for name, spec in LLM_MODELS.items() if spec.provider == "azure_openai"
+    } == AZURE_OPENAI_MODELS
     assert AZURE_OPENAI_DEFAULT_MODEL in PRICED_LLM_MODELS
     assert set(PUBLISHED_CURVE) == AZURE_OPENAI_MODELS, (
         "a model was added or removed and this file's published curve was not updated"
@@ -117,7 +139,8 @@ def test_the_rupee_table_derives_from_the_one_published_dollar_price() -> None:
     publishes dollars, and a constant that has already multiplied cannot be corrected when
     either half moves.
     """
-    for model, usd in AZURE_LIST_PRICE_USD_PER_MTOK.items():
+    for model in AZURE_OPENAI_MODELS:
+        usd = list_price_usd_per_mtok(model)
         inr = llm_inr_per_ktok(model)
         assert set(inr) == {"in", "out"}, model
         for leg, usd_per_mtok in usd.items():
@@ -321,7 +344,7 @@ def test_no_figure_in_the_chain_is_ever_a_float() -> None:
     `float` compare equal often enough to pass everything above."""
     values: list[object] = []
     for model in AZURE_OPENAI_MODELS:
-        values.extend(AZURE_LIST_PRICE_USD_PER_MTOK[model].values())
+        values.extend(list_price_usd_per_mtok(model).values())
         values.extend(llm_inr_per_ktok(model).values())
         values.extend(llm_cost_inr_per_minute(n, model=model) for n in (1, 5, 10))
         values.append(reference_assist_cost_inr(model))
@@ -335,27 +358,44 @@ def test_no_figure_in_the_chain_is_ever_a_float() -> None:
 
 
 def test_no_client_billing_function_takes_a_model() -> None:
-    """**A CLIENT'S BILL DOES NOT MOVE WHEN THEY CHANGE MODEL, AND THIS IS WHERE THAT IS
-    STATED IN CODE.**
+    """**A MODEL IDENTIFIER CANNOT REACH A CLIENT'S BILL — ONLY A RATE THE PLAN QUOTES.**
 
     D-454 gave clients a model picker whose rows carry `llm_cost_inr_per_minute`. That
     figure is what the language leg costs US at list price (`billing/rates.py` says so at
-    the function), and this test is the other half of the sentence: every function that
-    decides what a CLIENT owes for a minute prices MINUTES at their plan's rate, and none
-    of them can even be told which model ran.
+    the function), and it is still not a client price.
+
+    **WHAT D-455 CHANGED, AND WHAT IT DELIBERATELY DID NOT.** This test used to be titled
+    "a client's bill does not move when they change model", and it named the condition on
+    which that would stop being true: a repricing needs "the plan row, the invoice line
+    and the client's consent that a signature change does not come with". All three now
+    exist — `plans.llm_model_surcharge`, the `AI model upgrade` line in `build_invoice`,
+    and the corrected copy on both pickers — so a client's bill DOES move, and that
+    sentence is retired rather than quietly kept.
+
+    The INVARIANT survives it intact and is what this test still holds: none of these
+    functions can be told which model ran. They take MINUTES and a RATE, and the rate is a
+    term of the plan; the mapping from a model identifier to "does this minute carry the
+    surcharge" happens once, in `rates.llm_surcharge_applies`, off the LEDGER's stamp.
+    That is what stops the two ways of pricing a month that `priced_overage` was written
+    to end from reappearing on a new axis — and what stops `agents.llm_model`, a column
+    two screens can edit at any moment, from re-pricing a closed month.
 
     Asserted from the SIGNATURES rather than from a worked example, for the reason the
     rest of this file asserts signatures: the property is "the model cannot reach the
-    client's bill", and an example only shows that it did not on one input. If a `model`
-    parameter ever appears on one of these, somebody is about to charge a client
-    differently for a model choice — which is a repricing of the product, not a refactor,
-    and it needs the plan row, the invoice line and the client's consent that a signature
-    change does not come with.
+    client's bill", and an example only shows that it did not on one input.
     """
-    from apps.api.billing.rates import prepaid_billed_inr
-    from apps.api.billing.service import charge_for_call, priced_overage
+    from apps.api.billing.rates import llm_surcharge_billed_inr, prepaid_billed_inr
+    from apps.api.billing.service import charge_for_call, priced_llm_surcharge, priced_overage
 
-    for function in (prepaid_billed_inr, priced_overage, charge_for_call):
+    for function in (
+        prepaid_billed_inr,
+        priced_overage,
+        charge_for_call,
+        # D-455's two, held to the same rule: one takes a rate and minutes, the other a
+        # rate and a map the LEDGER bucketed. Neither is handed a model to decide with.
+        llm_surcharge_billed_inr,
+        priced_llm_surcharge,
+    ):
         parameters = set(inspect.signature(function).parameters)
         assert not parameters & {"model", "llm_model", "assist_model"}, (
             f"{function.__name__} can now see which language model ran; a client's minute "

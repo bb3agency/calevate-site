@@ -81,6 +81,9 @@ ONE_VALUE_EACH: dict[str, Any] = {
     "included_min": 500,
     "overage_rate": Decimal("8.0000"),
     "overage_rate_value": Decimal("5.5000"),
+    # D-455's model surcharge — the SECOND column this file's forcing function has caught
+    # on the way in, which is the whole point of the equality assertion below.
+    "llm_model_surcharge": Decimal("1.5000"),
 }
 
 

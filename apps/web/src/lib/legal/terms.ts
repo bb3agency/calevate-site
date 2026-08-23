@@ -223,21 +223,25 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             {
               kind: "callout",
               tone: "note",
-              title: "Choosing an AI model does not change what you pay",
+              title: "Choosing an AI model changes what you pay only if your plan says so",
               text:
-                "You can choose which of our AI models your agents use, and the product " +
-                "shows a rupee figure per minute against each one. That figure is OUR " +
-                "cost of running that model, at the provider's published price, over a " +
-                "minute of a five-minute " +
-                "call. It is published so that a choice about quality is not made blind " +
-                "to price — not because it is added to your bill: today it appears on " +
-                "no invoice line and on no credit deduction, and switching models " +
-                "changes neither your monthly fee, your per-minute rate, nor the rate " +
-                "your credit balance is drawn down at. Those are the figures in this " +
-                "clause and on your order form, and they are the only ones you are " +
-                "charged. If we ever pass a model's cost through to you it is a change " +
-                "to your commercial terms, agreed with you under the paragraph above, " +
-                "and not something a model list can do on its own.",
+                "You can choose which of our AI models your agents use. Your plan may " +
+                "quote a per-minute SURCHARGE for models above the standard one, and if " +
+                "it does, that figure is on your order form and nowhere else — it is a " +
+                "commercial term agreed with you under the paragraph above, and no model " +
+                "list, setting or screen can introduce or raise it on its own. **If your " +
+                "plan quotes no surcharge, switching models changes nothing you are " +
+                "charged**: not your monthly fee, not your per-minute rate, not the rate " +
+                "your credit balance is drawn down at. Where a surcharge does apply it " +
+                "applies to every metered minute an agent runs on that model, it is " +
+                "shown against the model before you choose it, it appears as its own " +
+                "line on your invoice so you can see what caused a larger number, and it " +
+                "is calculated from the model each call actually ran — so changing model " +
+                "mid-month re-prices nothing already spoken. A model we choose for you " +
+                "is never surcharged; only a model you or your staff selected is. " +
+                "Separately, the product may show what a model costs US to run, marked " +
+                "as such — that is published so a choice about quality is not made blind " +
+                "to cost, and it is not a figure you are charged.",
             },
           ],
         },

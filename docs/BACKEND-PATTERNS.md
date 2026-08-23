@@ -161,7 +161,12 @@ Still ours to apply: guards re-check `is_active`/ban state against the DB on sen
 surfaces (instant deactivation despite cached sessions); **step-up confirmation** (a
 second factor proved inside `REAUTH_MAX_AGE`, plus an `X-Confirm-Action` echo bound to
 the specific action) for high-risk **admin-realm** actions — big red switch, cap raises,
-tenant erasure, national-DND writes, and **entry into a client's account**; RBAC as a
+tenant erasure, national-DND writes, **entry into a client's account**, and **every change
+to the operator allowlist itself** (`/v1/admin/operators`: adding an administrator,
+promoting or demoting one, revoking one, re-issuing a setup link). That last class is on
+this list for a reason none of the others has: its effect OUTLIVES the session that
+performed it — a compromised console session that adds an administrator keeps a way in
+after the session it was stolen from is revoked; RBAC as a
 **policy registry validated at boot** (endpoint→permission map asserted at startup, not
 discovered at first use) — pairs with our route-discipline guardrail.
 

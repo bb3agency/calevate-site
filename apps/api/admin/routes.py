@@ -1894,6 +1894,17 @@ class CommercialTermsIn(BaseModel):
     overage_rate_value_inr: Decimal | None = Field(
         default=None, ge=0, le=MAX_RATE_INR, max_digits=12, decimal_places=4
     )
+    # WHAT A CLIENT PAYS EXTRA, PER MINUTE, FOR CHOOSING A DEARER LANGUAGE MODEL (D-455).
+    # The other open founder decision on this row, and settable for the same reason
+    # `overage_rate_value_inr` is: `billing/rates.py::llm_cost_inr_per_minute` says what
+    # the dearer model costs US and says in as many words that it is not a client price,
+    # so deriving a retail surcharge from it here would publish our margin as a rate. NULL
+    # is "this plan quotes no model surcharge" and is what every plan holds today — a
+    # model choice then moves the bill by ₹0.00, exactly as it did before the column
+    # existed. FOUR decimal places like the rates beside it, because it is added to one.
+    llm_model_surcharge_inr: Decimal | None = Field(
+        default=None, ge=0, le=MAX_RATE_INR, max_digits=12, decimal_places=4
+    )
     hard_cap_minutes: int | None = Field(default=None, ge=0, le=MAX_CLIENT_CAP_MIN)
     hard_cap_spend_inr: Decimal | None = Field(
         default=None, ge=0, le=MAX_CLIENT_CAP_SPEND_INR, max_digits=12, decimal_places=2
@@ -1911,6 +1922,7 @@ class CommercialTermsIn(BaseModel):
         "monthly_fee_inr",
         "overage_rate_inr",
         "overage_rate_value_inr",
+        "llm_model_surcharge_inr",
         "hard_cap_spend_inr",
         mode="before",
     )
@@ -1962,6 +1974,9 @@ class PlanRowOut(BaseModel):
     included_minutes: int | None
     overage_rate_inr: str | None
     overage_rate_value_inr: str | None
+    # Per minute, added to whichever rung above a minute landed on, for the minutes the
+    # client's own model choice upgraded (D-455). Null when this plan quotes none.
+    llm_model_surcharge_inr: str | None
     hard_cap_minutes: int | None
     hard_cap_spend_inr: str | None
     # The CLIENT's own ceilings on this row, read-only here. Shown because the cap in
@@ -2015,6 +2030,7 @@ def _plan_out(record: billing_terms.PlanRecord) -> PlanRowOut:
         included_minutes=terms.included_min,
         overage_rate_inr=_amount(terms.overage_rate),
         overage_rate_value_inr=_amount(terms.overage_rate_value),
+        llm_model_surcharge_inr=_amount(terms.llm_model_surcharge),
         hard_cap_minutes=terms.hard_cap_min,
         hard_cap_spend_inr=_amount(terms.hard_cap_spend),
         client_cap_minutes=record.client_cap_min,
@@ -2162,6 +2178,7 @@ async def record_commercial_terms(
         included_min=payload.included_minutes,
         overage_rate=payload.overage_rate_inr,
         overage_rate_value=payload.overage_rate_value_inr,
+        llm_model_surcharge=payload.llm_model_surcharge_inr,
         hard_cap_min=payload.hard_cap_minutes,
         hard_cap_spend=payload.hard_cap_spend_inr,
         concurrency_ceiling=payload.concurrency_ceiling,

@@ -5,7 +5,12 @@ import DashboardPage from "@/app/c/[slug]/page";
 import type { CallSummary, Dashboard, Me } from "@/lib/api/client";
 import type { UsagePanel } from "@/lib/api/hooks";
 
-import { browserOffline, problem, renderClientPage, stillLoading } from "./harness";
+import {
+  browserOffline,
+  problem,
+  renderClientPage,
+  stillLoading,
+} from "./harness";
 
 /**
  * The dashboard — the screen a client looks at to decide whether the product is
@@ -37,7 +42,12 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read", "leads:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** A dashboard where nothing has happened yet — the state most likely to be faked. */
@@ -59,13 +69,62 @@ const EMPTY_DASHBOARD: Dashboard = {
 
 /** Seven IST days, oldest first, as the API zero-fills them. */
 const WEEK: Dashboard["daily_7d"] = [
-  { ist_date: "2026-08-07", total: 4, completed: 3, no_answer: 1, failed: 0, in_flight: 0 },
-  { ist_date: "2026-08-08", total: 0, completed: 0, no_answer: 0, failed: 0, in_flight: 0 },
-  { ist_date: "2026-08-09", total: 6, completed: 4, no_answer: 1, failed: 1, in_flight: 0 },
-  { ist_date: "2026-08-10", total: 0, completed: 0, no_answer: 0, failed: 0, in_flight: 0 },
-  { ist_date: "2026-08-11", total: 2, completed: 2, no_answer: 0, failed: 0, in_flight: 0 },
-  { ist_date: "2026-08-12", total: 9, completed: 7, no_answer: 1, failed: 1, in_flight: 0 },
-  { ist_date: "2026-08-13", total: 3, completed: 1, no_answer: 0, failed: 0, in_flight: 2 },
+  {
+    ist_date: "2026-08-07",
+    total: 4,
+    completed: 3,
+    no_answer: 1,
+    failed: 0,
+    in_flight: 0,
+  },
+  {
+    ist_date: "2026-08-08",
+    total: 0,
+    completed: 0,
+    no_answer: 0,
+    failed: 0,
+    in_flight: 0,
+  },
+  {
+    ist_date: "2026-08-09",
+    total: 6,
+    completed: 4,
+    no_answer: 1,
+    failed: 1,
+    in_flight: 0,
+  },
+  {
+    ist_date: "2026-08-10",
+    total: 0,
+    completed: 0,
+    no_answer: 0,
+    failed: 0,
+    in_flight: 0,
+  },
+  {
+    ist_date: "2026-08-11",
+    total: 2,
+    completed: 2,
+    no_answer: 0,
+    failed: 0,
+    in_flight: 0,
+  },
+  {
+    ist_date: "2026-08-12",
+    total: 9,
+    completed: 7,
+    no_answer: 1,
+    failed: 1,
+    in_flight: 0,
+  },
+  {
+    ist_date: "2026-08-13",
+    total: 3,
+    completed: 1,
+    no_answer: 0,
+    failed: 0,
+    in_flight: 2,
+  },
 ];
 
 const USAGE: UsagePanel = {
@@ -79,7 +138,14 @@ const USAGE: UsagePanel = {
   overage_cost_inr: "10159.00",
   overage_rate_inr: "6.5000",
   overage_rate_value_inr: null,
+  // D-455: the model surcharge, unset on every plan today.
+  llm_surcharge_rate_inr: null,
+  llm_surcharge_minutes: "0.00",
+  llm_surcharge_inr: "0.00",
+  llm_surcharge_models: [],
   monthly_fee_inr: "4999.00",
+  // The server's total: ₹4,999.00 retainer + ₹10,159.00 overage + ₹0.00 upgrade.
+  month_charges_inr: "15158.00",
   cap_minutes: null,
   minutes_left: null,
   capped: false,
@@ -115,10 +181,18 @@ describe("the dashboard renders what the server said, or says it could not", () 
     expect(await screen.findByRole("alert")).toBeTruthy();
     // The specific mock figures the design shipped with. If any of them ever appears
     // again, a fallback has crept back in.
-    for (const invented of ["5,430", "3,482", "2,317", "13.6%", "$0.042", "286"]) {
-      expect(container.textContent, `invented figure on a failed dashboard: ${invented}`).not.toContain(
-        invented,
-      );
+    for (const invented of [
+      "5,430",
+      "3,482",
+      "2,317",
+      "13.6%",
+      "$0.042",
+      "286",
+    ]) {
+      expect(
+        container.textContent,
+        `invented figure on a failed dashboard: ${invented}`,
+      ).not.toContain(invented);
     }
   });
 
@@ -172,7 +246,10 @@ describe("the dashboard renders what the server said, or says it could not", () 
     const { container: measured } = await renderClientPage(
       page,
       routes({
-        "/v1/dashboard": { ...EMPTY_DASHBOARD, after_hours_basis: "business_hours" },
+        "/v1/dashboard": {
+          ...EMPTY_DASHBOARD,
+          after_hours_basis: "business_hours",
+        },
       }),
     );
     await screen.findByText("Using your recorded opening hours");
@@ -189,8 +266,18 @@ describe("the dashboard renders what the server said, or says it could not", () 
 
     // Seven labels, including the two days nothing happened: a silent day is a fact
     // about that day, and dropping it would slide the week and misdate every bar.
-    for (const label of ["7 Aug", "8 Aug", "9 Aug", "10 Aug", "11 Aug", "12 Aug", "13 Aug"]) {
-      expect(container.textContent, `missing day label ${label}`).toContain(label);
+    for (const label of [
+      "7 Aug",
+      "8 Aug",
+      "9 Aug",
+      "10 Aug",
+      "11 Aug",
+      "12 Aug",
+      "13 Aug",
+    ]) {
+      expect(container.textContent, `missing day label ${label}`).toContain(
+        label,
+      );
     }
 
     // The date label is read out of the API's string, never through `new Date(...)`:
@@ -202,10 +289,47 @@ describe("the dashboard renders what the server said, or says it could not", () 
   it("prints rupees from the string the API sent, without going through a float", async () => {
     const { container } = await renderClientPage(page, routes());
     await screen.findByText("Spend this month");
+    // The RETAINER PLUS the extra minutes: ₹4,999.00 + ₹10,159.00. The tile used to print
+    // `overage_cost_inr` alone under the word "spend", which was a fraction of the month
+    // wearing the label of the whole of it.
+    //
     // `Number("10159.00")` formats as 10,158.999999999998 on some paths; the exact
     // grouped string is the assertion, and the currency is INR, not the design's "$".
-    expect(container.textContent).toContain("₹10,159.00");
+    expect(container.textContent).toContain("₹15,158.00");
     expect(container.textContent).not.toContain("$");
+  });
+
+  /**
+   * THE MODEL UPGRADE IS PART OF WHAT THIS MONTH COST (D-455), ON THE HOME SCREEN TOO.
+   *
+   * The sharp case is an account INSIDE its minute allowance: `overage_cost_inr` is
+   * ₹0.00, so the tile as it stood said "Spend this month ₹0.00" while the invoice
+   * carried an "AI model upgrade" line for the dearer model the client had chosen. The
+   * fixture is exactly that shape, and the figure asserted is the retainer plus the
+   * surcharge with no overage in it at all.
+   */
+  it("includes the model surcharge for an account inside its allowance", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/usage": {
+          ...USAGE,
+          overage_minutes: "0",
+          overage_cost_inr: "0.00",
+          llm_surcharge_rate_inr: "1.5000",
+          llm_surcharge_minutes: "120.50",
+          llm_surcharge_inr: "180.75",
+          llm_surcharge_models: ["gpt-4.1-mini"],
+          // ₹4,999.00 retainer + ₹180.75 upgrade, and NO overage — the whole point of
+          // this case is that the total is neither ₹0.00 nor the retainer alone.
+          month_charges_inr: "5179.75",
+        },
+      }),
+    );
+
+    await screen.findByText("Spend this month");
+    // ₹4,999.00 retainer + ₹180.75 upgrade. Never ₹4,999.00, and never ₹0.00.
+    expect(container.textContent).toContain("₹5,179.75");
   });
 });
 
@@ -237,18 +361,25 @@ describe("the money tile says which kind of nothing it is showing", () => {
     // on screen during the loading branch as well.
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("We could not read your usage");
-    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe("Spend this month");
+    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe(
+      "Spend this month",
+    );
     expect(container.textContent).not.toContain("₹");
     // The rest of the screen is unaffected: this tile's failure is not the page's.
     expect(container.textContent).toContain("Calls today");
   });
 
   it("shows a skeleton, not a dash, while the usage read is in flight", async () => {
-    const { container } = await renderClientPage(page, routes({ "/v1/usage": stillLoading() }));
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/usage": stillLoading() }),
+    );
 
     // Scoped to the tile: this page has other skeletons, and a page-level count would
     // pass on any one of them.
-    const tile = (await screen.findByText("Spend this month")).closest("section");
+    const tile = (await screen.findByText("Spend this month")).closest(
+      "section",
+    );
     expect(
       tile!.querySelectorAll(".animate-pulse").length,
       "no skeleton in the Spend tile while /v1/usage is in flight",
@@ -265,14 +396,21 @@ describe("the money tile says which kind of nothing it is showing", () => {
     // announcement that never happens, so it is asserted here.
     await renderClientPage(page, routes({ "/v1/usage": stillLoading() }));
 
-    const tile = (await screen.findByText("Spend this month")).closest("section")!;
+    const tile = (await screen.findByText("Spend this month")).closest(
+      "section",
+    )!;
     const live = tile.querySelector('[role="status"]');
-    expect(live, "the skeleton is not a live region, so nothing is announced").not.toBeNull();
+    expect(
+      live,
+      "the skeleton is not a live region, so nothing is announced",
+    ).not.toBeNull();
     expect(live!.getAttribute("aria-live")).toBe("polite");
     expect(live!.textContent).toContain("Loading");
     // …and the bars stay out of the accessibility tree: they are the drawing of that
     // sentence, and reading them out is an announcement of nothing, per row.
-    expect(tile.querySelector(".animate-pulse")!.closest("[aria-hidden]")).not.toBeNull();
+    expect(
+      tile.querySelector(".animate-pulse")!.closest("[aria-hidden]"),
+    ).not.toBeNull();
   });
 
   /**
@@ -294,5 +432,4 @@ describe("the money tile says which kind of nothing it is showing", () => {
     expect(container.textContent).not.toContain("No calls yet");
     expect(container.textContent).toContain("We could not reach Calevate");
   });
-
 });

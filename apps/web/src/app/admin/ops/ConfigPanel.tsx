@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { lookup } from "@/lib/lookup";
 import {
   CheckCircle2,
@@ -104,10 +105,12 @@ import {
  *    (a retry that re-sends the same body is last-write-wins with a confirmation step).
  */
 
-/** The panel's three states, as a type rather than as discipline (§52). */
+/** The panel's four states, as a type rather than as discipline (§52). */
 type ConfigState =
   | { status: "loading" }
   | { status: "unreadable" }
+  /** The server ANSWERED, and the answer was "not you". See `admin/withheld.tsx`. */
+  | { status: "forbidden"; said: string | null }
   | { status: "read"; config: ConfigList };
 
 export function configState(query: {
@@ -115,6 +118,14 @@ export function configState(query: {
   error: unknown;
   isLoading: boolean;
 }): ConfigState {
+  // A 403 BEFORE the generic failure, for the reason `secretsState` splits the same two:
+  // `GET /v1/ops/config` carries `platform:config` exactly as the PUT does, so a normal
+  // admin who reaches this panel is refused the READ — and "we could not read the
+  // platform configuration", with a retry beside it, is the sentence for an outage. This
+  // one is settled, and pressing retry can only produce it again.
+  if (isForbidden(query.error)) {
+    return { status: "forbidden", said: forbiddenReason(query.error) };
+  }
   // Error first: a failed refetch leaves the previous `data` in place, and a stale
   // config table rendered as current is the same lie as an invented one.
   if (query.error) return { status: "unreadable" };
@@ -464,6 +475,19 @@ function etagOf(field: ConfigField): string | null {
 export function ConfigPanel({ access }: { access: { allowed: boolean; reason: string | null } }) {
   const query = useOpsConfig();
   const state = configState(query);
+
+  if (state.status === "forbidden") {
+    return (
+      <WithheldPanel
+        title="Platform configuration"
+        reason={
+          state.said ??
+          "The API refused this read: your admin account may not see the platform configuration."
+        }
+        subject="This panel would list every setting this deployment can change without an SSH session, and the value in force for each."
+      />
+    );
+  }
 
   return (
     <Card title="Platform configuration">

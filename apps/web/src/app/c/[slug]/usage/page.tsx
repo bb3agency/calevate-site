@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Coins, Gauge, PhoneCall, Timer, Wallet } from "lucide-react";
 
@@ -22,7 +23,7 @@ import {
   useTopUpIntent,
 } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";
 
@@ -61,7 +62,7 @@ import type { Session } from "@/lib/api/client";
  * - The screen was not gated on the permission its own endpoint requires (below).
  */
 export default function UsagePage() {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const usage = useUsage(session);
   const me = useMe(session);
 
@@ -209,15 +210,60 @@ export default function UsagePage() {
                   <Row label="Extra usage total" value={formatINR(data.overage_cost_inr)} />
                 </>
               )}
+              {/* THE MODEL UPGRADE (D-455), on the screen because it is on the invoice.
+                  A client whose bill grew because they moved their agents onto a dearer
+                  AI model has to be able to see WHICH decision did it — the line names
+                  the model, exactly as `build_invoice` does, and multiplies out against
+                  the rate beside it. Absent when the plan quotes no surcharge or nothing
+                  was upgraded, which is every account today: a ₹0.00 row invites a
+                  question about nothing, and is the same rule the overage rows follow. */}
+              {hasNonZeroDigit(data.llm_surcharge_inr) && (
+                <Row
+                  label={`AI model upgrade${
+                    data.llm_surcharge_models.length > 0
+                      ? `, ${data.llm_surcharge_models.join(", ")}`
+                      : ""
+                  } (${data.llm_surcharge_minutes} min × ${formatRupeeRate(
+                    data.llm_surcharge_rate_inr ?? "0",
+                  )})`}
+                  value={formatINR(data.llm_surcharge_inr)}
+                />
+              )}
               <Row
                 label="Total so far"
-                value={formatINR(addRupees(data.monthly_fee_inr, data.overage_cost_inr))}
+                /* THE SERVER'S OWN TOTAL, not a sum taken here. It carries the retainer,
+                   the overage and the model surcharge, and it is the same expression the
+                   admin margin panel books as revenue — so "what this costs me" and "what
+                   we earn" cannot disagree about one month. The browser added these three
+                   in whole paise for a while, correctly; a total computed in a language
+                   with one numeric type is still a second implementation of a bill, on the
+                   screen a client checks against their own books. */
+                value={formatINR(data.month_charges_inr)}
                 emphasis
               />
               {data.cap_minutes !== null && (
                 <Row label="Monthly cap" value={`${formatCount(data.cap_minutes)} minutes`} />
               )}
             </dl>
+            {/* THE CONTROL THAT CAUSED THE CHARGE, FROM THE CHARGE. An owner reading a
+                line they did not expect needs the setting that produced it, not a support
+                ticket — and the model choice is theirs to change (D-454), which is what
+                makes the link an answer rather than an explanation. Rendered only when the
+                charge exists, on the same rule as the row above it: a pointer to a setting
+                nobody is being charged for is a suggestion to spend money. */}
+            {hasNonZeroDigit(data.llm_surcharge_inr) && (
+              <p className="mt-3 text-xs text-ink-muted">
+                The AI model upgrade is charged for the minutes your agents ran a model you
+                chose. Change it on{" "}
+                <Link
+                  href={href(`/c/${session.orgSlug}/settings/models`)}
+                  className="font-medium underline underline-offset-2 hover:text-ink"
+                >
+                  AI model
+                </Link>
+                , or on a single agent from Agents.
+              </p>
+            )}
             <p className="mt-3 text-xs text-ink-muted">
               Usage appears a couple of minutes after each call ends, once the recording
               and summary have been processed.
@@ -601,29 +647,4 @@ function Row({ label, value, emphasis }: { label: string; value: string; emphasi
       </dd>
     </div>
   );
-}
-
-/**
- * Adds two INR strings in whole paise.
- *
- * The server sends exact NUMERIC values as strings precisely so nothing downstream
- * rounds them; `Number(a) + Number(b)` would undo that at the very last step, which is
- * the most embarrassing possible place for it to happen. Integers are exact in a JS
- * number up to 2^53 — about ₹90 trillion in paise — so the arithmetic below is
- * float-free in the way that matters, without needing BigInt.
- *
- * Returns the same digit form the API uses, so its caller formats it with `formatINR`
- * exactly like a field that came off the wire.
- */
-function addRupees(a: string | null, b: string): string {
-  const toPaise = (value: string) => {
-    const negative = value.trim().startsWith("-");
-    const [rupees, decimals = ""] = value.replace("-", "").split(".");
-    const paise = Number(rupees || "0") * 100 + Number((decimals + "00").slice(0, 2));
-    return negative ? -paise : paise;
-  };
-  const total = (a ? toPaise(a) : 0) + toPaise(b);
-  const sign = total < 0 ? "-" : "";
-  const abs = Math.abs(total);
-  return `${sign}${Math.trunc(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
 }

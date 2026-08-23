@@ -1,55 +1,58 @@
-"""The residency guard, proved against the states it exists to catch (D-410).
+"""The residency guard, proved against the states it exists to catch.
 
-`scripts/check_model_residency.py` is the gate; this file is the evidence that the gate
-can go red. A check nobody has watched fail is a check nobody knows is connected — the
-same argument `check_redaction_exposure.check_allowlist` makes when it refuses to pass on
-a route table with no permissions in it at all, and the same shape as
-`tests/wiring_guard_test.py`.
+`scripts/check_model_residency.py` is the gate; this file is the evidence that the gate can
+go red. A check nobody has watched fail is a check nobody knows is connected — the same
+argument `check_redaction_exposure.check_allowlist` makes when it refuses to pass on a route
+table with no permissions in it at all.
 
-**THIS FILE CARRIES AN EXTRA BURDEN THAT ITS D-127 VERSION DID NOT.** The guard it tests
-got WEAKER at D-410 — Vertex put `asia-south1` in the hostname and in the `locations/`
-path, so residency was provable from the AST, and `<resource>.openai.azure.com` names no
-region at all. A guard that quietly checks less than it used to while still printing `OK`
-is the defect class this repository keeps finding, so two of the cases below are not about
+**THIS FILE CARRIES AN EXTRA BURDEN THAT ITS D-127 VERSION DID NOT, AND THE BURDEN GREW.**
+The guard got WEAKER at D-410 — Vertex put `asia-south1` in the hostname and in the path, so
+residency was provable from the AST, and `<resource>.openai.azure.com` names no region at
+all. It got weaker again when the posture opened from one vendor to a SET OF LEGS: three of
+the four watched hosts now belong to a declared leg, so the wrong-vendor clause refuses one
+host where it used to refuse three, and `api.openai.com` — which was BANNED outright — is a
+leg's permitted host. A guard that quietly checks less than it used to while still printing
+`OK` is the defect class this repository keeps finding, so several cases below are not about
 catching a bad URL:
 
-* `test_the_guard_states_what_it_cannot_prove_on_every_run` pins the honesty. The
-  delegation notice has to reach a reader on the pass path AND the fail path, and it has
-  to name both facts and the gates that own them — not just "see the docs".
-* `test_the_human_gate_that_owns_the_unprovable_half_is_written_down` pins the OTHER end
-  of that sentence. The notice points at OPERATIONS §2; this fails if the gate it points
-  at stops existing, because a pointer to a deleted owner is worse than no pointer.
+* `test_the_guard_states_what_it_cannot_prove_on_every_run` pins the honesty. The delegation
+  notice has to reach a reader on the pass path AND the fail path, name what each leg does
+  and does not owe, and name the gates that own the rest.
+* `test_the_human_gate_that_owns_the_unprovable_half_is_written_down` pins the OTHER end of
+  that sentence: a pointer to a deleted owner is worse than no pointer.
+* `test_the_openai_global_endpoint_is_refused_and_the_regional_one_is_the_remedy` is where
+  the ban's replacement is pinned, so nobody reads the absence of the old clause as an
+  absence of any clause.
 
-The four properties the guard still proves, each with its own negative control:
+The properties the guard still proves, each with its own negative control:
 
-1. ONE SPELLING OF THE REGION — a loose literal, a SECOND frozen constant (new at D-410,
-   and the one strengthening the migration bought), and the constant moving house.
-2. NO `Settings` FIELD CAN CARRY A REGION — the failure that never appears in a URL
-   literal, because the value arrives from a database row. Plus its D-410 sibling: a
-   field that would be a hand-typed ENDPOINT, which is a second constructor made of a
-   text box. **The endpoint half is checked for every vendor `POSTURES` knows and not
-   only the declared one**, and the two tests that pin it exist because it was not: the
-   vendor was a hard-coded Azure tuple, so `openai_base_url` and `gemini_api_base` passed
-   under the declared posture as well as under any other. That is the "an endpoint" term
-   of the client DPA's warranty (`apps/web/src/lib/legal/dpa.ts`) going unenforced for
-   two vendors out of three while the run printed OK — the exact defect class this file's
-   header is about.
-3. NO ENDPOINT OUTSIDE THE ONE BUILDER — a hand-written f-string, the builder's own suffix
-   spelled in the wrong file, an unfrozen copy of it in the right one, `api.openai.com`
-   (disqualified on residency, and one edited base URL away because Azure's v1 surface is
-   OpenAI-compatible), and the regional hostname that D-410 rejects FOR NOW.
-4. THE BUILDER CANNOT EMIT A NON-INDIA REGION — a builder that grew a `location=`
-   parameter, one that interpolates a runtime value, one that never refuses a bad
-   resource, and one that has been renamed out from under the check.
+1. ONE SPELLING OF EACH PINNED REGION — a loose literal, a SECOND frozen constant, the
+   constant moving house, and (new, once a posture can hold more than one leg) a frozen
+   region constant that NO declared leg pins.
+2. NO `Settings` FIELD CAN CARRY A REGION — the failure that never appears in a URL literal,
+   because the value arrives from a database row. Plus its sibling: a field that would be a
+   hand-typed ENDPOINT, which is a second constructor made of a text box. **The endpoint half
+   is checked for every vendor any known LEG names**, not only the declared ones.
+3. NO ENDPOINT OUTSIDE ITS LEG'S BUILDER — a hand-written f-string, a builder suffix spelled
+   in the wrong file, an unfrozen copy of it in the right one, OpenAI's global endpoint under
+   a leg that pins `us`, Gemini's host under a leg that permits ZERO literals, and the Azure
+   regional hostname that D-410 rejects FOR NOW.
+4. NO BUILDER CAN EMIT A REGION OTHER THAN ITS LEG'S — a builder that grew a `location=`
+   parameter, one that interpolates a runtime value, one that never refuses a bad resource,
+   and one that has been renamed out from under the check.
+7. NO DECLARED LEG IS INERT — `tests/residency_posture_test.py` owns that one, because the
+   subject is the catalogue rather than a URL.
 
 Plus the branch nobody can reach today: `test_adopting_the_regional_hostname_restores_the_
 ast_proof` runs the guard with `REGIONAL_HOST_ADOPTED` flipped, which is what makes
-"switching is one line" a fact rather than a comment.
+"switching is one line" a fact rather than a comment — and which is no longer hypothetical
+machinery, because the OpenAI leg runs the same region-in-host check on its own builder
+today.
 
-Plus the anti-rubber-stamp cases: prose naming a watched host must NOT fail (this is an
-AST walk, not a grep), the Sheets/OAuth hosts must not be judged at all, and the guard's
-own file is judged like any other except for the exact declaration strings
-`SELF_DECLARATIONS` derives from the posture table.
+Plus the anti-rubber-stamp cases: prose naming a watched host must NOT fail (this is an AST
+walk, not a grep), the Sheets/OAuth hosts must not be judged at all, and the guard's own file
+is judged like any other except for the exact declaration strings `SELF_DECLARATIONS` derives
+from the leg table.
 """
 
 from __future__ import annotations
@@ -73,6 +76,27 @@ COMPLIANT = (
 def _tree(root: Path, body: str, name: str = "client.py") -> Path:
     (root / name).write_text(body, encoding="utf-8")
     return root
+
+
+#: The region constants a SHIPPED tree must carry under the declared posture: one per leg
+#: that pins a region, each in the contract, each holding that leg's own region. Written as a
+#: helper because check 1 is now an equality against a per-leg SET rather than against one
+#: constant — a fixture that supplied only Azure's would be testing a tree with a leg missing.
+def _pinned() -> dict[str, tuple[str, str]]:
+    return {
+        guard.REGION_CONSTANT: (guard.BUILDER_HOME, guard.AZURE_REGION_US),
+        guard.OPENAI_REGION_CONSTANT: (guard.BUILDER_HOME, guard.OPENAI_REGION_US),
+    }
+
+
+#: This file's own canaries, as `frozen_region_constants` reports them: one `Final` per region
+#: in `KNOWN_REGIONS`, all in `SELF`, none of them a second spelling of anything.
+def _canaries() -> dict[str, tuple[str, str]]:
+    return {
+        "AZURE_REGION_US": (guard.SELF, guard.AZURE_REGION_US),
+        "AZURE_REGION_INDIA": (guard.SELF, guard.AZURE_REGION_INDIA),
+        "OPENAI_REGION_US": (guard.SELF, guard.OPENAI_REGION_US),
+    }
 
 
 def _failures(root: Path) -> list[str]:
@@ -99,6 +123,7 @@ def test_the_real_tree_is_clean() -> None:
     assert guard.stale_allowances(references) == []
     assert guard.builder_failures() == []
     assert guard.delegation_failures() == []
+    assert guard.inert_leg_failures() == []
 
 
 def test_a_compliant_tree_passes(tmp_path: Path) -> None:
@@ -142,16 +167,11 @@ def test_a_second_frozen_region_constant_is_caught() -> None:
     downstream able to notice the day they stop agreeing.
     """
     offenders = guard.single_spelling_failures(
-        {
-            guard.REGION_CONSTANT: (guard.BUILDER_HOME, guard.AZURE_REGION_US),
-            "AZURE_REGION_FOR_BILLING": (
-                "apps/api/billing/rates.py",
-                guard.AZURE_REGION_US,
-            ),
-        }
+        _pinned()
+        | {"AZURE_REGION_FOR_BILLING": ("apps/api/billing/rates.py", guard.AZURE_REGION_US)}
     )
     assert len(offenders) == 1, offenders
-    assert "more than one place" in offenders[0]
+    assert "no declared leg pins" in offenders[0], offenders
     assert "AZURE_REGION_FOR_BILLING" in offenders[0]
 
 
@@ -160,9 +180,10 @@ def test_the_region_constant_moving_house_is_caught() -> None:
     cost model and this guard; a copy that drifted into one caller's module would be
     invisible to a name-only check."""
     offenders = guard.single_spelling_failures(
-        {guard.REGION_CONSTANT: ("apps/workers/azure.py", guard.AZURE_REGION_US)}
+        _pinned() | {guard.REGION_CONSTANT: ("apps/workers/azure.py", guard.AZURE_REGION_US)}
     )
     assert len(offenders) == 1 and "apps/workers/azure.py" in offenders[0], offenders
+    assert guard.REGION_CONSTANT in offenders[0], offenders
 
 
 def test_no_region_constant_at_all_is_caught() -> None:
@@ -170,8 +191,10 @@ def test_no_region_constant_at_all_is_caught() -> None:
     with no constant anywhere, every other check in the file finds nothing to complain
     about."""
     offenders = guard.single_spelling_failures({})
-    assert len(offenders) == 1, offenders
-    assert "no shipped module defines" in offenders[0]
+    assert len(offenders) == 2, offenders
+    assert all("no shipped module defines" in failure for failure in offenders), offenders
+    joined = " ".join(offenders)
+    assert guard.REGION_CONSTANT in joined and guard.OPENAI_REGION_CONSTANT in joined, offenders
 
 
 def test_the_guards_own_canaries_are_not_counted_as_second_spellings() -> None:
@@ -181,9 +204,13 @@ def test_the_guards_own_canaries_are_not_counted_as_second_spellings() -> None:
     the test above catches, and the real tree proves it: the withdrawn region's constant
     (D-449) is present too and is equally not a second spelling."""
     constants = guard.frozen_region_constants()
-    assert constants["AZURE_REGION_US"] == (guard.SELF, guard.AZURE_REGION_US)
-    assert constants["AZURE_REGION_INDIA"] == (guard.SELF, guard.AZURE_REGION_INDIA)
+    for name, where in _canaries().items():
+        assert constants[name] == where, name
     assert constants[guard.REGION_CONSTANT] == (guard.BUILDER_HOME, guard.AZURE_REGION_US)
+    assert constants[guard.OPENAI_REGION_CONSTANT] == (
+        guard.BUILDER_HOME,
+        guard.OPENAI_REGION_US,
+    )
     assert guard.single_spelling_failures(constants) == []
 
 
@@ -269,10 +296,10 @@ def test_the_endpoint_knob_check_covers_every_vendor_the_posture_table_knows() -
     to Azure's name, or a spec is added without saying what its vendor is called.
     """
     assert len(guard.KNOWN_VENDOR_TOKENS) >= 3, guard.KNOWN_VENDOR_TOKENS
-    for spec in guard.POSTURES.values():
-        assert spec.vendor_tokens, f"posture {spec.name!r} does not say what its vendor is called"
-        for token in spec.vendor_tokens:
-            assert token in guard.KNOWN_VENDOR_TOKENS, (token, spec.name)
+    for leg in guard.KNOWN_LEGS:
+        assert leg.vendor_tokens, f"the {leg.provider!r} leg does not say what its vendor is called"
+        for token in leg.vendor_tokens:
+            assert token in guard.KNOWN_VENDOR_TOKENS, (token, leg.provider)
             for suffix in guard.ENDPOINT_KNOB_WORDS:
                 field = f"{token}_api_{suffix}"
                 offenders = guard.console_config_failures(fields={field: None}, managed=[field])
@@ -405,87 +432,119 @@ def test_the_builders_own_suffix_is_permitted_only_in_the_builders_own_file(
     assert guard.endpoint_failures([permitted], {}, {}) == []
 
 
-def test_openai_direct_is_refused_on_residency(tmp_path: Path) -> None:
-    """The one ban that survived D-410 intact, and the successor to D-127's AI Studio ban.
+def test_the_openai_global_endpoint_is_refused_and_the_regional_one_is_the_remedy(
+    tmp_path: Path,
+) -> None:
+    """⚠ **THIS TEST REPLACES A BAN, AND THE REPLACEMENT IS WEAKER IN KIND.**
 
-    It is a HIGHER risk than its predecessor, not a lower one: Azure's v1 surface is
-    OpenAI-compatible, so the client that talks to Azure talks to `api.openai.com`
-    unchanged. One edited base URL is the whole distance between the shipped posture and a
-    disqualified one, and the reason it is disqualified is not commercial — OpenAI's India
-    data residency covers storage at rest only, and for a phone call the transcript IS the
-    inference input.
+    `api.openai.com` used to be refused OUTRIGHT, with D-410's reason: OpenAI's India data
+    residency covers storage at rest only, and for a phone call the transcript IS the
+    inference input. D-449 withdrew the India requirement, so that ground stopped
+    discriminating, and the host is now a declared leg's. The guard's own docstring records
+    the arithmetic — the wrong-vendor clause went from refusing three of four watched hosts
+    to refusing one — and this is where the replacement is pinned so nobody mistakes it for
+    the old rule.
+
+    WHAT IS REFUSED NOW IS SHARPER ON THE THING THAT ACTUALLY MOVES DATA. The pinned endpoint
+    and the vendor's GLOBAL one differ by one label, and only one of them is a regional
+    claim. So a literal naming the host without the residency label in front of it gets its
+    own sentence — "that is the vendor's GLOBAL endpoint" — rather than being lumped in with
+    "built by hand", and the remedy names the builder and the constant that spell it.
+
+    FAILS IF: `region_in_host` stops being read in `_leg_literal_failures`, which would let
+    `https://api.openai.com/v1` pass as an ordinary hand-built endpoint under a leg adopted
+    precisely because its region is checkable.
     """
     root = _tree(tmp_path, 'URL = "https://api.openai.com/v1/chat/completions"\n')
     offenders = _failures(root)
     assert len(offenders) == 1, offenders
-    assert "storage at rest only" in offenders[0], offenders
-    assert "inference input" in offenders[0], offenders
+    assert "GLOBAL endpoint" in offenders[0], offenders
+    assert "residency label" in offenders[0], offenders
+    assert guard.OPENAI_REGION_CONSTANT in offenders[0], offenders
+    assert guard.OPENAI_BUILDER in offenders[0], offenders
+
+    # The REGIONAL form is still refused — but as a second constructor, not as a residency
+    # defect, and the message says which. One literal per leg, and it is the builder's.
+    (tmp_path / "client.py").unlink()
+    regional = _tree(tmp_path, 'URL = "https://us.api.openai.com/v1"\n', name="two.py")
+    offenders = _failures(regional)
+    assert len(offenders) == 1, offenders
+    assert "by hand" in offenders[0], offenders
+    assert "no caller input" in offenders[0], (
+        "the OpenAI builder takes no argument, so the hostile-label sentence would be "
+        "boilerplate here — printing it anyway teaches the reader that these explanations "
+        "are boilerplate everywhere"
+    )
 
 
-def test_every_posture_host_the_table_knows_is_both_watched_and_judged(tmp_path: Path) -> None:
+def test_every_leg_host_the_table_knows_is_both_watched_and_judged(tmp_path: Path) -> None:
     """The scan has to SEE a host before any clause can refuse it, and the two halves used
     to be maintained apart.
 
-    `WATCHED_HOSTS` was a hand-written tuple beside a table of postures, so a posture could
-    be added with a `permitted_host` no scan ever looked for: `endpoint_references()` would
+    `WATCHED_HOSTS` was a hand-written tuple beside a table of postures, so a leg could be
+    added with a `permitted_host` no scan ever looked for: `endpoint_references()` would
     yield nothing, `endpoint_failures()` would say nothing, and check 3 would be unenforced
-    under the one posture it existed for while the run printed OK. It is derived now, and
+    under the one leg it existed for while the run printed OK. It is derived now, and
     `test_the_raw_transcript_host_is_deliberately_not_a_watched_host` states the other half
     of the rule — a watched host with no clause behind it is cost with no check — so this
     asserts BOTH: seen, and refused.
 
-    FAILS IF: `WATCHED_HOSTS` goes back to a literal tuple and a posture's host drops out
-    of it, or the wrong-vendor clause in `endpoint_failures` is re-narrowed to
-    `AZURE_HOST_SUFFIX` (which is what it said before a third vendor got a row, and which
-    accepted a hand-written Gemini endpoint while refusing a hand-written OpenAI one).
+    FAILS IF: `WATCHED_HOSTS` goes back to a literal tuple and a leg's host drops out of it,
+    or `_leg_literal_failures` stops being reached for some leg.
     """
     declared = guard.declared_spec()
-    for spec in guard.POSTURES.values():
+    for leg in guard.KNOWN_LEGS:
         # A host written `.suffix` needs a label in front of it to be a hostname; one
         # written whole is already one. Both shapes appear in the table.
         host = (
-            f"calevate{spec.permitted_host}"
-            if spec.permitted_host[0] == "."
-            else (spec.permitted_host)
+            f"calevate{leg.permitted_host}" if leg.permitted_host[0] == "." else leg.permitted_host
         )
-        assert spec.permitted_host in guard.WATCHED_HOSTS, spec.name
-        assert guard._mentions_watched_host(f"https://{host}/v1"), spec.name
+        assert leg.permitted_host in guard.WATCHED_HOSTS, leg.provider
+        assert guard._mentions_watched_host(f"https://{host}/v1"), leg.provider
 
         root = _tree(tmp_path, f'URL = "https://{host}/v1"\n')
         offenders = _failures(root)
-        assert len(offenders) == 1, (spec.name, offenders)
-        if spec.permitted_host == declared.permitted_host:
-            assert "by hand" in offenders[0], offenders
-        else:
-            assert spec.permitted_host in offenders[0], offenders
+        assert len(offenders) == 1, (leg.provider, offenders)
+        if declared.leg(leg.provider) is None:
+            assert leg.permitted_host in offenders[0], offenders
+            continue
+        # A DECLARED leg refuses its own host for its own reason, and the three reasons are
+        # deliberately different sentences: one builder (Azure), the missing residency label
+        # (OpenAI), zero literals at all (Google).
+        assert any(
+            marker in offenders[0] for marker in ("by hand", "residency label", "ZERO literals")
+        ), (leg.provider, offenders)
 
 
-def test_a_gemini_endpoint_is_refused_under_the_declared_posture(tmp_path: Path) -> None:
-    """The vendor that had no clause at all, named on its own because it is the case the
-    generalization was written for.
+def test_a_gemini_endpoint_is_refused_by_a_stricter_rule_than_the_others(tmp_path: Path) -> None:
+    """THE ONE RULE THIS CHANGE MADE STRICTER RATHER THAN LOOSER, and it is worth knowing
+    which way it cuts.
 
-    Before `endpoint_failures` was stated over `KNOWN_POSTURE_HOSTS`, this literal matched
-    nothing: not the OpenAI ban (different host), not the Azure clause (different host),
-    and `posture.permitted_host not in template` sent it to `continue`. So the guard
-    refused a hand-written OpenAI URL and accepted a hand-written Google one, in a tree
-    whose decision log refuses both (D-448).
+    Every other leg's budget is "exactly one literal may name your host — the builder's own
+    frozen suffix". The Google leg's is ZERO, anywhere, including in the contract, because
+    the engine's Google provider builds its own client from a single API key and never reads
+    a base URL of ours. So a literal naming its host is not a second constructor; it is a
+    first one, for an endpoint nobody would ever send.
 
-    FAILS IF: `GEMINI_DIRECT_HOST` leaves `POSTURES` (and therefore `KNOWN_POSTURE_HOSTS`),
-    or the clause goes back to naming one vendor's suffix.
+    IT ALSO RETIRES A MARKED ASSUMPTION. The old spec had to name a PATH (`/v1beta/openai`,
+    the OpenAI-compatible surface) while the engine's own client speaks the NATIVE protocol,
+    and nobody could say which a declaration would adopt. With no builder there is no path to
+    be wrong about — the question stops existing rather than being deferred.
+
+    FAILS IF: the Google leg grows a `builder`/`builder_suffix` without a decision-log entry,
+    which would silently relax this from zero literals to one.
     """
     root = _tree(tmp_path, f'URL = "https://{guard.GEMINI_DIRECT_HOST}/v1beta/openai"\n')
     offenders = _failures(root)
     assert len(offenders) == 1, offenders
     assert guard.GEMINI_DIRECT_HOST in offenders[0], offenders
-    assert "not the DECLARED posture's" in offenders[0], offenders
-    assert guard.BUILDER in offenders[0], (
-        "the refusal must name the constructor the declared posture DOES use, or it says "
-        "only that something is wrong"
-    )
+    assert "ZERO literals" in offenders[0], offenders
+    assert "single API key" in offenders[0], offenders
 
     # The Sheets hosts are the boundary and they are NOT judged: `.googleapis.com` is a
     # domain shared by a model API and by the tenant's own CRM destination, so the watched
     # string is a full hostname. A suffix match here would fire on every export.
+    (tmp_path / "client.py").unlink()
     sheets = _tree(tmp_path, 'URL = "https://sheets.googleapis.com/v4/spreadsheets"\n')
     assert _failures(sheets) == []
 
@@ -603,8 +662,15 @@ BUILDER_SOURCE = (
 
 
 def test_the_reference_builder_shape_passes() -> None:
-    """The other half of every case below — a check that only fails is decorative."""
-    assert guard.builder_failures(BUILDER_SOURCE) == []
+    """The other half of every case below — a check that only fails is decorative.
+
+    IT IS STATED PER LEG NOW (`leg_builder_failures`) RATHER THAN OVER THE POSTURE. The
+    posture-level `builder_failures` loops every declared leg, so handing it a fixture
+    containing ONE builder would report the other two as missing and every case below would
+    pass for the wrong reason. The sabotages here are edits to the Azure builder, so the
+    Azure leg is what they are stated against.
+    """
+    assert guard.leg_builder_failures(guard.AZURE_LEG, BUILDER_SOURCE) == []
 
 
 def test_a_builder_that_grew_a_region_parameter_is_caught() -> None:
@@ -619,7 +685,7 @@ def test_a_builder_that_grew_a_region_parameter_is_caught() -> None:
         "def azure_openai_base_url(resource: str) -> str:",
         'def azure_openai_base_url(resource: str, location: str = "southindia") -> str:',
     )
-    offenders = guard.builder_failures(source)
+    offenders = guard.leg_builder_failures(guard.AZURE_LEG, source)
     assert any("'location'" in offender for offender in offenders), offenders
     # "exactly 1" rather than "exactly one argument" since D-432: the permitted arity is
     # a property of the DECLARED posture (`PostureSpec.builder_arity`) rather than a
@@ -636,7 +702,7 @@ def test_a_builder_that_interpolates_a_runtime_value_is_caught() -> None:
         '    return f"https://{resource}{_SUFFIX}"',
         "    return f\"https://{resource}{os.environ['SUFFIX']}\"",
     )
-    offenders = guard.builder_failures(source)
+    offenders = guard.leg_builder_failures(guard.AZURE_LEG, source)
     assert len(offenders) == 1, offenders
     assert "interpolates" in offenders[0] and "os.environ" in offenders[0]
 
@@ -649,7 +715,7 @@ def test_a_builder_that_returns_something_unreadable_is_caught() -> None:
         '    return f"https://{resource}{_SUFFIX}"',
         "    return _assemble(resource)",
     )
-    offenders = guard.builder_failures(source)
+    offenders = guard.leg_builder_failures(guard.AZURE_LEG, source)
     assert any("not a string template" in offender for offender in offenders), offenders
 
 
@@ -663,7 +729,7 @@ def test_a_builder_that_never_refuses_a_bad_resource_is_caught() -> None:
         '    if not _RE.fullmatch(resource):\n        raise ValueError("not a DNS label")\n',
         "",
     )
-    offenders = guard.builder_failures(source)
+    offenders = guard.leg_builder_failures(guard.AZURE_LEG, source)
     assert len(offenders) == 1, offenders
     assert "never raises" in offenders[0] and "evil.example" in offenders[0]
 
@@ -685,7 +751,7 @@ def test_a_builder_whose_refusal_is_only_a_presence_check_is_caught() -> None:
     `ValueError`. Shape here, effect there, and neither pretending to be the other.
     """
     source = BUILDER_SOURCE.replace("    if not _RE.fullmatch(resource):", "    if not resource:")
-    offenders = guard.builder_failures(source)
+    offenders = guard.leg_builder_failures(guard.AZURE_LEG, source)
     assert len(offenders) == 1, offenders
     assert "not behind a pattern match" in offenders[0], offenders
     assert "evil.example/x" in offenders[0], offenders
@@ -695,7 +761,7 @@ def test_a_renamed_or_deleted_builder_is_caught() -> None:
     """The failure that reads like a clean tree: with no builder, check 4 has nothing to
     judge and check 3's exemption is granted to a function that no longer exists."""
     source = BUILDER_SOURCE.replace("def azure_openai_base_url(", "def build_url(")
-    offenders = guard.builder_failures(source)
+    offenders = guard.leg_builder_failures(guard.AZURE_LEG, source)
     assert len(offenders) == 1, offenders
     assert "defines no" in offenders[0] and "verified\nnothing" not in offenders[0]
     assert guard.BUILDER in offenders[0]
@@ -723,7 +789,10 @@ def test_the_blindness_guard_fires_when_the_scan_finds_nothing() -> None:
     detection broken — presents as a clean tree, so the run refuses to call a scan that
     found nothing a pass."""
     blind = guard.blindness_failures(0, {}, [])
-    assert len(blind) == 4, blind
+    # Four kinds of blindness, and the last one is now PER LEG WITH A BUILDER: the template
+    # floor, the parse canary, the subject canary, and one missing-reference finding for each
+    # of the two legs whose endpoint any literal may name at all.
+    assert len(blind) == 5, blind
     assert any("it is blind" in failure for failure in blind)
     assert any(
         all(region in failure for region in guard.KNOWN_REGIONS)
@@ -731,15 +800,19 @@ def test_the_blindness_guard_fires_when_the_scan_finds_nothing() -> None:
         if "KNOWN_REGIONS" in failure
     ), blind
     assert any(guard.REGION_CONSTANT in failure for failure in blind)
+    assert any(guard.OPENAI_REGION_CONSTANT in failure for failure in blind)
+    assert not any(guard.GEMINI_DIRECT_HOST in failure for failure in blind), (
+        "the Google leg's whole rule is that NO literal names its host, so demanding a "
+        "reference for it would demand the violation"
+    )
 
     seeing = guard.blindness_failures(
         guard.MINIMUM_TEMPLATES,
-        {
-            "AZURE_REGION_US": (guard.SELF, guard.AZURE_REGION_US),
-            "AZURE_REGION_INDIA": (guard.SELF, guard.AZURE_REGION_INDIA),
-            guard.REGION_CONSTANT: (guard.BUILDER_HOME, guard.AZURE_REGION_US),
-        },
-        [guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True)],
+        _canaries() | _pinned(),
+        [
+            guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True),
+            guard.Reference(guard.BUILDER_HOME, 2, guard.OPENAI_BUILDER_SUFFIX, frozen=True),
+        ],
     )
     assert seeing == []
 
@@ -757,36 +830,29 @@ def test_the_two_canaries_fail_apart() -> None:
     caught here. That is the failure the old single probe could not express, and it is the
     one that would make a leftover `AZURE_LOCATION: Final = "southindia"` invisible.
     """
-    parse_broken = guard.blindness_failures(
-        guard.MINIMUM_TEMPLATES,
-        {guard.REGION_CONSTANT: (guard.BUILDER_HOME, guard.AZURE_REGION_US)},
-        [guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True)],
-    )
+    references = [
+        guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True),
+        guard.Reference(guard.BUILDER_HOME, 2, guard.OPENAI_BUILDER_SUFFIX, frozen=True),
+    ]
+
+    parse_broken = guard.blindness_failures(guard.MINIMUM_TEMPLATES, _pinned(), references)
     assert len(parse_broken) == 1, parse_broken
     for region in guard.KNOWN_REGIONS:
         assert region in parse_broken[0], (region, parse_broken)
 
     half_blind = guard.blindness_failures(
         guard.MINIMUM_TEMPLATES,
-        {
-            "AZURE_REGION_US": (guard.SELF, guard.AZURE_REGION_US),
-            guard.REGION_CONSTANT: (guard.BUILDER_HOME, guard.AZURE_REGION_US),
-        },
-        [guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True)],
+        {k: v for k, v in _canaries().items() if k != "AZURE_REGION_INDIA"} | _pinned(),
+        references,
     )
     assert len(half_blind) == 1, half_blind
     assert guard.AZURE_REGION_INDIA in half_blind[0], half_blind
     assert guard.AZURE_REGION_US not in half_blind[0], half_blind
 
-    subject_gone = guard.blindness_failures(
-        guard.MINIMUM_TEMPLATES,
-        {
-            "AZURE_REGION_US": (guard.SELF, guard.AZURE_REGION_US),
-            "AZURE_REGION_INDIA": (guard.SELF, guard.AZURE_REGION_INDIA),
-        },
-        [guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True)],
-    )
+    subject_gone = guard.blindness_failures(guard.MINIMUM_TEMPLATES, _canaries(), references)
     assert len(subject_gone) == 1 and "SUBJECT canary" in subject_gone[0], subject_gone
+    assert guard.REGION_CONSTANT in subject_gone[0], subject_gone
+    assert guard.OPENAI_REGION_CONSTANT in subject_gone[0], subject_gone
 
 
 # --- 6: the honesty, which is the half D-410 made load-bearing ----------------
@@ -974,12 +1040,13 @@ def test_a_watched_host_in_a_non_python_file_is_caught(tmp_path: Path) -> None:
     assert len(offenders) == 1, offenders
     assert "assist.ts:1" in offenders[0] and "by hand" in offenders[0]
 
-    # The vendor rules reach it too — the text half is line-level, not name-level.
+    # The per-leg rules reach it too — the text half is line-level, not name-level, and the
+    # clause it lands on is the one for the leg whose host it names.
     (tmp_path / "assist.ts").write_text(
         'const ENDPOINT = "https://api.openai.com/v1";\n', encoding="utf-8"
     )
     direct = _failures(tmp_path)
-    assert len(direct) == 1 and "storage at rest only" in direct[0], direct
+    assert len(direct) == 1 and "GLOBAL endpoint" in direct[0], direct
 
 
 def test_the_google_apis_that_remain_are_not_judged() -> None:
@@ -1103,6 +1170,11 @@ def test_the_guards_own_region_constant_is_the_one_the_decision_row_pins() -> No
     guard is enforcing a region nobody decided on.
     """
     assert guard.AZURE_REGION_US == "eastus2"
+    assert guard.OPENAI_REGION_US == "us", (
+        "the OpenAI leg's region is spelled here rather than imported, on the same doctrine "
+        "— and unlike the Azure one it is also the first label of a hostname, so this "
+        "constant and `openai_base_url()` have to agree or check 4 refuses the builder"
+    )
     assert guard.AZURE_REGION_INDIA == "southindia", (
         "the WITHDRAWN region keeps its constant so the guard can still refuse it — see "
         "AZURE_REGION_INDIA and KNOWN_REGIONS"
@@ -1203,3 +1275,89 @@ def test_an_ordinary_settings_default_is_still_not_reported_twice() -> None:
         {"some_url": f"https://x{guard.AZURE_HOST_SUFFIX}/openai/v1"}, {"some_url"}
     )
     assert len(failures) == 1, failures
+
+
+def test_the_regional_hostname_under_a_posture_with_no_azure_leg_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The arm that only exists once a posture can be declared WITHOUT an Azure leg.
+
+    With `REGIONAL_HOST_ADOPTED` flipped, the regional-host clause compares the label against
+    the Azure leg's region — and under a declaration that has no Azure leg there is no region
+    to compare it to. The honest answer is a refusal naming that fact, not a `None`
+    dereference and not silence: a regional Azure hostname in a tree whose declaration has
+    left Azure is exactly the artefact a half-finished posture move produces.
+
+    FAILS IF: the clause assumes an Azure leg exists, which is what it did while a posture
+    could only ever have one leg.
+    """
+    monkeypatch.setattr(guard, "REGIONAL_HOST_ADOPTED", True)
+    root = _tree(tmp_path, 'URL = "https://eastus2.api.cognitive.microsoft.com/openai/v1"\n')
+    references = guard.endpoint_references(roots=(root,))
+    offenders = guard.endpoint_failures(
+        references,
+        frozen=guard.frozen_region_constants(roots=(root,)),
+        allowances={},
+        spec=guard.POSTURES["google-direct"],
+    )
+    assert len(offenders) == 1, offenders
+    assert "declares no Azure leg at all" in offenders[0], offenders
+
+
+def test_the_region_knob_remedy_inverts_under_a_posture_that_pins_nothing() -> None:
+    """The rule never had a vendor, but the REMEDY has to follow the declaration.
+
+    Under a posture with a region-pinning leg the answer is "move it into that leg's frozen
+    constant". Under one that pins no region on any leg there IS no such constant, and
+    telling the reader to create one would be the opposite instruction — the field should not
+    exist at all, because a console knob naming a region under a posture that makes no
+    regional claim is a promise the declaration does not make.
+    """
+    pinning = guard.console_config_failures(
+        fields={"llm_region": None}, managed=[], spec=guard.POSTURES["us-azure-openai"]
+    )
+    assert len(pinning) == 1 and guard.REGION_CONSTANT in pinning[0], pinning
+    assert "3am" in pinning[0], pinning
+
+    unpinned = guard.console_config_failures(
+        fields={"llm_region": None}, managed=[], spec=guard.POSTURES["google-direct"]
+    )
+    assert len(unpinned) == 1, unpinned
+    assert "pins NO region" in unpinned[0] and "should not exist" in unpinned[0], unpinned
+    assert guard.REGION_CONSTANT not in unpinned[0], (
+        "pointing a reader at a constant this posture forbids is the opposite instruction"
+    )
+
+
+def test_a_module_qualified_builder_call_still_counts_as_a_caller(tmp_path: Path) -> None:
+    """Check 7 asks whether anybody BUILDS this leg's endpoint, and a caller that imported
+    the module rather than the name is still a caller.
+
+    `engine.azure_openai_base_url(...)` and `azure_openai_base_url(...)` are the same call and
+    a scan that saw only the second would report a live leg as inert — which under check 7 is
+    a red build on a tree that is fine, i.e. the failure mode that gets a check deleted.
+    """
+    root = _tree(
+        tmp_path,
+        "from calevate_shared import engine\n"
+        'URL = engine.azure_openai_base_url("calevate-prod")\n'
+        "OTHER = engine.openai_base_url()\n",
+    )
+    sites = guard.builder_call_sites(roots=(root,))
+    assert sites[guard.BUILDER], sites
+    assert sites[guard.OPENAI_BUILDER], sites
+
+    # …and a MENTION is not a call: an import, an `__all__` entry or a docstring naming the
+    # builder must not satisfy a check about whether the leg is exercised.
+    (tmp_path / "client.py").unlink()
+    mention = _tree(
+        tmp_path,
+        "from calevate_shared.engine import azure_openai_base_url\n"
+        '__all__ = ["azure_openai_base_url"]\n'
+        '"""We build endpoints with azure_openai_base_url."""\n',
+        name="mention.py",
+    )
+    assert guard.builder_call_sites(roots=(mention,)) == {
+        guard.BUILDER: [],
+        guard.OPENAI_BUILDER: [],
+    }

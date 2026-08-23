@@ -133,7 +133,14 @@ export const CHARGE_BASIS_COPY: Record<string, { label: string; hint: string }> 
   },
   allocated: {
     label: "Each call's share of this month",
-    hint: "Your plan prices the month as a whole, so we split this month's calling charge across your calls by how long each one ran, at your own rate.",
+    // "AT THE RATE THAT MINUTE CARRIED" IS NOT A FLOURISH — the allocation weight stopped
+    // being length alone when D-455 landed. `billing/attribution.py::_rung_rate` adds the
+    // plan's `llm_model_surcharge` to the minutes a model the CLIENT chose ran on, which
+    // is deliberate: it points this breakdown at the agent that actually incurred the
+    // upgrade. A hint that still said "by how long each one ran, at your own rate" would
+    // leave an owner unable to explain why one agent's calls carry more than another's of
+    // the same length — the exact question this screen exists to answer.
+    hint: "Your plan prices the month as a whole, so we split this month's calling charge across your calls — by how long each one ran, and at the rate those minutes carried. An agent you put on a dearer AI model carries its extra per-minute charge here, so the share lands on the agent that ran it.",
   },
 };
 

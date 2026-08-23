@@ -900,8 +900,35 @@ class UsagePanelOut(Strict):
     # of the premium rate, because "one rate" and "two rates that happen to be equal"
     # are different plans and the screen says different things about them.
     overage_rate_value_inr: str | None
+    # THE LANGUAGE-MODEL SURCHARGE (D-455) — what this month's calling cost EXTRA because
+    # the client chose a dearer AI model, and at what rate. Three figures that check
+    # against each other by hand: `llm_surcharge_inr` is `llm_surcharge_minutes` x
+    # `llm_surcharge_rate_inr`, and the minutes are a part of `minutes_used`.
+    #
+    # The rate is None exactly when the plan quotes no surcharge — in which case the total
+    # is ₹0.00 because there is nothing to charge, not because nothing was upgraded. It is
+    # published as a RATE (unrounded, `rate_to_display`) for the reason `overage_rate_inr`
+    # is: the invoice re-prices from it and the line has to multiply out.
+    llm_surcharge_rate_inr: str | None
+    llm_surcharge_minutes: str
+    llm_surcharge_inr: str
+    # WHICH models the client chose, so the screen can name the cause of the number rather
+    # than only its size. Empty when nothing this month carried a surcharge.
+    llm_surcharge_models: list[str]
     # None until the client has a plan row with a fee (mid-onboarding is a real state).
     monthly_fee_inr: str | None
+    # WHAT THIS MONTH COSTS IN TOTAL — the retainer plus the calling, summed by the SERVER.
+    #
+    # The three components above are published so a client can check the arithmetic; this
+    # is published so no screen has to do it. Adding rupees in a browser means `Number()`
+    # on an exact decimal string, or a hand-written paise routine per screen — and this
+    # panel feeds two of them (the usage page and the dashboard's money tile), which is
+    # where one month grows two answers. `billing.service.month_charges_inr` is the single
+    # expression, and the admin margin panel books the same value as revenue.
+    #
+    # NOT the same field as `spend_used_inr`, which is what has been METERED so far and on
+    # an open month carries no retainer at all.
+    month_charges_inr: str
     cap_minutes: int | None
     minutes_left: int | None
     capped: bool

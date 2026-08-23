@@ -633,19 +633,29 @@ describe("what each document must contain", () => {
   /**
    * THE MODEL PICKER'S PRICE IS OUR COST, AND THE CONTRACT HAS TO SAY WHICH (F-15).
    *
-   * D-454 shows a rupee-per-minute figure against each selectable model. It comes from
-   * `billing/rates.py`'s list-price cost model, and that module states in capitals that
-   * NOTHING bills the in-call leg and that this is permanent — the leg is BYOK, so the
-   * engine pays nothing and reports no tokens. What a client is charged is their plan's
-   * overage rate or `self_serve_inr_per_min`, neither of which moves with the model.
+   * THIS TEST USED TO PIN THE OPPOSITE, AND THE REASON IT CHANGED IS THE POINT.
    *
-   * A document that let the reader think otherwise would be the screen's error promoted
-   * into a contract, so clause 6.1 says what the figure is and this pins it.
+   * D-454 gave clients a model choice and clause 6.1 correctly said it moved nothing they
+   * were charged — because nothing could. D-455 built `plans.llm_model_surcharge`, and the
+   * old clause became a sentence that was true only while every plan left the column NULL.
+   * A contract term whose truth depends on a column nobody has filled in yet is not a
+   * term, it is a countdown: the first operator to price a surcharge would have shipped a
+   * false one without touching the document.
+   *
+   * So 6.1 is now true in BOTH states — no surcharge means nothing changes, a surcharge
+   * means the order form quotes it — and this pins the properties that must survive
+   * either way: only a commercial term can introduce it, and a model WE chose is never
+   * surcharged (`CLIENT_CHOSEN_LLM_SOURCES` excludes `platform`, so flipping the platform
+   * default cannot raise the bill of a client who never touched the picker).
    */
-  it("does not price the model choice as a client charge", () => {
+  it("prices the model choice as a plan term, and only as a plan term", () => {
     const terms = textOf(bySlug("terms"));
-    expect(terms).toMatch(/Choosing an AI model does not change what you pay/);
-    expect(terms).toMatch(/switching models\s+changes neither your monthly fee/);
+    expect(terms).toMatch(/changes what you pay only if your plan says so/);
+    expect(terms).toMatch(/no model\s+list, setting or screen can introduce or raise it/);
+    expect(terms).toMatch(/model we choose for you\s+is never surcharged/);
+    // The old promise must not survive anywhere: it is the sentence that goes false the
+    // moment a number is set, and its return would be silent.
+    expect(terms).not.toMatch(/does not change what you pay/);
     // The DPA and the register point at that clause rather than restating the figure —
     // two statements of what a client pays is the drift clause 6.1 exists to prevent.
     for (const slug of ["dpa", "subprocessors"]) {

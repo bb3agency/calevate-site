@@ -53,6 +53,8 @@ const DEFAULTS_PATH = adminLlmDefaultsPath(TENANT);
  */
 const PREMIUM_RATE = "0.4830";
 const DEFAULT_RATE = "0.2400";
+/** What the client pays extra for the dearer model — a plan term, not our cost (D-455). */
+const PREMIUM_SURCHARGE = "1.5000";
 const EXACT_DIFFERENCE = "₹0.2430";
 
 function tenant(): TenantSummary {
@@ -88,6 +90,9 @@ function option(over: Partial<LlmModelOption> = {}): LlmModelOption {
     model: "gpt-4o-mini",
     provider: "azure-openai",
     platform_cost_inr_per_minute: DEFAULT_RATE,
+    // D-455: what the CLIENT is charged extra for this model. `"0"` on the base-rate
+    // model always, and on every model while the plan quotes no surcharge.
+    client_surcharge_inr_per_minute: "0",
     is_platform_default: true,
     is_available: true,
     unavailable_reason: null,
@@ -99,6 +104,8 @@ const PLATFORM = option();
 const PREMIUM = option({
   model: "gpt-4.1-mini",
   platform_cost_inr_per_minute: PREMIUM_RATE,
+  // A plan that quotes a surcharge — the state this console has to render honestly.
+  client_surcharge_inr_per_minute: PREMIUM_SURCHARGE,
   is_platform_default: false,
 });
 /**
@@ -192,25 +199,40 @@ describe("the per-client language-model screen", () => {
     expect(container.textContent).not.toContain("None — follows the platform default");
   });
 
-  it("prices every option, and says which way the change moves the client's minute", async () => {
+  it("prices every option on BOTH sides of the margin, and says which way each moves", async () => {
     const { container } = await render();
 
-    // The rate is printed at the precision the server sent it — NOT `formatINR`'s two
-    // decimals, which would round ₹0.4830 to ₹0.48 on the field an invoice multiplies by.
-    await screen.findByText(new RegExp(`₹${PREMIUM_RATE} per minute`));
-    expect(container.textContent).toContain(`₹${DEFAULT_RATE} per minute`);
-    // The dearer option, against what this client is on today — and the difference is the
-    // exact decimal, which a float subtraction cannot produce.
-    expect(container.textContent).toContain(`${EXACT_DIFFERENCE} per minute more than now`);
+    // BOTH figures, labelled, and this is the screen that has to carry them together
+    // (D-455): what the CLIENT is charged extra, and what it costs US. Every rate is
+    // printed at the precision the server sent it — NOT `formatINR`'s two decimals, which
+    // would round ₹0.4830 to ₹0.48 on a field an invoice multiplies by.
+    await screen.findByText(new RegExp(`₹${PREMIUM_RATE} per minute to us`));
+    expect(container.textContent).toContain(`₹${DEFAULT_RATE} per minute to us`);
+    expect(container.textContent).toContain(`+₹${PREMIUM_SURCHARGE} per minute to them`);
+    // A plan quoting no surcharge for the base model says so in words, on the operator's
+    // screen as on the client's: "₹0.0000" is a rupee amount of nothing.
+    expect(container.textContent).toContain("no extra charge to them");
+    // The dearer option, against what this client is on today. A ROW compares the figure
+    // an operator is moving on their behalf — what they will be CHARGED — and both
+    // deltas appear in the summary above the button, where the decision is confirmed.
+    // The difference is the exact decimal, which a float subtraction cannot produce.
+    expect(container.textContent).toContain(`₹${PREMIUM_SURCHARGE} per minute more than now`);
+    expect(container.textContent).not.toContain("0.24300000000000002");
   });
 
-  it("states the cost consequence in the summary above the button", async () => {
+  it("states BOTH consequences in the summary above the button", async () => {
     const { container } = await render();
 
     fireEvent.click(await screen.findByRole("radio", { name: "gpt-4.1-mini" }));
     expect(container.textContent).toContain("This will record, against Sri Traders");
+    // What the client pays, and what it costs us, as two lines. One line could only ever
+    // be one of the two, and the screen's own prose contradicted itself about which for
+    // as long as there was only one figure.
     expect(container.textContent).toContain(
-      `₹${PREMIUM_RATE}, ${EXACT_DIFFERENCE} per minute more than now`,
+      `They are charged extra — ₹${PREMIUM_SURCHARGE} per minute, ₹${PREMIUM_SURCHARGE} per minute more than now.`,
+    );
+    expect(container.textContent).toContain(
+      `It costs us — ₹${PREMIUM_RATE} per minute of a five-minute call, ${EXACT_DIFFERENCE} per minute more than now.`,
     );
   });
 

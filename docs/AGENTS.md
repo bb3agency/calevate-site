@@ -12,10 +12,14 @@ D-36, unchanged). Language is **Azure OpenAI in East US 2** — `AZURE_LOCATION`
 (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with `gpt-4.1-mini`
 a live config switch through `azure_openai_model`. **D-410 supersedes D-400/D-404 on the
 in-call leg and D-127 on the dashboard leg; Gemini and Vertex are out of this product.
-D-449 moved the REGION off `southindia` (declared posture `us-azure-openai`): the engine's
+D-449 moved the REGION off `southindia`: the engine's
 orchestrator is US-hosted, so every turn was an ocean round trip, and Microsoft does not
 offer our default model in South India on Regional Standard. The default model and TRD §10
-are UNCHANGED; the client-facing India warranty is WITHDRAWN.**
+are UNCHANGED; the client-facing India warranty is WITHDRAWN. D-456 then renamed the
+posture to `multi-provider-byok` and made it three declared legs (`azure_openai`,
+`openai`, `google`), of which only Azure's two models are selectable — OpenAI direct on an
+unread price, Gemini on merit. No traffic moves; `SELECTABLE_LLM_MODELS ==
+AZURE_OPENAI_MODELS`.**
 Three LLM surfaces, two of which moved: **in-call** and **dashboard AI** both run on the
 same Azure resource, region and model constants, reached through the ONE builder
 `azure_openai_base_url()` (`https://{resource}.openai.azure.com/openai/v1` — the

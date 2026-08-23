@@ -233,6 +233,23 @@ class Plan(PKMixin, TimestampMixin, Base):
     # pilot gates), so a retail number derived from them would be invention wearing a
     # citation. What goes here is a founder decision.
     overage_rate_value: Mapped[Decimal | None] = mapped_column(MONEY)
+    # WHAT A CLIENT PAYS, PER MINUTE, FOR CHOOSING A DEARER LANGUAGE MODEL (D-455,
+    # migration e4a91c6b02d7). D-454 gave them the choice; this is the only place billing
+    # can put a price on it. `billing/rates.py::llm_surcharge_applies` decides WHICH
+    # minutes carry it, from the ledger's own `meta.llm_model` / `meta.llm_model_source`
+    # stamp and never from `agents.llm_model` — the live column would re-price every
+    # closed month the day a client switched.
+    #
+    # **IT ADDS TO `overage_rate`, it does not replace it.** The plan's per-minute rate is
+    # the base and the base-rate model (`rates.BASE_RATE_LLM_MODEL`) carries no surcharge
+    # at all, which is what makes the column safe on a live database: every plan that
+    # existed before it is NULL and bills exactly as it did.
+    #
+    # **NULL means "this plan quotes no model surcharge"** — an upgraded minute is billed
+    # at `overage_rate` like any other. It is NOT "the surcharge is zero": giving the
+    # better model away is a decision, never having been asked is not. The number is a
+    # founder decision and no default is invented here, for `overage_rate_value`'s reason.
+    llm_model_surcharge: Mapped[Decimal | None] = mapped_column(MONEY)
     # ADMIN-owned ceilings. The client cannot move these — that is what makes them a
     # ceiling rather than a suggestion.
     hard_cap_min: Mapped[int | None] = mapped_column(Integer)

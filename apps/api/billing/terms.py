@@ -86,6 +86,7 @@ PRICING_COLUMNS: tuple[str, ...] = (
     "included_min",
     "overage_rate",
     "overage_rate_value",
+    "llm_model_surcharge",
 )
 
 CEILING_COLUMNS: tuple[str, ...] = (
@@ -147,6 +148,11 @@ class CommercialTerms:
     # citation. What goes in it is a founder decision, and until it is made the column
     # stays NULL and billing quotes one rate (`billing/models.py::Plan`).
     overage_rate_value: Decimal | None = None
+    # What a minute costs EXTRA when the client chose a dearer language model (D-455,
+    # `billing/models.py::Plan.llm_model_surcharge`). Settable and UNSET for
+    # `overage_rate_value`'s reason: the number is a founder decision, and until it is
+    # made the column stays NULL and a model choice moves the bill by nothing.
+    llm_model_surcharge: Decimal | None = None
     hard_cap_min: int | None = None
     hard_cap_spend: Decimal | None = None
     concurrency_ceiling: int = 10
@@ -229,6 +235,7 @@ def _record(values: Row[Any]) -> PlanRecord:
             included_min=_count(row["included_min"]),
             overage_rate=_money(row["overage_rate"]),
             overage_rate_value=_money(row["overage_rate_value"]),
+            llm_model_surcharge=_money(row["llm_model_surcharge"]),
             hard_cap_min=_count(row["hard_cap_min"]),
             hard_cap_spend=_money(row["hard_cap_spend"]),
             concurrency_ceiling=int(row["concurrency_ceiling"]),
@@ -414,6 +421,7 @@ async def record_terms(
             "included_min": terms.included_min,
             "overage_rate": terms.overage_rate,
             "overage_rate_value": terms.overage_rate_value,
+            "llm_model_surcharge": terms.llm_model_surcharge,
             "hard_cap_min": terms.hard_cap_min,
             "hard_cap_spend": terms.hard_cap_spend,
             "concurrency_ceiling": terms.concurrency_ceiling,

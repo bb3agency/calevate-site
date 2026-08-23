@@ -24,6 +24,8 @@ import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
+import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
+import OperatorsPage from "@/app/admin/operators/page";
 import OpsPage from "@/app/admin/ops/page";
 import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -43,6 +45,7 @@ import CallsPage from "@/app/c/[slug]/calls/page";
 import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
+import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import ClientInvoicePage from "@/app/c/[slug]/invoice/page";
 import ClientSpendPage from "@/app/c/[slug]/spend/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
@@ -190,7 +193,10 @@ const UNAUTHORIZED_SESSION = problem(401, {
  * `history.replaceState`; jsdom implements both, so this is the real path rather than a
  * mock of it. The value is nonsense on purpose — nothing here submits it.
  */
-function withLinkToken(path: string, element: React.ReactElement): React.ReactElement {
+function withLinkToken(
+  path: string,
+  element: React.ReactElement,
+): React.ReactElement {
   window.history.replaceState(null, "", `${path}?token=a11y-sweep-token`);
   return element;
 }
@@ -257,8 +263,22 @@ const TENANT_SPEND = {
   cost_currency_stated: false,
   unattributed: { minutes: "0.0000", cost_inr: "120.00" },
   by_unit: [{ unit_type: "telephony_s", qty: "1110", cost_inr: "480.00" }],
-  by_agent: [{ ...SPEND.by_agent[0], cost_inr: "700.00", margin_inr: "500.00", cost_currency_assumed: true }],
-  top_calls: [{ ...SPEND.top_calls[0], cost_inr: "540.00", margin_inr: "360.00", cost_currency_assumed: true }],
+  by_agent: [
+    {
+      ...SPEND.by_agent[0],
+      cost_inr: "700.00",
+      margin_inr: "500.00",
+      cost_currency_assumed: true,
+    },
+  ],
+  top_calls: [
+    {
+      ...SPEND.top_calls[0],
+      cost_inr: "540.00",
+      margin_inr: "360.00",
+      cost_currency_assumed: true,
+    },
+  ],
 };
 
 /** The fleet board, with one client LOSING money so the marked row is swept too. */
@@ -327,7 +347,8 @@ const INVOICE = {
     state_code: "29",
     state_name: "Karnataka",
     supply_type: "interstate",
-    basis: "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
+    basis:
+      "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
   },
   line_items: [
     {
@@ -380,11 +401,13 @@ const AGENT = {
   status: "live",
   direction: "outbound",
   language: "te-IN",
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163: the two notices this agent volunteers, and the switch on each. Both ON, which
   // is what a new agent is born with — and the switches are the one pair of interactive
   // controls on the client agents screen, so they are exactly what this scan is for.
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   recording_notice_enabled: true,
@@ -396,7 +419,9 @@ const AGENT = {
   // answers in parallel. Both are REQUIRED on the wire.
   archived_at: null,
   inbound_number_count: 2,
-  extraction_fields: [{ key: "name", label: "Name", type: "string", required: true }],
+  extraction_fields: [
+    { key: "name", label: "Name", type: "string", required: true },
+  ],
 };
 
 /** A retired agent, so the roster sweep covers the archive section as well as the roster. */
@@ -462,7 +487,12 @@ const MEMBERS = [
  *  the tenant's extraction schema, which is the shape the chooser and the CSV share. */
 const LEAD_COLUMNS = [
   { key: "name", label: "Name", kind: "fixed", type: "text" },
-  { key: "budget_band", label: "Budget band", kind: "extraction", type: "enum" },
+  {
+    key: "budget_band",
+    label: "Budget band",
+    kind: "extraction",
+    type: "enum",
+  },
 ];
 
 const USAGE = {
@@ -476,6 +506,13 @@ const USAGE = {
   overage_cost_inr: "0.00",
   overage_rate_inr: "6.5000",
   overage_rate_value_inr: null,
+  // D-455's model surcharge. Present and ZERO, which is the shipped state — every plan
+  // quotes no surcharge until a founder sets one — and NOT absent: the field is required
+  // on the wire, and a fixture missing it is a server this deployment cannot have.
+  llm_surcharge_rate_inr: null,
+  llm_surcharge_minutes: "0.00",
+  llm_surcharge_inr: "0.00",
+  llm_surcharge_models: [],
   monthly_fee_inr: "4999.00",
   cap_minutes: null,
   minutes_left: null,
@@ -530,8 +567,22 @@ const DASHBOARD = {
   after_hours_basis: "default_window",
   minutes_used_month: "120.5",
   daily_7d: [
-    { ist_date: "2026-08-07", total: 4, completed: 3, no_answer: 1, failed: 0, in_flight: 0 },
-    { ist_date: "2026-08-08", total: 6, completed: 4, no_answer: 1, failed: 1, in_flight: 0 },
+    {
+      ist_date: "2026-08-07",
+      total: 4,
+      completed: 3,
+      no_answer: 1,
+      failed: 0,
+      in_flight: 0,
+    },
+    {
+      ist_date: "2026-08-08",
+      total: 6,
+      completed: 4,
+      no_answer: 1,
+      failed: 1,
+      in_flight: 0,
+    },
   ],
 };
 
@@ -565,7 +616,13 @@ const PLATFORM = {
   outbox_dead_letters: {
     depth: 9,
     oldest_at: "2026-08-04T04:15:00Z",
-    by_job: [{ job: "deliver_outbound_webhook", depth: 6, oldest_at: "2026-08-04T04:15:00Z" }],
+    by_job: [
+      {
+        job: "deliver_outbound_webhook",
+        depth: 6,
+        oldest_at: "2026-08-04T04:15:00Z",
+      },
+    ],
   },
   tm_registration: {
     status: "active",
@@ -844,12 +901,14 @@ const LLM_DEFAULTS = {
       model: "gpt-4o-mini",
       provider: "azure-openai",
       platform_cost_inr_per_minute: "0.2400",
+      client_surcharge_inr_per_minute: "0",
       is_platform_default: true,
     },
     {
       model: "gpt-4.1-mini",
       provider: "azure-openai",
       platform_cost_inr_per_minute: "0.4830",
+      client_surcharge_inr_per_minute: "1.5000",
       is_platform_default: false,
     },
   ],
@@ -914,7 +973,10 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <QualityPage />,
     routes: {
       "/v1/me": ME,
-      "/v1/quality/reports": [QA_REPORT, { ...QA_REPORT, as_of: "2026-06-30", defects: 1 }],
+      "/v1/quality/reports": [
+        QA_REPORT,
+        { ...QA_REPORT, as_of: "2026-06-30", defects: 1 },
+      ],
     },
   },
   {
@@ -926,7 +988,11 @@ const CLIENT_SCREENS: Screen[] = [
   {
     file: "c/[slug]/calls/[callId]/page.tsx",
     realm: "client",
-    element: () => <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />,
+    element: () => (
+      <CallDetailPage
+        params={Promise.resolve({ slug: "acme", callId: "c1" })}
+      />
+    ),
     routes: {
       "/v1/me": ME,
       // The REAL field names. This fixture used to send `turns` / `role` / `at_ms` /
@@ -937,16 +1003,38 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/calls/c1": {
         ...CALL,
         transcript: [
-          { idx: 0, speaker: "agent", text: "Namaskaram, Sri Clinic.", start_ms: 0, redacted: true },
-          { idx: 1, speaker: "caller", text: "I need a Tuesday slot.", start_ms: 2400, redacted: true },
+          {
+            idx: 0,
+            speaker: "agent",
+            text: "Namaskaram, Sri Clinic.",
+            start_ms: 0,
+            redacted: true,
+          },
+          {
+            idx: 1,
+            speaker: "caller",
+            text: "I need a Tuesday slot.",
+            start_ms: 2400,
+            redacted: true,
+          },
         ],
         has_recording: true,
         disclosure_played: true,
         extraction: { name: "Ramesh Kumar" },
         extraction_valid: true,
         moments: [
-          { at_ms: 2400, kind: "field_captured", label: "Name captured", source: "derived" },
-          { at_ms: 9000, kind: "highlight", label: "Caller asked about price", source: "model" },
+          {
+            at_ms: 2400,
+            kind: "field_captured",
+            label: "Name captured",
+            source: "derived",
+          },
+          {
+            at_ms: 9000,
+            kind: "highlight",
+            label: "Caller asked about price",
+            source: "model",
+          },
         ],
       } satisfies CallDetail,
       "/v1/calls/c1/callback": { eligible: false, reason: "consent_missing" },
@@ -970,7 +1058,14 @@ const CLIENT_SCREENS: Screen[] = [
         total: 1,
         limit: 100,
         offset: 0,
-        status_counts_matching_search: { new: 1, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+        status_counts_matching_search: {
+          new: 1,
+          contacted: 0,
+          interested: 0,
+          hot: 0,
+          won: 0,
+          lost: 0,
+        },
       },
       // The facet rail is part of this screen now, and it is swept WITH values in it —
       // an empty rail renders nothing and would prove nothing about its labelling.
@@ -992,7 +1087,12 @@ const CLIENT_SCREENS: Screen[] = [
           {
             id: "view-1",
             name: "Hot this week",
-            filters: { status: "hot", agent_id: null, assigned_to_me: false, fields: {} },
+            filters: {
+              status: "hot",
+              agent_id: null,
+              assigned_to_me: false,
+              fields: {},
+            },
             columns: null,
             stale_filter_keys: [],
             stale_column_keys: [],
@@ -1006,7 +1106,11 @@ const CLIENT_SCREENS: Screen[] = [
   {
     file: "c/[slug]/leads/[leadId]/page.tsx",
     realm: "client",
-    element: () => <LeadDetailPage params={Promise.resolve({ slug: "acme", leadId: "lead-a" })} />,
+    element: () => (
+      <LeadDetailPage
+        params={Promise.resolve({ slug: "acme", leadId: "lead-a" })}
+      />
+    ),
     routes: {
       "/v1/me": ME,
       "/v1/members": MEMBERS,
@@ -1041,8 +1145,18 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents/lanes": {
         precedence_rule: "Script decides content.",
         lanes: [
-          { field: "script", lane: "staged", precedence: 1, why: "It waits for Apply." },
-          { field: "voice", lane: "live", precedence: 3, why: "Delivery only." },
+          {
+            field: "script",
+            lane: "staged",
+            precedence: 1,
+            why: "It waits for Apply.",
+          },
+          {
+            field: "voice",
+            lane: "live",
+            precedence: 3,
+            why: "Delivery only.",
+          },
         ],
         call_cap_default_s: 600,
         call_cap_min_s: 60,
@@ -1054,7 +1168,9 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/agents/[agentId]/page.tsx",
     realm: "client",
     element: () => (
-      <AgentDetailPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />
+      <AgentDetailPage
+        params={Promise.resolve({ slug: "acme", agentId: "agent-1" })}
+      />
     ),
     routes: {
       "/v1/me": ME,
@@ -1100,7 +1216,8 @@ const CLIENT_SCREENS: Screen[] = [
           configured: { voice_id: "vidya", provider: "sarvam", catalog: null },
           live: { voice_id: "anushka", provider: "sarvam", catalog: null },
           republish_required: true,
-          headline: "Callers still hear anushka; vidya reaches them at the next publish.",
+          headline:
+            "Callers still hear anushka; vidya reaches them at the next publish.",
         },
         engine_verification: {
           state: "unreachable",
@@ -1188,7 +1305,12 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents": [AGENT],
       "/v1/campaigns": [CAMPAIGN],
       "/v1/campaigns/numbers": [
-        { id: "num-1", e164: "+918041234567", series: "140", dlt_status: "approved" },
+        {
+          id: "num-1",
+          e164: "+918041234567",
+          series: "140",
+          dlt_status: "approved",
+        },
       ],
       "/v1/campaigns/templates": [
         {
@@ -1264,7 +1386,12 @@ const CLIENT_SCREENS: Screen[] = [
       // where the deployment can deliver, so a false here would take its three labelled
       // inputs out of the sweep entirely.
       "/v1/integrations/events": {
-        events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+        events: [
+          "lead.created",
+          "lead.updated",
+          "call.completed",
+          "campaign.completed",
+        ],
         sheets_delivery_available: true,
       },
       "/v1/integrations/deliveries": [
@@ -1315,6 +1442,46 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    /**
+     * Every region of this screen paints from ONE response, so a single fixture reaches
+     * all of it: the two structured lists, both announcement groups, the open questions
+     * and the copy control over the document. The two announcement lists are non-empty on
+     * purpose — they render only when an agent has an announcement off, and an empty
+     * fixture would sweep a screen missing the markup this entry exists to check.
+     */
+    file: "c/[slug]/caller-notice/page.tsx",
+    realm: "client",
+    element: () => <CallerNoticePage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/compliance/caller-notice": {
+        disclaimer:
+          "This is a draft and not legal advice. Have your advocate review it.",
+        collected: [
+          {
+            what: "Your name",
+            why: "So we can address you and match you to your enquiry.",
+          },
+          {
+            what: "Your phone number",
+            why: "So we can call you back about your enquiry.",
+          },
+        ],
+        retention: [
+          { what: "Call recordings", days: 90 },
+          { what: "Lead records", days: 365 },
+        ],
+        ai_disclosure_off: ["Reception agent"],
+        recording_notice_off: ["Reception agent", "Follow-up agent"],
+        open_questions: [
+          "Who is your grievance officer, and how does a caller reach them?",
+        ],
+        notice_markdown:
+          "# Privacy notice\n\nWhen you call us, an AI assistant answers.\n",
+      },
+    },
+  },
+  {
     file: "c/[slug]/do-not-call/page.tsx",
     realm: "client",
     element: () => <DoNotCallPage />,
@@ -1322,7 +1489,14 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/dnc?limit=500": {
         items: [
-          { id: "dnc-1", phone_e164: "+919876543210", reason: "requested_on_call", source: "call", created_at: "2026-08-11T10:00:00Z", note: null },
+          {
+            id: "dnc-1",
+            phone_e164: "+919876543210",
+            reason: "requested_on_call",
+            source: "call",
+            created_at: "2026-08-11T10:00:00Z",
+            note: null,
+          },
         ],
         total: 1,
       },
@@ -1371,7 +1545,10 @@ const CLIENT_SCREENS: Screen[] = [
         outbound: 21,
         avg_duration_s: 154,
         outcomes: { appointment_booked: 14, no_answer: 8, enquiry: 29 },
-        busiest_hours_ist: [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 3, 1, 0, 0, 4, 6, 9, 12, 7, 2, 0, 0, 0],
+        busiest_hours_ist: [
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 3, 1, 0, 0, 4, 6, 9, 12, 7, 2, 0, 0,
+          0,
+        ],
       },
     },
   },
@@ -1415,12 +1592,14 @@ const CLIENT_SCREENS: Screen[] = [
             model: "gpt-4o-mini",
             provider: "Azure OpenAI",
             platform_cost_inr_per_minute: "0.2400",
+            client_surcharge_inr_per_minute: "0",
             is_platform_default: true,
           },
           {
             model: "gpt-4.1-mini",
             provider: "Azure OpenAI",
             platform_cost_inr_per_minute: "0.4830",
+            client_surcharge_inr_per_minute: "1.5000",
             is_platform_default: false,
           },
         ],
@@ -1435,7 +1614,13 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/members": MEMBERS,
       "/v1/invitations": [
-        { id: "inv-1", email: "kiran@example.com", role: "staff", created_at: "2026-08-12T09:00:00Z", expires_at: "2026-08-19T09:00:00Z" },
+        {
+          id: "inv-1",
+          email: "kiran@example.com",
+          role: "staff",
+          created_at: "2026-08-12T09:00:00Z",
+          expires_at: "2026-08-19T09:00:00Z",
+        },
       ],
     },
   },
@@ -1481,7 +1666,10 @@ const CLIENT_SCREENS: Screen[] = [
     file: "c/[slug]/invoice/page.tsx",
     realm: "client",
     element: () => <ClientInvoicePage />,
-    routes: { "/v1/me": ME, [`/v1/billing/invoice?month=${IST_MONTH}`]: INVOICE },
+    routes: {
+      "/v1/me": ME,
+      [`/v1/billing/invoice?month=${IST_MONTH}`]: INVOICE,
+    },
   },
   {
     file: "c/[slug]/verification/page.tsx",
@@ -1547,7 +1735,9 @@ const CLIENT_SCREENS: Screen[] = [
   {
     file: "legal/[slug]/page.tsx",
     realm: "client",
-    element: () => <LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />,
+    element: () => (
+      <LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />
+    ),
     routes: {},
   },
 ];
@@ -1561,7 +1751,10 @@ const ADMIN_SCREENS: Screen[] = [
         <p>console body</p>
       </AdminLayout>
     ),
-    routes: { "/v1/admin/me": ADMIN_ME, "/v1/admin/compliance/holds": [HELD_TENANT] },
+    routes: {
+      "/v1/admin/me": ADMIN_ME,
+      "/v1/admin/compliance/holds": [HELD_TENANT],
+    },
   },
   {
     file: "admin/page.tsx",
@@ -1582,7 +1775,14 @@ const ADMIN_SCREENS: Screen[] = [
           plan_tier: "managed",
           status: "active",
           severity: "stop",
-          signals: [{ rule: "deliveries_failing", severity: "stop", causes: [], count: 3 }],
+          signals: [
+            {
+              rule: "deliveries_failing",
+              severity: "stop",
+              causes: [],
+              count: 3,
+            },
+          ],
           calls_7d: 2,
           calls_prev_7d: 40,
           calls_basis: "measured",
@@ -1608,7 +1808,9 @@ const ADMIN_SCREENS: Screen[] = [
   {
     file: "admin/qa-sampling/[sampleId]/page.tsx",
     realm: "admin",
-    element: () => <QaSampleReviewPage params={Promise.resolve({ sampleId: "s1" })} />,
+    element: () => (
+      <QaSampleReviewPage params={Promise.resolve({ sampleId: "s1" })} />
+    ),
     routes: {
       "/v1/admin/qa-samples/s1": {
         sample: QA_SAMPLE,
@@ -1616,8 +1818,22 @@ const ADMIN_SCREENS: Screen[] = [
           ...CALL,
           summary: "Caller booked a Tuesday slot.",
           transcript: [
-            { idx: 0, speaker: "agent", text: "Namaskaram, Sri Clinic.", lang: "te-IN", start_ms: 0, redacted: true },
-            { idx: 1, speaker: "caller", text: "Call me on [phone ••10].", lang: "te-IN", start_ms: 2400, redacted: true },
+            {
+              idx: 0,
+              speaker: "agent",
+              text: "Namaskaram, Sri Clinic.",
+              lang: "te-IN",
+              start_ms: 0,
+              redacted: true,
+            },
+            {
+              idx: 1,
+              speaker: "caller",
+              text: "Call me on [phone ••10].",
+              lang: "te-IN",
+              start_ms: 2400,
+              redacted: true,
+            },
           ],
           extraction: {},
           extraction_valid: true,
@@ -1672,6 +1888,94 @@ const ADMIN_SCREENS: Screen[] = [
           removable: false,
         },
       ],
+    },
+  },
+  {
+    // TWO groups, one of them `insufficient_samples` with no percentiles and no verdict:
+    // the withheld-figure rendering is a different piece of markup from the measured one,
+    // and a fixture with only measured rows would leave the state this endpoint exists to
+    // report honestly — "not enough turns to say" — unscanned.
+    file: "admin/ops/engine-latency/page.tsx",
+    realm: "admin",
+    element: () => <EngineLatencyPage />,
+    routes: {
+      // `ops:manage`, unlike the shared ADMIN_ME the two ops screens above use: this
+      // screen WITHHOLDS its whole report from a session the server has refused, so the
+      // shared fixture would sweep one sentence and none of the markup this entry exists
+      // for. The refused costume is covered by its own test in opsEngineLatency.test.tsx.
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/engine-latency?days=7": {
+        window_days: 7,
+        llm_ttft_budget_ms: 350,
+        complete: false,
+        groups: [
+          {
+            engine: "bolna",
+            region: "us",
+            calls: 12,
+            turns: 240,
+            basis: "measured",
+            llm_ttft_p50_ms: 412.5,
+            llm_ttft_p95_ms: 980.2,
+            llm_ttft_max_ms: 1633.04,
+            turns_over_budget: 190,
+            budget_breached: true,
+          },
+          {
+            engine: "bolna",
+            region: null,
+            calls: 1,
+            turns: 3,
+            basis: "insufficient_samples",
+            llm_ttft_max_ms: 288.1,
+            turns_over_budget: 0,
+          },
+        ],
+      },
+    },
+  },
+  {
+    // TWO accounts, and the fixture's shape is the point of the entry. One is the SIGNED-IN
+    // super admin, whose row renders the lockout sentence where its controls would be, and
+    // one is a normal admin who has never followed their setup link — so the tier badge,
+    // the "setup link outstanding" pill, the three row buttons and the self-refusal are all
+    // in the tree at once. A one-row fixture would sweep the list and none of them.
+    file: "admin/operators/page.tsx",
+    realm: "admin",
+    element: () => <OperatorsPage />,
+    routes: {
+      // `admin:operators`, not the shared ADMIN_ME: every route this screen calls carries
+      // it, and without it the screen WITHHOLDS itself — the sweep would scan one refusal
+      // panel and none of the markup this entry exists for. The refused costume has its
+      // own test in adminOperators.test.tsx.
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        user_id: "0192f0aa-7777-7000-8000-0000000000a1",
+        permissions: [...ADMIN_ME.permissions, "admin:operators"],
+      },
+      "/v1/admin/operators": {
+        operators: [
+          {
+            id: "0192f0aa-7777-7000-8000-0000000000a1",
+            email: "founder@calevate.tech",
+            name: "Sri J",
+            role: "superadmin",
+            created_at: "2026-07-01T04:30:00Z",
+            activated: true,
+          },
+          {
+            id: "0192f0aa-7777-7000-8000-0000000000a2",
+            email: "asha@calevate.tech",
+            name: "Asha Rao",
+            role: "operator",
+            created_at: "2026-08-14T09:15:00Z",
+            activated: false,
+          },
+        ],
+      },
     },
   },
   {
@@ -1827,14 +2131,28 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/agents/[agentId]/prompt/page.tsx",
     realm: "admin",
     element: () => (
-      <AgentPromptPage params={Promise.resolve({ tenantId: "t1", agentId: "agent-1" })} />
+      <AgentPromptPage
+        params={Promise.resolve({ tenantId: "t1", agentId: "agent-1" })}
+      />
     ),
     routes: {
       "/v1/admin/me": ADMIN_ME,
       "/v1/admin/tenants/t1": TENANT_SUMMARY,
       "/v1/admin/tenants/t1/agents/agent-1/prompt": [
-        { id: "v2", version: 2, notes: "challenger", created_at: "2026-08-01T04:00:00Z", active: true },
-        { id: "v1", version: 1, notes: "control", created_at: "2026-07-01T04:00:00Z", active: false },
+        {
+          id: "v2",
+          version: 2,
+          notes: "challenger",
+          created_at: "2026-08-01T04:00:00Z",
+          active: true,
+        },
+        {
+          id: "v1",
+          version: 1,
+          notes: "control",
+          created_at: "2026-07-01T04:00:00Z",
+          active: false,
+        },
       ],
       // The voice catalogue, read through the tenant's impersonation session like the
       // other two client-realm GETs on this screen.
@@ -1873,7 +2191,8 @@ const ADMIN_SCREENS: Screen[] = [
           },
           live: { voice_id: "vidya", provider: "sarvam", catalog: null },
           republish_required: true,
-          headline: "Callers still hear vidya; anushka reaches them at the next publish.",
+          headline:
+            "Callers still hear vidya; anushka reaches them at the next publish.",
         },
         // Unconfirmed for the same reason the voice is diverged: the sweep should walk
         // the branch that renders MORE, not the reassuring one.
@@ -1895,7 +2214,9 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/agents/agent-1/experiment": {
         agent_id: "agent-1",
         rules: {
-          metrics: [{ key: "call_outcome_resolved", label: "calls the agent resolved" }],
+          metrics: [
+            { key: "call_outcome_resolved", label: "calls the agent resolved" },
+          ],
           default_metric: "call_outcome_resolved",
           minimum_calls_per_variant: 40,
           split_min_bp: 500,
@@ -1956,25 +2277,29 @@ const AUTHN_SCREENS: Screen[] = [
     // effect, so setting it before the render is what the browser hands the page.
     file: "(auth)/auth/reset-password/page.tsx",
     realm: "admin",
-    element: () => withLinkToken("/auth/reset-password", <ClientResetPasswordPage />),
+    element: () =>
+      withLinkToken("/auth/reset-password", <ClientResetPasswordPage />),
     routes: {},
   },
   {
     file: "(auth)/auth/admin/reset-password/page.tsx",
     realm: "admin",
-    element: () => withLinkToken("/auth/admin/reset-password", <AdminResetPasswordPage />),
+    element: () =>
+      withLinkToken("/auth/admin/reset-password", <AdminResetPasswordPage />),
     routes: {},
   },
   {
     file: "(auth)/auth/admin/bootstrap/page.tsx",
     realm: "admin",
-    element: () => withLinkToken("/auth/admin/bootstrap", <AdminBootstrapPage />),
+    element: () =>
+      withLinkToken("/auth/admin/bootstrap", <AdminBootstrapPage />),
     routes: {},
   },
   {
     file: "(auth)/auth/accept-invitation/page.tsx",
     realm: "admin",
-    element: () => withLinkToken("/auth/accept-invitation", <AcceptInvitationPage />),
+    element: () =>
+      withLinkToken("/auth/accept-invitation", <AcceptInvitationPage />),
     routes: {},
   },
   {
@@ -1994,27 +2319,34 @@ const AUTHN_SCREENS: Screen[] = [
   },
 ];
 
-export const SCREENS: Screen[] = [...CLIENT_SCREENS, ...ADMIN_SCREENS, ...AUTHN_SCREENS];
+export const SCREENS: Screen[] = [
+  ...CLIENT_SCREENS,
+  ...ADMIN_SCREENS,
+  ...AUTHN_SCREENS,
+];
 
 describe("every screen is scanned by axe", () => {
-  it.each(SCREENS.map((s) => [s.file, s] as const))("%s", async (_file, screen) => {
-    const { container } =
-      screen.realm === "client"
-        ? await renderClientPage(screen.element(), screen.routes)
-        // `renderAdminRoute`, not `renderAdminPage`: several admin screens read
-        // `use(params)` and therefore SUSPEND on first paint, which a bare synchronous
-        // render leaves as an empty container.
-        : await renderAdminRoute(screen.element(), screen.routes);
-    // Let every TanStack query resolve before scanning. Neither `renderClientPage` (which
-    // only awaits the Suspense boundary) nor `renderAdminPage` (synchronous by design)
-    // waits for the network, so without this the scan sees SKELETONS — which is the
-    // vacuous pass `assertScreenRendered` refuses. A macrotask is enough: `stubApi`
-    // answers from memory, so the only thing outstanding is React's own flush.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    await expectNoA11yViolations(container, screen.file);
-  });
+  it.each(SCREENS.map((s) => [s.file, s] as const))(
+    "%s",
+    async (_file, screen) => {
+      const { container } =
+        screen.realm === "client"
+          ? await renderClientPage(screen.element(), screen.routes)
+          : // `renderAdminRoute`, not `renderAdminPage`: several admin screens read
+            // `use(params)` and therefore SUSPEND on first paint, which a bare synchronous
+            // render leaves as an empty container.
+            await renderAdminRoute(screen.element(), screen.routes);
+      // Let every TanStack query resolve before scanning. Neither `renderClientPage` (which
+      // only awaits the Suspense boundary) nor `renderAdminPage` (synchronous by design)
+      // waits for the network, so without this the scan sees SKELETONS — which is the
+      // vacuous pass `assertScreenRendered` refuses. A macrotask is enough: `stubApi`
+      // answers from memory, so the only thing outstanding is React's own flush.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await expectNoA11yViolations(container, screen.file);
+    },
+  );
 });
 
 describe("the gate cannot quietly fall behind", () => {
@@ -2041,7 +2373,10 @@ describe("the gate cannot quietly fall behind", () => {
   it("names no screen that no longer exists", () => {
     const onDisk = new Set(routePagesOnDisk());
     const ghosts = Object.keys(UNSWEPT_SCREENS).filter((p) => !onDisk.has(p));
-    expect(ghosts, `UNSWEPT_SCREENS names screens that are gone: ${ghosts.join(", ")}`).toEqual([]);
+    expect(
+      ghosts,
+      `UNSWEPT_SCREENS names screens that are gone: ${ghosts.join(", ")}`,
+    ).toEqual([]);
   });
 
   /**

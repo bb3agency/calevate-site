@@ -3,7 +3,7 @@
   "areas": {
     "compliance-gate": 0,
     "dial-path": 0,
-    "ledgers-and-money": 1,
+    "ledgers-and-money": 0,
     "platform-credentials": 0,
     "redaction": 7,
     "tenancy-session": 3,
