@@ -52,6 +52,7 @@ import {
   type TmStatus,
 } from "@/lib/api/admin";
 import { hasKey, lookup } from "@/lib/lookup";
+import { TermGloss, loadShedModeCopy, tmStatusCopy } from "@/app/admin/ops/opsLanguage";
 
 /**
  * The operations surface — the big red switch, the load-shed mode, the one legal fact
@@ -216,24 +217,24 @@ interface LoadShedNote {
  */
 const LOAD_SHED: Record<LoadShedMode, LoadShedNote> = {
   normal: {
-    now: "Everything is being served normally.",
+    now: "Everything is working normally.",
     blast:
-      "Takes the platform out of shedding: client-realm writes are accepted again and new self-serve signups reopen.",
+      "Takes the platform out of its protective slowdown: clients can make changes again, and new self-serve sign-ups reopen.",
   },
   reduced: {
-    now: "Every client-realm write is being refused with 503 service_load_shed. Reads still work.",
+    now: "Clients can’t make changes right now — launching campaigns, saving agents and adding leads are paused. They can still view everything.",
     blast:
-      "Every client-realm WRITE starts being refused with a 503 — launching a campaign, saving an agent, adding a lead. Reads keep working, and a campaign that is already running keeps dialling: the dispatch tick is not an HTTP request. New self-serve signups are refused.",
+      "Clients stop being able to make changes — launching a campaign, saving an agent, adding a lead. They can still view everything, and a campaign that is already running keeps dialling (a running campaign doesn’t depend on the website). New self-serve sign-ups are turned away.",
   },
   emergency: {
-    now: "Every client-realm write is being refused with 503 service_load_shed. Reads still work.",
+    now: "Clients can’t make changes right now — launching campaigns, saving agents and adding leads are paused. They can still view everything.",
     blast:
-      "Sheds exactly what reduced sheds. core/loadshed.py puts both in _SHED_WRITES and neither in _SHED_READS, so today this is a louder NAME for the same posture, not a stricter one — pick it to say how bad things are, not expecting reads to stop.",
+      "Pauses exactly what “Reduced” pauses. Today this is a louder label for the same thing, not a stricter one — choose it to signal how serious the situation is, not because it stops more.",
   },
   maintenance: {
-    now: "Planned downtime: reads are being shed too. Only health, auth, engine webhooks and the admin/ops surface are served.",
+    now: "Planned downtime: clients can’t view or change anything. Only calls, sign-in and this operations console keep working.",
     blast:
-      "Client screens go dark — reads are refused as well as writes, so a client opening their dashboard gets a 503. Engine webhooks still land, so no call's lead is lost. This console, /v1/ops and /v1/admin stay served, so you can always take the platform back out.",
+      "Client screens go dark — a client opening their dashboard sees a “temporarily unavailable” message. Live calls are unaffected, so no lead is lost. This operations console keeps working, so you can always bring the platform back.",
   },
 };
 
@@ -315,8 +316,8 @@ export default function OpsPage() {
     <div className="max-w-2xl space-y-5">
       <div>
         <p className="mt-0.5 text-sm text-ink-muted">
-          Platform-wide switches. Every change is audit-logged with its reason, and every
-          one of them applies to every client at the same instant.
+          Platform-wide switches. Every change is recorded in the activity log with your
+          reason, and every one of them applies to every client at the same moment.
         </p>
       </div>
 
@@ -422,8 +423,8 @@ function UnknownStatePanel({ reason }: { reason: string | null }) {
       </p>
       {reason && <p className="mt-2">{reason}</p>}
       <p className="mt-2 text-xs">
-        If calls have stopped and you need the switch now, runbooks/calls-stopped.md §1
-        carries the request to send by hand.
+        If calls have stopped and you need the switch now, the “calls stopped” runbook
+        walks through sending it by hand.
       </p>
     </NoticeBox>
   );
@@ -469,7 +470,7 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
           {halted ? (
             <>
               <p className="mt-1">
-                No outbound call is being placed for any tenant. Inbound calls are
+                No outbound call is being placed for any client. Inbound calls are
                 unaffected — clients&apos; receptionists keep answering.
               </p>
               {/* The one question whoever finds the platform halted asks first. It is on
@@ -517,12 +518,12 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
               </p>
               <p className="mt-1 text-ink-muted">
                 {halted
-                  ? "Paused campaigns pick up at the next dispatch tick. Every campaign's own compliance gate still applies — this releases the platform-wide stop and nothing else."
-                  : "Running campaigns stop at the next dispatch tick and no new outbound call is placed for any tenant. Inbound calls are unaffected — the caller initiated those, and refusing them would silently break the receptionist clients pay for."}
+                  ? "Paused campaigns pick up again within a minute or so. Every campaign's own compliance gate still applies — this only releases the platform-wide stop, nothing else."
+                  : "Running campaigns stop within a minute or so and no new outbound call is placed for any client. Inbound calls are unaffected — the caller started those, and refusing them would silently break the receptionist your clients pay for."}
               </p>
               <p className="mt-1 text-xs text-ink-faint">
-                Recorded in the audit log against your admin account, with the reason you
-                type below.
+                Recorded in the activity log against your admin account, with the reason
+                you type below.
               </p>
             </div>
           </div>
@@ -541,13 +542,13 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
               placeholder={
                 halted
                   ? "e.g. 'registrar confirmed the suspension was lifted'"
-                  : "e.g. 'DLT complaint spike — stopping until we have read the logs'"
+                  : "e.g. 'spike in complaints — stopping until we've read the logs'"
               }
               className={FIELD}
             />
             <span className={FIELD_HINT}>
-              Whoever finds outbound stopped at 3am reads this to decide whether the
-              condition still holds. It is stored on the row, not only in the audit log.
+              Whoever finds outbound calling stopped at 3am reads this to decide whether the
+              reason still holds. It stays on record here, not only in the activity log.
             </span>
           </label>
 
@@ -637,27 +638,20 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
   const ready = !unchanged && reason.trim().length >= 3 && confirm === confirmWord;
 
   return (
-    <Card title="Load-shed mode">
+    <Card title="Protective slowdown">
       <div className="space-y-4">
         <NoticeBox
           tone={current === "normal" ? "ok" : "warn"}
           icon={<Gauge aria-hidden className="h-5 w-5" />}
-          title={
-            current === "normal"
-              ? "Serving normally"
-              : `Shedding — the platform is in ${current} mode`
-          }
+          title={loadShedModeCopy(current).label}
         >
           <p className="mt-1">
             {note?.now ?? (
               <>
-                This console has no description for that mode — read it as unknown and
-                check core/loadshed.py before assuming what it sheds.
+                This console has no description for that mode, so treat it as unknown until
+                someone can confirm what it does.
               </>
             )}
-          </p>
-          <p className="mt-2 text-xs">
-            Current mode: <span className="font-mono">{current}</span>
           </p>
         </NoticeBox>
 
@@ -693,8 +687,8 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
             >
               {LOAD_SHED_MODES.map((mode) => (
                 <option key={mode} value={mode}>
-                  {mode}
-                  {mode === current ? " — the mode in force now" : ""}
+                  {loadShedModeCopy(mode).label}
+                  {mode === current ? " — in force now" : ""}
                 </option>
               ))}
             </select>
@@ -712,14 +706,14 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
             <div className="min-w-0">
               <p className="font-semibold text-ink">
                 {unchanged
-                  ? `The platform is already in ${current} mode`
-                  : `Switching to ${target} applies to every client at once`}
+                  ? `The platform is already in “${loadShedModeCopy(current).label}”`
+                  : `Switching to “${loadShedModeCopy(target).label}” applies to every client at once`}
               </p>
               <p className="mt-1 text-ink-muted">{LOAD_SHED[target].blast}</p>
               <p className="mt-1 text-xs text-ink-faint">
-                Recorded in the audit log against your admin account, with the reason you
-                type below. Load-shedding does not stop a campaign that is already
-                running, and it never touches inbound calls.
+                Recorded in the activity log against your admin account, with the reason
+                you type below. This does not stop a campaign that is already running, and
+                it never affects inbound calls.
               </p>
             </div>
           </div>
@@ -733,12 +727,12 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               disabled={!access.allowed}
-              placeholder="e.g. 'database CPU at 95% — shedding writes until the index build finishes'"
+              placeholder="e.g. 'database under heavy load — pausing changes until it recovers'"
               className={FIELD}
             />
             <span className={FIELD_HINT}>
-              Whoever finds the platform shedding reads this to decide whether the
-              condition still holds.
+              Whoever finds the platform slowed reads this to decide whether the condition
+              still holds.
             </span>
           </label>
 
@@ -760,7 +754,7 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
             className={target === "normal" ? PRIMARY_BUTTON : DANGER_BUTTON}
           >
             <Gauge aria-hidden className="h-4 w-4" />
-            {setState.isPending ? "Sending…" : `Switch to ${target}`}
+            {setState.isPending ? "Sending…" : `Switch to “${loadShedModeCopy(target).label}”`}
           </button>
 
           {!access.allowed && access.reason && (
@@ -775,12 +769,15 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
   );
 }
 
-const TM_STATUSES: { value: TmStatus; label: string }[] = [
-  { value: "not_registered", label: "not_registered — no application filed" },
-  { value: "submitted", label: "submitted — filed, not yet granted" },
-  { value: "active", label: "active — granted and in force" },
-  { value: "suspended", label: "suspended — registrar action, e.g. complaints" },
-  { value: "revoked", label: "revoked — registration withdrawn" },
+// The five statuses in the order they are offered. The human label and one-line
+// explanation for each come from `tmStatusCopy` (opsLanguage), so the select, the status
+// banner and the facts grid all read the registration in one voice.
+const TM_STATUSES: TmStatus[] = [
+  "not_registered",
+  "submitted",
+  "active",
+  "suspended",
+  "revoked",
 ];
 
 /**
@@ -818,7 +815,7 @@ function TmRegistrationPanel({
   // Deliberately NOT re-synced on the 30s refetch: clobbering a half-typed form with a
   // poll result is worse than a stale default an operator can see and change.
   const [status, setStatus] = useState<TmStatus>(
-    TM_STATUSES.some((s) => s.value === registration.status)
+    TM_STATUSES.includes(registration.status as TmStatus)
       ? (registration.status as TmStatus)
       : "not_registered",
   );
@@ -837,11 +834,20 @@ function TmRegistrationPanel({
   const ready = reason.trim().length >= 3 && confirm === confirmWord;
 
   return (
-    <Card title="Our telemarketer registration (DLT)">
+    <Card title="Our telemarketer registration">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          Calevate is the registered Telemarketer; each client is its own Principal
-          Entity. One fact for the whole platform.
+          Calevate is the registered{" "}
+          <TermGloss term="telemarketer (TM)">
+            the company registered with India&apos;s telecom system to place calls on a
+            client&apos;s behalf
+          </TermGloss>
+          ; each client is its own{" "}
+          <TermGloss term="principal entity (PE)">
+            the business the calls are for, registered in its own name under India&apos;s
+            telecom rules (DLT)
+          </TermGloss>
+          . This is one fact for the whole platform.
         </p>
 
         {/* The consequence, stated before the fields. An operator reading `submitted`
@@ -855,18 +861,18 @@ function TmRegistrationPanel({
               <CircleAlert aria-hidden className="h-5 w-5" />
             )
           }
-          title={live ? "LIVE — we may lawfully dial" : "NOT LIVE — no tenant can launch"}
+          title={live ? "LIVE — we may lawfully dial" : "NOT LIVE — no client can launch"}
         >
           <p className="mt-1">
             {live
-              ? "Campaign launches are not blocked by this. Every client still needs its own Principal Entity registration and TM link."
-              : "While this is not live, NO tenant can launch an outbound campaign, however complete their own registration is. Inbound answering is unaffected — clients' receptionists keep working."}
+              ? "This is not blocking any launches. Each client still needs its own registration in its own name, and to be linked to us as its telemarketer."
+              : "While this is not live, NO client can launch an outbound campaign, however complete their own registration is. Inbound answering is unaffected — clients' receptionists keep working."}
           </p>
         </NoticeBox>
 
         <dl className="grid gap-3 sm:grid-cols-4">
-          <Fact label="Status" value={registration.status} />
-          <Fact label="TM id" value={registration.tm_id ?? "—"} mono />
+          <Fact label="Status" value={tmStatusCopy(registration.status).label} />
+          <Fact label="TM ID" value={registration.tm_id ?? "—"} mono />
           <Fact label="Registered" value={formatIST(registration.registered_at)} />
           <Fact label="Last verified" value={formatIST(registration.verified_at)} />
         </dl>
@@ -913,9 +919,9 @@ function TmRegistrationPanel({
                 disabled={!access.allowed}
                 className={FIELD}
               >
-                {TM_STATUSES.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                {TM_STATUSES.map((value) => (
+                  <option key={value} value={value}>
+                    {tmStatusCopy(value).label}
                   </option>
                 ))}
               </select>
@@ -963,7 +969,7 @@ function TmRegistrationPanel({
               placeholder="e.g. 'registrar grant letter 2026-08-04'"
               className={FIELD}
             />
-            <span className={FIELD_HINT}>Recorded in the audit log with this change.</span>
+            <span className={FIELD_HINT}>Recorded in the activity log with this change.</span>
           </label>
 
           <label className="block">
@@ -982,8 +988,8 @@ function TmRegistrationPanel({
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <p className="text-ink-muted">
               {makingLive
-                ? "Recording this as active turns the platform-wide launch gate green for every tenant."
-                : "Anything other than active takes the gate away: no tenant can launch an outbound campaign until it is recorded active again."}
+                ? "Recording this as active opens the platform-wide launch gate for every client."
+                : "Anything other than active closes that gate: no client can launch an outbound campaign until it is recorded active again."}
             </p>
           </div>
 
@@ -997,7 +1003,7 @@ function TmRegistrationPanel({
               ? "Recording…"
               : makingLive
                 ? "Record registration as active"
-                : `Record as ${status.replace(/_/g, " ")}`}
+                : `Record as “${tmStatusCopy(status).label}”`}
           </button>
 
           {!access.allowed && access.reason && (
@@ -1149,10 +1155,9 @@ function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
             title="No agent has been checked yet"
           >
             <p className="mt-1">
-              Nothing below is evidence: the counts are what the sweep last recorded, and
-              it has not recorded anything. If this persists past half an hour the
-              reconciliation job is not running, and every agent on the platform is
-              unwatched.
+              Nothing below is evidence: the counts are what the last check recorded, and it
+              has not recorded anything. If this lasts more than half an hour, the check has
+              stopped running and no agent on the platform is being watched.
             </p>
           </NoticeBox>
         )}
@@ -1361,10 +1366,9 @@ function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
             title="No agent's knowledge has been checked yet"
           >
             <p className="mt-1">
-              Nothing below is evidence: the counts are what the sweep last recorded, and it
-              has not recorded anything. If this persists past an hour the knowledge
-              reconciliation job is not running, and nobody is watching what the agents are
-              answering from.
+              Nothing below is evidence: the counts are what the last check recorded, and it
+              has not recorded anything. If this lasts more than an hour, the knowledge check
+              has stopped running and nobody is watching what the agents answer from.
             </p>
           </NoticeBox>
         )}
@@ -1530,32 +1534,33 @@ function OutboxReplayPanel({
   const deadReason = !access.allowed
     ? access.reason
     : queue.status === "loading"
-      ? "Reading the queue depth. The button unlocks once the size of the replay is known."
+      ? "Checking how many messages are stuck. The button unlocks once we know the size of the resend."
       : sized !== null && sized.depth === 0
         ? // THE ALL-CLEAR LIVES IN TWO PLACES, and only one of them was fixed first: the
           // green box above became conditional on `deferred` while this sentence — the one
           // physically next to the button, which is where an operator actually reads — went
-          // on saying "nothing is dead-lettered" during an outage. Caught by
+          // on saying "nothing is stuck" during an outage. Caught by
           // `apps/web/tests/ops.test.tsx`, and worth the note: a panel with two voices needs
           // both of them changed, and the one beside the control is the one that counts.
           sized.deferred > 0
-          ? `No message has reached the dead-letter queue yet, so there is nothing to ` +
-            `replay — but ${formatCount(sized.deferred)} are waiting on a backoff above. ` +
-            "Replay only moves failed messages; these need the queue to come back."
-          : "Nothing is dead-lettered, so there is nothing to replay. Running it anyway would " +
-            "record an ops.outbox_replay entry for a redelivery that never happened."
+          ? `No message has failed yet, so there is nothing to resend — but ${formatCount(sized.deferred)} ` +
+            "are waiting to retry on their own (shown above). Resending only helps messages that " +
+            "have already failed; these need the queue to come back."
+          : "Nothing is stuck, so there is nothing to resend. Running it anyway would record a " +
+            "resend in the activity log that never actually happened."
         : !scopeChosen
-          ? "Choose what to replay first. There is no default, because the default would be " +
-            "the largest possible act."
+          ? "Choose what to resend first. There is no default, because the default would be " +
+            "the biggest possible action."
           : null;
 
   return (
-    <Card title="Dead-lettered outbox messages">
+    <Card title="Stuck outbound messages">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          Messages that exhausted their retries and were parked. Replaying moves them back
-          to <span className="font-mono">pending</span> so the dispatcher picks them up
-          again — for every client at once, oldest first, up to 100 per run.
+          Messages that failed to send after several tries and are now stuck — things like
+          a lead sent to a client&apos;s own system, or a hot-lead alert. Resending puts
+          them back in line to be tried again, for every client at once, oldest first, up
+          to 100 at a time.
         </p>
 
         {queue.status === "loading" && <Skeleton rows={2} />}
@@ -1567,18 +1572,18 @@ function OutboxReplayPanel({
           <NoticeBox
             tone="warn"
             icon={<CircleHelp aria-hidden className="h-5 w-5" />}
-            title="We do not know how many messages are parked"
+            title="We do not know how many messages are stuck"
           >
             <p className="mt-1">
-              The dead-letter depth is read with the platform state, and that read failed —
-              so this screen will not tell you the queue is empty and it will not tell you
-              how large a replay would be. The error above says what stopped it.
+              The count is read together with the platform state, and that read failed — so
+              this screen will not tell you nothing is stuck, and it will not tell you how
+              large a resend would be. The error above says what stopped it.
             </p>
             <p className="mt-2">
-              The button below still works, deliberately: this control does not move a
-              state we failed to read, and removing a recovery lever because a number was
-              unavailable is worse than running it unsized. It will replay{" "}
-              <span className="font-semibold">every job</span> — up to 100, oldest first.
+              The button below still works, on purpose: removing a recovery tool because a
+              number was unavailable is worse than running it without knowing the size. It
+              will resend <span className="font-semibold">every type</span> — up to 100,
+              oldest first.
             </p>
           </NoticeBox>
         )}
@@ -1596,12 +1601,12 @@ function OutboxReplayPanel({
           <NoticeBox
             tone="ok"
             icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-            title="Nothing is dead-lettered"
+            title="Nothing is stuck"
           >
             <p className="mt-1">
-              No outbox message is in the <span className="font-mono">failed</span> state,
-              so there is nothing to replay and the control below is disabled. This is a
-              measurement, not an assumption — it refreshes every 30 seconds.
+              No outbound message has failed, so there is nothing to resend and the button
+              below is disabled. This is a live measurement, not an assumption — it
+              refreshes every 30 seconds.
             </p>
           </NoticeBox>
         )}
@@ -1613,21 +1618,18 @@ function OutboxReplayPanel({
           <NoticeBox
             tone="warn"
             icon={<CircleHelp aria-hidden className="h-5 w-5" />}
-            title={`${formatCount(sized.deferred)} messages are waiting on a retry backoff`}
+            title={`${formatCount(sized.deferred)} messages are waiting to retry on their own`}
           >
             <p className="mt-1">
-              These are not dead letters — they are still{" "}
-              <span className="font-mono">pending</span> and the dispatcher will pick them
-              up on its own once the backoff elapses. A number here that keeps climbing
-              means the queue itself is unreachable, not that any one message is bad; the{" "}
-              <span className="font-mono">outbox_queue_unreachable</span> alert and{" "}
-              <span className="font-mono">runbooks/webhook-delivery-failures.md</span> §3
-              are where that goes.
+              These are not stuck — the system will retry them by itself in a short while.
+              A number here that keeps climbing means the whole queue is unreachable, not
+              that any one message is bad; that&apos;s a separate alert, covered by the
+              webhook-delivery runbook.
             </p>
             <p className="mt-2">
-              Replaying does nothing for them: it acts on the{" "}
-              <span className="font-mono">failed</span> state alone. If the backoff runs
-              out before the queue comes back they become dead letters, and then it will.
+              Resending does nothing for these — it only acts on messages that have already
+              failed. If they run out of automatic retries before the queue recovers, they
+              become stuck, and then resending will apply.
             </p>
           </NoticeBox>
         )}
@@ -1642,23 +1644,23 @@ function OutboxReplayPanel({
           <NoticeBox
             tone="warn"
             icon={<PackageOpen aria-hidden className="h-5 w-5" />}
-            title={`${formatCount(sized.depth)} messages are parked in the dead-letter queue`}
+            title={`${formatCount(sized.depth)} messages are stuck`}
           >
             <p className="mt-1">
               Oldest: <span className="font-semibold">{formatIST(sized.oldest_at)}</span>.
-              Replaying re-sends them; an old one arrives at a client who has already dealt
-              with it by other means.
+              Resending sends them again; an old one may reach a client who has already
+              dealt with it another way.
             </p>
             {/* The scroll container every other table in this repo already has. Its
                 three columns (a job name, a count, an IST timestamp) do not fit 320px,
                 and inside the shell's `overflow-hidden` the excess was CLIPPED rather
                 than scrollable — the "Oldest" column was simply unreachable. */}
-            <ScrollRegion label="Dead-lettered jobs" className="mt-3">
+            <ScrollRegion label="Stuck message types" className="mt-3">
             <table className="w-full text-left text-xs">
               <thead className="text-ink-faint">
                 <tr>
-                  <th className="pb-1 font-medium">Job</th>
-                  <th className="pb-1 text-right font-medium">Parked</th>
+                  <th className="pb-1 font-medium">Type</th>
+                  <th className="pb-1 text-right font-medium">Stuck</th>
                   <th className="pb-1 text-right font-medium">Oldest</th>
                 </tr>
               </thead>
@@ -1688,20 +1690,20 @@ function OutboxReplayPanel({
             icon={<RefreshCw aria-hidden className="h-5 w-5" />}
             title={
               replay.data.replayed > 0
-                ? `${formatCount(replay.data.replayed)} messages moved back to pending`
-                : "Nothing was dead-lettered"
+                ? `${formatCount(replay.data.replayed)} messages queued to resend`
+                : "Nothing was stuck"
             }
           >
             <p className="mt-1">
               {replay.data.replayed > 0
-                ? "Each one will be attempted again from a fresh budget. Watch the DLQ rather than assuming they land — runbooks/webhook-delivery-failures.md carries the follow-up."
-                : "The server found no message in the failed state, so nothing was moved. That is an answer, not a failure."}
+                ? "Each one gets a fresh set of attempts. Keep an eye on the count above rather than assuming they all land — the webhook-delivery runbook covers the follow-up."
+                : "No message had failed, so nothing was resent. That is an answer, not a failure."}
             </p>
             {/* The scope the SERVER applied, not the one this form thinks it sent: a
                 `replayed: 0` under a mistyped job is an operator's typo, and reading it
                 back is what makes that visible rather than "the queue was empty". */}
             <p className="mt-2 text-xs">
-              Scope: <span className="font-mono">{replay.data.job ?? "every job"}</span>
+              Resent: <span className="font-mono">{replay.data.job ?? "every type"}</span>
             </p>
             {/* The run is capped at 100 (`replay_dead_letters`), so a full batch is the
                 one result that does NOT mean the queue is now empty. */}
@@ -1729,7 +1731,7 @@ function OutboxReplayPanel({
               as success, and leaves every webhook parked. */}
           {sized !== null && sized.depth > 0 && (
             <label className="block">
-              <span className={FIELD_LABEL}>What to replay</span>
+              <span className={FIELD_LABEL}>What to resend</span>
               <select
                 value={scope}
                 onChange={(e) => {
@@ -1744,17 +1746,18 @@ function OutboxReplayPanel({
               >
                 <option value="">— choose —</option>
                 <option value={EVERY_JOB}>
-                  every job — all {formatCount(sized.depth)} parked messages
+                  Every type — all {formatCount(sized.depth)} stuck messages
                 </option>
                 {sized.by_job.map((entry) => (
                   <option key={entry.job} value={entry.job}>
-                    {entry.job} — {formatCount(entry.depth)} parked
+                    {entry.job} — {formatCount(entry.depth)} stuck
                   </option>
                 ))}
               </select>
               <span className={FIELD_HINT}>
-                Scoping bounds what gets re-sent. It does not bound WHOSE — every job is
-                cross-tenant, because the queue has no tenant column to scope by.
+                Choosing a type limits what gets resent. It does not limit WHOSE — every
+                type covers all clients at once, because these messages aren&apos;t split
+                by client.
               </span>
             </label>
           )}
@@ -1763,20 +1766,19 @@ function OutboxReplayPanel({
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
             <div className="min-w-0">
               <p className="font-semibold text-ink">
-                This replays dead letters for EVERY client, not one
+                This resends stuck messages for EVERY client, not one
               </p>
               <p className="mt-1 text-ink-muted">
-                A message that already reached its destination before it dead-lettered
-                will be delivered a second time — a duplicate WhatsApp escalation, a
-                duplicate webhook to a client&apos;s own system. This is not reversible
-                from here.
+                A message that actually reached its destination before it got stuck will be
+                sent a second time — a duplicate WhatsApp alert, or a duplicate delivery to
+                a client&apos;s own system. This can&apos;t be undone from here.
               </p>
               {/* What THIS submission will send, in numbers, immediately above the
                   confirmation it is asking for. */}
               {scopedDepth !== undefined && scopeChosen && (
                 <p className="mt-1 font-semibold text-ink">
-                  About to re-send up to {formatCount(Math.min(scopedDepth, 100))} of the{" "}
-                  {formatCount(scopedDepth)} parked{" "}
+                  About to resend up to {formatCount(Math.min(scopedDepth, 100))} of the{" "}
+                  {formatCount(scopedDepth)} stuck{" "}
                   {job !== null && (
                     <>
                       <span className="font-mono">{job}</span>{" "}
@@ -1786,10 +1788,9 @@ function OutboxReplayPanel({
                 </p>
               )}
               <p className="mt-1 text-xs text-ink-faint">
-                Recorded in the audit log as ops.outbox_replay with the number moved and
-                the scope. The word below is also sent to the API as this action&apos;s
-                step-up confirmation, bound to that scope, so a session that did not go
-                through this form cannot run it.
+                Recorded in the activity log with how many were resent and which type. The
+                word you type below is also sent to confirm this exact action, so it
+                can&apos;t be triggered from outside this form.
               </p>
             </div>
           </div>
@@ -1812,7 +1813,7 @@ function OutboxReplayPanel({
             className={DANGER_BUTTON}
           >
             <RefreshCw aria-hidden className="h-4 w-4" />
-            {replay.isPending ? "Replaying…" : "Replay dead letters"}
+            {replay.isPending ? "Resending…" : "Resend stuck messages"}
           </button>
 
           {deadReason && !ready && (
@@ -1875,10 +1876,10 @@ function WeaklyAttestedNote({ count }: { count: number }) {
         {formatCount(count)} {count === 1 ? "entry" : "entries"} verified under a retired
         signing key.
       </span>{" "}
-      Those rows are intact — they are not a break — but they were signed before this
-      deployment had its own <span className="font-mono">AUDIT_CHAIN_SECRET</span>, when
-      the key was a constant in the source. Treat them as weaker evidence than the rest:
-      if you are exporting this log for a dispute or an audit, say where that era ends.
+      Those rows are intact — they are not tampered with — but they were signed before this
+      deployment had its own private signing key, when the key was a value anyone with the
+      source code could read. Treat them as weaker evidence than the rest: if you are
+      exporting this log for a dispute or an audit, say where that earlier period ends.
     </p>
   );
 }
@@ -1888,13 +1889,14 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
   const asOf = verify.data ? formatIST(new Date(verify.submittedAt).toISOString()) : null;
 
   return (
-    <Card title="Audit chain">
+    <Card title="Activity-log tamper check">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          Recomputes the hash chain over <span className="font-mono">audit_log</span> and
-          reports every broken link, not just the first. It is the check behind the
-          quarterly compliance drill (OPERATIONS §6) and the one to run when a client
-          disputes a record.
+          Every entry in the activity log is sealed against the one before it, so any entry
+          that was edited, deleted or reordered shows up as a broken seal. This re-checks
+          the whole log and reports every break, not just the first — it&apos;s the check
+          behind the quarterly compliance review, and the one to run when a client disputes
+          a record.
         </p>
 
         {verify.error && <ProblemNotice error={verify.error} />}
@@ -1905,14 +1907,14 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
           <NoticeBox
             tone="stop"
             icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
-            title="AUDIT CHAIN VERIFICATION FAILED"
+            title="TAMPER CHECK FAILED"
           >
             <p className="mt-1">
               {verify.data.breaks_found === 1
-                ? "The recomputation disagrees with the table in one place."
-                : `The recomputation disagrees with the table in ${formatCount(verify.data.breaks_found)} places.`}{" "}
-              The walk did not stop at the first — it re-anchored and carried on, so what
-              follows covers the whole log, not the part before the earliest break.
+                ? "The seal is broken in one place."
+                : `The seal is broken in ${formatCount(verify.data.breaks_found)} places.`}{" "}
+              The check did not stop at the first — it carried on to the end, so what follows
+              covers the whole log, not just the part before the earliest break.
             </p>
             {/* Every break, dated and typed. A single line naming only the first is how a
                 historical break — which an append-only ledger can never repair — hides
@@ -1945,16 +1947,16 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
               <p className="mt-2">
                 Only the first {formatCount(verify.data.breaks.length)} are listed;{" "}
                 {formatCount(verify.data.breaks_found - verify.data.breaks.length)} more
-                were found. At this scale the count matters more than the rows — query{" "}
-                <span className="font-mono">audit_log</span> directly.
+                were found. At this scale the count matters more than the individual rows —
+                query the activity log directly.
               </p>
             )}
             <p className="mt-2">
-              <span className="font-semibold">Treat this as an incident.</span> The ledger
-              is INSERT-only, so a break means an entry was edited, deleted or reordered
-              in the database, or something wrote to it without going through write_audit.
-              Do not re-run and move on: capture the entry ids above, and do not let anyone
-              &quot;repair&quot; the rows — the break is the evidence.
+              <span className="font-semibold">Treat this as an incident.</span> The activity
+              log is add-only — entries are never meant to change — so a broken seal means an
+              entry was edited, deleted or reordered in the database. Do not re-run and move
+              on: note the entry IDs above, and do not let anyone &quot;repair&quot; the
+              rows — the break itself is the evidence.
             </p>
             <WeaklyAttestedNote count={verify.data.entries_under_retired_key} />
             <p className="mt-2 text-xs">
@@ -1969,11 +1971,11 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
           <NoticeBox
             tone="ok"
             icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-            title="Chain intact for the entries checked"
+            title="No tampering found in the entries checked"
           >
             <p className="mt-1">
-              Every link recomputed cleanly, so nothing in that range was edited, deleted
-              or reordered.
+              Every seal checked out, so nothing in that range was edited, deleted or
+              reordered.
             </p>
             {/* The scope, beside the green box rather than in a tooltip: this is what
                 stops "verified" being read as "the whole log is verified". It is the
@@ -1998,10 +2000,10 @@ function AuditChainPanel({ access }: { access: OpsAccess }) {
             className={SECONDARY_BUTTON}
           >
             <FileSearch aria-hidden className="h-4 w-4" />
-            {verify.isPending ? "Verifying…" : "Verify the audit chain"}
+            {verify.isPending ? "Checking…" : "Run the tamper check"}
           </button>
           <p className="mt-2 text-xs text-ink-faint">
-            Read-only: it recomputes hashes and writes nothing, which is why it asks for no
+            This only reads and reports — it changes nothing, which is why it asks for no
             typed confirmation.
           </p>
           {!access.allowed && access.reason && (

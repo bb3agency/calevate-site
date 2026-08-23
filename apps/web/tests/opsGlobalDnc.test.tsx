@@ -94,7 +94,7 @@ describe("the platform-wide do-not-call list", () => {
     // The half that is NOT affected, said in the same breath, and the distinction the
     // route's own docstring says operators get wrong.
     expect(container.textContent).toContain("Inbound calls are unaffected");
-    expect(container.textContent).toContain("NOT the national customer preference register");
+    expect(container.textContent).toContain("not the national customer preference register");
 
     fireEvent.change(screen.getByPlaceholderText(/9876543210/), {
       target: { value: "9876543210" },
@@ -214,14 +214,16 @@ describe("the platform-wide do-not-call list", () => {
     expect(container.textContent).toContain(
       "Releasing +919876543210 lets every client dial it again",
     );
-    // …and WHY it was suppressed, quoted back, so the operator lifting it knows whose
-    // instruction they are overriding.
-    expect(container.textContent).toContain("a regulator, TSP or registrar named it");
+    // …and WHY it was suppressed, quoted back through the shared source copy, so the
+    // operator lifting it knows whose instruction they are overriding.
+    expect(container.textContent).toContain(
+      "A regulator, telecom operator or registrar told us to",
+    );
 
     const confirm = await screen.findByRole("button", { name: /Release \+9198/ });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText(/Type RELEASE to confirm lifting/), {
+    fireEvent.change(screen.getByLabelText(/Type RELEASE to confirm/), {
       target: { value: "RELEASE" },
     });
     fireEvent.click(confirm);
@@ -257,7 +259,7 @@ describe("the platform-wide do-not-call list", () => {
         name: "Release the platform-wide suppression on +919876543210",
       }),
     );
-    fireEvent.change(screen.getByLabelText(/Type RELEASE to confirm lifting/), {
+    fireEvent.change(screen.getByLabelText(/Type RELEASE to confirm/), {
       target: { value: "RELEASE" },
     });
     // The SECOND row's confirmation opens empty and its button is dead: the typed word

@@ -482,7 +482,7 @@ describe("the big red switch", () => {
     expect((halt as HTMLButtonElement).disabled).toBe(true);
 
     // A reason alone is not enough.
-    fireEvent.change(screen.getByPlaceholderText(/DLT complaint spike/), {
+    fireEvent.change(screen.getByPlaceholderText(/spike in complaints/), {
       target: { value: "complaints spiking" },
     });
     expect((halt as HTMLButtonElement).disabled).toBe(true);
@@ -500,7 +500,7 @@ describe("the big red switch", () => {
     renderAdminPage(<OpsPage />, routes(platform()));
 
     const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
-    fireEvent.change(screen.getByPlaceholderText(/DLT complaint spike/), {
+    fireEvent.change(screen.getByPlaceholderText(/spike in complaints/), {
       target: { value: "   " },
     });
     fireEvent.change(screen.getByPlaceholderText("HALT"), { target: { value: "HALT" } });
@@ -518,7 +518,7 @@ describe("the big red switch", () => {
     // inbound stops too will not use the switch when they should.
     expect(container.textContent).toContain("Inbound calls are unaffected");
 
-    fireEvent.change(screen.getByPlaceholderText(/DLT complaint spike/), {
+    fireEvent.change(screen.getByPlaceholderText(/spike in complaints/), {
       target: { value: "  complaints spiking  " },
     });
     fireEvent.change(screen.getByPlaceholderText("HALT"), { target: { value: "HALT" } });
@@ -605,9 +605,9 @@ describe("the load-shed mode", () => {
     // made — which is the same objection `platform_confirmation` makes to an empty one.
     const { container } = renderAdminPage(<OpsPage />, routes(platform()));
 
-    const button = await screen.findByRole("button", { name: /Switch to normal/ });
+    const button = await screen.findByRole("button", { name: /Switch to.*Running normally/ });
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(container.textContent).toContain("The platform is already in normal mode");
+    expect(container.textContent).toContain("The platform is already in “Running normally”");
     // And the confirmation box is dead too, so there is nothing to type past.
     expect((screen.getByPlaceholderText("NORMAL") as HTMLInputElement).disabled).toBe(true);
   });
@@ -615,17 +615,17 @@ describe("the load-shed mode", () => {
   it("needs the target typed back and a reason the server would not strip away", async () => {
     renderAdminPage(<OpsPage />, routes(platform()));
 
-    await screen.findByRole("button", { name: /Switch to normal/ });
+    await screen.findByRole("button", { name: /Switch to.*Running normally/ });
     fireEvent.change(screen.getByLabelText("Change the mode to"), {
       target: { value: "maintenance" },
     });
 
-    const button = screen.getByRole("button", { name: /Switch to maintenance/ });
+    const button = screen.getByRole("button", { name: /Switch to.*Maintenance/ });
     expect((button as HTMLButtonElement).disabled).toBe(true);
 
     // Whitespace is not a reason: the server strips it and refuses under three chars, so
     // a button that lights up on "   " teaches the operator that the API is flaky.
-    fireEvent.change(screen.getByPlaceholderText(/database CPU/), { target: { value: "   " } });
+    fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), { target: { value: "   " } });
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
       target: { value: "MAINTENANCE" },
     });
@@ -633,7 +633,7 @@ describe("the load-shed mode", () => {
 
     // The wrong mode's word is not enough either — this is the guard that keeps consent
     // to `reduced` from authorising `maintenance`.
-    fireEvent.change(screen.getByPlaceholderText(/database CPU/), {
+    fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), {
       target: { value: "index build" },
     });
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), { target: { value: "REDUCED" } });
@@ -650,11 +650,11 @@ describe("the load-shed mode", () => {
     // over and satisfy a control it was never meant for.
     renderAdminPage(<OpsPage />, routes(platform()));
 
-    await screen.findByRole("button", { name: /Switch to normal/ });
+    await screen.findByRole("button", { name: /Switch to.*Running normally/ });
     fireEvent.change(screen.getByLabelText("Change the mode to"), {
       target: { value: "maintenance" },
     });
-    fireEvent.change(screen.getByPlaceholderText(/database CPU/), {
+    fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), {
       target: { value: "index build" },
     });
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
@@ -664,14 +664,14 @@ describe("the load-shed mode", () => {
 
     expect((screen.getByPlaceholderText("REDUCED") as HTMLInputElement).value).toBe("");
     expect(
-      (screen.getByRole("button", { name: /Switch to reduced/ }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: /Switch to.*Reduced/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 
   it("says what the target mode sheds, and sends the header bound to that mode", async () => {
     const { calls, container } = renderAdminPage(<OpsPage />, routes(platform()));
 
-    await screen.findByRole("button", { name: /Switch to normal/ });
+    await screen.findByRole("button", { name: /Switch to.*Running normally/ });
     fireEvent.change(screen.getByLabelText("Change the mode to"), {
       target: { value: "maintenance" },
     });
@@ -679,15 +679,15 @@ describe("the load-shed mode", () => {
     // Blast radius BEFORE the click, and the half that reassures: this console keeps
     // working, so an operator cannot shed themselves out of the switch that undoes it.
     expect(container.textContent).toContain("Client screens go dark");
-    expect(container.textContent).toContain("you can always take the platform back out");
+    expect(container.textContent).toContain("you can always bring the platform back");
 
-    fireEvent.change(screen.getByPlaceholderText(/database CPU/), {
+    fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), {
       target: { value: "  planned migration window  " },
     });
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
       target: { value: "MAINTENANCE" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Switch to maintenance/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Switch to.*Maintenance/ }));
 
     await waitFor(() => {
       expect(calls.some((c) => c.method === "POST" && c.path === PLATFORM)).toBe(true);
@@ -708,11 +708,11 @@ describe("the load-shed mode", () => {
     // escalation and bought nothing — the screen has to say so where they are choosing.
     const { container } = renderAdminPage(<OpsPage />, routes(platform()));
 
-    await screen.findByRole("button", { name: /Switch to normal/ });
+    await screen.findByRole("button", { name: /Switch to.*Running normally/ });
     fireEvent.change(screen.getByLabelText("Change the mode to"), {
       target: { value: "emergency" },
     });
-    expect(container.textContent).toContain("Sheds exactly what reduced sheds");
+    expect(container.textContent).toContain("Pauses exactly what");
   });
 });
 
@@ -756,7 +756,7 @@ describe("the step-up strings", () => {
  */
 async function armReplay(scope = "*"): Promise<HTMLButtonElement> {
   const button = (await screen.findByRole("button", {
-    name: /Replay dead letters/,
+    name: /Resend stuck messages/,
   })) as HTMLButtonElement;
   // Identity settled, permission held — and still dead, because nothing is typed yet.
   await waitFor(() => expect(button.disabled).toBe(true));
@@ -769,15 +769,15 @@ async function armReplay(scope = "*"): Promise<HTMLButtonElement> {
   // synchronously here would read the millisecond before the answer landed.
   await waitFor(() =>
     expect(
-      screen.queryByLabelText(/What to replay/) !== null ||
-        screen.queryByText("We do not know how many messages are parked") !== null,
+      screen.queryByLabelText(/What to resend/) !== null ||
+        screen.queryByText("We do not know how many messages are stuck") !== null,
     ).toBe(true),
   );
   // `query` rather than `get`: the select is offered only when the breakdown could be
   // READ. On an unreadable queue there is nothing to enumerate, so the run is unscoped
   // and the panel says so — asserted directly in its own case below. The pattern is a
   // regex because the label carries its hint text as well as its name.
-  const select = screen.queryByLabelText(/What to replay/);
+  const select = screen.queryByLabelText(/What to resend/);
   if (select) fireEvent.change(select, { target: { value: scope } });
   fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
   await waitFor(() => expect(button.disabled).toBe(false));
@@ -791,7 +791,7 @@ describe("the outbox dead-letter replay", () => {
       routes(problem(403, { title: "Forbidden" }), OPERATOR, { [REPLAY]: replayed(3) }),
     );
 
-    const button = await screen.findByRole("button", { name: /Replay dead letters/ });
+    const button = await screen.findByRole("button", { name: /Resend stuck messages/ });
     // The refusal names the permission AND what it is for, before any click: "change
     // platform-wide switches" would be the wrong description of a dead-letter replay.
     await waitFor(() => {
@@ -828,20 +828,20 @@ describe("the outbox dead-letter replay", () => {
     );
 
     const button = (await screen.findByRole("button", {
-      name: /Replay dead letters/,
+      name: /Resend stuck messages/,
     })) as HTMLButtonElement;
     expect(container.textContent).toContain(
-      "This replays dead letters for EVERY client, not one",
+      "This resends stuck messages for EVERY client, not one",
     );
-    expect(container.textContent).toContain("delivered a second time");
+    expect(container.textContent).toContain("sent a second time");
 
     // A near-miss must not do it, even once the session is known to be allowed.
     // `find`, not `get`: the panel renders its button immediately and its scope select
     // only once the depth has arrived, so a synchronous query here would be asserting on
     // the millisecond before the read landed.
-    fireEvent.change(await screen.findByLabelText(/What to replay/), { target: { value: "*" } });
+    fireEvent.change(await screen.findByLabelText(/What to resend/), { target: { value: "*" } });
     fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "replay" } });
-    await waitFor(() => expect(container.textContent).toContain("Recorded in the audit log"));
+    await waitFor(() => expect(container.textContent).toContain("Recorded in the activity log"));
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(false);
@@ -860,7 +860,7 @@ describe("the outbox dead-letter replay", () => {
 
     fireEvent.click(await armReplay());
 
-    await screen.findByText("100 messages moved back to pending");
+    await screen.findByText("100 messages queued to resend");
     expect(container.textContent).toContain("That is the per-run limit");
   });
 
@@ -911,7 +911,7 @@ describe("the outbox dead-letter replay", () => {
     // runbook's curl, not this screen's paraphrase of it.
     expect(container.textContent).toContain("X-Confirm-Action: replay_dead_letters");
     // And still no count: a refusal is not a result.
-    expect(screen.queryByText(/moved back to pending/)).toBeNull();
+    expect(screen.queryByText(/queued to resend/)).toBeNull();
     expect(container.textContent).not.toContain("Nothing was dead-lettered");
   });
 
@@ -929,7 +929,7 @@ describe("the outbox dead-letter replay", () => {
     fireEvent.click(await armReplay());
 
     await screen.findByText("The outbox could not be claimed.");
-    expect(screen.queryByText(/moved back to pending/)).toBeNull();
+    expect(screen.queryByText(/queued to resend/)).toBeNull();
     expect(container.textContent).not.toContain("Nothing was dead-lettered");
   });
 });
@@ -962,7 +962,7 @@ describe("the dead-letter depth, before the click", () => {
   it("shows the size, the mix and the age above the confirmation", async () => {
     const { container } = renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN));
 
-    await screen.findByText("9 messages are parked in the dead-letter queue");
+    await screen.findByText("9 messages are stuck");
     // The mix, because 9 CRM webhooks and 9 hot-lead emails are different things to
     // re-send — this is the sentence a bare total cannot say.
     expect(container.textContent).toContain("deliver_outbound_webhook");
@@ -971,17 +971,17 @@ describe("the dead-letter depth, before the click", () => {
     // ORDER is the property, not mere presence: a count rendered under the button is a
     // measurement taken after the irreversible act.
     const body = container.textContent ?? "";
-    expect(body.indexOf("9 messages are parked")).toBeLessThan(body.indexOf("Type REPLAY"));
+    expect(body.indexOf("9 messages are stuck")).toBeLessThan(body.indexOf("Type REPLAY"));
 
     // And the chosen scope is sized in its own sentence, immediately above the
     // confirmation, so the operator confirms a number rather than a verb.
-    fireEvent.change(await screen.findByLabelText(/What to replay/), {
+    fireEvent.change(await screen.findByLabelText(/What to resend/), {
       target: { value: "deliver_outbound_webhook" },
     });
-    await screen.findByText(/About to re-send up to 6 of the 6 parked/);
-    fireEvent.change(screen.getByLabelText(/What to replay/), { target: { value: "*" } });
+    await screen.findByText(/About to resend up to 6 of the 6 stuck/);
+    fireEvent.change(screen.getByLabelText(/What to resend/), { target: { value: "*" } });
     // No stray word where the job name would have been on an unscoped run.
-    await screen.findByText("About to re-send up to 9 of the 9 parked messages, oldest first.");
+    await screen.findByText("About to resend up to 9 of the 9 stuck messages, oldest first.");
   });
 
   it("REFUSES to state a depth it could not read, rather than showing zero", async () => {
@@ -996,14 +996,16 @@ describe("the dead-letter depth, before the click", () => {
       }),
     );
 
-    await screen.findByText("We do not know how many messages are parked");
-    expect(container.textContent).not.toContain("Nothing is dead-lettered");
-    expect(container.textContent).not.toContain("messages are parked in the dead-letter queue");
+    await screen.findByText("We do not know how many messages are stuck");
+    expect(container.textContent).not.toContain("Nothing is stuck");
+    // The depth panel must be absent — its distinctive body, not the shared word "stuck"
+    // (the unreadable notice above legitimately says "how many messages are stuck").
+    expect(container.textContent).not.toContain("Resending sends them again");
     // Nothing to enumerate, so nothing to choose from: the run is unscoped and says so.
-    expect(screen.queryByLabelText(/What to replay/)).toBeNull();
+    expect(screen.queryByLabelText(/What to resend/)).toBeNull();
 
     const button = (await screen.findByRole("button", {
-      name: /Replay dead letters/,
+      name: /Resend stuck messages/,
     })) as HTMLButtonElement;
     fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
     await waitFor(() => expect(button.disabled).toBe(false));
@@ -1022,26 +1024,26 @@ describe("the dead-letter depth, before the click", () => {
       ),
     );
 
-    await screen.findByText("Nothing is dead-lettered");
+    await screen.findByText("Nothing is stuck");
     const button = (await screen.findByRole("button", {
-      name: /Replay dead letters/,
+      name: /Resend stuck messages/,
     })) as HTMLButtonElement;
     fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
     await waitFor(() => {
-      expect(container.textContent).toContain("so there is nothing to replay");
+      expect(container.textContent).toContain("so there is nothing to resend");
     });
     expect(button.disabled).toBe(true);
     // The panel is still HERE. runbooks/webhook-delivery-failures.md sends operators to it
     // by name, and one that vanished would make "the runbook is wrong" indistinguishable
     // from "there is nothing parked".
-    expect(container.textContent).toContain("Dead-lettered outbox messages");
+    expect(container.textContent).toContain("Stuck outbound messages");
   });
 
   it("does NOT say all-clear while messages are deferred behind a backoff", async () => {
     // THE MID-INCIDENT LIE this panel used to tell, and the reason `deferred` exists.
     //
     // During a queue outage `defer_outbox_claim` holds the batch as `pending` with a
-    // lease into the future, so the DLQ really is empty and "Nothing is dead-lettered"
+    // lease into the future, so the DLQ really is empty and "Nothing is stuck"
     // was a TRUE sentence producing a false screen — a green box for the whole five
     // minutes of tolerated downtime that the backoff buys, which is exactly the window
     // an operator is looking at it in. The all-clear now follows the queue's health
@@ -1056,14 +1058,14 @@ describe("the dead-letter depth, before the click", () => {
       ),
     );
 
-    await screen.findByText("214 messages are waiting on a retry backoff");
-    expect(container.textContent).not.toContain("Nothing is dead-lettered");
+    await screen.findByText("214 messages are waiting to retry on their own");
+    expect(container.textContent).not.toContain("Nothing is stuck");
     // And it must not read as something the button fixes: replay acts on `failed` rows
     // and would move none of these. An operator told "there is a backlog" beside a live
     // replay button will press it, and then believe they have done something.
-    expect(container.textContent).toContain("Replaying does nothing for them");
+    expect(container.textContent).toContain("Resending does nothing for these");
     const button = (await screen.findByRole("button", {
-      name: /Replay dead letters/,
+      name: /Resend stuck messages/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
   });
@@ -1077,8 +1079,8 @@ describe("the dead-letter depth, before the click", () => {
       routes(platform({ outbox_dead_letters: deadLetters({ deferred: 31 }) }), SUPERADMIN),
     );
 
-    await screen.findByText("9 messages are parked in the dead-letter queue");
-    await screen.findByText("31 messages are waiting on a retry backoff");
+    await screen.findByText("9 messages are stuck");
+    await screen.findByText("31 messages are waiting to retry on their own");
   });
 
   it("will not replay until a scope is chosen, and there is no default", async () => {
@@ -1088,10 +1090,10 @@ describe("the dead-letter depth, before the click", () => {
     );
 
     const button = (await screen.findByRole("button", {
-      name: /Replay dead letters/,
+      name: /Resend stuck messages/,
     })) as HTMLButtonElement;
     fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
-    await waitFor(() => expect(container.textContent).toContain("Choose what to replay first"));
+    await waitFor(() => expect(container.textContent).toContain("Choose what to resend first"));
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(calls.some((c) => c.method === "POST")).toBe(false);
@@ -1123,7 +1125,7 @@ describe("the dead-letter depth, before the click", () => {
     expect(post?.headers["X-Confirm-Action"]).not.toBe(OUTBOX_REPLAY_CONFIRMATION);
     // The SERVER's scope in the result, not this form's memory of it: a `replayed: 0`
     // under a mistyped job is an operator's typo, and reading it back is what shows that.
-    await waitFor(() => expect(container.textContent).toContain("6 messages moved back"));
+    await waitFor(() => expect(container.textContent).toContain("6 messages queued to resend"));
   });
 
   it("forgets a confirmation typed for a different scope", async () => {
@@ -1133,15 +1135,15 @@ describe("the dead-letter depth, before the click", () => {
     renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN, { [REPLAY]: replayed(9) }));
 
     const button = (await screen.findByRole("button", {
-      name: /Replay dead letters/,
+      name: /Resend stuck messages/,
     })) as HTMLButtonElement;
-    fireEvent.change(await screen.findByLabelText(/What to replay/), {
+    fireEvent.change(await screen.findByLabelText(/What to resend/), {
       target: { value: "deliver_outbound_webhook" },
     });
     fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
     await waitFor(() => expect(button.disabled).toBe(false));
 
-    fireEvent.change(screen.getByLabelText(/What to replay/), { target: { value: "*" } });
+    fireEvent.change(screen.getByLabelText(/What to resend/), { target: { value: "*" } });
 
     expect((screen.getByPlaceholderText("REPLAY") as HTMLInputElement).value).toBe("");
     expect(button.disabled).toBe(true);
@@ -1248,7 +1250,7 @@ describe("what the voice platform is running", () => {
     await screen.findByText("We do not know what the voice platform is running");
     // And the rest of the screen survived — this panel must never be able to blank the
     // incident levers beside it.
-    expect(container.textContent).toContain("Load-shed mode");
+    expect(container.textContent).toContain("Protective slowdown");
   });
 
   it("reports an all-clear only when the sweep has actually run", async () => {
@@ -1371,7 +1373,7 @@ describe("what the voice platform is answering from", () => {
     await screen.findByText("We do not know what knowledge the voice platform is holding");
     // The rest of the screen survived, including the OTHER drift panel — one missing
     // field must not take the incident levers down with it.
-    expect(container.textContent).toContain("Load-shed mode");
+    expect(container.textContent).toContain("Protective slowdown");
     expect(container.textContent).toContain("Every checked agent is running what we published");
   });
 });
@@ -1379,7 +1381,7 @@ describe("what the voice platform is answering from", () => {
 /** Same reason as `armReplay`: wait for the identity verdict, not for the first paint. */
 async function armVerify(): Promise<HTMLButtonElement> {
   const button = (await screen.findByRole("button", {
-    name: /Verify the audit chain/,
+    name: /Run the tamper check/,
   })) as HTMLButtonElement;
   // It needs no typed confirmation, so "allowed" and "enabled" are the same moment here.
   await waitFor(() => expect(button.disabled).toBe(false));
@@ -1421,7 +1423,7 @@ describe("the audit chain verification", () => {
       routes(problem(403, { title: "Forbidden" }), OPERATOR, { [VERIFY]: verdict() }),
     );
 
-    const button = await screen.findByRole("button", { name: /Verify the audit chain/ });
+    const button = await screen.findByRole("button", { name: /Run the tamper check/ });
     await waitFor(() => {
       expect(container.textContent).toContain("run the platform recovery tools");
     });
@@ -1450,11 +1452,11 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+    await screen.findByText("TAMPER CHECK FAILED");
     expect(container.textContent).toContain("0192f0aa-7777-7000-8000-00000000dead");
     expect(container.textContent).toContain("Treat this as an incident");
     // The reassuring sentence must be nowhere on the page.
-    expect(screen.queryByText("Chain intact for the entries checked")).toBeNull();
+    expect(screen.queryByText("No tampering found in the entries checked")).toBeNull();
   });
 
   it("names EVERY break, not just the first, and dates them", async () => {
@@ -1485,7 +1487,7 @@ describe("the audit chain verification", () => {
     );
 
     fireEvent.click(await armVerify());
-    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+    await screen.findByText("TAMPER CHECK FAILED");
 
     // BOTH ids, because the second one is the whole point of the change.
     expect(container.textContent).toContain("0192f0aa-1111-7000-8000-000000000001");
@@ -1517,7 +1519,7 @@ describe("the audit chain verification", () => {
     );
 
     fireEvent.click(await armVerify());
-    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+    await screen.findByText("TAMPER CHECK FAILED");
 
     expect(container.textContent).toContain("47 places");
     expect(container.textContent).toContain("46 more");
@@ -1536,7 +1538,7 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+    await screen.findByText("TAMPER CHECK FAILED");
     expect(container.textContent).toContain("an entry it did not name");
   });
 
@@ -1551,8 +1553,8 @@ describe("the audit chain verification", () => {
     fireEvent.click(await armVerify());
 
     await screen.findByText("Service unavailable");
-    expect(screen.queryByText("Chain intact for the entries checked")).toBeNull();
-    expect(screen.queryByText("AUDIT CHAIN VERIFICATION FAILED")).toBeNull();
+    expect(screen.queryByText("No tampering found in the entries checked")).toBeNull();
+    expect(screen.queryByText("TAMPER CHECK FAILED")).toBeNull();
   });
 
   it("does not let an intact verdict read as 'the whole log is verified'", async () => {
@@ -1567,7 +1569,7 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("Chain intact for the entries checked");
+    await screen.findByText("No tampering found in the entries checked");
     // The SERVER's scope, not a sentence about a limit the route no longer has.
     expect(container.textContent).toContain("Whole log checked");
   });
@@ -1608,10 +1610,10 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("Chain intact for the entries checked");
+    await screen.findByText("No tampering found in the entries checked");
     expect(container.textContent).toContain("812 entries verified under a retired signing key");
     // Still intact — the caveat must not be written as a failure.
-    expect(container.textContent).toContain("they are not a break");
+    expect(container.textContent).toContain("they are not tampered with");
   });
 
   it("says nothing about retired keys when there are none", async () => {
@@ -1624,7 +1626,7 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("Chain intact for the entries checked");
+    await screen.findByText("No tampering found in the entries checked");
     expect(container.textContent).not.toContain("retired signing key");
   });
 
@@ -1646,7 +1648,7 @@ describe("the audit chain verification", () => {
 
     fireEvent.click(await armVerify());
 
-    await screen.findByText("AUDIT CHAIN VERIFICATION FAILED");
+    await screen.findByText("TAMPER CHECK FAILED");
     expect(container.textContent).toContain("3 entries verified under a retired signing key");
   });
 
@@ -1689,8 +1691,8 @@ describe("our own telemarketer registration", () => {
       ),
     );
 
-    await screen.findByText("NOT LIVE — no tenant can launch");
-    expect(container.textContent).toContain("NO tenant can launch an outbound campaign");
+    await screen.findByText("NOT LIVE — no client can launch");
+    expect(container.textContent).toContain("NO client can launch an outbound campaign");
     expect(screen.queryByText("LIVE — we may lawfully dial")).toBeNull();
   });
 
@@ -1993,7 +1995,9 @@ describe("the platform configuration panel", () => {
 
     await screen.findByText("db_pool_size");
     // A field that quietly does nothing for six hours is §8's defect wearing a delay.
-    expect(container.textContent).toContain("Needs a restart to take effect");
+    // The collapsed row now carries this as the timing badge; the fuller sentence still
+    // appears once the change form is opened.
+    expect(container.textContent).toContain("Takes effect after a restart");
   });
 
   /**
@@ -2131,7 +2135,7 @@ describe("the credentials panel", () => {
     // The TITLE carries the epistemic status: this fixture is `verified: false`, which
     // every probe in this build is, so the box may not read as a plain acceptance.
     // `opsHardening.test.tsx` owns that property; here it is only the anchor.
-    await screen.findByText("The vendor accepted this credential — indicative, not confirmed");
+    await screen.findByText("This key looks right");
     // The value went to the API and came back nowhere. The response carries four
     // characters and the screen shows those four and nothing more.
     expect(container.textContent).not.toContain(secret);
@@ -2159,9 +2163,11 @@ describe("the credentials panel", () => {
     fireEvent.change(secretInput(), { target: { value: "a-wrong-key-wxyz" } });
     fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
 
-    await screen.findByText("The vendor REFUSED this credential — indicative, not confirmed");
-    // OPERATIONS §2: an unverified vendor behaviour is a MARKED assumption.
-    expect(container.textContent).toContain("not been confirmed against the live vendor");
+    await screen.findByText("The vendor rejected this key");
+    // A rejection is the vendor actively refusing, so it reads as definitive — and the
+    // help points at the fix. (The "indicative, not confirmed" epistemics apply to an
+    // unverified ACCEPTANCE, which opsHardening.test.tsx owns.)
+    expect(container.textContent).toContain("Check you copied the whole key");
   });
 
   it("refuses to report 'not installed' from a read that failed", async () => {
@@ -2179,7 +2185,7 @@ describe("the credentials panel", () => {
     const { container } = renderAdminPage(<OpsConfigPage />, configRoutes());
     await screen.findByText("sarvam_api_key");
     expect(container.textContent).toContain("SARVAM_API_KEY");
-    expect(container.textContent).toContain("the environment always wins");
+    expect(container.textContent).toContain("the server's own setting always wins");
   });
 
   it("sends the key-bound confirmation when installing", async () => {
@@ -2229,10 +2235,10 @@ describe("the key-management panel", () => {
         }),
       }),
     );
-    await screen.findByText("3 stored versions are still wrapped under another key");
+    await screen.findByText("3 stored keys are still locked with a previous master key");
     // The sentence that prevents permanent data loss, in the imperative.
     expect(container.textContent).toContain(
-      "Do not remove PLATFORM_KEK_RETIRED from the environment yet",
+      "Do not remove the previous master key",
     );
   });
 
@@ -2248,14 +2254,14 @@ describe("the key-management panel", () => {
         },
       }),
     );
-    await screen.findByText("Every stored key is wrapped under the current KEK");
+    await screen.findByText("Every stored key is locked with the current master key");
     fireEvent.change(screen.getByPlaceholderText("REWRAP"), { target: { value: "REWRAP" } });
-    fireEvent.click(screen.getByRole("button", { name: /Re-wrap every key/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Re-lock every key/ }));
 
-    await screen.findByText("3 of 4 versions re-wrapped");
+    await screen.findByText("3 of 4 stored keys re-locked");
     // A row nobody can open is the one that will be LOST, so it is named.
     expect(container.textContent).toContain("sarvam_api_key#1");
-    expect(container.textContent).toContain("will be lost if the retired key is removed");
+    expect(container.textContent).toContain("will be lost if the previous master key is removed");
   });
 
   /**
@@ -2277,7 +2283,7 @@ describe("the key-management panel", () => {
     await screen.findAllByText(/does not have the platform:secrets permission/);
     expect(screen.getByText("Vendor credentials")).toBeTruthy();
     expect(screen.getByText("Key management")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Re-wrap every key/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Re-lock every key/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Install/ })).toBeNull();
     // NOT AN INVENTORY. The fixture holds a Bolna key and a missing Sarvam one; a
     // withheld panel that leaked either — the name, the last four, or a count — would be

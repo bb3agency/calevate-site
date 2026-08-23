@@ -110,7 +110,9 @@
   --color-ink-faint: var(--text-faint);
 
   --font-sans: var(--font-pp-mori);
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  /* JetBrains Mono first (bundled, glyph-disambiguated — see app/layout.tsx), then the
+   * platform stack so a key still renders fixed-width if the webfont has not loaded. */
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   /* The card radius, once. The design uses 14px, which is not a Tailwind step. */
   --radius-card: 14px;

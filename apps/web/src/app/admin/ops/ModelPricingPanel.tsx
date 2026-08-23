@@ -6,6 +6,7 @@ import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withhel
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { BadgeCheck, CircleHelp, Coins, Save, TriangleAlert } from "lucide-react";
 
+import { lookup } from "@/lib/lookup";
 import {
   Card,
   FIELD,
@@ -18,13 +19,32 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { MonoValue, TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
 import {
-  attestConfirmation,
   useAttestModelPrice,
   useModelPrices,
   type ModelPrice,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
+
+/**
+ * Vendor names as a person says them, from the machine value on the wire.
+ *
+ * `provider` arrives as `azure_openai` / `openai` / `google` — the catalogue's own leg
+ * ids. The operator reads "Azure OpenAI", not a snake_case token. `lookup`, not a bare
+ * index, so a value naming an `Object.prototype` member cannot resolve to a function
+ * (the trap `StatusBadge` records); an unknown leg falls back to its own spelling with
+ * the underscores opened out.
+ */
+const PROVIDER_LABELS: Record<string, string> = {
+  azure_openai: "Azure OpenAI",
+  openai: "OpenAI",
+  google: "Google",
+};
+
+function providerLabel(provider: string): string {
+  return lookup(PROVIDER_LABELS, provider) ?? provider.replace(/_/g, " ");
+}
 
 /**
  * Model prices — PLATFORM-CONFIG §5: the founder types the AUTHORITATIVE billing price for
@@ -99,10 +119,10 @@ export function ModelPricingPanel({
     <Card title="Model prices">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          The per-million-token price billing charges for each model, in USD. Enter what
-          your own vendor invoice or console says — that first-party figure is the only one
-          true for this account, and a model is offered to clients only once its provider
-          credential is installed and its price is billable.
+          The price per million tokens that billing charges for each model, in US dollars.
+          Enter what your own vendor invoice or dashboard says — that figure is the only one
+          that&apos;s true for your account. A model becomes available to customers only once
+          its vendor key is installed and its price is confirmed.
         </p>
 
         {query.error && <ProblemNotice error={query.error} onRetry={() => query.refetch()} />}
@@ -136,14 +156,14 @@ export function ModelPricingPanel({
   );
 }
 
-/** The one-line offerability verdict, and the tone it renders in. */
+/** The one-line "can customers use this?" verdict, and the tone it renders in. */
 function verdict(price: ModelPrice): { label: string; tone: "ok" | "warn" | "neutral" } {
-  if (price.offerable) return { label: "Offerable", tone: "ok" };
+  if (price.offerable) return { label: "Available to customers", tone: "ok" };
   const missing: string[] = [];
-  if (!price.credential_installed) missing.push("a credential");
-  // Billable == attested OR the catalogue figure is a first-hand vendor reading. So a model
-  // that is not offerable and not attested needs a price ONLY when its reference is not
-  // verified; when the reference IS verified the sole gap is the credential.
+  if (!price.credential_installed) missing.push("a vendor key");
+  // Billable == confirmed OR the catalogue figure is a first-hand vendor reading. So a model
+  // that is not available and not confirmed needs a price ONLY when its recorded price is
+  // not verified; when the recorded price IS verified the sole gap is the vendor key.
   if (!price.price_attested && !price.reference_verified) missing.push("a price");
   return { label: `Needs ${missing.join(" and ")}`, tone: "warn" };
 }
@@ -164,8 +184,10 @@ function ModelPriceRow({
     <div className="rounded-md border border-line p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="font-mono text-sm text-ink">{price.model}</p>
-          <p className="mt-0.5 text-xs text-ink-faint">{price.provider}</p>
+          <p className="text-sm text-ink">
+            <MonoValue>{price.model}</MonoValue>
+          </p>
+          <p className="mt-0.5 text-xs text-ink-faint">{providerLabel(price.provider)}</p>
         </div>
         <span className={`inline-flex items-center gap-1 text-xs font-medium ${toneClass}`}>
           {price.offerable ? (
@@ -178,23 +200,31 @@ function ModelPriceRow({
       </div>
 
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <dt className="text-ink-faint">Input, USD / Mtok</dt>
-        <dd className="font-mono text-ink">
-          {/* The attested figure as an exact string; the reference greyed when there is
-              none yet. Never Number()d. */}
-          {price.input_usd_per_mtok ?? (
-            <span className="text-ink-faint">{price.reference_input_usd_per_mtok} (reference)</span>
+        <dt className="text-ink-faint">Input price (US$ per million tokens)</dt>
+        <dd className="text-ink">
+          {/* The confirmed figure as an exact string; the recorded price greyed when
+              there is no confirmed one yet. Never Number()d. */}
+          {price.input_usd_per_mtok ? (
+            <MonoValue>{price.input_usd_per_mtok}</MonoValue>
+          ) : (
+            <span className="text-ink-faint">
+              <MonoValue>{price.reference_input_usd_per_mtok}</MonoValue> (recorded)
+            </span>
           )}
         </dd>
-        <dt className="text-ink-faint">Output, USD / Mtok</dt>
-        <dd className="font-mono text-ink">
-          {price.output_usd_per_mtok ?? (
-            <span className="text-ink-faint">{price.reference_output_usd_per_mtok} (reference)</span>
+        <dt className="text-ink-faint">Output price (US$ per million tokens)</dt>
+        <dd className="text-ink">
+          {price.output_usd_per_mtok ? (
+            <MonoValue>{price.output_usd_per_mtok}</MonoValue>
+          ) : (
+            <span className="text-ink-faint">
+              <MonoValue>{price.reference_output_usd_per_mtok}</MonoValue> (recorded)
+            </span>
           )}
         </dd>
         {price.attested_at && (
           <>
-            <dt className="text-ink-faint">Attested</dt>
+            <dt className="text-ink-faint">Confirmed</dt>
             <dd className="text-ink">
               {formatIST(price.attested_at)}
               {price.attested_by ? ` · ${price.attested_by}` : ""}
@@ -212,8 +242,8 @@ function ModelPriceRow({
       {!price.price_attested && (
         <p className="mt-2 text-xs text-ink-faint">
           {price.reference_verified
-            ? "This model bills off a price read first-hand from the vendor — an attestation is optional."
-            : "This model is offered only once you attest a price. The reference above is unverified — confirm it against your vendor invoice."}
+            ? "This model already has a recorded price from the vendor, so confirming it yourself is optional."
+            : "This model becomes available to customers only once you confirm a price. The recorded price above is unverified — check it against your vendor invoice first."}
         </p>
       )}
 
@@ -224,7 +254,7 @@ function ModelPriceRow({
           ) : (
             <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setOpen(true)}>
               <Coins aria-hidden className="h-3.5 w-3.5" />
-              {price.price_attested ? "Update price" : "Attest price"}
+              {price.price_attested ? "Update price" : "Confirm price"}
             </button>
           )}
         </div>
@@ -244,12 +274,16 @@ function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }
   const [confirm, setConfirm] = useState("");
 
   const save = useAttestModelPrice();
-  const word = attestConfirmation(price.model);
+  // The word the operator TYPES to arm the save — a clean, short word rather than the raw
+  // step-up string the API checks. The real confirmation (`attest_model_price:<model>`)
+  // still goes on the wire, set inside `useAttestModelPrice`; conflating the two is how a
+  // copy change would quietly become an API change.
+  const word = "CONFIRM";
   const ready =
     inputUsd.trim().length > 0 &&
     outputUsd.trim().length > 0 &&
     sourceNote.trim().length >= 3 &&
-    confirm === word;
+    confirmMatches(confirm, word);
 
   return (
     <form
@@ -272,30 +306,30 @@ function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }
       {save.error && <WriteFailure error={save.error} />}
 
       <label className="block">
-        <span className={FIELD_LABEL}>Input price, USD per million tokens</span>
+        <span className={FIELD_LABEL}>Input price (US$ per million tokens)</span>
         <input
           value={inputUsd}
           onChange={(e) => setInputUsd(e.target.value)}
           // `text`, not `number`: a number input hands JS a float, and money must reach the
           // server as the exact string that was typed.
           inputMode="decimal"
-          placeholder={`${price.reference_input_usd_per_mtok} (reference — confirm against your invoice)`}
+          placeholder={`${price.reference_input_usd_per_mtok} (recorded — check against your invoice)`}
           className={`${FIELD} font-mono`}
         />
         <span className={FIELD_HINT}>
           {price.reference_verified
-            ? "Reference read first-hand from the vendor."
-            : "Reference is unverified — the vendor's page is not reachable from here."}
+            ? "This recorded price came directly from the vendor."
+            : "This recorded price is unverified — the vendor's page can't be reached from here."}
         </span>
       </label>
 
       <label className="block">
-        <span className={FIELD_LABEL}>Output price, USD per million tokens</span>
+        <span className={FIELD_LABEL}>Output price (US$ per million tokens)</span>
         <input
           value={outputUsd}
           onChange={(e) => setOutputUsd(e.target.value)}
           inputMode="decimal"
-          placeholder={`${price.reference_output_usd_per_mtok} (reference — confirm against your invoice)`}
+          placeholder={`${price.reference_output_usd_per_mtok} (recorded — check against your invoice)`}
           className={`${FIELD} font-mono`}
         />
       </label>
@@ -309,31 +343,23 @@ function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }
           className={FIELD}
         />
         <span className={FIELD_HINT}>
-          Where you read this figure. Recorded with the attestation, so a later reader knows
-          who read it and off what.
+          Where you read this figure. Saved with your confirmed price, so a later reader
+          knows who read it and from where.
         </span>
       </label>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>
-          Type <span className="font-mono">{word}</span> to confirm
-        </span>
-        <input
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          className={`${FIELD} font-mono`}
-        />
-        <span className={FIELD_HINT}>
-          A correction is a new attestation, never an edit — the price history is
-          append-only, so a re-rendered invoice resolves the figure that was live in its
-          month.
-        </span>
-      </label>
+      <TypeToConfirm
+        id={`confirm-price-${price.model}`}
+        word={word}
+        value={confirm}
+        onChange={setConfirm}
+        hint="A correction is added as a new entry — nothing is overwritten — so a re-issued invoice can always resolve the price that was live in its month."
+      />
 
       <div className="flex gap-2">
         <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
           <Save aria-hidden className="h-3.5 w-3.5" />
-          {save.isPending ? "Saving…" : "Attest price"}
+          {save.isPending ? "Saving…" : "Confirm price"}
         </button>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
           Cancel

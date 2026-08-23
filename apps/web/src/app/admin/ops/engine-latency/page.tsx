@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Gauge, Timer, TriangleAlert } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { MonoValue } from "@/app/admin/ops/opsLanguage";
 import {
   Card,
   EmptyState,
@@ -116,9 +117,10 @@ export default function EngineLatencyPage() {
   return (
     <div className="space-y-4 pb-12">
       <p className="text-sm text-ink-muted">
-        How long the language model took to produce its first token, per conversational
-        turn, grouped by the region the engine says it ran the call in. This is the engine
-        reporting on its own pipeline — it is not what a caller hears, which is a stopwatch
+        How long the AI takes to start replying — its &ldquo;time to first reply&rdquo; —
+        measured on each reply and grouped by the region the engine ran the call in. These
+        are the engine&rsquo;s own figures about its own pipeline. They are not what a
+        caller actually hears on the phone from end to end, which is a stopwatch
         measurement nobody can take from here.
       </p>
 
@@ -191,20 +193,22 @@ function Report({ report }: { report: EngineLatencyReport }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {/* The target is TRD §4's LLM time-to-first-token budget. Kept as a number,
+            described in plain words on screen — the spec reference stays here, not there. */}
         <StatTile
-          label="Our target, per turn"
+          label="Target for the first reply"
           value={formatMs(budget)}
           icon={<Gauge aria-hidden className="h-5 w-5" />}
-          hint="TRD §4. A target, not a measurement — this report is the first thing that can say whether it was ever the binding constraint."
+          hint="Our goal: the AI should start replying within this long. It's a target we set, not a measurement — this report is the first thing that can show whether we're meeting it."
         />
         <StatTile
-          label="Groups in this window"
-          /* NOT "groups measured": a group with three turns is IN the window and is
+          label="Rows in this window"
+          /* NOT "rows measured": a row with three replies is IN the window and is
              precisely the one the server declined to summarise, so counting it under that
              word would state a measurement that was refused one column to the right. */
           value={formatCount(report.groups.length)}
           icon={<Timer aria-hidden className="h-5 w-5" />}
-          hint="One per engine and region the window found. Gate 4 is answered by comparing two rows that both carry a median."
+          hint="One row for each engine and region we saw in this window. Each row is judged on its own typical reply time."
         />
         {/* The window the SERVER answered for, not the one the chips asked for: the route
             clamps `days` to its own bounds, and a header quoting the request would describe
@@ -220,56 +224,46 @@ function Report({ report }: { report: EngineLatencyReport }) {
         <NoticeBox
           tone="warn"
           icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
-          title="This describes a subset of the window"
+          title="These figures cover only part of the window"
         >
           <p className="mt-1">
-            At least one account hit the per-tenant sample ceiling, so the figures below are
-            computed from part of its traffic rather than all of it. Narrow the window to
-            get a complete answer.
+            One or more accounts had so much traffic in this window that we only measured
+            part of it, so the figures below are worked out from some of its calls rather
+            than all of them. Narrow the window to get a complete answer.
           </p>
         </NoticeBox>
       )}
 
-      <Card title="Time to first token, by engine and region" bodyClassName="p-2">
+      <Card title="How quickly the AI starts replying, by engine and region" bodyClassName="p-2">
         {report.groups.length === 0 ? (
           <div className="p-4">
             <EmptyState
-              title="No timed turns in this window"
-              hint="The engine stamps these on each execution and the post-call pipeline stores them, so an empty window means either that no calls completed or that the engine reported no timings on the ones that did. Widen the window before concluding the second."
+              title="No timed replies in this window"
+              hint="The engine records these on every call, so an empty window means either that no calls finished in this period, or that the calls that did finish came back with no timings. Widen the window before assuming the second."
             />
           </div>
         ) : (
-          <ScrollRegion label="Time to first token, by engine and region">
+          <ScrollRegion label="How quickly the AI starts replying, by engine and region">
             <table className="w-full text-left text-xs">
               <thead className="text-ink-muted">
                 <tr>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Engine
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Region
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Calls
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Turns
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Median
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    p95
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Worst
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Over target
-                  </th>
-                  <th scope="col" className="py-1 pr-3 font-medium">
-                    Verdict
-                  </th>
+                  <HeadCell label="Engine" />
+                  <HeadCell label="Region" />
+                  <HeadCell label="Calls" />
+                  <HeadCell label="Replies" gloss="One back-and-forth exchange" />
+                  <HeadCell
+                    label="Typical reply"
+                    gloss="Half of replies were at least this fast"
+                  />
+                  {/* "p95" kept as the plain-English label an operator can act on, with the
+                      technical term in parentheses and a one-line gloss beneath it. */}
+                  <HeadCell
+                    label="Slowest typical reply (95th percentile)"
+                    gloss="95 out of 100 replies were at least this fast"
+                  />
+                  <HeadCell label="Worst reply" gloss="The single slowest reply" />
+                  <HeadCell label="Over target" gloss="Replies slower than our target" />
+                  <HeadCell label="Verdict" gloss="The typical reply vs our target" />
                 </tr>
               </thead>
               <tbody>
@@ -286,10 +280,10 @@ function Report({ report }: { report: EngineLatencyReport }) {
             `lib/api/engineLatency.ts::BASIS_COPY`. What a reader needs is which cells are
             a refusal and which are a number, and that does not depend on the value. */}
         <p className="mt-3 px-2 text-xs text-ink-muted">
-          A median and a p95 are withheld when too few turns were timed to support them, so
-          an empty cell is the server declining to state a percentile — it is never a zero.
-          The worst turn is shown at any sample size, because a maximum is an observation
-          rather than an estimate.
+          We don&rsquo;t show a typical or slowest-typical reply time until we&rsquo;ve
+          timed enough replies to trust it, so a blank cell means we don&rsquo;t have enough
+          replies yet — it is never zero. The worst single reply is shown no matter how few
+          replies there are, because it is one real measurement rather than an estimate.
         </p>
       </Card>
     </div>
@@ -314,10 +308,29 @@ const VERDICT_COPY: Record<BudgetVerdict, { label: string; className: string }> 
     className: "font-medium text-brand-strong dark:text-brand-bright",
   },
   unknown: {
-    label: "not enough turns",
+    label: "not enough replies",
     className: "text-ink-muted",
   },
 };
+
+/**
+ * One column header: a plain label, and an optional one-line gloss beneath it.
+ *
+ * A component rather than repeated `<th>` markup so the metric jargon is translated in
+ * exactly one shape — the operator reading this screen is not an engineer, so "typical
+ * reply" and "slowest typical reply (95th percentile)" carry a sentence saying what the
+ * number actually means, right under the column it labels.
+ */
+function HeadCell({ label, gloss }: { label: string; gloss?: string }) {
+  return (
+    <th scope="col" className="py-1 pr-3 align-top font-medium">
+      {label}
+      {gloss && (
+        <span className="mt-0.5 block text-[11px] font-normal text-ink-faint">{gloss}</span>
+      )}
+    </th>
+  );
+}
 
 function GroupRow({ group }: { group: LatencyGroup }) {
   const verdict = VERDICT_COPY[budgetVerdict(group)];
@@ -332,7 +345,11 @@ function GroupRow({ group }: { group: LatencyGroup }) {
 
   return (
     <tr className="border-t border-line align-top">
-      <td className="py-1.5 pr-3">{group.engine}</td>
+      {/* The engine is a vendor identifier an operator greps their own logs for, so it is
+          shown fixed-width where 0/O and 1/l stay distinct. */}
+      <td className="py-1.5 pr-3">
+        <MonoValue>{group.engine}</MonoValue>
+      </td>
       <td className="py-1.5 pr-3">
         {regionLabel(group.region)}
         {basis != null && (

@@ -63,10 +63,10 @@ export default function OpsConfigPage() {
     <div className="max-w-2xl space-y-5">
       <div>
         <p className="mt-0.5 text-sm text-ink-muted">
-          What this deployment runs on: the settings that can be changed without an SSH
-          session, and the vendor credentials the platform authenticates with. Every write
-          here is audit-logged with its reason, and no route on this screen can display a
-          credential — only replace one.
+          What this deployment runs on: the settings you can change here without logging
+          into the server, and the vendor keys the platform signs in with. Every change you
+          make here is written to the audit log with your reason, and nothing on this screen
+          can show you a stored key — you can only replace one.
         </p>
       </div>
 
@@ -76,7 +76,7 @@ export default function OpsConfigPage() {
         <WithheldPanel
           title="Platform configuration"
           reason={mayConfigure.reason ?? "Your admin account cannot change platform configuration."}
-          subject="This panel would list every setting this deployment can change without an SSH session, and the value in force for each."
+          subject="This panel would list every setting this deployment can change without logging into the server, and the value in force for each."
         />
       ) : (
         <ConfigPanel access={mayConfigure} />
@@ -94,7 +94,7 @@ export default function OpsConfigPage() {
         <WithheldPanel
           title="Model prices"
           reason={mayConfigure.reason ?? "Your admin account cannot change platform configuration."}
-          subject="This panel would list every model, its provider and the per-million-token price billing uses."
+          subject="This panel would list every model, who provides it, and the price per million tokens that billing uses."
         />
       ) : (
         <ModelPricingPanel access={mayConfigure} />

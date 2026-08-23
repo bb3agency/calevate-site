@@ -30,6 +30,13 @@ import {
   type NoticeTone,
 } from "@/components/ui";
 import {
+  MonoValue,
+  ProvenanceBadge,
+  TimingBadge,
+  TypeToConfirm,
+  confirmMatches,
+} from "@/app/admin/ops/opsLanguage";
+import {
   isLostUpdate,
   useOpsConfig,
   useRevertConfig,
@@ -186,7 +193,7 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     // credential in BOLNA's console, so an operator correcting it is working on the
     // engine's side of the seam, not ours.
     title: "Language model",
-    hint: "Which Azure OpenAI resource and deployment answer, in East US 2 (D-449).",
+    hint: "Which Azure OpenAI resource and deployment answer, running in East US 2.",
     prefixes: ["azure_openai_"],
   },
   {
@@ -200,7 +207,7 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     // does NOT render an empty group, because `grouped()` filters to the titles that
     // actually got fields.
     title: "Sign-in",
-    hint: "The switch over first-party authentication. There is no identity vendor (D-177).",
+    hint: "The switch for signing in. Calevate handles sign-in itself; there is no outside login provider.",
     prefixes: ["first_party_auth"],
   },
   {
@@ -256,11 +263,40 @@ function display(value: ConfigValue): string {
   return String(value);
 }
 
-const SOURCE_NOTE: Record<string, string> = {
-  env: "Set in this deployment's environment, which always wins over the console.",
-  db: "Set from this console.",
-  default: "The value built into this release.",
+/**
+ * A plain human name for a setting, shown ABOVE its machine key — so an operator does not
+ * have to parse `self_serve_inr_per_min` to know what a row is.
+ *
+ * Curated for the keys the console groups (the same set the `GROUPS` prefixes cover), with
+ * a humanising fallback for anything newer: a key that matches nothing here still gets a
+ * readable title rather than raw snake_case, and the machine key is always printed beside
+ * it, so the fallback can never hide which setting is which. `lookup`, not a bare index,
+ * for the `Object.prototype` reason the rest of this file uses it.
+ */
+const SETTING_LABELS: Record<string, string> = {
+  engine: "Active voice engine",
+  webhook_base_url: "Webhook web address",
+  self_serve_inr_per_min: "Self-serve price per minute",
+  usd_inr_rate: "US dollar to rupee rate",
+  inbound_reserve_fraction: "Capacity kept free for inbound calls",
+  db_pool_size: "Database connection pool size",
+  self_serve_signup_enabled: "Self-serve sign-up",
+  email_provider: "Email provider",
+  payment_provider: "Payment provider",
+  number_provider: "Phone-number provider",
+  azure_openai_resource: "Azure OpenAI resource",
+  azure_openai_deployment: "Azure OpenAI deployment",
+  azure_openai_model: "Model in use",
+  first_party_auth_enabled: "Sign-in enabled",
+  object_store_bucket: "Storage bucket",
 };
+
+function settingLabel(key: string): string {
+  const curated = lookup(SETTING_LABELS, key);
+  if (curated) return curated;
+  const words = key.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /**
  * WHEN a change to this key actually takes effect — every answer the API has, plus one.
@@ -402,9 +438,9 @@ function readOnlyReason(field: ConfigField): ReactNode {
   if (field.source === "env") {
     return (
       <>
-        Fixed by <span className="font-mono">{field.env_var}</span> in this
-        deployment&apos;s environment. The environment always wins over the console, so
-        this cannot be changed here — change the variable and restart.
+        Fixed by <MonoValue>{field.env_var}</MonoValue> in this deployment&apos;s
+        environment. The environment always wins over the console, so this cannot be changed
+        here — change that on the server and restart.
       </>
     );
   }
@@ -484,7 +520,7 @@ export function ConfigPanel({ access }: { access: { allowed: boolean; reason: st
           state.said ??
           "The API refused this read: your admin account may not see the platform configuration."
         }
-        subject="This panel would list every setting this deployment can change without an SSH session, and the value in force for each."
+        subject="This panel would list every setting this deployment can change without logging into the server, and the value in force for each."
       />
     );
   }
@@ -493,10 +529,10 @@ export function ConfigPanel({ access }: { access: { allowed: boolean; reason: st
     <Card title="Platform configuration">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          Every setting this deployment can change without an SSH session. Credentials are
-          NOT here — they are write-only and live under Secrets. A change reaches every
-          process within a few seconds; a setting marked <em>needs a restart</em> is the
-          exception and says so on its own row.
+          Every setting you can change here without logging into the server. Vendor keys are
+          not here — you set those under Vendor credentials, and they can never be shown back.
+          A change reaches the whole platform within a few seconds; a setting that needs a
+          restart is the exception, and each row tells you which it is.
         </p>
 
         {query.error && <ProblemNotice error={query.error} onRetry={() => query.refetch()} />}
@@ -531,7 +567,7 @@ export function ConfigPanel({ access }: { access: { allowed: boolean; reason: st
                 a revert deletes the row and takes that timestamp with it. */}
             <p className="text-xs text-ink-faint">
               Configuration version{" "}
-              <span className="font-mono">{state.config.config_version}</span>
+              <MonoValue>{state.config.config_version}</MonoValue>
               {state.config.config_changed_at
                 ? `, last changed ${formatIST(state.config.config_changed_at)}.`
                 : ", never changed on this deployment."}
@@ -630,45 +666,33 @@ function ConfigRow({
     <div className="rounded-card border border-line bg-surface p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          {/* `break-all`, like the value line below: these keys are unbroken snake_case
-              identifiers (`self_serve_inr_per_min`, `object_store_bucket`) with no space
-              for a browser to wrap at, so at 320px they painted 15px outside the card. */}
-          <p className="break-all font-mono text-sm text-ink">{field.key}</p>
-          <p className="mt-0.5 break-all font-mono text-sm font-semibold text-ink">
-            {display(field.value)}
+          {/* The plain human name first, then the machine key beneath it. `break-all` on
+              the key and the value: these are unbroken snake_case identifiers
+              (`self_serve_inr_per_min`, `object_store_bucket`) with no space for a browser
+              to wrap at, so at 320px they painted 15px outside the card. */}
+          <p className="text-sm font-semibold text-ink">{settingLabel(field.key)}</p>
+          <p className="mt-0.5 break-all text-xs text-ink-faint">
+            <MonoValue>{field.key}</MonoValue>
           </p>
-          <p className="mt-1 text-xs text-ink-faint">
-            {/* Through `lookup()`, not a bare index. The comment here used to argue
-                the index was safe because the union is server-controlled — but the
-                union is our CLAIM about the wire, not a runtime guarantee, and a
-                response carrying `constructor` would resolve to the `Object` function
-                rather than to undefined. The fallback still prints the source itself
-                rather than blanking the line. */}
-            {lookup(SOURCE_NOTE, field.source) ?? `Source: ${field.source}`}
-            {field.source === "db" && field.updated_by && (
-              <>
-                {" "}
-                {field.updated_by}, {formatIST(field.updated_at)}
-              </>
-            )}
+          <p className="mt-1 break-all text-sm font-semibold text-ink">
+            <MonoValue>{display(field.value)}</MonoValue>
           </p>
+          {/* Two badges an operator can scan without reading a sentence: where this value
+              came from, and when a change to it takes effect. The timing is fed from the
+              verdict's id, not the raw `applies`, so a live field carrying a caveat reads
+              the same "after you republish" here as it does in the form. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <ProvenanceBadge source={field.source} />
+            <TimingBadge applies={verdict.id} />
+          </div>
+          {field.source === "db" && field.updated_by && (
+            <p className="mt-1 text-xs text-ink-faint">
+              Set by {field.updated_by}
+              {field.updated_at ? <>, {formatIST(field.updated_at)}</> : null}
+            </p>
+          )}
           {field.source === "db" && field.note && (
             <p className="mt-1 text-xs text-ink-muted">&ldquo;{field.note}&rdquo;</p>
-          )}
-          {/* Flagged on the row itself so the exceptional cases are visible while
-              scanning. Two conditions, both load-bearing: `live` is silent HERE and
-              stated in the form, because a badge on all thirty-six rows is a badge
-              nobody reads; and a NON-editable row is silent too, because
-              `readOnlyReason` on the right is already saying this exact sentence as the
-              reason there is no control — printing it twice is how an operator learns to
-              read neither. */}
-          {field.editable && verdict.id !== "live" && (
-            <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700">
-              <TriangleAlert aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
-              <span>
-                <span className="font-semibold">{verdict.label}</span> — {verdict.sentence}
-              </span>
-            </p>
           )}
         </div>
 
@@ -685,10 +709,10 @@ function ConfigRow({
             <p className="flex max-w-[16rem] items-start gap-1.5 text-xs text-ink-muted">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
-                This deployment&apos;s API did not send a concurrency token for this key,
-                and it refuses any change that does not name the value being replaced. The
-                console cannot offer an edit it knows will be refused — this is an API and
-                console version mismatch, not a permission.
+                This platform did not send a version tag for this setting, and it refuses any
+                change that does not name the value being replaced. The console cannot offer
+                an edit it knows would be refused — the platform and this screen are on
+                different versions, which is not something your account can fix.
               </span>
             </p>
           ) : field.editable ? (
@@ -784,11 +808,11 @@ function WriteReceipt({
         <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
         {recorded ? (
           <span>
-            Stored. <span className="font-mono">{write.key}</span> was{" "}
-            <span className="font-mono font-semibold">{display(write.previous)}</span> and the
+            Stored. <MonoValue>{write.key}</MonoValue> was{" "}
+            <MonoValue className="font-semibold">{display(write.previous)}</MonoValue> and the
             store now holds{" "}
-            <span className="font-mono font-semibold">{display(write.field.value)}</span>, at
-            configuration version <span className="font-mono">{write.config_version}</span>.
+            <MonoValue className="font-semibold">{display(write.field.value)}</MonoValue>, at
+            configuration version <MonoValue>{write.config_version}</MonoValue>.
           </span>
         ) : (
           // NOT "Stored." A double-clicked Save, or two operators reaching the same
@@ -796,8 +820,8 @@ function WriteReceipt({
           // the audit log has no entry for this request, and a screen claiming otherwise
           // is the exact defect this slice exists to remove, in its politest costume.
           <span>
-            Already the value. <span className="font-mono">{write.key}</span> was already{" "}
-            <span className="font-mono font-semibold">{display(write.field.value)}</span>, so
+            Already the value. <MonoValue>{write.key}</MonoValue> was already{" "}
+            <MonoValue className="font-semibold">{display(write.field.value)}</MonoValue>, so
             nothing was written, no audit entry was made, and no process was asked to
             re-read anything.
           </span>
@@ -812,7 +836,7 @@ function WriteReceipt({
         >
           <p className="mt-1">
             It still reports{" "}
-            <span className="font-mono font-semibold">{display(field.value)}</span>. That is
+            <MonoValue className="font-semibold">{display(field.value)}</MonoValue>. That is
             expected for a few seconds; if it persists, this process cannot reach the
             configuration store — check the banner at the top of this panel before assuming
             the change is in force anywhere.
@@ -861,29 +885,29 @@ function ValueMoved({
       icon={<Users aria-hidden className="h-5 w-5" />}
       title={
         refused
-          ? "The server refused this change — the value had already moved"
-          : "This value changed while you had this form open"
+          ? "Someone changed this setting first — nothing was saved"
+          : "Someone changed this setting while you had it open"
       }
     >
       <p className="mt-1">
         {refused
-          ? "Nothing was written. Somebody else changed this key between the value you " +
-            "were shown and the moment you pressed save."
-          : "Somebody else changed this key since you opened this form. Nothing you typed " +
-            "has been sent."}
+          ? "Nothing was saved. Someone else changed this setting between the value you " +
+            "were shown and the moment you pressed Save."
+          : "Someone else changed this setting since you opened this form. Nothing you " +
+            "typed has been sent."}
       </p>
-      {/* The API's own words, inside this box rather than in a second red one above it.
+      {/* The server's own words, inside this box rather than in a second red one above it.
           Two accounts of one refusal is how an operator ends up answering the wrong one. */}
-      {refused && serverSaid && <p className="mt-1 text-xs">The API said: {serverSaid}</p>}
+      {refused && serverSaid && <p className="mt-1 text-xs">The server said: {serverSaid}</p>}
       <p className="mt-2">
         It is now{" "}
-        <span className="font-mono font-semibold">{display(field.value)}</span>,{" "}
+        <MonoValue className="font-semibold">{display(field.value)}</MonoValue>,{" "}
         {provenance(field)}.
         {field.note && <> Their reason: &ldquo;{field.note}&rdquo;</>}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={onTakeTheirs} className={SECONDARY_BUTTON_SM}>
-          Start from their value
+          Use their value
         </button>
         <button type="button" onClick={onKeepMine} className={SECONDARY_BUTTON_SM}>
           Keep mine and replace theirs
@@ -946,7 +970,7 @@ function ConfigForm({
   // between two reads has, as far as this form can tell, moved — which is the safe
   // reading and the one that stops the write.
   const conflicted = (etagOf(field) ?? "") !== basisTag || refused;
-  const ready = reason.trim().length >= 3 && confirm === word && !conflicted;
+  const ready = reason.trim().length >= 3 && confirmMatches(confirm, word) && !conflicted;
   const verdict = appliesVerdict(field);
 
   /** Continue from a stated current value: re-base the precondition, re-arm the typing. */
@@ -1042,13 +1066,13 @@ function ConfigForm({
         <span className={FIELD_HINT}>
           {field.has_default ? (
             <>
-              Built-in default: <span className="font-mono">{display(field.default)}</span>.
+              Built-in default: <MonoValue>{display(field.default)}</MonoValue>.
             </>
           ) : (
             <>This setting has no built-in default, so it cannot be reverted.</>
           )}{" "}
-          Validated against the same model the API loads at startup — a value that would
-          break the next deploy is refused here.
+          Checked against the same rules the platform uses when it starts, so a value that
+          would break it is refused here.
         </span>
       </label>
 
@@ -1064,26 +1088,18 @@ function ConfigForm({
           className={FIELD}
         />
         <span className={FIELD_HINT}>
-          Stored on the row and in the audit log. Whoever finds this value in force reads
-          it to decide whether the reason still holds.
+          Saved with this change and in the audit log. Whoever finds this value in force
+          later reads it to decide whether the reason still holds.
         </span>
       </label>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>
-          Type <span className="font-mono">{word}</span> to confirm
-        </span>
-        <input
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          placeholder={word}
-          className={`${FIELD} font-mono`}
-        />
-        <span className={FIELD_HINT}>
-          Sent to the API as this change&apos;s confirmation, bound to this key — a
-          confirmation typed for one setting cannot change another.
-        </span>
-      </label>
+      <TypeToConfirm
+        id={`confirm-config-${field.key}`}
+        word={word}
+        value={confirm}
+        onChange={setConfirm}
+        hint="This confirms your change and is tied to this setting, so it can't be used to change a different one."
+      />
 
       {/* WHAT SAVING WILL AND WILL NOT DO, immediately above the button that does it.
           The row states this too, but a form is a screenful tall and the row's line is
@@ -1110,7 +1126,7 @@ function ConfigForm({
             // live, a click did nothing, and the explanation was in a tooltip a keyboard
             // or screen-reader user never reaches. A control that refuses is disabled and
             // says why in text — see the hint below.
-            disabled={confirm !== word || conflicted || revert.isPending}
+            disabled={!confirmMatches(confirm, word) || conflicted || revert.isPending}
             onClick={() =>
               revert.mutate(
                 { key: field.key, ifMatch: basisTag },
@@ -1140,12 +1156,12 @@ function ConfigForm({
           against a value that has already changed.
         </p>
       ) : (
-        confirm !== word &&
+        !confirmMatches(confirm, word) &&
         field.source === "db" &&
         field.has_default && (
           <p className="text-xs text-ink-muted">
-            Type <span className="font-mono">{word}</span> above to enable both buttons —
-            reverting is confirmed the same way, and sends its own confirmation string.
+            Type <MonoValue>{word}</MonoValue> above to enable both buttons — reverting is
+            confirmed the same way.
           </p>
         )
       )}

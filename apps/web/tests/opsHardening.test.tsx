@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import { appliesVerdict } from "@/app/admin/ops/ConfigPanel";
-import { verdictTitle, verdictTone } from "@/app/admin/ops/SecretsPanel";
+import { testOutcomeCopy } from "@/app/admin/ops/opsLanguage";
 import { ApiProblem } from "@/lib/api/client";
 import {
   OPS_CONFIG_PATH,
@@ -305,7 +305,7 @@ describe("two operators, one key", () => {
     });
     fireEvent.click(saveButton());
 
-    await screen.findByText("The server refused this change — the value had already moved");
+    await screen.findByText("Someone changed this setting first — nothing was saved");
 
     // WHAT IT IS NOW, WHO, WHEN — all three, from the server's own re-read rather than
     // from anything the console remembered.
@@ -340,9 +340,9 @@ describe("two operators, one key", () => {
     });
     fireEvent.click(saveButton());
 
-    await screen.findByText("The server refused this change — the value had already moved");
+    await screen.findByText("Someone changed this setting first — nothing was saved");
     // Roles and names, so a `<div onClick>` that no keyboard can reach would fail here.
-    expect(screen.getByRole("button", { name: "Start from their value" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use their value" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Keep mine and replace theirs" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Discard my change" })).toBeTruthy();
     // The word this screen must not contain, in any control: a retry is the merge's
@@ -352,7 +352,7 @@ describe("two operators, one key", () => {
     // beside this box would give an operator two things to answer — the red one with no
     // choices, and this one with three.
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText(/The API said:/)).toBeTruthy();
+    expect(screen.getByText(/The server said:/)).toBeTruthy();
   });
 
   it("re-bases the override onto the value it just showed, and re-arms the confirmation", async () => {
@@ -391,7 +391,7 @@ describe("two operators, one key", () => {
       confirm: "SELF_SERVE_INR_PER_MIN",
     });
     fireEvent.click(saveButton());
-    await screen.findByText("The server refused this change — the value had already moved");
+    await screen.findByText("Someone changed this setting first — nothing was saved");
 
     fireEvent.click(screen.getByRole("button", { name: "Keep mine and replace theirs" }));
 
@@ -442,7 +442,7 @@ describe("two operators, one key", () => {
       );
     });
 
-    await screen.findByText("This value changed while you had this form open");
+    await screen.findByText("Someone changed this setting while you had it open");
     expect(saveButton().disabled).toBe(true);
     // Nothing was attempted, so nothing has to be undone.
     expect(writeCount(calls, "PUT")).toBe(0);
@@ -491,7 +491,7 @@ describe("two operators, one key", () => {
     await screen.findByText(/Change SELF_SERVE_INR_PER_MIN in the environment/);
     expect(screen.queryByRole("button", { name: "Keep mine and replace theirs" })).toBeNull();
     expect(
-      screen.queryByText("The server refused this change — the value had already moved"),
+      screen.queryByText("Someone changed this setting first — nothing was saved"),
     ).toBeNull();
   });
 
@@ -563,7 +563,7 @@ describe("two operators, one key", () => {
     expect(screen.queryByRole("button", { name: /Change/ })).toBeNull();
     expect(screen.queryByLabelText(/New value/)).toBeNull();
     expect(
-      screen.getByText(/did not send a concurrency token/, { exact: false }),
+      screen.getByText(/did not send a version tag/, { exact: false }),
     ).toBeTruthy();
   });
 });
@@ -946,14 +946,12 @@ function testVerdict(over: Partial<SecretTest> = {}): SecretTest {
 const CANDIDATE = "bn-live-secret-abcdef";
 
 /**
- * The verdict headline for the state every probe in this build is in.
- *
- * The exact string, not a regex: `/The vendor accepted this credential/` also matches the
- * DETAIL sentence underneath it ("…for one authenticated read"), so a test written that
- * way would pass while the title said anything at all — the substring-that-matches-
- * elsewhere failure this suite has already been bitten by five times.
+ * The verdict headline for the state every probe in this build is in: accepted, but not
+ * confirmed. `testOutcomeCopy("accepted", false)` renders this as "looks right" (neutral),
+ * never a green "This key works" — the exact string is asserted, not a regex, so a title
+ * that drifted to anything else would fail rather than match a fragment elsewhere.
  */
-const ACCEPTED_UNCONFIRMED = "The vendor accepted this credential — indicative, not confirmed";
+const ACCEPTED_UNCONFIRMED = "This key looks right";
 
 async function openSecretFormAndTest(verdict: SecretTest, candidate = CANDIDATE) {
   const rendered = renderOps(
@@ -1019,7 +1017,7 @@ describe("the four outcomes of a test, kept apart", () => {
     const { container } = await openSecretFormAndTest(testVerdict({ verified: false }));
 
     const title = await screen.findByText(ACCEPTED_UNCONFIRMED);
-    expect(container.textContent).toContain("treat it as indicative rather than authoritative");
+    expect(container.textContent).toContain("Treat it as a good sign, not a guarantee");
     // The green box is what a hurried operator reads instead of the words, so the tone is
     // asserted on THIS box — the key-management panel has a legitimate green one on the
     // same screen, and a container-wide class count would be answering about that.
@@ -1027,11 +1025,9 @@ describe("the four outcomes of a test, kept apart", () => {
   });
 
   it("keeps the tick available for a verdict that IS confirmed", () => {
-    expect(verdictTone(testVerdict({ verified: true }))).toBe("ok");
-    expect(verdictTitle(testVerdict({ verified: true }))).toBe(
-      "The vendor accepted this credential",
-    );
-    expect(verdictTone(testVerdict({ verified: false }))).toBe("neutral");
+    expect(testOutcomeCopy("accepted", true).tone).toBe("ok");
+    expect(testOutcomeCopy("accepted", true).title).toBe("This key works");
+    expect(testOutcomeCopy("accepted", false).tone).toBe("neutral");
   });
 
   it("never reports 'we could not check' as the vendor saying no", async () => {
@@ -1044,7 +1040,7 @@ describe("the four outcomes of a test, kept apart", () => {
     );
 
     const title = await screen.findByText(
-      "We could not reach the vendor — indicative, not confirmed",
+      "We couldn't reach the vendor to check",
     );
     expect(container.textContent).not.toContain("REFUSED");
     // A refusal is red. "We could not ask" is not, because it must not send an operator
@@ -1064,11 +1060,9 @@ describe("the four outcomes of a test, kept apart", () => {
 
     // `no_probe` already says the check did not happen; appending "not confirmed" to it
     // would be the caveat repeating itself.
-    await screen.findByText("This build cannot test this credential");
-    expect(container.textContent).not.toContain(
-      "This build cannot test this credential — indicative",
-    );
-    expect(container.textContent).not.toContain("treat it as indicative rather than");
+    await screen.findByText("We can't test this type of key yet");
+    expect(container.textContent).not.toContain("indicative");
+    expect(container.textContent).not.toContain("Treat it as a good sign");
   });
 
   it("says a build with no probe has no probe, in text a keyboard can reach", async () => {
@@ -1086,7 +1080,7 @@ describe("the four outcomes of a test, kept apart", () => {
     // Was a `title` attribute on the button — invisible to a screen reader and to anyone
     // who never hovers.
     const form = screen.getByRole("button", { name: /Test with the vendor/ }).closest("form");
-    expect(form?.textContent).toContain("This build has no probe for this vendor");
+    expect(form?.textContent).toContain("There is no automatic check for this vendor");
     // And it does NOT block the install: "we cannot check" is not "do not store".
     expect(
       (screen.getByRole("button", { name: /Test with the vendor/ }) as HTMLButtonElement)
@@ -1174,7 +1168,7 @@ describe("the rewrap", () => {
 
     // Waiting on the card TITLE would be waiting on static text: the identity read gates
     // the control, and the KEK read gates the panel. Both are behind this sentence.
-    await screen.findByText("Every stored key is wrapped under the current KEK");
+    await screen.findByText("Every stored key is locked with the current master key");
     const box = screen.getByPlaceholderText("REWRAP");
     fireEvent.change(box, { target: { value: "REWRAP" } });
 
@@ -1197,7 +1191,7 @@ describe("the rewrap", () => {
       submit();
     });
 
-    await waitFor(() => expect(screen.getByText(/versions re-wrapped/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/stored keys re-locked/)).toBeTruthy());
     expect(calls.filter((c) => c.path === `${OPS_SECRETS_PATH}/kek/rewrap`)).toHaveLength(1);
   });
 
@@ -1216,10 +1210,10 @@ describe("the rewrap", () => {
       }),
     );
 
-    await screen.findByText("Every stored key is wrapped under the current KEK");
+    await screen.findByText("Every stored key is locked with the current master key");
     const fire = async () => {
       fireEvent.change(screen.getByPlaceholderText("REWRAP"), { target: { value: "REWRAP" } });
-      fireEvent.click(screen.getByRole("button", { name: /Re-wrap every key/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Re-lock every key/ }));
     };
     await fire();
     await waitFor(() =>
@@ -1243,18 +1237,18 @@ describe("the rewrap", () => {
 
     await screen.findByText("We could not read the key-management state");
     // The sentence that would license destroying data.
-    expect(screen.queryByText("Every stored key is wrapped under the current KEK")).toBeNull();
+    expect(screen.queryByText("Every stored key is locked with the current master key")).toBeNull();
     expect(container.textContent).toContain("do not remove");
     // The rewrap stays offered: it is the recovery action and it reports its own counts.
-    expect(screen.getByRole("button", { name: /Re-wrap every key/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Re-lock every key/ })).toBeTruthy();
   });
 
   it("names the active key as a fingerprint rather than a generation number", async () => {
     const { container } = renderOps(opsRoutes());
-    await screen.findByText("Every stored key is wrapped under the current KEK");
+    await screen.findByText("Every stored key is locked with the current master key");
     // D-96: the label is a hash of the key material. "#1633907231" invites an operator to
     // read a rotation count and conclude something has gone very wrong.
-    expect(container.textContent).toContain("Active key fingerprint");
+    expect(container.textContent).toContain("Active master key ID");
     expectTextCount(container, "#1633907231", 0);
   });
 });
@@ -1283,7 +1277,7 @@ describe("the states that only exist after a click are still operable", () => {
       confirm: "SELF_SERVE_INR_PER_MIN",
     });
     fireEvent.click(saveButton());
-    await screen.findByText("The server refused this change — the value had already moved");
+    await screen.findByText("Someone changed this setting first — nothing was saved");
 
     await expectNoA11yViolations(container, "admin/ops — config conflict");
   });
