@@ -283,6 +283,34 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
     the next person's PR fail instead of yours. If uncovered units genuinely went up, write
     the tests; if a unit is genuinely unreachable, say which and why in the commit.
 
+11. **Never state a fact you have not verified, and a value already in this repo is NOT
+    verification of itself.** This rule exists because a vendor retirement date sitting in
+    `model_lifecycle.py` — a REPORTED figure a past session wrote — was repeated downstream
+    as if it were fact, propagated into an evidence doc and a lane brief, and was simply
+    WRONG: the model had no announced retirement at all, and the date belonged to a
+    different (preview) identifier. The number looked authoritative because it was in our
+    own code, which is exactly the trap.
+    - **A claim about the outside world** — a price, a retirement date, a model id, an API
+      field, a rate limit, a law, what a vendor's endpoint returns — is asserted only from a
+      PRIMARY SOURCE you actually read this session: the vendor's own page/docs/OSS at a
+      named URL or pinned commit, the hash-pinned `bolna-findings/` mirror, or a reading the
+      user/founder relays from one. Cite it (URL/file:line + date) at the point of use, so
+      the next reader inherits the evidence, not the conclusion.
+    - **Repo-internal values are claims, not evidence.** A constant, a comment, a decision
+      row, a prior agent's report, or a figure in `docs/evidence/` carries its OWN evidence
+      class (VERIFIED-VENDOR-DOCS / VENDOR-PUBLISHED / REPORTED / ESTIMATE / UNKNOWN). If it
+      is REPORTED or worse, it may not be re-stated as fact and may not reach money, a wire
+      value, or a client-facing claim without being re-verified — re-verify it or label it,
+      never launder it by repetition.
+    - **When you cannot verify, say so in those words** ("UNKNOWN — <host> is egress-blocked
+      here" / "REPORTED, not confirmed"), mark the artefact accordingly, and route the gap to
+      a human or an operator-attested input. Do NOT fill the gap with a guess dressed as a
+      finding, and do NOT soften a guess with hedges ("likely", "~", "treat as") to make it
+      read like knowledge. If pressed for an answer you do not have, the answer is "I have
+      not verified this," not a plausible number.
+    - This binds visible reasoning and lane briefs too: an unverified premise passed to a
+      subagent becomes its foundation. Verify before you delegate a fact.
+
 ## Conventions
 
 - Python 3.12, FastAPI, Pydantic v2 everywhere at boundaries; SQLAlchemy 2.0 typed ORM;
