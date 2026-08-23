@@ -41,7 +41,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from calevate_shared.engine import AZURE_OPENAI_MODELS
+from calevate_shared.engine import SELECTABLE_LLM_MODELS
 from scripts import check_docs_drift as guard
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -208,14 +208,14 @@ def test_the_check_reads_the_real_llm_rows_and_they_agree_today() -> None:
     mutation, which is why `llm_cost_curve_drift` treats an empty reading as a FAILURE
     rather than a pass."""
     points = guard.doc_llm_cost_points()
-    assert set(points) == AZURE_OPENAI_MODELS, points
+    assert set(points) == SELECTABLE_LLM_MODELS, points
     for model, quoted in points.items():
         assert quoted, f"TRD §10.1 has no `| LLM …` row naming `{model}` — 4c reads nothing"
         assert set(quoted) == {1, 5, 10}, (model, quoted)
     assert not guard.llm_cost_curve_drift()
 
 
-@pytest.mark.parametrize("model", sorted(AZURE_OPENAI_MODELS))
+@pytest.mark.parametrize("model", sorted(SELECTABLE_LLM_MODELS))
 def test_the_quoted_curve_rises_with_call_length(model: str) -> None:
     """The shape is the finding, not the level: §6.1 resends the whole conversation every
     turn, so input cost is quadratic in duration and per-minute cost RISES. A doc quoting
@@ -250,7 +250,7 @@ def test_an_llm_row_disappearing_is_a_failure_and_not_a_pass() -> None:
     offenders = guard.llm_cost_curve_drift(
         f"{guard.TTS_RATE_HEADING}\n\n| leg | rate |\n| --- | --- |\n| TTS | ₹30 |\n"
     )
-    assert len(offenders) == len(AZURE_OPENAI_MODELS), offenders
+    assert len(offenders) == len(SELECTABLE_LLM_MODELS), offenders
     assert all("carries no" in line for line in offenders), offenders
 
 

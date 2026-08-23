@@ -26,6 +26,7 @@ import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
 import OperatorsPage from "@/app/admin/operators/page";
+import OpsConfigPage from "@/app/admin/ops/config/page";
 import OpsPage from "@/app/admin/ops/page";
 import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -722,6 +723,48 @@ const OPS_CONFIG = {
   stale: false,
   never_loaded: false,
   config_changed_at: "2026-08-12T09:00:00Z",
+};
+
+// TWO rows whose states differ: an ATTESTED, offerable Azure model (its values, source and
+// "offerable" badge render) and an OpenAI model that is NOT offerable and NOT attested (the
+// greyed reference, the "needs a credential and a price" verdict and the "offered only once
+// you attest" note render). A one-row fixture would leave half the panel's markup unscanned.
+const OPS_MODEL_PRICES = {
+  prices: [
+    {
+      model: "gpt-4o-mini",
+      provider: "azure_openai",
+      credential_installed: true,
+      price_attested: true,
+      offerable: true,
+      input_usd_per_mtok: "0.150000",
+      output_usd_per_mtok: "0.600000",
+      effective_from: "2026-08-01T00:00:00Z",
+      attested_at: "2026-08-12T09:00:00Z",
+      attested_by: "Ops",
+      source_note: "Azure invoice 2026-08",
+      reference_input_usd_per_mtok: "0.15",
+      reference_output_usd_per_mtok: "0.60",
+      reference_verified: true,
+    },
+    {
+      model: "gpt-5.6-luna",
+      provider: "openai",
+      credential_installed: false,
+      price_attested: false,
+      offerable: false,
+      input_usd_per_mtok: null,
+      output_usd_per_mtok: null,
+      effective_from: null,
+      attested_at: null,
+      attested_by: null,
+      source_note: null,
+      reference_input_usd_per_mtok: "0.20",
+      reference_output_usd_per_mtok: "1.20",
+      reference_verified: false,
+    },
+  ],
+  as_of: "2026-08-23T00:00:00Z",
 };
 
 /**
@@ -1850,13 +1893,35 @@ const ADMIN_SCREENS: Screen[] = [
     routes: { "/v1/admin/onboarding/unfinished": [] },
   },
   {
+    // THREE FIXTURE ROUTES SHORTER THAN IT WAS: the config, credential and key panels
+    // moved to `/admin/ops/config` (the founder's correction to D-457), so this screen
+    // reads the platform row and nothing else.
     file: "admin/ops/page.tsx",
     realm: "admin",
     element: () => <OpsPage />,
     routes: {
       "/v1/admin/me": ADMIN_ME,
       "/v1/ops/platform": PLATFORM,
+    },
+  },
+  {
+    // Swept in the ALLOWED costume, which is the opposite choice from `ADMIN_ME` above
+    // and is deliberate: the shared fixture holds no real permission at all, so it would
+    // render three refusal notices — three `NoticeBox`es inside `Card`s, markup this
+    // sweep already covers on a dozen screens — and leave the config form, the credential
+    // table and the key-management panel, which is every interactive control on the
+    // surface, unscanned. The refused costume is covered by `ops.test.tsx`'s own
+    // withheld-panel assertions.
+    file: "admin/ops/config/page.tsx",
+    realm: "admin",
+    element: () => <OpsConfigPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "platform:config", "platform:secrets"],
+      },
       "/v1/ops/config": OPS_CONFIG,
+      "/v1/ops/model-prices": OPS_MODEL_PRICES,
       "/v1/ops/secrets": OPS_SECRETS,
       "/v1/ops/secrets/kek": OPS_KEK,
     },

@@ -244,9 +244,15 @@ export function useResendOperatorSetupLink() {
  * somebody choosing between them is deciding whether this person can replace the Bolna
  * key and add further administrators without being told so anywhere else.
  *
- * The `cannot` line mirrors the four permissions `ROLE_PERMISSIONS["operator"]`
- * deliberately omits (`core/rbac.py`). If that set gains one of them, this copy is the
- * other half of the change.
+ * The `cannot` line mirrors `core/rbac.SUPERADMIN_ONLY_PERMISSIONS` — the four
+ * permissions `ROLE_PERMISSIONS["operator"]` omits, which since the founder's correction
+ * to D-457 are the WHOLE difference between the tiers. If that set changes, this copy is
+ * the other half of the change, and `tests/adminOperators.test.tsx` reads the role table
+ * on disk to make sure it is.
+ *
+ * The `can` line says the raw reads out loud on purpose. "Support across every client" is
+ * true and comfortable; "can play the recording and take the contact list, attributably"
+ * is what somebody is actually granting, and this screen is where they grant it.
  */
 export const ROLE_COPY: Record<string, { label: string; can: string; cannot: string | null }> = {
   superadmin: {
@@ -256,7 +262,7 @@ export const ROLE_COPY: Record<string, { label: string; can: string; cannot: str
   },
   operator: {
     label: "Admin",
-    can: "Onboarding and support across every client: agents, calls, leads, knowledge bases, client settings and view-as.",
+    can: "Onboarding and support across every client: agents, calls, leads, knowledge bases, client settings, campaign dispatch, view-as — and, inside a view-as session, the unredacted transcript, the recording and the contact export, each of which writes an audit row naming them.",
     cannot:
       "Cannot see or change the vendor API keys, cannot change platform configuration, cannot use the incident switches, and cannot add or remove admins.",
   },

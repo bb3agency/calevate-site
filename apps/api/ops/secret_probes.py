@@ -180,6 +180,16 @@ PROBES: Mapping[str, Probe] = {
             "and is not evidence the key is wrong."
         ),
     ),
+    # ⚠ THE TWO DECLARED LLM LEGS (D-456 — `openai`, `google`) DELIBERATELY HAVE NO PROBE,
+    # and it is not an omission. `scripts/check_model_residency.py` BANS the string
+    # `api.openai.com` outside the OpenAI leg's own builder, and bans
+    # `generativelanguage.googleapis.com` from EVERY literal in the tree (its comment: "ZERO
+    # LITERALS IN THIS TREE MAY NAME IT") — because a hostname naming a model-inference host
+    # is a residency claim the posture governs. A probe URL is exactly such a literal, so a
+    # `/test` for either key cannot exist without violating the posture. The Azure key has no
+    # probe either (its endpoint needs the per-deployment resource name). All three LLM
+    # credentials therefore answer `no_probe` — "storing it is still safe, it simply will
+    # not be verified until first use" — which is the honest state, not a gap.
 }
 
 

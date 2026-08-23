@@ -9,7 +9,7 @@ from typing import Literal, get_args
 from uuid import UUID
 
 from calevate_shared.config import SELECTABLE_ENGINES
-from calevate_shared.engine import AZURE_OPENAI_MODELS
+from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -114,9 +114,17 @@ class Agent(PKMixin, TimestampMixin, Base):
         ),
         CheckConstraint(f"engine IN {ENGINES!r}", name="engine_enum"),
         # THIS AGENT'S OWN language-model choice — the top rung of
-        # `agent -> organization -> platform` (`agents/llm_models.py`, migration
-        # b7d2f10c93ae). DERIVED from `AZURE_OPENAI_MODELS`, never retyped (D-104), and
-        # sorted so the rendered SQL is byte-stable.
+        # `agent -> organization -> platform` (`agents/llm_models.py`, migrations
+        # b7d2f10c93ae then d3a7c81f45be). DERIVED from `LLM_MODEL_NAMES`, never retyped
+        # (D-104), and sorted so the rendered SQL is byte-stable.
+        #
+        # **THE WHOLE CATALOGUE, NOT THE SELECTABLE SET**, and d3a7c81f45be's docstring
+        # argues it in full: a CHECK is a FLOOR against values no writer should ever produce
+        # — a restore that lands without constraints, a hand-run UPDATE during an incident —
+        # and it is not the product's policy surface. Which models may actually be CHOSEN
+        # depends on a live credential and a live price attestation, facts a CHECK cannot
+        # see; `agents/llm_models.offerable_models()` is where that is decided, and
+        # `validate_llm_model` and `in_call_llm` each refuse again.
         #
         # THE COLUMN HAD A READER AND NO CONSTRAINT FOR ITS WHOLE LIFE, which is what this
         # closes: `agents/service.py::in_call_llm` reads it, and on a leg that is not
@@ -125,7 +133,7 @@ class Agent(PKMixin, TimestampMixin, Base):
         # class `SARVAM_RETIRED_LLMS` already exists for. NULL is admitted explicitly: it
         # is the "inherit the account default" sentinel.
         CheckConstraint(
-            f"llm_model IS NULL OR llm_model IN {tuple(sorted(AZURE_OPENAI_MODELS))!r}",
+            f"llm_model IS NULL OR llm_model IN {tuple(sorted(LLM_MODEL_NAMES))!r}",
             name="llm_model_allowed",
         ),
         # LEGACY, and kept deliberately: the bundled line, step 1 of a two-step

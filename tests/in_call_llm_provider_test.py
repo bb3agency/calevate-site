@@ -51,12 +51,20 @@ import json
 from decimal import Decimal
 
 import pytest
-from apps.api.engine.bolna import BolnaEngine, _agent_models, _llm_routing
+from apps.api.engine.bolna import (
+    BolnaEngine,
+    _agent_models,
+    _llm_routing,
+    _llm_trap_settings,
+)
 from calevate_shared.engine import (
     AZURE_LOCATION,
     AZURE_OPENAI_DEFAULT_MODEL,
+    AZURE_OPENAI_MODELS,
+    LLM_MODELS,
     ModelConfig,
     azure_openai_base_url,
+    openai_base_url,
 )
 from pydantic import ValidationError
 
@@ -67,6 +75,10 @@ RESOURCE = "calevate-voice"
 #: other OpenAI-compatible provider these two strings are one string.
 DEPLOYMENT = "calevate-voice-inbound"
 ENDPOINT = azure_openai_base_url(RESOURCE)
+
+#: The Azure model that is NOT the platform default — the one `_configure` leaves without a
+#: deployment, so it stands for "permitted, but this platform cannot address it".
+ALTERNATE_AZURE_MODEL = next(iter(AZURE_OPENAI_MODELS - {AZURE_OPENAI_DEFAULT_MODEL}))
 
 
 def _azure_models() -> ModelConfig:
@@ -319,14 +331,112 @@ def test_the_wire_carries_the_deployment_and_never_the_model_name() -> None:
     )
 
 
-def test_a_bolna_google_provider_is_never_sent() -> None:
-    """Bolna ships a first-party Gemini provider needing one static `GOOGLE` key, and it
-    is `genai.Client(api_key=…)` against `generativelanguage.googleapis.com` — the AI
-    Studio Developer API, a global host with no region pinning at all. There is no Google
-    LLM leg in this product since D-410, which makes this test MORE useful rather than
-    less: the only way that value gets sent now is by somebody wiring one back."""
-    for models in (_azure_models(), ModelConfig(llm_model="sarvam-105b")):
-        assert _llm_routing(models).get("provider") != "google"
+def test_each_declared_leg_gets_its_own_documented_wire_provider() -> None:
+    """OUR closed vocabulary onto THEIRS, once, in the one function permitted to do it.
+
+    Each value is VERIFIED-VENDOR-DOCS twice on its own provider page — a copy-pasteable
+    `llm_config` body and a Key-settings table row — which is the class of evidence D-417
+    was written about: `azure` was shipped once, read off a dashboard LABEL, and would have
+    reached a different client class.
+
+    ⚠ NOTE THE HYPHEN. Ours is `azure_openai` and theirs is `azure-openai`; the other two
+    legs coincide. That near-miss is exactly why the two vocabularies stay separate types
+    rather than one string reused — `tests/engine_audit_test.py` classifies the two
+    spellings oppositely, banning the vendor's everywhere outside the adapter.
+    """
+    assert (
+        _llm_routing(
+            ModelConfig(llm_model="d", llm_provider="azure_openai", llm_base_url=ENDPOINT)
+        )["provider"]
+        == "azure-openai"
+    )
+    assert (
+        _llm_routing(
+            ModelConfig(
+                llm_model="gpt-5.4-mini", llm_provider="openai", llm_base_url=openai_base_url()
+            )
+        )["provider"]
+        == "openai"
+    )
+    # THE GOOGLE LEG CARRIES NO BASE URL AT ALL, and `ModelConfig` enforces the absence:
+    # the engine builds its Gemini client from one API key and never reads an endpoint of
+    # ours, so a configured one is a value nothing sends.
+    assert _llm_routing(ModelConfig(llm_model="gemini-2.5-flash", llm_provider="google")) == {
+        "provider": "google",
+        "family": "openai",
+    }
+    # AND AN UNSET LEG STILL REPRODUCES THE BODY WE HAVE ALWAYS SENT.
+    assert _llm_routing(ModelConfig(llm_model="sarvam-105b")) == {
+        "provider": "openai",
+        "family": "openai",
+    }
+
+
+def test_a_models_traps_reach_the_wire_and_a_model_without_them_is_untouched() -> None:
+    """**THE SEAM THAT WAS DECLARED AND NEVER WIRED.**
+
+    `LlmModelSpec.traps` recorded every one of these behaviours at a named line of the
+    vendor's own docs and NOTHING READ THEM AT RUNTIME: the adapter sent `temperature: 0.1`
+    unconditionally, which a GPT-5 model rejects with `400 For GPT-5 models, temperature
+    must be 1` — at agent CREATE, so no call is ever placed and the failure surfaces as a
+    refused publish. A trap catalogue nobody consults is documentation wearing the shape of
+    a control.
+
+    ⚠ THE BRANCH IS ON THE TRAP AND NOT ON THE MODEL NAME, which is the part a reviewer
+    would wave through. On the Azure leg `llm_model` is a DEPLOYMENT ID an operator named
+    freely, so `startswith("gpt-5")` would read a string that carries no family at all —
+    which is why `ModelConfig.llm_traps` exists and is resolved where the real model name
+    is in scope.
+    """
+    plain = _llm_trap_settings(ModelConfig(llm_model="d", llm_traps=()))
+    assert plain == {"max_tokens": 400, "temperature": 0.1}
+
+    gpt5 = _llm_trap_settings(
+        ModelConfig(
+            llm_model="a-deployment-name-with-no-family-in-it",
+            llm_traps=(
+                "temperature-must-be-one",
+                "max-tokens-becomes-max-completion-tokens",
+            ),
+        )
+    )
+    assert gpt5["temperature"] == 1, "a GPT-5 publish would 400 on 0.1"
+    assert gpt5["reasoning_effort"] == "none", (
+        "reasoning tokens are drawn from the reply budget, so a cap sized for a spoken "
+        "turn truncates the turn instead"
+    )
+    # WE DO NOT RENAME THE KEY: the ENGINE swaps `max_tokens` for `max_completion_tokens`
+    # on a GPT-5 model, and their published schema has no such field for us to send.
+    assert gpt5["max_tokens"] == 400 and "max_completion_tokens" not in gpt5
+
+    # THE GEMINI TRAP IS MITIGATED BY AN ABSENCE, and it is asserted as one. The engine
+    # sends `thinking_budget=0` on 2.5 flash/flash-lite unconditionally and Google's own
+    # docs say 0 disables thinking; a non-zero value FROM US would switch it back on
+    # through that function's first branch.
+    gemini = _llm_trap_settings(
+        ModelConfig(
+            llm_model="gemini-2.5-flash",
+            llm_traps=("thinking-tokens-share-the-reply-budget",),
+        )
+    )
+    assert gemini == plain
+    assert "thinking_budget" not in gemini and "thinking_level" not in gemini
+
+
+def test_every_selectable_models_traps_survive_the_whole_publish_path() -> None:
+    """End to end rather than at the one function: `in_call_llm` resolves the traps from
+    the catalogue, `ModelConfig` carries them, and `_llm_trap_settings` renders them — so
+    this asserts the three joins, not the middle one.
+
+    FAILS IF: a leg is added whose traps `in_call_llm` forgets to resolve, or `ModelConfig`
+    drops the field, or a GPT-5 model becomes selectable while the adapter still sends 0.1.
+    """
+    for model, spec in sorted(LLM_MODELS.items()):
+        settings = _llm_trap_settings(
+            ModelConfig(llm_model=model, llm_traps=tuple(t.name for t in spec.traps))
+        )
+        needs_one = any(t.name == "temperature-must-be-one" for t in spec.traps)
+        assert settings["temperature"] == (1 if needs_one else 0.1), model
 
 
 # --- what the adapter reads back ------------------------------------------------------
@@ -494,10 +604,38 @@ def _configure(monkeypatch: pytest.MonkeyPatch, **overrides: str | None) -> None
 def test_a_half_configured_deployment_stays_on_the_engines_own_default(
     monkeypatch: pytest.MonkeyPatch, missing: str, why: str
 ) -> None:
+    """`None` IS THE ARGUMENT NOW, AND THE CHANGE IS THE POINT RATHER THAN A FIXTURE TWEAK.
+
+    This used to pass `"sarvam-105b"` and get it straight back, because the passthrough arm
+    forwarded ANY string to the engine unexamined. That is no longer legal and must not be:
+    `leg_for_model` refuses an identifier the catalogue does not know rather than guessing a
+    leg for it, and an unpriced string reaching a vendor is exactly the spend the catalogue
+    exists to prevent. `None` is what this state actually looks like in production — nobody
+    chose, so the engine uses its own default — and the refusal for a stranger is asserted
+    directly below.
+    """
     from apps.api.agents import service
 
     _configure(monkeypatch, **{missing: None})
-    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}, why
+    assert service.in_call_llm(None) == {"llm_model": None}, why
+
+
+def test_an_identifier_the_catalogue_does_not_know_is_refused_on_every_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The passthrough arm is NOT a hole for an unknown model, on any configuration.
+
+    A string with no `LlmModelSpec` has no leg, no price and no traps, so there is nothing
+    to decide an endpoint from and nothing to meter a minute against. It raises rather than
+    defaulting to the incumbent leg — defaulting is how a Gemini identifier ends up in an
+    Azure deployment field as a 404 mid-call.
+    """
+    from apps.api.agents import service
+
+    for configuration in ({}, {"azure_openai_resource": None, "azure_openai_api_key": None}):
+        _configure(monkeypatch, **configuration)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="not a model this repository knows"):
+            service.in_call_llm("sarvam-105b")
 
 
 def test_a_deployment_with_no_azure_credential_at_all_stays_put(
@@ -515,7 +653,12 @@ def test_a_deployment_with_no_azure_credential_at_all_stays_put(
         azure_openai_api_key=None,
         azure_openai_deployment=None,
     )
-    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
+    assert service.in_call_llm(None) == {"llm_model": None}
+    # An EXPLICIT Azure choice still passes straight through on this arm: there is no
+    # deployment indirection, so the model identifier IS what the engine is sent.
+    assert service.in_call_llm(AZURE_OPENAI_DEFAULT_MODEL) == {
+        "llm_model": AZURE_OPENAI_DEFAULT_MODEL
+    }
 
 
 def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together(
@@ -542,6 +685,10 @@ def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together
         "llm_model": DEPLOYMENT,
         "llm_provider": "azure_openai",
         "llm_base_url": ENDPOINT,
+        # EMPTY IS A READING: neither allow-listed Azure model is GPT-5-class, so neither
+        # carries a request-field trap. The tuple is present rather than absent so the
+        # adapter never has to distinguish "no traps" from "nobody resolved them".
+        "llm_traps": (),
     }
     assert leg["llm_model"] != AZURE_OPENAI_DEFAULT_MODEL
     # And it must be a config `ModelConfig` will actually accept — the residency
@@ -562,16 +709,20 @@ def test_a_model_this_platform_has_no_deployment_for_is_refused_not_substituted(
     bill for the first. There is no safe substitute, so there is none — the leg refuses,
     names the model, and the agent does not publish.
 
-    `sarvam-105b` stands in for any identifier with no deployment behind it. The API
-    cannot store one any more (`ck_agents_llm_model_allowed`, `validate_llm_model`), which
-    is why this arm is reached by calling the decision point directly: the state it guards
-    is an operator removing a deployment under an account that already chose.
+    The stand-in is now a REAL catalogue model with no deployment configured for it, rather
+    than a made-up identifier: `leg_for_model` refuses a stranger outright (asserted
+    separately), so a stranger could no longer reach this arm at all. The API cannot store an
+    undeployed selection either (`ck_agents_llm_model_allowed`, `validate_llm_model`), which
+    is why this arm is reached by calling the decision point directly: the state it guards is
+    an operator removing a deployment under an account that already chose.
     """
     from apps.api.agents import service
     from apps.api.core.errors import ProblemError
 
     _configure(monkeypatch)
+    undeployed = ALTERNATE_AZURE_MODEL
     with pytest.raises(ProblemError) as raised:
-        service.in_call_llm("sarvam-105b")
+        service.in_call_llm(undeployed)
     assert raised.value.code == "llm_model_not_deployed"
-    assert "sarvam-105b" in raised.value.detail
+    assert undeployed in raised.value.detail
+    assert "deployment" in raised.value.detail

@@ -688,12 +688,28 @@ MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS: Final = LlmModelTrap(
 #: BILLED to us as output tokens, so a Gemini leg's `output_tokens` is not the spoken reply's
 #: length.
 #:
-#: ⚠ THE MITIGATION AND THE RETIREMENT ARE THE SAME MODEL, which is why this trap is
-#: recorded against the two models it is currently MITIGATED on. The engine sends
-#: `ThinkingConfig(thinking_budget=0)` for `gemini-2.5-flash` and `-flash-lite` — a value in
-#: somebody else's repository at a pinned commit, not a term of any contract — and sends a
-#: non-zero `thinking_level` with `include_thoughts=True` on every `gemini-3.*` successor,
-#: where there is no zero. Google retires the 2.5 family on 16 Oct 2026.
+#: ⚠ **IT SPLITS THE GOOGLE LEG IN TWO, AND THE VENDOR NOW SAYS SO IN ITS OWN WORDS.** On
+#: `gemini-2.5-flash` and `-flash-lite` the engine sends `ThinkingConfig(thinking_budget=0)`
+#: and Google's thinking guide states that `thinkingBudget: 0` DISABLES thinking (and that
+#: -flash-lite's default is not to think at all) — so on those two the trap is ELIMINATED,
+#: proved from both sides of the wire. On every `gemini-3.*` the engine sends `thinking_level`
+#: instead, and Google's own page says **"Gemini 3 Flash and Flash-Lite also do not support
+#: full thinking-off"** and **"minimal does not guarantee that thinking is off"** — which is
+#: the vendor confirming, in prose, what its generated enum already showed: `MINIMAL` is the
+#: floor and there is no zero. `thinking_budget` is read and DISCARDED on that family.
+#:
+#: ⚠ **AND THE ENGINE HAS A NAMED TERMINAL STATE FOR THE OUTCOME.** `gemini_llm.py:461-465`
+#: logs `"Dead turn detected"` when a turn produces no speech and no tool call, then yields
+#: NOTHING — no retry, no filler line, no exception a caller could cover. It exists on the
+#: Gemini adapter and on no other. On a phone call that is dead air, diagnosable afterwards
+#: and invisible in the moment.
+#:
+#: **WHAT THIS TRAP IS NOT ABOUT: A CALENDAR.** This comment used to end "Google retires the
+#: 2.5 family on 16 Oct 2026", which was WRONG — that date belonged to dated preview
+#: snapshots, the GA identifiers carry no announced shutdown, and the error propagated out of
+#: this tree into an evidence document and a lane brief before anybody re-read the vendor's
+#: page. Hard rule 11 is the response. The ground for refusing the 3.x models is this trap
+#: and nothing else.
 THINKING_TOKENS_SHARE_THE_REPLY_BUDGET: Final = LlmModelTrap(
     name="thinking-tokens-share-the-reply-budget",
     what_breaks=(
@@ -703,17 +719,28 @@ THINKING_TOKENS_SHARE_THE_REPLY_BUDGET: Final = LlmModelTrap(
     ),
     evidence=Evidence(
         source=(
-            "googleapis/python-genai@66807187f212 google/genai/types.py:5692-5707,8438-8452; "
-            "bolna/llms/gemini_llm.py:85,188-213 @ 0172347b601e"
+            "ai.google.dev/gemini-api/docs/generate-content/thinking (page dated 2026-08-17); "
+            "googleapis/python-genai@66807187f212 google/genai/types.py:364-376,498-499,"
+            "5692-5707,8218-8225,8438-8452,8587-8601; "
+            "bolna/llms/gemini_llm.py:85,188-213,461-465 @ 0172347b601e"
         ),
-        read_on=_TRAP_READ_ON,
+        read_on=date(2026, 8, 23),
         verified=True,
         note=(
-            "Mechanism VERIFIED-VENDOR-DOCS from Google's own generated types; the engine's "
-            "handling VERIFIED-OSS. The empty-response BEHAVIOUR itself is a third-party "
-            "reproduction (valentinfrlch/ha-llmvision#609, langchain-ai/langchain-google"
-            "#1020), so the consequence is REPORTED even though the mechanism is not. "
-            "docs/evidence/llm-provider-postures.md §3.4."
+            "FOUR INDEPENDENT LEGS, and the strongest is the vendor's own prose. Google's "
+            "thinking guide (VENDOR-PUBLISHED, founder-relayed 23 Aug 2026 — ai.google.dev is "
+            "egress-blocked here) states thinkingBudget 0 disables thinking on 2.5 flash and "
+            "flash-lite, and that Gemini 3 Flash and Flash-Lite 'do not support full "
+            "thinking-off' with 'minimal does not guarantee that thinking is off'. Their "
+            "generated types corroborate it structurally: ThinkingLevel has no zero member "
+            "while the sibling thinkingBudget documents '0 is DISABLED'; Candidate.content is "
+            "Optional and .text returns None when it is absent; FinishReason.MAX_TOKENS names "
+            "the budget as a stop cause. The engine's handling is VERIFIED-OSS, including its "
+            "'Dead turn detected' branch, which logs and yields nothing. ⚠ The dead-turn log "
+            "proves the STATE is anticipated, not that a given instance was caused by "
+            "thinking — a safety block also returns empty content — so attributing one needs "
+            "thoughts_token_count from the same execution. "
+            "docs/evidence/llm-multi-provider-2026-08.md §C.2 and ADDENDUM."
         ),
     ),
 )
@@ -760,34 +787,92 @@ AzureOpenAIModel = Literal["gpt-4o-mini", "gpt-4.1-mini"]
 #: the same string on two legs would make the ledger unable to say which leg a minute ran on.
 #: `tests/residency_posture_test.py` fails if the three Literals ever intersect.
 #:
-#: WHY THESE TWO. `gpt-5.4-mini` is the engine's own voice recommendation on both provider
-#: pages (`openai.md:46`) and the OpenAPI's default `model` (`create.md:803-806`).
-#: `gpt-5.6-luna` is newer, roughly a quarter of its input price, accepts `reasoning_effort:
-#: none` (`bolna/constants.py:329`, VERIFIED-OSS) and is ABSENT from the Azure model page —
-#: it is the concrete form of the vendor's own *"Azure has a short lag"* (`:90`), and the
-#: reason a second leg buys reach rather than only a second bill.
+#: WHY THESE TWO AND NOTHING ABOVE THEM. `gpt-5.4-mini` is the engine's own voice
+#: recommendation on both provider pages (`openai.md:46`) and the OpenAPI's default `model`
+#: (`create.md:803-806`). `gpt-5.6-luna` is newer, roughly a quarter of its input price,
+#: accepts `reasoning_effort: none` (`bolna/constants.py:329`, VERIFIED-OSS) and is ABSENT
+#: from the Azure model page — the concrete form of the vendor's own *"Azure has a short
+#: lag"* (`:90`), and the reason a second leg buys reach rather than only a second bill.
+#:
+#: **THE FLAGSHIPS ARE DELIBERATELY ABSENT AND THE GROUND IS ARITHMETIC, NOT TASTE.** The
+#: engine also documents `gpt-5.6-sol` ($5/$30), `gpt-5.6-terra` ($2/$12), `gpt-5.5` ($5/$30),
+#: `gpt-5.5-pro` (no 2026 price any lane could reach) and `gpt-5.4` ($2.50/$15). At
+#: `REFERENCE_CALL`'s shape a five-minute call resends the whole conversation on every turn
+#: (TRD §6.1), so ~90% of the bill is INPUT and a 10-30x input price is a 10-30x leg. A
+#: flagship is not a premium tier on a per-minute product; it is a different product. This is
+#: the same rule `GoogleDirectModel` states for the Gemini Pros, written once per Literal
+#: because the Literal is where somebody is tempted to add one.
+#:
 #: ⚠ BOTH ARE GPT-5-CLASS, so both carry `TEMPERATURE_MUST_BE_ONE` and
-#: `MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS`, and neither is selectable while its price is
-#: REPORTED. See `LLM_MODELS`.
+#: `MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS` — and BOTH ARE NOW MITIGATED AT THE WIRE
+#: rather than used as a reason to withhold them. `apps/api/engine/bolna.py` reads
+#: `LlmModelSpec.traps` and sends `temperature: 1` and an explicit `reasoning_effort: "none"`
+#: (which both models accept — `openai.md:87`, `constants.py:323,329`) on exactly the models
+#: that carry them. The engine's Responses-API path force-closes the temperature at runtime,
+#: but agent CREATE is validated against the raw body, so an unmitigated publish 400s before
+#: a call is ever placed.
 OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
 
-#: THE MODELS this platform may configure into a **Google (Gemini) direct** leg — PRESENT,
-#: PRICED, DATED AND OFFERED TO NOBODY.
+#: THE MODELS this platform may configure into a **Google (Gemini) direct** leg — the
+#: engine-documented **budget tier** across both live generations, two of them OFFERED and
+#: two of them PRESENT-BUT-REFUSED.
 #:
-#: **THEY ARE HERE SO THE REFUSAL IS A CHECKED FACT INSTEAD OF A MEMORY.** A leg with no
-#: models is inert — `check_model_residency` fails a leg no model names, precisely so the
-#: permitted set cannot rot into a wish list — and a refusal written only in prose is one
-#: the next reader re-derives from a pricing page. Both carry `selectable=False` and a
-#: `withdrawn_reason` that states the ground, and `SELECTABLE_LLM_MODELS` excludes them, so
-#: no picker, no column CHECK and no publish path can reach one.
+#: **WHY THE BUDGET TIER AND NOTHING ABOVE IT** — the same rule that shapes every Literal
+#: here, stated once at `LLM_MODELS`: ~90% of an in-call LLM bill is INPUT tokens, because
+#: TRD §6.1 resends the whole conversation every turn. `gemini-2.5-pro` ($1.25/$10.00) and
+#: `gemini-3.1-pro` ($2.00/$12.00) are on the engine's supported list and are deliberately
+#: ABSENT from this Literal: a flagship on a per-minute budget is not a premium option, it
+#: is a different product. `gemini-3.5-flash-lite` is absent for a different reason — it is
+#: in the engine's OSS thinking-level map but NOT on its published supported-model page, and
+#: this repository ships no identifier the vendor has not documented.
 #:
-#: THE GROUND IS NOT RESIDENCY. D-449 spent that argument and it is not recycled: it is
-#: `THINKING_TOKENS_SHARE_THE_REPLY_BUDGET` plus a calendar. The engine zeroes the thinking
-#: budget on exactly these two models and on nothing else; Google retires exactly these two
-#: on 16 Oct 2026; every `gemini-3.*` successor takes a non-zero thinking level with no way
-#: to reach zero. The mitigation and the retirement are the same model, which is what makes
-#: this a dead end rather than a migration.
-GoogleDirectModel = Literal["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+#: **WHICH TWO ARE OFFERED, AND THE GROUND IS THE TRAP RATHER THAN THE CALENDAR.** D-456
+#: withheld this whole leg and gave two grounds; exactly one of them survives contact with
+#: the primary sources, and it is not the one that reads loudest.
+#:
+#: * `gemini-2.5-flash` and `gemini-2.5-flash-lite` are **SELECTABLE**. The engine sends
+#:   `ThinkingConfig(thinking_budget=0)` on every 2.5 model that is not a Pro — VERIFIED-OSS,
+#:   `bolna/llms/gemini_llm.py:202-206` @ `0172347b601e` — and Google's own generated types
+#:   say `thinking_budget` *"0 is DISABLED"* (`googleapis/python-genai@66807187f212`,
+#:   `google/genai/types.py:5700-5704`). That is not a mitigation we hope holds; it is the
+#:   trap ELIMINATED, proved from both sides of the wire. ⚠ It also means we must never send
+#:   a non-zero `thinking_budget`, which would switch thinking back ON through that
+#:   function's first branch — `apps/api/engine/bolna.py` sends none, by construction.
+#: * `gemini-3.1-flash-lite` and `gemini-3.5-flash` are **REFUSED**, and the ground is
+#:   correctness rather than price or residency. On `gemini-3.*` the engine sends
+#:   `thinking_level` instead, whose vendor enum has **no zero at all** — `MINIMAL` is the
+#:   floor (`types.py:364-376`) — the value is unreachable from any config key
+#:   (`thinking_level` appears three times in the whole engine and none is a kwarg), and
+#:   `thinking_budget` is read and discarded on that family. So thinking tokens draw on
+#:   `max_output_tokens` with no bound we can set and none the vendor publishes. The engine
+#:   has a named terminal state for the outcome — `"Dead turn detected"`,
+#:   `gemini_llm.py:461-465`, which logs and yields NOTHING, no retry and no filler — and on
+#:   a phone call that is dead air. See `docs/evidence/llm-multi-provider-2026-08.md` §C.2.
+#:
+#: ⚠ **THE TWO SAFE MODELS ARE DURABLE, AND THIS COMMENT USED TO SAY THE OPPOSITE.** It read
+#: "Google retires exactly these two on 16 Oct 2026", which made the leg a dead end with a
+#: calendar on it. That date was wrong: Google's own deprecations page (dated 13 Aug 2026)
+#: lists both GA identifiers with NO announced shutdown, and 16 Oct belonged to dated PREVIEW
+#: snapshots this repository has never shipped. The wrong date came from a REPORTED figure in
+#: our own `model_lifecycle.py` that later sessions restated as fact — hard rule 11's
+#: worked example, and the reason `ModelLifecycle.retirement_stance` now distinguishes "the
+#: vendor announced nothing" from "nobody looked".
+#:
+#: What IS true about the calendar is smaller and worth keeping: Google publishes shutdown
+#: dates as the EARLIEST possible retirement rather than a commitment, so "none announced" is
+#: the strongest state an identifier can be in and is not a guarantee. The successors being
+#: unsafe means there is no named migration target — `MODEL_LIFECYCLE[...].replacement` is
+#: `None` on both rather than pointing at a model nobody may run.
+#:
+#: The refusal above is what makes the alternative a CHECKED fact instead of a memory: a leg
+#: with no models is inert, and `check_model_residency` check 7 fails one no model names — a
+#: withdrawn model still names its leg.
+GoogleDirectModel = Literal[
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+]
 
 #: The three Literals as one set of VALUES — derived with `get_args`, never a fourth list
 #: typed beside them. This is what "is this string a model this repository knows" means.
@@ -832,6 +917,32 @@ AZURE_OPENAI_DEFAULT_MODEL: Final = "gpt-4o-mini"
 class LlmPrice:
     """One model's published list price, in **USD per MILLION tokens**, with its evidence.
 
+    ⚠ **THIS IS A CATALOGUE REFERENCE. IT IS NOT A BILLING INPUT AND NOTHING MAY MAKE IT
+    ONE.** Read this before using the number for anything.
+
+    The figure here is the vendor's PUBLISHED LIST price as somebody recorded it: it drives
+    the margin model (TRD §10.1), the operator console's pre-fill, and the sanity check that
+    an attested figure is in the right order of magnitude. **What a minute is actually BILLED
+    at comes from `apps/api/billing/rates.py::llm_inr_per_ktok`, which reads an OPERATOR
+    ATTESTATION** — the founder's own reading of his own vendor console or invoice — and
+    refuses a model nobody has attested.
+
+    **WHY THE ATTESTATION IS THE STRONGER EVIDENCE, not a fallback for a page we could not
+    fetch.** A list price is not what this account pays. Regional premiums (Azure's Regional
+    Standard is reported 5-10% over Global and the note below refuses to fold it in),
+    negotiated rates, promotional tiers with published end dates (Gemini 3.6/3.7 Flash step
+    2x on 1 Jan 2027) and long-context cliffs all move it, and none of them is visible on a
+    pricing page. The invoice is first-party evidence about THIS subscription; the page is
+    third-party evidence about a list. Hard rule 7 is satisfied by the first, not the second.
+
+    **AND THAT IS WHAT MAKES HARD RULE 7 A PROPERTY OF THE ARCHITECTURE RATHER THAN OF A
+    FLAG.** This class used to enforce the rule by refusing to let a model be `selectable` on
+    an unverified price — correct, but coarse, because it protected `unit_cost_paid` by
+    deleting the model. The protection now sits at the seam it is about: the catalogue price
+    has NO path to `unit_cost_paid` at all, so a REPORTED figure cannot reach a bill however
+    `selectable` is edited. `tests/llm_cost_model_test.py` holds both halves — that the
+    billing function refuses an unattested model, and that it never falls back to this field.
+
     WHY USD IN A TREE WHOSE MONEY IS RUPEES (hard rule 7). Two readers need this number at
     different exchange rates: `billing/ai_quota.py` prices the dashboard assist and
     `billing/rates.py` prices the in-call LLM leg. It once shipped as INR literals with the
@@ -840,14 +951,6 @@ class LlmPrice:
     console value, and a constant that has already multiplied them cannot be re-derived when
     either moves. So the VENDOR'S fact lives here in the vendor's unit, beside the identifier
     it is a price OF, and every rupee conversion happens at a named rate in `billing/`.
-
-    **`evidence.verified is False` MAKES THE MODEL UNSELECTABLE, AND THAT IS ENFORCED BY
-    `LlmModelSpec` RATHER THAN REMEMBERED.** A price is the one vendor claim that reaches
-    `unit_cost_paid`, and hard rule 7 does not have a REPORTED tier. Every OpenAI and Google
-    figure in this file is a search summary of a page this environment's egress proxy
-    refuses; the two Azure figures are D-410's own verified reading. So the two legs whose
-    prices nobody here has read cannot be billed for, and the fix is a human opening two URLs
-    rather than a judgement call at a call site.
     """
 
     input_usd_per_mtok: Decimal
@@ -865,12 +968,32 @@ class LlmModelSpec:
     finding four places, and the one everybody found was the `Literal`. A model is now one
     entry, and the guards refuse the tree when any of the derived sets disagree.
 
-    `selectable` IS THE ONE FLAG A PICKER READS, and every reason to withhold a model
-    collapses into it: a vendor retirement with no successor, a request-field trap we cannot
-    mitigate, or a price nobody here has read. `withdrawn_reason` is REQUIRED whenever it is
-    False, because "not offered" with no sentence beside it is a decision the next reader
-    re-litigates from scratch — and forbidden when it is True, so a stale reason cannot sit
-    under a model that is on offer.
+    **`selectable` MEANS "THIS REPOSITORY PERMITS IT ON MERIT", AND THAT IS NARROWER THAN
+    "ANYBODY CAN CHOOSE IT TODAY".** The distinction arrived with the multi-provider offering
+    and it is the whole reason to read this docstring rather than the field name. A model is
+    OFFERABLE at runtime only when three separate things hold, and only one of them is here:
+
+    1. `selectable` — a judgement this tree can make from source: the engine supports the
+       identifier, its traps are ones we can mitigate at the wire, and it sits in the
+       per-minute cost tier a voice product can afford.
+    2. Its provider's credential is installed — an operator's act, invisible from source.
+    3. Its price is ATTESTED by an operator — a first-party reading of a real invoice.
+
+    `apps/api/agents/llm_models.py::offerable_models()` is the one predicate that ANDs the
+    three, and every surface reads THAT: the picker, `validate_llm_model`, the publish path
+    and the rate card. Nothing branches on `selectable` alone except the guards, which are
+    judging the catalogue rather than serving a request.
+
+    **WHY THE MERIT JUDGEMENT STAYS IN SOURCE while the other two do not.** Whether a trap
+    can be mitigated is a property of code somebody has to write; whether a model is
+    affordable is a property of a cost model in this repository. Both are reviewed commits.
+    A key and a price are properties of an account, change without a deploy, and are exactly
+    what an operator console is for — putting them in a `Literal` would make an ops action a
+    release, which is the mistake `Settings.azure_openai_deployments` already avoids.
+
+    `withdrawn_reason` is REQUIRED whenever `selectable` is False, because "not offered" with
+    no sentence beside it is a decision the next reader re-litigates from scratch — and
+    forbidden when it is True, so a stale reason cannot sit under a model that is on offer.
     """
 
     model: str
@@ -898,12 +1021,16 @@ class LlmModelSpec:
                 "without a sentence is a decision the next reader re-litigates from a "
                 "pricing page."
             )
-        if self.selectable and not self.price.evidence.verified:
+        if self.price.input_usd_per_mtok <= 0 or self.price.output_usd_per_mtok <= 0:
             raise ValueError(
-                f"{self.model!r} is selectable on a price nobody here has read "
-                f"({self.price.evidence.source}). A REPORTED figure reaching unit_cost_paid "
-                "is hard rule 7 broken by a search summary — withdraw the model until a "
-                "human opens the vendor's pricing page, or record the reading."
+                f"{self.model!r} carries a non-positive catalogue price. A zero here reads "
+                "as a free model on every screen that shows the reference figure, and a "
+                "free leg is the one cost mistake nobody investigates."
+            )
+        if not self.price.evidence.source:
+            raise ValueError(
+                f"{self.model!r} carries a price with no evidence source. See D-31/D-32: an "
+                "unattributed vendor number is the defect class this record exists for."
             )
 
 
@@ -913,38 +1040,84 @@ _AZURE_PRICE_EVIDENCE: Final = Evidence(
     verified=True,
     note=(
         "This environment's egress proxy refuses Microsoft's pricing pages, so these are "
-        "the decision's own verified reading rather than a page fetched here. ⚠ WE DO NOT "
-        "BUY GLOBAL STANDARD: a REGIONAL Standard deployment is what pins inference to "
-        "AZURE_LOCATION and is reported to cost 5-10% more, with published examples as high "
-        "as +12% and +20%. That premium is deliberately NOT folded in — a factor nobody has "
-        "seen on an invoice would make every derived figure unfalsifiable in the expensive "
-        "direction. Settled by the first Azure invoice (OPERATIONS §2)."
+        "the decision's own reading rather than a page fetched here — and under hard rule 11 "
+        "that makes them a repo-internal CLAIM being carried forward, not evidence of "
+        "themselves. They are kept because TRD §10 is deliberately UNREPRICED (CLAUDE.md) "
+        "and because they can no longer reach a bill (see LlmPrice).\n"
+        "⚠ WE DO NOT BUY GLOBAL STANDARD, and the premium is no longer a rumour. A REGIONAL "
+        "Standard deployment is what pins inference to AZURE_LOCATION, and the founder read "
+        "azure.microsoft.com's own East US 2 card on 23 Aug 2026: gpt-4o-mini $0.165/$0.66 "
+        "and gpt-4.1-mini $0.44/$1.76 — exactly +10% on both figures below, both models "
+        "available. It is STILL deliberately not folded in here: repricing the reference card "
+        "would move every §10 figure and every doc-drift assertion for a number that belongs "
+        "on an invoice, and the attested price is where the real invoiced figure lands. So "
+        "the 10% is the known, named gap between this reference and what an attestation will "
+        "say — which is the healthy direction for a reference figure to be wrong in."
     ),
 )
 
-_OPENAI_PRICE_EVIDENCE: Final = Evidence(
-    source="docs/evidence/llm-provider-postures.md §7.2 (search summaries of third-party trackers)",
-    read_on=_TRAP_READ_ON,
+_CATALOGUE_READ_ON: Final = date(2026, 8, 23)
+
+#: HOW A CATALOGUE PRICE GETS ITS CLASS, and why two OpenAI models do not share one.
+#:
+#: `verified` is about the SOURCE CLASS, never about confidence, and this file now holds
+#: three distinct classes on one axis. VENDOR-PUBLISHED-founder-relayed is the vendor's own
+#: page, opened in a browser by the person who holds the account, with a URL and a page date;
+#: REPORTED is a search summary of third-party trackers. Neither is filed `verified=True`,
+#: and the reason is a property of THIS environment rather than of the evidence: every one of
+#: these hosts is refused by the egress proxy here AND in CI, so nothing in our toolchain can
+#: ever re-check the line. A `verified=True` that no run can falsify is a claim, not a check.
+#:
+#: **AND NONE OF IT REACHES A BILL EITHER WAY** — see `LlmPrice`. These figures pre-fill the
+#: operator console, drive TRD §10's margin model and bound a sanity check on what an
+#: operator types. `unit_cost_paid` is fed only by an attestation.
+
+_OPENAI_VENDOR_PAGE_PRICE: Final = Evidence(
+    source="developers.openai.com/api/docs/models/gpt-5.4-mini (accessed 2026-08-23)",
+    read_on=_CATALOGUE_READ_ON,
     verified=False,
     note=(
-        "REPORTED, and it is the weakest evidence class in that file. Every OpenAI-owned "
-        "host this container tried is egress-blocked (measured 22 Aug 2026), so no OpenAI "
-        "price was read at its own URL. Closed by a human opening "
-        "openai.com/api/pricing/ — until then these models are not selectable and no figure "
-        "here can reach unit_cost_paid."
+        "VENDOR-PUBLISHED, founder-relayed: OpenAI's own model page, read in a browser on 23 "
+        "Aug 2026 and matching the third-party trackers to the cent. NOT `verified=True` "
+        "because no tool in this repository can re-fetch it — openai.com, platform.openai.com "
+        "and developers.openai.com are all refused by this environment's egress proxy on two "
+        "independent paths, here and in CI. ⚠ NOTE THE HOST: the pricing and deprecation "
+        "pages MOVED to developers.openai.com, and this constant used to send a reader to "
+        "openai.com/api/pricing/, which is stale. "
+        "docs/evidence/llm-multi-provider-2026-08.md ADDENDUM."
+    ),
+)
+
+_OPENAI_TRACKER_PRICE: Final = Evidence(
+    source="docs/evidence/llm-multi-provider-2026-08.md §D.3 (third-party trackers)",
+    read_on=_CATALOGUE_READ_ON,
+    verified=False,
+    note=(
+        "REPORTED — the weakest class in this file, and kept separate from the row above "
+        "precisely so the difference is visible at the call site. No vendor page was opened "
+        "for this identifier by anybody. ⚠ AND IT IS THE FIGURE MOST LIKELY TO BE WRONG: "
+        "gpt-5.6-luna's price is reported as an 80% cut made on 30 Jul 2026, so the number is "
+        "six weeks old and moved 5x within the quarter. A model this volatile is exactly the "
+        "one an attested invoice figure exists for."
     ),
 )
 
 _GOOGLE_PRICE_EVIDENCE: Final = Evidence(
-    source="docs/evidence/llm-provider-postures.md §7.2 and gemini-direct-api.md §4",
-    read_on=_TRAP_READ_ON,
+    source="ai.google.dev/gemini-api/docs/pricing (page dated 2026-08-17)",
+    read_on=_CATALOGUE_READ_ON,
     verified=False,
     note=(
-        "REPORTED. Every ai.google.dev host is egress-blocked here, and the two files "
-        "disagree in one place: -flash-lite is $0.10/$0.40 in the newer lane and 'not "
-        "confirmed this session' in the older one. Closed by a human opening "
-        "ai.google.dev/gemini-api/docs/pricing. These models are withheld on merit anyway "
-        "(see GoogleDirectModel), so the unread price is not what is standing in the way."
+        "VENDOR-PUBLISHED, founder-relayed (23 Aug 2026), on the DEVELOPER API surface — "
+        "which is the surface the engine's google leg actually bills on "
+        "(bolna/llms/gemini_llm.py:48-49 @ 0172347b601e builds genai.Client(api_key=...)). "
+        "That distinction cost a lane a whole section: an earlier reading fetched Google's "
+        "VERTEX price card, which matches to the cent and is still the wrong page. NOT "
+        "`verified=True` because ai.google.dev is egress-blocked here and in CI. ⚠ TWO "
+        "TRAPS IN THE VENDOR'S OWN TABLE: output is billed as 'response and reasoning', so "
+        "thinking tokens are charged at the output rate — which is why an unbounded thinking "
+        "level is a money problem as well as a silence problem; and AUDIO input is metered "
+        "separately and dearer on every row. Our leg sends TEXT (Sarvam does the STT), so the "
+        "text row is the right one and a future speech-to-speech path must re-read this."
     ),
 )
 
@@ -959,6 +1132,16 @@ _GOOGLE_PRICE_EVIDENCE: Final = Evidence(
 #: What it costs is a check the type cannot make — a model in a `Literal` with no entry here
 #: — and `check_model_lifecycle` REFUSES to score rather than passing when the two disagree,
 #: in either direction.
+#:
+#: **WHAT DECIDES MEMBERSHIP IS COST PER MINUTE, NOT CAPABILITY**, and it is written here as
+#: well as at each `Literal` because this dict is where a price is visible beside a name.
+#: `REFERENCE_CALL` (`apps/api/billing/rates.py`) is the shape: a 900-token system prompt,
+#: six turns a minute, 60 tokens a turn — and TRD §6.1 resends the WHOLE conversation on
+#: every turn, so input tokens grow quadratically with call length and **~90% of the in-call
+#: LLM bill is INPUT**. A model priced 10x on input is a 10x leg whatever it is worth on a
+#: benchmark. So this catalogue carries the mini/flash/lite tier and refuses the flagships by
+#: name: `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.5-pro`, `gemini-2.5-pro` and `gemini-3.1-pro` are
+#: all supported by the engine and all deliberately absent from the three `Literal`s.
 #:
 #: **THE THREE LEGS ARE NOT THREE POSTURES.** Which leg a model runs on is a property of the
 #: MODEL, resolved here once; which endpoint that leg builds, which region it can prove and
@@ -996,19 +1179,11 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
         price=LlmPrice(
             input_usd_per_mtok=Decimal("0.75"),
             output_usd_per_mtok=Decimal("4.50"),
-            evidence=_OPENAI_PRICE_EVIDENCE,
+            evidence=_OPENAI_VENDOR_PAGE_PRICE,
         ),
         traps=(TEMPERATURE_MUST_BE_ONE, MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS),
-        selectable=False,
-        withdrawn_reason=(
-            "its price is REPORTED, not read: every OpenAI pricing host is egress-blocked "
-            "here, so billing a client for it would put a search summary in unit_cost_paid "
-            "(hard rule 7). It is also 5x the shipped default on input and 7.5x on output "
-            "on that same unread figure, and the engine's own latency page measures no "
-            "GPT-5 model at all — so the vendor's 'fastest TTFT' recommendation has no "
-            "number behind it. A human opening openai.com/api/pricing/ closes the first "
-            "half; the pilot closes the second."
-        ),
+        selectable=True,
+        withdrawn_reason=None,
     ),
     "gpt-5.6-luna": LlmModelSpec(
         model="gpt-5.6-luna",
@@ -1016,15 +1191,22 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
         price=LlmPrice(
             input_usd_per_mtok=Decimal("0.20"),
             output_usd_per_mtok=Decimal("1.20"),
-            evidence=_OPENAI_PRICE_EVIDENCE,
+            evidence=_OPENAI_TRACKER_PRICE,
         ),
         traps=(TEMPERATURE_MUST_BE_ONE, MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS),
         selectable=False,
         withdrawn_reason=(
-            "same unread price as gpt-5.4-mini, and this is the row nobody has costed: "
-            "roughly a quarter of that model's input price and it accepts reasoning_effort "
-            "'none'. It is the strongest candidate on this leg and the one most worth "
-            "opening the pricing page for."
+            "NOBODY HAS OPENED A VENDOR PAGE FOR THIS IDENTIFIER, and that is the whole of "
+            "it — nothing about the model or the leg is against it. The founder's browser "
+            "reading on 23 Aug 2026 covered gpt-5.4-mini and gpt-5.4; this one was not on "
+            "it, so its retirement stance is `unread` in MODEL_LIFECYCLE and "
+            "check_model_lifecycle.refusals() keeps an unread model out of the selectable "
+            "set — correctly, because 'no date exists' and 'nobody checked' are the same "
+            "None and opposite facts. Its price is likewise only a tracker figure, and a "
+            "loud one: reported as an 80% cut on 30 Jul 2026, i.e. it moved 5x in a quarter. "
+            "It is the strongest unexplored candidate on this leg — roughly a quarter of "
+            "gpt-5.4-mini's input price with reasoning_effort 'none' available — and ONE "
+            "page-read at developers.openai.com/api/docs/models/gpt-5.6-luna closes it."
         ),
     ),
     "gemini-2.5-flash": LlmModelSpec(
@@ -1035,17 +1217,15 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
             output_usd_per_mtok=Decimal("2.50"),
             evidence=_GOOGLE_PRICE_EVIDENCE,
         ),
+        # THE TRAP IS RECORDED EVEN THOUGH IT IS ELIMINATED ON THIS MODEL, and that is the
+        # point of recording it. The elimination is a branch in somebody else's repository at
+        # a pinned commit (`gemini_llm.py:202-206`), not a term of any contract: the day that
+        # branch narrows, this model joins its 3.x siblings and the entry a reader needs is
+        # already here. `apps/api/engine/bolna.py` reads this tuple and is what guarantees we
+        # never send the `thinking_budget` that would switch thinking back on.
         traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
-        selectable=False,
-        withdrawn_reason=(
-            "Google retires it on 16 Oct 2026 and it is the ONLY Gemini model the engine "
-            "zeroes the thinking budget on — every gemini-3.* successor takes a non-zero "
-            "thinking level with no way to reach zero, and thinking tokens that consume the "
-            "reply budget return a candidate with no content field, which on a phone call "
-            "is silence. The mitigation and the retirement are the same model, so this is a "
-            "dead end rather than a migration. NOT a residency refusal: D-449 spent that "
-            "argument and it is not recycled."
-        ),
+        selectable=True,
+        withdrawn_reason=None,
     ),
     "gemini-2.5-flash-lite": LlmModelSpec(
         model="gemini-2.5-flash-lite",
@@ -1056,12 +1236,60 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
             evidence=_GOOGLE_PRICE_EVIDENCE,
         ),
         traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
+        selectable=True,
+        withdrawn_reason=None,
+    ),
+    # --- THE 3.x SUCCESSORS: PRESENT, PRICED, DATED AND REFUSED ON CORRECTNESS ---------
+    #
+    # They are entries rather than omissions because a refusal that lives only in prose is
+    # one the next reader re-derives from a pricing page — and because check_model_residency
+    # check 7 fails a declared leg no model names, so a withdrawn model is still load-bearing.
+    # Read `GoogleDirectModel` for the mechanism; the sentence below is the consequence.
+    "gemini-3.1-flash-lite": LlmModelSpec(
+        model="gemini-3.1-flash-lite",
+        provider="google",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.25"),
+            output_usd_per_mtok=Decimal("1.50"),
+            evidence=_GOOGLE_PRICE_EVIDENCE,
+        ),
+        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
         selectable=False,
         withdrawn_reason=(
-            "the cheapest per-token figure anywhere in this catalogue, on the same retiring "
-            "family and behind the same thinking-token failure as gemini-2.5-flash. A "
-            "cheaper rate on a model that emits reasoning tokens you cannot disable — and "
-            "that bills them as output — is not a cheaper leg."
+            "THINKING_TOKENS_SHARE_THE_REPLY_BUDGET is UNMITIGABLE on this family and the "
+            "failure is dead air. On gemini-3.* the engine sends `thinking_level`, whose "
+            "vendor enum has no zero — MINIMAL is the floor "
+            "(googleapis/python-genai@66807187f212 google/genai/types.py:364-376) — the "
+            "value is unreachable from any config key, and the `thinking_budget` that DOES "
+            "have a zero is read and discarded on this family "
+            "(bolna/llms/gemini_llm.py:196-200 @ 0172347b601e). So thinking tokens draw on "
+            "max_output_tokens with no bound we can set and none the vendor publishes, and "
+            "the engine's own terminal branch for the outcome — 'Dead turn detected', "
+            "gemini_llm.py:461-465 — logs and yields NOTHING: no retry, no filler, no "
+            "exception we could cover. Silence mid-call is a correctness defect, not a "
+            "quality setting, and the cost tier is otherwise right ($0.25/$1.50). Closed by "
+            "the vendor shipping a zero on thinking_level or the engine exposing the knob — "
+            "neither is ours. docs/evidence/llm-multi-provider-2026-08.md §C.2."
+        ),
+    ),
+    "gemini-3.5-flash": LlmModelSpec(
+        model="gemini-3.5-flash",
+        provider="google",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("1.50"),
+            output_usd_per_mtok=Decimal("9.00"),
+            evidence=_GOOGLE_PRICE_EVIDENCE,
+        ),
+        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
+        selectable=False,
+        withdrawn_reason=(
+            "refused twice over, and either ground alone would do it. Same unmitigable "
+            "thinking-level trap as gemini-3.1-flash-lite — see that entry for the four "
+            "primary sources — AND it is out of the per-minute cost tier this product can "
+            "carry: $1.50/$9.00 is 10x the shipped default on input and 15x on output, on a "
+            "leg where ~90% of the bill is input because TRD §6.1 resends the whole "
+            "conversation every turn. The engine calls it the 'latest generation'; on a "
+            "voice bill that is a flagship wearing a flash name."
         ),
     ),
 }
@@ -1070,10 +1298,21 @@ LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
 #: stay on a picker because a second list forgot it — which is the `AZURE_OPENAI_MODELS`
 #: failure class one level up.
 #:
-#: TODAY THIS EQUALS `AZURE_OPENAI_MODELS`, and the equality is a fact about the evidence
-#: rather than about the design: four of the six models are withheld, two on merit and two
-#: on an unread price. `tests/residency_posture_test.py` states it so the day it stops being
-#: true is a diff somebody read.
+#: **IT NO LONGER EQUALS `AZURE_OPENAI_MODELS`, AND THAT IDENTITY WAS NEVER THE DESIGN.** It
+#: held while four of six models were withheld — two on merit, two on an unread price — and
+#: several tests and docs asserted it as though it were an invariant. It is not: it was a
+#: fact about the evidence. Two things changed it. The price half is architecture: a
+#: catalogue price can no longer reach `unit_cost_paid` at all (see `LlmPrice`), so an unread
+#: LIST price stopped being a reason to delete a model and became a reason to require an
+#: operator's attested one. The merit half is a re-reading of primary sources: the GPT-5
+#: traps are mitigable at the wire and are now mitigated, and the Gemini trap is ELIMINATED
+#: by the engine on exactly the two 2.5 models — and unmitigable on their successors, which
+#: stay refused.
+#:
+#: ⚠ **THIS IS STILL NOT "WHAT A CLIENT MAY PICK TODAY".** It is condition (1) of three; the
+#: other two are a credential and an attested price, and `apps/api/agents/llm_models.py::
+#: offerable_models()` is the predicate every surface actually reads. A set stated over this
+#: constant alone would offer a model with no key behind it.
 SELECTABLE_LLM_MODELS: Final[frozenset[str]] = frozenset(
     name for name, spec in LLM_MODELS.items() if spec.selectable
 )
@@ -1081,22 +1320,29 @@ SELECTABLE_LLM_MODELS: Final[frozenset[str]] = frozenset(
 #: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`
 #: scans for them for the reason it scans for the Sarvam ones.
 #:
-#: ⚠ **THE HOLE THIS SET ONCE CLOSED IS RE-OPENED, DELIBERATELY, AND BY EXACTLY TWO NAMES.**
-#: Under D-127 the set carried one omission because `gemini-2.5-flash` was the shipped
-#: dashboard model and a set that both banned it and shipped it would have been incoherent.
-#: D-410 removed Gemini from the product and the set became the whole family. It is now the
-#: whole family MINUS `GOOGLE_DIRECT_MODELS`, because those two identifiers are back in the
-#: tree — priced, dated, and offered to nobody. The hole is smaller than D-127's (nothing
-#: SHIPS them; they are catalogue entries with `selectable=False`) and it is real: a
-#: copy-pasted `gemini-2.5-flash` in a worker would now pass this scan.
+#: ⚠ **THE HOLE THIS SET ONCE CLOSED IS RE-OPENED, DELIBERATELY, AND BY EXACTLY THE NAMES IN
+#: `GOOGLE_DIRECT_MODELS`.** Under D-127 the set carried one omission because
+#: `gemini-2.5-flash` was the shipped dashboard model and a set that both banned it and
+#: shipped it would have been incoherent. D-410 removed Gemini from the product and the set
+#: became the whole family. It is now the whole family MINUS `GOOGLE_DIRECT_MODELS` — and
+#: since the founder's multi-provider decision, two of those are not merely present but
+#: SELECTABLE, so the hole is the size D-127's was rather than smaller.
 #:
-#: WHAT COVERS THE RE-OPENED HALF, since the scan no longer can. `SELECTABLE_LLM_MODELS` is
-#: what every picker, column CHECK and publish path is stated over, so an identifier that
-#: reached a call site would still be refused before it reached a vendor — by
-#: `validate_llm_model`, by the two CHECK constraints and by `in_call_llm`. The scan was
-#: never the only defence; it is the one that catches a name arriving from a doc rather than
-#: from a decision, and for these two names that job now belongs to the `withdrawn_reason`
-#: a reader meets in `LLM_MODELS`.
+#: **WHAT IT STILL CATCHES, AND WHY IT IS WORTH KEEPING AT THAT SIZE.** The bans that remain
+#: are the models this product must never name: the 1.5 and 2.0 families, which are retired
+#: outright, and `gemini-2.5-pro`, which is live and supported by the engine and is banned on
+#: COST — a flagship at $1.25/$10.00 against a default at $0.15/$0.60. That last one is the
+#: interesting member: it is the only entry here that a well-meaning copy-paste from the
+#: vendor's own "Supported models" table would produce, and it is exactly the paste this scan
+#: exists to refuse.
+#:
+#: WHAT COVERS THE RE-OPENED HALF, since the scan cannot. `offerable_models()` is what every
+#: picker, column CHECK and publish path is stated over, so an identifier that reached a call
+#: site is refused before it reaches a vendor — by `validate_llm_model`, by the two CHECK
+#: constraints and by `in_call_llm`. The scan was never the only defence; it is the one that
+#: catches a name arriving from a doc rather than from a decision, and for the four names in
+#: `GOOGLE_DIRECT_MODELS` that job belongs to `LLM_MODELS` — two of which a reader meets as a
+#: `withdrawn_reason` rather than as a missing row.
 GEMINI_RETIRED_LLMS: Final = frozenset(
     {
         "gemini-1.5-flash",
@@ -1725,6 +1971,25 @@ class ModelConfig(BaseModel):
     #: output of that leg's own builder, never typed by hand and never a tenant's to choose.
     #: `None` on the `google` leg, which takes no base URL from us at all.
     llm_base_url: str | None = None
+    #: **THE REQUEST-FIELD BEHAVIOURS THIS MODEL BREAKS ON, IN OUR VOCABULARY** — the seam
+    #: that carries `LlmModelSpec.traps` from the catalogue to whichever adapter builds the
+    #: body (`LlmModelTrapName`, closed).
+    #:
+    #: **WHY THE CONTRACT CARRIES THEM AT ALL, WHICH IS THE HARD-RULE-2 QUESTION.** A trap is
+    #: a fact about a MODEL, not a payload shape: "this model rejects any temperature but 1"
+    #: is true of it on Bolna, on a direct client and on any future engine, and it is exactly
+    #: the class of normalized fact this contract exists to carry. WHICH JSON KEY expresses
+    #: the mitigation is the adapter's business and stays inside `apps/api/engine/`.
+    #:
+    #: **AND IT CANNOT BE DERIVED AT THE OTHER END, WHICH IS WHY IT IS A FIELD.** An adapter
+    #: holds `llm_model`, and on the Azure leg that is a DEPLOYMENT ID an operator chose —
+    #: `LLM_MODELS` has no such key and never will. So a trap tuple looked up from the wire
+    #: value would be empty on the one leg where a GPT-5 deployment could exist. It is
+    #: resolved once, where the model is known, by `agents/service.py::in_call_llm`.
+    #:
+    #: Empty is a real reading and is what every Azure config in this repository carries
+    #: today: neither allow-listed Azure model is GPT-5-class.
+    llm_traps: tuple[LlmModelTrapName, ...] = ()
     tts_provider: str | None = None
     tts_voice: str | None = None
 
@@ -2879,9 +3144,23 @@ class VoiceEngine(Protocol):
         """
         ...
 
-    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
-        """Install the secret the configured LLM endpoint authenticates with, replacing
-        whatever this engine was holding for that purpose (D-404).
+    async def set_llm_credential(
+        self, secret: str, *, provider: LlmProvider
+    ) -> LlmCredentialPlacement:
+        """Install the secret ONE declared LLM leg authenticates with, replacing whatever
+        this engine was holding for that leg (D-404).
+
+        **`provider` IS REQUIRED AND KEYWORD-ONLY, AND THE ABSENCE OF A DEFAULT IS THE
+        POINT.** This method took one secret and no leg while the product had one leg; the
+        posture now declares three, an operator installs a key for each, and every engine's
+        credential store keys them separately. A default here would mean "the incumbent leg",
+        so a caller that forgot to say which key they were rotating would overwrite the Azure
+        one with an OpenAI secret — a leg taken down by a call that returned success. Making
+        it required turns that into a type error at every call site instead.
+
+        The leg is named in OUR vocabulary (`LlmProvider`); which entry name the engine's own
+        store keeps it under is the adapter's business and differs per engine and per leg —
+        Bolna alone wants four entries for Azure and one each for the other two.
 
         **THE CREDENTIAL IS NOT AGENT CONFIG, AND NO OTHER METHOD ON THIS PROTOCOL COULD
         CARRY IT.** `create_agent`/`update_agent` carry an agent's CONFIG; the key the LLM

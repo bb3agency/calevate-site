@@ -869,9 +869,13 @@ async def _export_and_summary(
     # `staff` — so the "role gate" was every logged-in employee, and the exemption was
     # describing a control that did not exist. `calls:read_raw` is the permission that
     # already means "you may take the artefact, and your having taken it is recorded":
-    # owner in the client realm, superadmin in ours, never staff. D-436 unmasked the
-    # SCREENS; it did not move this gate, because a bulk extract is a different act from
-    # reading the row in front of you.
+    # owner in the client realm, BOTH admin tiers in ours since the founder's correction
+    # to D-457, never staff. D-436 unmasked the SCREENS; it did not move this gate,
+    # because a bulk extract is a different act from reading the row in front of you —
+    # and that distinction is now the whole of what stands between a support person and a
+    # client's contact list, so the audit row below is load-bearing rather than tidy
+    # (`tests/impersonation_audit_test.py` drives an operator through it and then reads
+    # the ledger).
     #
     # **The POST shape exists for `search` and only for `search`.** That field is matched
     # against `phone_e164`, and a customer's number in a query string is written to

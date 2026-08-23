@@ -741,7 +741,8 @@ describe("the confirmation strings this console sends", () => {
         normalTier,
         `ROLE_PERMISSIONS["operator"] now holds ${permission}, so this console's ` +
           "description of what an ordinary admin cannot do is false. Update ROLE_COPY in " +
-          "lib/api/adminOperators.ts — and the withheld panels on /admin/ops with it.",
+          "lib/api/adminOperators.ts — and the withheld panels on /admin/ops/config with " +
+          "it, plus the hidden sidebar entry in app/admin/layout.tsx.",
       ).not.toContain(`"${permission}"`);
     }
   });

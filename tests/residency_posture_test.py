@@ -44,7 +44,6 @@ from calevate_shared.engine import (
     GOOGLE_DIRECT_MODELS,
     LLM_MODEL_NAMES,
     LLM_MODELS,
-    OPENAI_DIRECT_MODELS,
     SELECTABLE_LLM_MODELS,
     AzureOpenAIModel,
     Evidence,
@@ -589,31 +588,45 @@ def test_the_three_model_literals_do_not_intersect() -> None:
         assert spec.model == name
 
 
-def test_a_price_nobody_here_has_read_cannot_be_selectable() -> None:
-    """HARD RULE 7 HAS NO `REPORTED` TIER, and this is where that is enforced rather than
-    remembered.
+def test_a_price_nobody_here_has_read_cannot_reach_a_bill() -> None:
+    """**HARD RULE 7 HAS NO `REPORTED` TIER, AND THE ENFORCEMENT MOVED TO THE SEAM IT IS
+    ABOUT.**
 
-    Every OpenAI and Google figure in the catalogue is a search summary of a page this
-    environment's egress proxy refuses. A price is the one vendor claim that reaches
-    `unit_cost_paid`, so a model cannot be offered on one — and the fix is a human opening
-    two URLs, not a judgement call at a call site.
+    It used to live at `LlmModelSpec.__post_init__`, which refused `selectable=True` on
+    unverified price evidence. That was correct and coarse: it protected `unit_cost_paid` by
+    DELETING the model, so an egress rule in this container blocked a whole multi-vendor
+    offering that the founder holds the accounts for. The protection is now on the MONEY —
+    `billing/rates.llm_inr_per_ktok` is the one door to a bill and it opens on exactly two
+    keys, an operator attestation or a catalogue figure somebody read from the vendor — which
+    is strictly stronger, because no edit to `LLM_MODELS` can open it.
+
+    So what this asserts is the property, not the old mechanism: every REPORTED catalogue
+    price is unbillable in a process where nothing is attested, whatever `selectable` says.
     """
-    with pytest.raises(ValueError, match="price nobody here has read"):
+    from apps.api.billing.rates import llm_price_is_billable
+
+    for name, spec in LLM_MODELS.items():
+        assert llm_price_is_billable(name) == spec.price.evidence.verified, name
+
+    # The catalogue invariants that DID stay at construction: a price has to exist, be
+    # positive and be attributed. A zero reads as a free model on every screen that shows the
+    # reference figure, and a free leg is the one cost mistake nobody investigates.
+    with pytest.raises(ValueError, match="non-positive catalogue price"):
+        _spec(
+            price=LlmPrice(
+                input_usd_per_mtok=Decimal("0"),
+                output_usd_per_mtok=Decimal("2"),
+                evidence=TODAY_EVIDENCE,
+            )
+        )
+    with pytest.raises(ValueError, match="price with no evidence source"):
         _spec(
             price=LlmPrice(
                 input_usd_per_mtok=Decimal("1"),
                 output_usd_per_mtok=Decimal("2"),
-                evidence=Evidence(
-                    source="a tracker", read_on=TODAY_EVIDENCE.read_on, verified=False
-                ),
+                evidence=Evidence(source="", read_on=TODAY_EVIDENCE.read_on, verified=True),
             )
         )
-
-    for name in OPENAI_DIRECT_MODELS | GOOGLE_DIRECT_MODELS:
-        assert not LLM_MODELS[name].price.evidence.verified, name
-        assert name not in SELECTABLE_LLM_MODELS, name
-    for name in SELECTABLE_LLM_MODELS:
-        assert LLM_MODELS[name].price.evidence.verified, name
 
 
 def test_a_withdrawn_model_must_say_why_and_an_offered_one_must_not() -> None:
@@ -631,23 +644,46 @@ def test_a_withdrawn_model_must_say_why_and_an_offered_one_must_not() -> None:
         assert LLM_MODELS[name].withdrawn_reason is None, name
 
 
-def test_the_gemini_rows_are_present_priced_dated_and_offered_to_nobody() -> None:
-    """The founder's decision, stated as an assertion rather than as a paragraph.
+def test_the_gemini_leg_splits_on_the_trap_and_only_on_the_trap() -> None:
+    """**THE GOOGLE LEG IS OFFERED, AND EXACTLY THE MODELS THAT CAN RETURN SILENCE ARE NOT.**
 
-    They are in the catalogue so the refusal is a CHECKED fact — a leg no model names fails
-    `inert_leg_failures`, and a refusal written only in prose is one the next reader
-    re-derives from a pricing page. And the ground is NOT residency: D-449 spent that
-    argument. It is the thinking-token trap plus a calendar.
+    This test used to assert that every Gemini model was withheld, on two grounds: the
+    thinking-token trap and a 16 Oct 2026 retirement. One of those was simply FALSE — the GA
+    identifiers carry no announced shutdown and that date belonged to preview snapshots — and
+    it is the worked example behind hard rule 11. The other is real, verified from four
+    primary sources, and it splits the leg cleanly:
+
+    * on 2.5 flash and flash-lite the engine sends `thinking_budget=0` and Google's own docs
+      say 0 DISABLES thinking, so the trap is ELIMINATED and the models are offered;
+    * on every 3.x the engine sends `thinking_level`, whose enum has no zero, and the vendor
+      states in its own words that Gemini 3 Flash and Flash-Lite "do not support full
+      thinking-off". Thinking can consume `max_output_tokens` and return a candidate with no
+      content — dead air on a phone call, with the engine's own `"Dead turn detected"` branch
+      yielding nothing.
+
+    FAILS IF: a 3.x model becomes selectable, or a 2.5 GA model is withheld again, or the
+    trap stops being recorded on the models it applies to.
     """
     for name in GOOGLE_DIRECT_MODELS:
         spec = LLM_MODELS[name]
         assert spec.provider == "google"
-        assert spec.selectable is False and spec.withdrawn_reason
         assert spec.price.input_usd_per_mtok > 0 and spec.price.output_usd_per_mtok > 0
+        # THE TRAP IS ON EVERY MODEL ON THE LEG, including the two it is eliminated on: the
+        # elimination is a branch in somebody else's repository at a pinned commit, not a
+        # term of any contract, and the adapter reads this tuple to know it must never send
+        # a `thinking_budget` that would switch thinking back on.
         assert any(trap.name == "thinking-tokens-share-the-reply-budget" for trap in spec.traps), (
             name
         )
-        assert "16 Oct 2026" in spec.withdrawn_reason or "retir" in spec.withdrawn_reason
+        mitigated = "2.5" in name and "pro" not in name
+        assert spec.selectable is mitigated, name
+        if not mitigated:
+            assert spec.withdrawn_reason and "thinking" in spec.withdrawn_reason.lower(), name
+
+    assert {
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    } == GOOGLE_DIRECT_MODELS & SELECTABLE_LLM_MODELS
 
 
 def test_every_gpt5_model_carries_the_two_traps_that_break_a_publish() -> None:
@@ -716,9 +752,21 @@ def test_a_withdrawn_model_still_counts_as_naming_its_leg() -> None:
     Requiring a SELECTABLE model instead would delete the row that carries the refusal, which
     is the opposite of what the check is for.
     """
-    assert not (GOOGLE_DIRECT_MODELS & SELECTABLE_LLM_MODELS)
+    assert GOOGLE_DIRECT_MODELS - SELECTABLE_LLM_MODELS, (
+        "no model on the Google leg is withdrawn any more, so this test proves nothing about "
+        "check 7's tolerance — do not delete it, find the leg that still has one"
+    )
     assert guard.live_model_providers()["google"] == sorted(GOOGLE_DIRECT_MODELS)
     assert guard.inert_leg_failures(spec=DECLARED) == []
+    # AND THE PROOF THAT WITHDRAWN ALONE IS ENOUGH: the OpenAI leg's `gpt-5.6-luna` is
+    # withheld while `gpt-5.4-mini` is offered, so check 7 sees a leg named by both kinds.
+    assert (
+        guard.inert_leg_failures(
+            providers={**guard.live_model_providers(), "google": ["gemini-3.5-flash"]},
+            spec=DECLARED,
+        )
+        == []
+    )
 
 
 # --- the deployment-versus-model question, settled by the model's own leg -----

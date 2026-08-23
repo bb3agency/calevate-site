@@ -48,19 +48,32 @@
  *
  * ## The markup, and why it is a radio group rather than a `<select>`
  *
- * A `<select>` can hold four model names and cannot hold four prices — the option text
- * would have to become "gpt-4.1-mini — +₹1.50/min, ₹1.50 more a minute", which is a
- * sentence no screen reader user wants read at them four times to compare two. Real
- * `<input type="radio">`s inside their labels, visually hidden rather than replaced:
- * arrow keys move between them, the group announces itself from its `<legend>`, each
- * option's accessible name is the whole row INCLUDING its price, and what is painted is
- * drawn from the input's own `checked` state so the two cannot disagree. Same shape as
- * `agents/DirectionChoice.tsx`, which is what keeps this from being a second visual idiom.
+ * A `<select>` can hold model names and cannot hold prices — the option text would have to
+ * become "gpt-4.1-mini — +₹1.50/min, ₹1.50 more a minute", which is a sentence no screen
+ * reader user wants read at them to compare two. Real `<input type="radio">`s inside their
+ * labels, visually hidden rather than replaced: arrow keys move between them, the group
+ * announces itself from its `<legend>`, each option's accessible name is the whole row
+ * INCLUDING its price, and what is painted is drawn from the input's own `checked` state so
+ * the two cannot disagree. Same shape as `agents/DirectionChoice.tsx`, which is what keeps
+ * this from being a second visual idiom.
+ *
+ * ## Grouped by provider, so three vendors read as three vendors (D-456)
+ *
+ * The catalogue is no longer one vendor's models: a client chooses between Azure OpenAI,
+ * OpenAI and Google Gemini. The rows that belong to a provider gather under that provider's
+ * name — a labelled sub-group (`role="group"` + `aria-labelledby`) inside the one radio
+ * group, so a screen reader announces the vendor on entering it and the provider need not
+ * be crammed into every row's accessible name. The inherit row and any retired model belong
+ * to no provider and render first, ungrouped. It is ONE radio group throughout: the choice
+ * is one model among all of them, so arrow keys cross the group boundaries and only the
+ * grouping — the reading of the same choice — changes. Providers appear in the order the
+ * server sent them, presented on equal footing: no vendor is the header act.
  */
 
 import { CheckCircle2 } from "lucide-react";
 
 import { formatRupeeRate } from "@/components/ui";
+import { providerLabel } from "@/lib/api/llmModels";
 import { compareRates, rateDifference } from "@/lib/llmRates";
 
 /** One row of the picker. */
@@ -74,8 +87,23 @@ export interface ModelChoice {
    */
   value: string | null;
   label: string;
-  /** The second line — the provider, or what inheriting resolves to. */
+  /**
+   * The second line — the model-specific note, or what inheriting resolves to. NO LONGER
+   * the provider: that is the group heading now (see `provider`), so a model row that has
+   * nothing else to say carries an empty string and the line is not painted at all. The
+   * inherit row and a retired model still fill it, because for them it is the only place
+   * that says what the row means.
+   */
   detail: string;
+  /**
+   * THE PROVIDER THIS MODEL RUNS ON, as the server's own key (`azure_openai`, `openai`,
+   * `google`), or absent for the rows that belong to no provider — the inherit row, and a
+   * retired model the catalogue can no longer place. Rows carrying one are GROUPED under a
+   * `providerLabel` heading and presented on equal footing (D-456); rows without one render
+   * first, ungrouped. Passed as the raw key rather than the label so grouping is stable and
+   * the one spelling of each provider's name lives in `providerLabel`.
+   */
+  provider?: string | null;
   /**
    * WHAT CHOOSING THIS ROW ADDS TO THE CLIENT'S BILL, per minute, as the server's digits.
    *
@@ -178,84 +206,117 @@ export function ModelPicker({
   disabled?: boolean;
   onChange: (next: string | null) => void;
 }) {
+  const row = (choice: ModelChoice) => {
+    const checked = choice.value === value;
+    const comparison = choice.baseline
+      ? null
+      : priceComparison(choice.surcharge, baselineSurcharge);
+    // `!= null` covers both `null` and an absent property, and nothing else: an
+    // empty string would be a reason the server sent and is not a state to swallow.
+    const blocked = choice.unavailable != null;
+    return (
+      <label
+        key={choice.value ?? "__inherit__"}
+        className={`flex flex-wrap items-start justify-between gap-3 rounded-card border p-3 transition-colors ${
+          checked ? "border-brand bg-brand-soft" : "border-line bg-surface"
+        } ${
+          disabled || blocked
+            ? "cursor-not-allowed opacity-60"
+            : "cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
+        }`}
+      >
+        <input
+          type="radio"
+          name={name}
+          className="sr-only"
+          checked={checked}
+          disabled={disabled || blocked}
+          onChange={() => onChange(choice.value)}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2">
+            {checked ? (
+              <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand" />
+            ) : (
+              <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border border-line" />
+            )}
+            <span className="text-sm font-semibold text-ink">{choice.label}</span>
+            {choice.badge && (
+              <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+                {choice.badge}
+              </span>
+            )}
+          </span>
+          {/* The model-specific note, only when there IS one: a plain model row's provider
+              now lives in the group heading above it, so its second line is empty and is
+              not painted. */}
+          {choice.detail && (
+            <span className="mt-0.5 block pl-6 text-xs text-ink-faint">{choice.detail}</span>
+          )}
+          {/* The server's own words for why the row is dead, in the row. Amber
+              rather than muted: it is the difference between "this costs more" and
+              "this cannot be chosen at all", and a reader skimming prices must not
+              have to work out which rows are real. */}
+          {blocked && (
+            <span className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400">
+              Cannot be chosen — {choice.unavailable}
+            </span>
+          )}
+        </span>
+        {/* WHAT THIS ROW ADDS TO THEIR BILL, as the server's own digits. `—` where
+            we cannot say: a model withdrawn from the catalogue, or a build whose
+            API does not carry the field. An absent figure is said as absent, never
+            as free — "No extra charge" is reserved for a surcharge we HAVE and
+            which is zero. */}
+        <span className="shrink-0 text-right">
+          <span className="block text-sm font-semibold tabular-nums text-ink">
+            {surchargeLabel(choice.surcharge)}
+          </span>
+          {(choice.baseline || comparison !== null) && (
+            <span className="mt-0.5 block text-xs text-ink-faint">
+              {choice.baseline ? "the model running now" : comparison}
+            </span>
+          )}
+        </span>
+      </label>
+    );
+  };
+
+  // Rows with no provider — the inherit row, and a retired model the catalogue can no
+  // longer place — render first and ungrouped. The rest gather under their provider's name,
+  // keyed by the server's raw provider value and in first-appearance order, so the server's
+  // ordering and the special rows' position ahead of the catalogue both survive grouping.
+  const ungrouped = choices.filter((choice) => choice.provider == null);
+  const groups: { key: string; label: string; rows: ModelChoice[] }[] = [];
+  for (const choice of choices) {
+    if (choice.provider == null) continue;
+    const group = groups.find((candidate) => candidate.key === choice.provider);
+    if (group) group.rows.push(choice);
+    else groups.push({ key: choice.provider, label: providerLabel(choice.provider), rows: [choice] });
+  }
+
   return (
     <fieldset>
       <legend className="text-xs font-medium text-ink-muted">{legend}</legend>
       {hint && <p className="mt-1 text-xs text-ink-faint">{hint}</p>}
-      <div className="mt-2 space-y-2">
-        {choices.map((choice) => {
-          const checked = choice.value === value;
-          const comparison = choice.baseline
-            ? null
-            : priceComparison(choice.surcharge, baselineSurcharge);
-          // `!= null` covers both `null` and an absent property, and nothing else: an
-          // empty string would be a reason the server sent and is not a state to swallow.
-          const blocked = choice.unavailable != null;
-          return (
-            <label
-              key={choice.value ?? "__inherit__"}
-              className={`flex flex-wrap items-start justify-between gap-3 rounded-card border p-3 transition-colors ${
-                checked
-                  ? "border-brand bg-brand-soft"
-                  : "border-line bg-surface"
-              } ${
-                disabled || blocked
-                  ? "cursor-not-allowed opacity-60"
-                  : "cursor-pointer hover:bg-black/5 dark:hover:bg-white/5"
-              }`}
+      {ungrouped.length > 0 && <div className="mt-2 space-y-2">{ungrouped.map(row)}</div>}
+      {groups.map((group, index) => {
+        // Index rather than the provider key in the id: the key is the server's raw value
+        // and an id built from it would carry whatever punctuation the server chose. The
+        // heading LABELS the sub-group so a screen reader names the vendor on entering it.
+        const headingId = `${name}-provider-${index}`;
+        return (
+          <div key={group.key} role="group" aria-labelledby={headingId} className="mt-4">
+            <p
+              id={headingId}
+              className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
             >
-              <input
-                type="radio"
-                name={name}
-                className="sr-only"
-                checked={checked}
-                disabled={disabled || blocked}
-                onChange={() => onChange(choice.value)}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="flex flex-wrap items-center gap-2">
-                  {checked ? (
-                    <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand" />
-                  ) : (
-                    <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border border-line" />
-                  )}
-                  <span className="text-sm font-semibold text-ink">{choice.label}</span>
-                  {choice.badge && (
-                    <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
-                      {choice.badge}
-                    </span>
-                  )}
-                </span>
-                <span className="mt-0.5 block pl-6 text-xs text-ink-faint">{choice.detail}</span>
-                {/* The server's own words for why the row is dead, in the row. Amber
-                    rather than muted: it is the difference between "this costs more" and
-                    "this cannot be chosen at all", and a reader skimming prices must not
-                    have to work out which rows are real. */}
-                {blocked && (
-                  <span className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400">
-                    Cannot be chosen — {choice.unavailable}
-                  </span>
-                )}
-              </span>
-              {/* WHAT THIS ROW ADDS TO THEIR BILL, as the server's own digits. `—` where
-                  we cannot say: a model withdrawn from the catalogue, or a build whose
-                  API does not carry the field. An absent figure is said as absent, never
-                  as free — "No extra charge" is reserved for a surcharge we HAVE and
-                  which is zero. */}
-              <span className="shrink-0 text-right">
-                <span className="block text-sm font-semibold tabular-nums text-ink">
-                  {surchargeLabel(choice.surcharge)}
-                </span>
-                {(choice.baseline || comparison !== null) && (
-                  <span className="mt-0.5 block text-xs text-ink-faint">
-                    {choice.baseline ? "the model running now" : comparison}
-                  </span>
-                )}
-              </span>
-            </label>
-          );
-        })}
-      </div>
+              {group.label}
+            </p>
+            <div className="mt-2 space-y-2">{group.rows.map(row)}</div>
+          </div>
+        );
+      })}
     </fieldset>
   );
 }

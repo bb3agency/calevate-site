@@ -310,8 +310,9 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/healthz/ready
 
 **`/healthz/ready` answering 503 here is correct**, not a failure: readiness is the
 go-live gate and it stays red until the vendor configuration is in the ops console. Sign in
-to `admin.calevate.tech/ops` (after step 9) and fill it; `GET /v1/ops/config` shows every
-key with its source, which is the pre-launch audit OPERATIONS §8 asks for.
+to `admin.calevate.tech/ops/config` (after step 9) and fill it — **Platform configuration**
+in the sidebar, which only the superadmin sees; `GET /v1/ops/config` shows every key with
+its source, which is the pre-launch audit OPERATIONS §8 asks for.
 
 ---
 

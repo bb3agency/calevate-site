@@ -37,6 +37,7 @@ from decimal import ROUND_FLOOR, Decimal
 from typing import Any, Final, Literal, NamedTuple
 from uuid import UUID
 
+from calevate_shared.engine import LLM_MODELS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,11 +56,11 @@ from apps.api.billing.plans import (
     warn_no_plan_in_effect,
 )
 from apps.api.billing.rates import (
-    BASE_RATE_LLM_MODEL,
     CLIENT_CHOSEN_LLM_SOURCES,
     PREPAID_TIERS,
     ROUNDING,
     TtsTier,
+    is_surchargeable_llm_model,
     tier_correction_inr,
 )
 from apps.api.core.errors import ProblemError
@@ -1013,7 +1014,7 @@ _CORRECTED_TIER_SQL: Final = (
 #: `->>` yields NULL, and the row falls to `''`: the same "an unproven row is never billed
 #: the dearer thing" asymmetry `_CORRECTED_TIER_SQL`'s neighbour `billable_tier` applies to
 #: the voice rung.
-#: THE TWO VALUES ARE BOUND, NOT SPLICED, and that is not only a `check_raw_sql` rule.
+#: THE VALUES ARE BOUND, NOT SPLICED, and that is not only a `check_raw_sql` rule.
 #: They are VALUES rather than identifiers, so a bind is what they wanted all along; the
 #: first spelling built them with `", ".join(...)` over `sorted(...)`, which the guard
 #: refused because it cannot follow a comprehension variable through a call — correctly,
@@ -1021,9 +1022,19 @@ _CORRECTED_TIER_SQL: Final = (
 #: `_NOT_AI_UNITS` below uses the same join idiom and passes only because it has no
 #: `sorted()`; matching it would have been the smaller change and the worse one, leaving a
 #: value interpolated into SQL for no reason but provability.
+#:
+#: ⚠ **IT USED TO SPELL THE RULE "NOT THE BASE MODEL", AND THAT INVERTED ON A CHEAPER ONE.**
+#: `NOT IN ('', :base_rate_llm_model)` was an exact twin of the Python predicate for as long
+#: as every choosable model was dearer than `gpt-4o-mini`. The multi-provider catalogue broke
+#: that — `gemini-2.5-flash-lite` lists at $0.10/$0.40 against the base model's $0.15/$0.60 —
+#: so both spellings would have surcharged a client **for saving us money**, and would have
+#: gone on agreeing with each other while doing it. **Two twins that share a BUG are worse
+#: than no twin**, which is why the fix is not a second `NOT IN` list typed here: the SET is
+#: computed by `rates.is_surchargeable_llm_model` and bound, so the SQL and the Python are
+#: now one predicate expressed twice rather than two rules that happen to match.
 _SURCHARGED_MODEL_SQL: Final = (
     "CASE WHEN meta->>'llm_model_source' = ANY(:llm_client_sources) "
-    "AND COALESCE(meta->>'llm_model', '') NOT IN ('', :base_rate_llm_model) "
+    "AND COALESCE(meta->>'llm_model', '') = ANY(:surcharged_llm_models) "
     "THEN meta->>'llm_model' ELSE '' END"
 )
 
@@ -1032,13 +1043,23 @@ def _surcharge_binds() -> dict[str, object]:
     """The two binds `_SURCHARGED_MODEL_SQL` reads, for the same reason `_month_bounds`
     exists: a caller that names the fragment cannot then supply half of what it needs.
 
+    **`surcharged_llm_models` IS DERIVED FROM THE PYTHON PREDICATE, NEVER RETYPED**, which is
+    what makes the twin a twin. It is stated over the whole CATALOGUE rather than the
+    selectable set because this reader groups a HISTORICAL month: a row can name a model that
+    has since been withdrawn, and how it was bucketed when it was metered must not change
+    because a picker did. A model the catalogue has forgotten entirely is absent from the
+    list and therefore unsurcharged — the same "an unproven row is never billed the dearer
+    thing" asymmetry the predicate itself applies.
+
     Sorted so the parameter is stable across processes — a frozenset's iteration order is
     not, and an unstable bind makes two identical queries look different in a slow-query
     log for no reason.
     """
     return {
         "llm_client_sources": sorted(CLIENT_CHOSEN_LLM_SOURCES),
-        "base_rate_llm_model": BASE_RATE_LLM_MODEL,
+        "surcharged_llm_models": sorted(
+            model for model in LLM_MODELS if is_surchargeable_llm_model(model)
+        ),
     }
 
 

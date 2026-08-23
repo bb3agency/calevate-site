@@ -4079,6 +4079,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/model-prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every model's provider, reference price, attested price and offerability
+         * @description Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet — which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value.
+         */
+        get: operations["list_model_prices_v1_ops_model_prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/model-prices/{model}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest one model's vendor price (step-up confirmed, audited)
+         * @description Records a price you read off your own vendor console or invoice as a NEW effective-dated row — a correction is a later attestation, never an edit, so a re-rendered invoice resolves the price that was live in its month. Requires `X-Confirm-Action: attest_model_price:<model>`. Money is sent as a decimal string (USD per million tokens), never a float. This is what lets a model whose catalogue price is unverified become offerable.
+         */
+        post: operations["attest_model_price_v1_ops_model_prices__model__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/outbox/replay": {
         parameters: {
             query?: never;
@@ -8382,6 +8422,76 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+        };
+        /** ModelPriceAttestIn */
+        ModelPriceAttestIn: {
+            /** Effective From */
+            effective_from?: string | null;
+            /** Input Usd Per Mtok */
+            input_usd_per_mtok: string;
+            /** Output Usd Per Mtok */
+            output_usd_per_mtok: string;
+            /** Source Note */
+            source_note: string;
+        };
+        /**
+         * ModelPriceOut
+         * @description One catalogue model, as the pricing panel renders it.
+         *
+         *     MONEY IS A STRING END TO END (hard rule 7): a JSON float cannot hold a per-token price
+         *     exactly, and a value that reaches a browser as `0.15000000000000002` is one nobody can
+         *     reconcile against an invoice. `null` where a model has never been attested — a real
+         *     state the console renders as "needs a price", distinct from a zero.
+         *
+         *     NO FIELD CARRIES A DEFAULT, the same rule the config and secret panels follow: every
+         *     fact the console must trust is required on the wire, and `null` is used where the answer
+         *     genuinely has no value.
+         */
+        ModelPriceOut: {
+            /** Attested At */
+            attested_at: string | null;
+            /** Attested By */
+            attested_by: string | null;
+            /** Credential Installed */
+            credential_installed: boolean;
+            /** Effective From */
+            effective_from: string | null;
+            /** Input Usd Per Mtok */
+            input_usd_per_mtok: string | null;
+            /** Model */
+            model: string;
+            /** Offerable */
+            offerable: boolean;
+            /** Output Usd Per Mtok */
+            output_usd_per_mtok: string | null;
+            /** Price Attested */
+            price_attested: boolean;
+            /** Provider */
+            provider: string;
+            /** Reference Input Usd Per Mtok */
+            reference_input_usd_per_mtok: string;
+            /** Reference Output Usd Per Mtok */
+            reference_output_usd_per_mtok: string;
+            /** Reference Verified */
+            reference_verified: boolean;
+            /** Source Note */
+            source_note: string | null;
+        };
+        /**
+         * ModelPriceWriteOut
+         * @description The model as it now stands, plus the instant the rest of the list was resolved at.
+         */
+        ModelPriceWriteOut: {
+            /** As Of */
+            as_of: string;
+            price: components["schemas"]["ModelPriceOut"];
+        };
+        /** ModelPricesOut */
+        ModelPricesOut: {
+            /** As Of */
+            as_of: string;
+            /** Prices */
+            prices: components["schemas"]["ModelPriceOut"][];
         };
         /**
          * NationalDndScrubOut
@@ -17760,6 +17870,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineLatencyReport"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_model_prices_v1_ops_model_prices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelPricesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_model_price_v1_ops_model_prices__model__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                model: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelPriceAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelPriceWriteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

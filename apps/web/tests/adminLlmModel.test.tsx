@@ -88,7 +88,10 @@ const READ_ONLY = me(["org:read"]);
 function option(over: Partial<LlmModelOption> = {}): LlmModelOption {
   return {
     model: "gpt-4o-mini",
-    provider: "azure-openai",
+    // The server's own machine value for the provider (`apps/api/agents/llm_routes.py`),
+    // which the screen turns into a friendly heading through `providerLabel` — so this
+    // fixture carries the wire token, not the label, and the test proves the mapping.
+    provider: "azure_openai",
     platform_cost_inr_per_minute: DEFAULT_RATE,
     // D-455: what the CLIENT is charged extra for this model. `"0"` on the base-rate
     // model always, and on every model while the plan quotes no surcharge.
@@ -342,16 +345,20 @@ describe("the per-client language-model screen", () => {
   });
 
 
-  it("names each option by its model id, and puts the rest in the description", async () => {
+  it("names each option by its model id, and puts the money in the description", async () => {
     /**
      * The documented departure from the flag screen's wrapped label, pinned so it cannot
      * quietly come undone. Text nodes concatenate with NO separator in the accessible-name
-     * computation, so the wrapped form announced "gpt-4o-miniazure-openai · ₹0.2400 per
-     * minute · what the platform runs by default…" as the control's NAME — the id and the
-     * provider run together, and the whole row arrives before the reader knows what the
-     * control is. `aria-label` + `aria-describedby` is ARIA's own answer for a radio with a
-     * rich description, and it also makes the name the exact string this screen asks the
-     * operator to type into the confirmation.
+     * computation, so the wrapped form announced "gpt-4o-mini₹0.2400 per minute · what the
+     * platform runs by default…" as the control's NAME — the id and the price run together,
+     * and the whole row arrives before the reader knows what the control is. `aria-label` +
+     * `aria-describedby` is ARIA's own answer for a radio with a rich description, and it
+     * also makes the name the exact string this screen asks the operator to type into the
+     * confirmation.
+     *
+     * The PROVIDER is no longer in the description at all (D-456): it heads the group above
+     * the row, rendered through `providerLabel`, so the row's description is money only and
+     * the wire token never reaches the screen.
      */
     await render({ [DEFAULTS_PATH]: inheriting({ available: [PLATFORM, PREMIUM] }) });
 
@@ -360,9 +367,44 @@ describe("the per-client language-model screen", () => {
     expect(describedBy, "the row's detail must be a DESCRIPTION, not part of the name").toBeTruthy();
     const detail = document.getElementById(describedBy!);
     expect(detail, "aria-describedby must point at an element that exists").toBeTruthy();
-    // Everything the reader still needs is in the description, and none of it is the name.
-    expect(detail!.textContent).toContain("azure-openai");
+    // The money is the row's description; the provider is not — it labels the group.
     expect(detail!.textContent).toContain(`₹${DEFAULT_RATE} per minute`);
+    expect(detail!.textContent).not.toContain("azure_openai");
+    // The provider LABEL heads a group, and it is the friendly form, never the wire token.
+    const group = screen.getByRole("group", { name: "Azure OpenAI" });
+    expect(group.textContent).not.toContain("azure_openai");
+  });
+
+  it("presents all three providers as their own labelled groups, on equal footing", async () => {
+    // The founder's decision: Gemini and OpenAI shown on par with Azure. The console
+    // renders one labelled sub-group per provider, in the order the server sent them, and
+    // each model sits under its own provider — never crammed into another's group.
+    const openaiModel = option({
+      model: "gpt-5-mini",
+      provider: "openai",
+      is_platform_default: false,
+    });
+    const geminiModel = option({
+      model: "gemini-2.5-flash",
+      provider: "google",
+      is_platform_default: false,
+    });
+    await render({
+      [DEFAULTS_PATH]: inheriting({ available: [PLATFORM, PREMIUM, openaiModel, geminiModel] }),
+    });
+
+    await screen.findByRole("radio", { name: "gpt-4o-mini" });
+    // An EXACT string name, so "OpenAI" does not also match "Azure OpenAI".
+    for (const label of ["Azure OpenAI", "OpenAI", "Google Gemini"]) {
+      expect(
+        screen.getByRole("group", { name: label }),
+        `provider ${label} must head its own group`,
+      ).toBeTruthy();
+    }
+    expect(screen.getByRole("group", { name: "OpenAI" }).textContent).toContain("gpt-5-mini");
+    expect(screen.getByRole("group", { name: "Google Gemini" }).textContent).toContain(
+      "gemini-2.5-flash",
+    );
   });
 
   it("shows a model with no deployment behind it, disabled, with the server's reason", async () => {

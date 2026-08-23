@@ -1302,7 +1302,7 @@ async def test_the_llm_credential_seam_matches_the_declaration_either_way(
     if not engine.capabilities.is_ours("llm"):
         refusal: Exception | None = None
         try:
-            await engine.set_llm_credential("ya29.rotated")
+            await engine.set_llm_credential("ya29.rotated", provider="azure_openai")
         except Exception as exc:
             refusal = exc
         assert refusal is not None, (
@@ -1317,7 +1317,7 @@ async def test_the_llm_credential_seam_matches_the_declaration_either_way(
         )
         return
 
-    placement = await engine.set_llm_credential("ya29.rotated")
+    placement = await engine.set_llm_credential("ya29.rotated", provider="azure_openai")
     # The write must REPLACE. A store that appended would leave the engine holding the
     # fresh bearer beside expired ones and choosing between them itself, which takes the
     # leg's health out of our hands — `LlmCredentialPlacement` exists to say which
@@ -1326,7 +1326,7 @@ async def test_the_llm_credential_seam_matches_the_declaration_either_way(
     assert placement.superseded_removed == 0
     # Rotation is the operation whose purpose is to replace something that still works, so
     # a second call with a second value must leave ONE credential rather than two.
-    again = await engine.set_llm_credential("ya29.rotated-2")
+    again = await engine.set_llm_credential("ya29.rotated-2", provider="azure_openai")
     assert again.replaced_in_place is True
 
 

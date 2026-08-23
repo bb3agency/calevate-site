@@ -13,15 +13,17 @@ import type { LegalDocument } from "./types";
  *    SECURITY-COMPLIANCE §4 quotes, which differ. Where the two disagree the notice
  *    states the enforced number and the disagreement is a finding, not a rounding.
  * 2. **The residency claim is the narrow one that is enforced, and as of D-449 it is no
- *    longer an India claim at all.** "Everything stays in India" was never available:
- *    object storage is Cloudflare R2 with no India-only jurisdiction, and the voice
- *    platform's own documentation puts the whole call on US infrastructure. On 22 August
- *    2026 the language model moved from Azure OpenAI in South India to Azure OpenAI in
- *    East US 2, so the one India claim this notice still made about model inference is
- *    WITHDRAWN rather than narrowed a fourth time. What is still enforced — every model
- *    endpoint is pinned to the single region the source declares, and
- *    `scripts/check_model_residency.py` fails the build otherwise — is stated as exactly
- *    that and no wider. ⚠ AND NO WIDER MEANS NOT "NO SETTING CAN MOVE IT", which is what
+ *    longer an India claim at all — and as of D-456 no longer a single-vendor one.**
+ *    "Everything stays in India" was never available: object storage is Cloudflare R2 with
+ *    no India-only jurisdiction, and the voice platform's own documentation puts the whole
+ *    call on US infrastructure. On 22 August 2026 the default language model moved from
+ *    Azure OpenAI in South India to Azure OpenAI in East US 2, so the one India claim this
+ *    notice still made about model inference is WITHDRAWN; the product then began offering
+ *    models from more than one provider (Azure OpenAI, OpenAI, Google), so the sentence
+ *    that said every model ran with one vendor in one region is withdrawn too. What is
+ *    still enforced — the SET of providers our code may reach for the language leg is
+ *    pinned in the source, and `scripts/check_model_residency.py` fails the build
+ *    otherwise — is stated as exactly that and no wider. ⚠ AND NO WIDER MEANS NOT "NO SETTING CAN MOVE IT", which is what
  *    §8 said until this audit: `Settings.azure_openai_resource` is a console field, the
  *    region is a property of the RESOURCE, and `platform_config.py` says in its own
  *    `AppliesRule` that "a resource in the wrong region is a residency change no code
@@ -612,35 +614,39 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "definitions",
           items: [
             {
-              term: "Speech is processed in India; the language model is processed in the United States",
+              term: "Speech is processed in India; the language model is processed outside India, and where depends on the model you choose",
               detail:
                 "Speech recognition and voice synthesis run on an Indian provider, on " +
                 "both call legs, and so does the first pass that reads your transcript " +
                 "and pulls the fields out of it. The language model on both AI legs — " +
                 "the model that holds the conversation during a call, and the dashboard " +
-                "assistant that works on redacted data — runs on Microsoft's Azure " +
-                "OpenAI service configured for the East US 2 region, in the United " +
-                "States. A client can choose which of the models we run their agents " +
-                "use; all of them are served from that same account and region, so the " +
-                "choice does not move this answer. Until 22 August 2026 that service " +
-                "was configured for the South " +
-                "India region and this notice said so; the claim that the language model " +
-                "runs in India is withdrawn, not reworded. What the build enforces, " +
-                "unchanged by the move: there is one function in the whole codebase that " +
-                "may construct a model endpoint, it can produce only the single region " +
-                "the source declares, the region appears exactly once and is not a " +
-                "setting anyone can edit, and the release fails if any of that stops " +
-                "being true — so no code we ship can send the model request to a third " +
-                "country, and the region it names moves only by a reviewed code change. " +
-                "What it cannot enforce, stated plainly because the distinction is real: " +
-                "the provider's endpoint address does not name its own region, and the " +
-                "region belongs to the account resource that address points at — which " +
-                "resource that is, is an operational setting of ours. So that the " +
-                "account we are configured to use, and its model deployment, are " +
-                "genuinely in East US 2 is " +
-                "confirmed by a person against the provider's console and filed as dated " +
-                "evidence, not proved by a build check. See the sub-processor page, " +
-                "section 3.2.",
+                "assistant that works on redacted data — runs on one of several " +
+                "providers you can choose between: Microsoft's Azure OpenAI service " +
+                "(configured for the East US 2 region, in the United States, and the one " +
+                "we run by default), OpenAI (the United States), or Google's Gemini API " +
+                "(which names no region we can request). This used to say all models " +
+                "were served from one account and region and that your choice did not " +
+                "move the answer; that is no longer true, and the claim is withdrawn — " +
+                "your choice of model is also a choice of which provider processes the " +
+                "language leg and where. Until 22 August 2026 the default service was " +
+                "configured for the South India region and this notice said so; the " +
+                "claim that the language model runs in India is withdrawn, not reworded. " +
+                "What the build enforces, unchanged by the move to more than one " +
+                "provider: the set of providers our code may reach for the language leg " +
+                "is fixed in the source, it appears there once, no setting anyone can " +
+                "edit may carry a region, an endpoint or a provider, and the release " +
+                "fails if any of that stops being true — so no code we ship can send the " +
+                "model request to a provider or a place the source does not declare, and " +
+                "that set moves only by a reviewed code change. What it cannot enforce, " +
+                "stated plainly because the distinction is real: for the leg served from " +
+                "the hyperscale provider, the endpoint address does not name its own " +
+                "region, and the region belongs to the account resource that address " +
+                "points at — which resource that is, is an operational setting of ours. " +
+                "So that the account we are configured to use, and its model deployment, " +
+                "are genuinely in East US 2 is confirmed by a person against the " +
+                "provider's console and filed as dated evidence, not proved by a build " +
+                "check. The other providers place their processing on their own terms. " +
+                "See the sub-processor page, section 3.2.",
             },
             {
               term: "The application and the database",

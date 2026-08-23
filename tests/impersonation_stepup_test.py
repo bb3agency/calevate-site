@@ -77,10 +77,12 @@ def _client() -> AsyncClient:
 async def operator() -> AsyncIterator[uuid.UUID]:
     """One `superadmin` in `admin_users`, which is also the session's subject.
 
-    `superadmin` rather than `operator` because that is the role that actually reaches a
-    raw transcript through this door (`core/rbac.ROLE_PERMISSIONS`: an `operator` holds
-    `admin:impersonate` but not `calls:read_raw`), so the fixture is the principal the
-    gate exists for.
+    `superadmin` rather than `operator` only because a fixture that holds every
+    permission cannot be the reason a test fails. BOTH tiers reach a raw transcript
+    through this door since the founder's correction to D-457 put `calls:read_raw` in
+    `ROLE_PERMISSIONS["operator"]` — which makes this gate matter MORE than it did, not
+    less: the second factor now stands in front of every admin who can enter a client's
+    account, rather than in front of the one who could also read the transcript.
     """
     admin_id = uuid.uuid4()
     async with untenanted_session() as session:

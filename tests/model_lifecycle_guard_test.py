@@ -40,6 +40,12 @@ def _entry(name: str, retires_on: date | None, **kwargs: object) -> ModelLifecyc
         "provider": "azure_openai",
         "version": "2024-07-18",
         "retires_on": retires_on,
+        # DERIVED FROM THE DATE, so a fixture cannot express the incoherent pair
+        # `ModelLifecycle.__post_init__` refuses — and so the several dozen call sites below
+        # that only care about a date do not each have to restate the stance. A test that
+        # wants the third stance ("nobody read the page") passes it explicitly, which is
+        # exactly the one case worth spelling out at a call site.
+        "retirement_stance": "dated" if retires_on is not None else "none-announced",
         "stage": "GA",
         "replacement": None,
         "offered_in_region": frozenset({"standard-regional"}),
@@ -323,22 +329,85 @@ def test_an_undated_model_nobody_can_select_is_fine() -> None:
     assert guard.failures(table, TODAY, None, frozenset()) == []
 
 
-def test_an_undated_model_somebody_can_select_refuses_to_score() -> None:
+def test_an_unread_model_somebody_can_select_refuses_to_score() -> None:
     """The other arm, and the whole reason `retires_on` is allowed to be `None` at all.
 
     An unread date is honest. An unread date under a model an operator or a client can flip a
-    live picker onto is the exact state this guard exists to end, restated with a `None`
-    instead of a missing row — so it REFUSES rather than warns: the answer is not "act
-    sooner", it is "you cannot measure this and you are running it anyway".
+    live picker onto is the exact state this guard exists to end — so it REFUSES rather than
+    warns: the answer is not "act sooner", it is "you cannot measure this and you are running
+    it anyway".
     """
     table = {
         "gpt-5.9-imaginary": _entry(
-            "gpt-5.9-imaginary", None, provider="openai", offered_in_region=frozenset()
+            "gpt-5.9-imaginary",
+            None,
+            provider="openai",
+            retirement_stance="unread",
+            offered_in_region=frozenset(),
         )
     }
     problems = guard.refusals(frozenset(table), table, frozenset(table), {})
     assert len(problems) == 1, problems
-    assert "read no retirement date" in problems[0] and "withdrawn_reason" in problems[0]
+    assert "NOBODY HAS READ" in problems[0] and "withdrawn_reason" in problems[0]
+
+
+def test_a_read_page_announcing_nothing_is_selectable_where_an_unread_one_is_not() -> None:
+    """**THE DISTINCTION HARD RULE 11 WAS WRITTEN ABOUT, asserted rather than described.**
+
+    Both entries carry `retires_on=None` and they are opposite facts: one says the vendor's
+    own deprecation page lists the identifier with no shutdown date, the other says nobody
+    opened it. Collapsing them is what forced a choice between refusing a durable GA model
+    and inventing a date for it — and inventing one is what happened: a REPORTED 2026-10-16
+    belonging to a preview snapshot sat under two GA Gemini rows and was restated downstream
+    as fact.
+
+    FAILS IF: `refusals()` goes back to testing `retires_on is None`, which would make the
+    two rows below indistinguishable again.
+    """
+    read = _entry("gemini-x-flash", None, provider="google", offered_in_region=frozenset())
+    unread = _entry(
+        "gemini-y-flash",
+        None,
+        provider="google",
+        retirement_stance="unread",
+        offered_in_region=frozenset(),
+    )
+    assert read.retirement_stance == "none-announced"
+    table = {read.model: read, unread.model: unread}
+    problems = guard.refusals(frozenset(table), table, frozenset(table), {})
+    assert len(problems) == 1, problems
+    assert unread.model in problems[0] and read.model not in problems[0]
+
+
+def test_a_none_announced_entry_needs_a_page_somebody_actually_read() -> None:
+    """ "The vendor announced nothing" is a claim about the outside world, so it needs a
+    reading — an unverifiable one is a guess wearing the shape of a fact (hard rule 11).
+
+    Enforced on the RECORD rather than in the guard, so a hand-built entry in a unit test
+    cannot express the state either. FAILS IF that invariant moves into a check somebody can
+    run selectively.
+    """
+    with pytest.raises(ValueError, match="announced no retirement"):
+        _entry(
+            "gemini-z-flash",
+            None,
+            provider="google",
+            offered_in_region=frozenset(),
+            retirement=Evidence(source="a tracker", read_on=TODAY, verified=False),
+        )
+
+
+def test_a_stance_that_disagrees_with_its_own_date_is_refused() -> None:
+    """Both directions of the coherence invariant, on the record itself."""
+    for stance, retires_on in (("dated", None), ("none-announced", date(2027, 1, 1))):
+        with pytest.raises(ValueError, match="retirement_stance"):
+            _entry(
+                "gpt-incoherent",
+                retires_on,
+                retirement_stance=stance,
+                offered_in_region=frozenset(),
+                provider="openai",
+            )
 
 
 def test_a_deployment_type_on_a_leg_that_has_none_refuses() -> None:
@@ -413,33 +482,62 @@ def test_a_retired_model_nobody_can_select_warns_instead_of_failing() -> None:
     assert guard.failures(table, TODAY, None, frozenset(table))
 
 
-def test_the_unread_date_is_reported_on_every_run() -> None:
-    """The per-leg difference, made visible rather than left in a docstring. It is not a
-    defect in the registry: it IS the reading, and printing it once a run is what stops "no
-    date" being mistaken for "no clock"."""
+def test_both_kinds_of_missing_date_are_reported_on_every_run_and_read_differently() -> None:
+    """The per-leg difference, made visible rather than left in a docstring — in TWO
+    sentences now, because a missing date means two opposite things.
+
+    `none-announced` is a reading and is reported as PERISHABLE: it was true on the day the
+    page was opened, both legs that carry it have egress-blocked deprecation pages, and no
+    run can ever re-check it. `unread` is reported as the block it is. A single sentence
+    covering both is what let the wrong one be believed.
+    """
     notes = guard.warnings(dict(MODEL_LIFECYCLE), TODAY, None)
-    unread = [n for n in notes if "NO RETIREMENT DATE HAS BEEN READ" in n]
-    assert len(unread) == 2, notes
-    assert all("openai" in n for n in unread), unread
-    assert all("egress-blocked" in n for n in unread), unread
+    announced = [n for n in notes if "NO SHUTDOWN IS ANNOUNCED" in n]
+    unread = [n for n in notes if "NOBODY HAS READ A RETIREMENT PAGE" in n]
+
+    assert {n.split()[1] for n in announced} == {
+        "(google,",
+        "(openai,",
+    } or announced, announced
+    assert all("Re-read at the next rate-card review" in n for n in announced), announced
+    # Every selectable model with no date is in the read half, and nothing in the unread
+    # half is selectable — which is `refusals()`'s rule, restated where a reader meets it.
+    assert all("SELECTABLE" not in n for n in unread), unread
+    assert unread, notes
 
 
-def test_the_shipped_gemini_rows_carry_a_real_date_and_are_inside_the_lead() -> None:
-    """The founder's stated ground for withholding them, asserted against the registry
-    rather than against a paragraph: 16 Oct 2026, which is inside `WARN_LEAD` as this lands.
+def test_the_shipped_gemini_ga_rows_carry_no_shutdown_and_are_selectable() -> None:
+    """**THE CORRECTION, PINNED SO IT CANNOT SILENTLY REVERT.**
 
-    FAILS IF: a Gemini row loses its date, or becomes selectable — either of which would
-    move the refusal from "checked" back to "remembered".
+    This test used to assert the opposite — that both rows carried `2026-10-16` and that
+    neither was selectable — and it passed, because the registry it was checking was wrong.
+    Google's own deprecations page (dated 13 Aug 2026) lists both GA identifiers with NO
+    shutdown date; 16 Oct belonged to dated PREVIEW snapshots this repository has never
+    shipped. The bad date was read back out of `model_lifecycle.py` by later sessions,
+    restated as fact in `docs/evidence/`, and became the premise for withdrawing the whole
+    Google leg — which is why hard rule 11 exists and why the assertion is now stated over
+    the STANCE rather than over a literal date.
+
+    FAILS IF: a GA Gemini row grows a shutdown date without somebody re-reading the page, or
+    drops back to `unread`, or leaves the selectable set.
     """
     from calevate_shared.engine import SELECTABLE_LLM_MODELS
 
     for name in ("gemini-2.5-flash", "gemini-2.5-flash-lite"):
         entry = MODEL_LIFECYCLE[name]
-        assert entry.retires_on == date(2026, 10, 16), name
         assert entry.provider == "google"
-        assert name not in SELECTABLE_LLM_MODELS, name
-        left = entry.days_left(TODAY)
-        assert left is not None and 0 < left <= WARN_LEAD.days, (name, left)
+        assert entry.retirement_stance == "none-announced", name
+        assert entry.retires_on is None, name
+        assert entry.days_left(TODAY) is None, name
+        # The reading has to be a reading: `__post_init__` refuses `none-announced` on
+        # unverified evidence, and this pins the page it names as well.
+        assert entry.retirement.verified, name
+        assert "deprecations" in entry.retirement.source, name
+        assert name in SELECTABLE_LLM_MODELS, name
+        # NO REPLACEMENT IS NAMED, and that is deliberate: this row used to point at
+        # `gemini-3.6-flash`, which is not on the engine's published supported-model list at
+        # all, so it was a migration target nothing could be configured onto.
+        assert entry.replacement is None, name
 
 
 def test_an_attestation_naming_a_model_from_another_leg_is_a_build_failure() -> None:

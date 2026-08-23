@@ -385,10 +385,12 @@ export const DPA: LegalDocument = {
             "material facts, stated here so they are in the contract and not only in a " +
             "notice: speech recognition and voice synthesis run on an Indian provider, " +
             "and so does the first pass that reads the transcript; the language model on " +
-            "both AI legs runs on a hyperscale provider's service configured for a " +
-            "United States region, named on the sub-processor page, which our build " +
-            "constrains but cannot prove — see the paragraph below, which is part of " +
-            "this clause; for object storage we ask the provider to place the bucket in " +
+            "both AI legs runs on one of several providers a client can choose between, " +
+            "each named on the sub-processor page with where it processes — the one we " +
+            "run by default is a hyperscale provider's service configured for a United " +
+            "States region, which our build constrains but cannot prove — see the " +
+            "paragraphs below, which are part of this clause; for object storage we ask " +
+            "the provider to place the bucket in " +
             "its Asia-Pacific region, which is a placement preference and not a " +
             "residency commitment, and that provider offers no India-only jurisdiction, " +
             "so that data is stored outside India; the application host is at " +
@@ -405,67 +407,77 @@ export const DPA: LegalDocument = {
           text:
             "You can choose which of the AI models we run your agents use — for your " +
             "whole account, or for one agent — and the product shows you a figure " +
-            "against each. That choice is not a choice of where: every model we offer " +
-            "is served by the same provider, from the same account resource, in the " +
-            "region named above, and the warranty below is unaffected by which one you " +
-            "pick. It is also not a change to what you are charged: clause 6.1 of the " +
-            "Terms of Service says what you pay, and says what that figure beside each " +
-            "model is and is not.",
+            "against each. This clause used to tell you the choice was not a choice of " +
+            "where: while every model ran with one vendor, from one account resource, " +
+            "in the region named above, picking one moved which model answered and " +
+            "nothing about who processed your callers' data or in which country. That " +
+            "is no longer true, and we will not keep the sentence alive with " +
+            "qualifiers. The models we now offer run with more than one provider and in " +
+            "more than one place — each named, with where it processes, on the " +
+            "sub-processor page — so your choice of model is also a choice of which " +
+            "provider handles the language leg and where it runs. The single-vendor, " +
+            "single-region promise this clause used to make about that leg is " +
+            "WITHDRAWN, not narrowed. Speech recognition, voice synthesis and the first " +
+            "pass that reads your transcript are unaffected: they stay with an Indian " +
+            "provider. What the figure beside each model is, and whether choosing a " +
+            "model changes what you pay, is set out in clause 6.1 of the Terms of " +
+            "Service.",
         },
         {
           kind: "callout",
           tone: "warning",
           title: "What we warrant about the language model, and what we do not",
           text:
-            "As at 22 August 2026 the declared region for the language model is East US " +
-            "2, in the United States. Until that date it was South India, and this " +
-            "clause said the language leg ran in India. That claim is WITHDRAWN, not " +
-            "narrowed: we are not going to keep it alive with qualifiers, and you should " +
-            "read the warranty below as a promise about our code rather than about a " +
-            "country. The change is recorded in our decision log and is the " +
-            "sub-processor location change clause 5 governs; the sub-processor page " +
-            "states what it would have cost had a client been live. " +
-            "We warrant that our software cannot send a language-model request anywhere " +
-            "but the single region our source code declares without a change to our " +
-            "source code that declares a different residency posture in a named " +
-            "constant — a change our build " +
-            "rejects until every other file agrees with that declaration, and which we " +
-            "record in our decision log. Under the posture we have declared: one " +
-            "function constructs every model endpoint, it can emit only the declared " +
-            "region, the region is written once, and no configuration setting may carry " +
-            "a region, an endpoint or a posture. The region our code declares is not a " +
-            "value any setting, console control or environment variable holds, and " +
-            "only a reviewed commit can change it. That is the " +
-            "same warranty about our source code as before, and what changed inside it " +
-            "is which region it names. The paragraph below is the part it does not " +
-            "reach, which this clause used to leave you to work out.",
+            "As at 22 August 2026 our declared residency posture offers the language " +
+            "leg from more than one provider, in more than one place; until 19 August " +
+            "2026 it was a single Indian region, and this clause said the language leg " +
+            "ran in India. Both promises — that the leg runs with one vendor in one " +
+            "region, and that the region is India — are WITHDRAWN, not narrowed: we are " +
+            "not going to keep either alive with qualifiers, and you should read the " +
+            "warranty here as a promise about our code rather than about a country or a " +
+            "single vendor. The change is recorded in our decision log and is the " +
+            "sub-processor location change clause 5 governs. " +
+            "What we DO warrant: our software cannot send a language-model request to a " +
+            "provider or a place our source code does not declare, without a change to " +
+            "our source code that declares a different residency posture in a named " +
+            "constant — a change our build rejects until every other file agrees with " +
+            "that declaration, and which we record in our decision log. Under that " +
+            "posture the set of providers we may reach is fixed in code, written down " +
+            "once, and no configuration setting may carry a region, an endpoint or a " +
+            "posture; that set is not a value any setting, console control or " +
+            "environment variable holds, and only a reviewed commit can change it. " +
+            "What we DO NOT warrant, and this clause used to imply: that those " +
+            "providers are one, that those places are one, or that any of them is " +
+            "India. Which provider handles a given call is your model choice; where " +
+            "each provider processes is on the sub-processor page. The paragraph below " +
+            "is the part this warranty does not reach.",
         },
         {
           kind: "para",
           text:
             "We do NOT " +
-            "warrant this as machine-proved at the provider, and we will not let a " +
-            "shorter sentence imply that we do. " +
-            "Our provider's endpoint address contains no region — the region belongs to " +
-            "the account resource that address points at. WHICH resource we point at is " +
-            "an operational setting our own operators can change, as is which model " +
-            "deployment inside it answers, so the warranty above is a warranty about " +
-            "our source code and not the whole story: a resource created in another " +
-            "region would move the processing without any of it becoming false. That is " +
-            "why the two facts the region actually depends on are held by a person and " +
-            "not by the build — that the resource we are configured to use is in East " +
-            "US 2, and that its " +
-            "model deployment is the regional kind rather than the provider's worldwide " +
-            "default. Both are confirmed by a named person against the provider's console, " +
-            "dated and retained as evidence, and available to you under clause 10. " +
-            "Moving the service to a resource in another region is a change of " +
-            "processing location, notified to you under clause 5 before it takes " +
-            "effect; it is not something we treat as a settings adjustment because the " +
-            "setting is where it happens to live. " +
-            "Before 19 August 2026 the language leg ran on a provider whose endpoint did " +
-            "name its region; the change of provider is what narrowed this warranty, the " +
-            "change of region is what withdrew the India claim, and both are recorded " +
-            "rather than absorbed.",
+            "warrant any of this as machine-proved at the provider, and we will not let " +
+            "a shorter sentence imply that we do. Take the leg served from the " +
+            "hyperscale provider's United States region: that provider's endpoint " +
+            "address contains no region — the region belongs to the account resource " +
+            "that address points at. WHICH resource we point at is an operational " +
+            "setting our own operators can change, as is which model deployment inside " +
+            "it answers, so the warranty above is a warranty about our source code and " +
+            "not the whole story: a resource created in another region would move that " +
+            "leg's processing without any of it becoming false. That is why the two " +
+            "facts that leg's region actually depends on are held by a person and not " +
+            "by the build — that the resource we are configured to use is in the United " +
+            "States region named on the sub-processor page, and that its model " +
+            "deployment is the regional kind rather than the provider's worldwide " +
+            "default. Both are confirmed by a named person against the provider's " +
+            "console, dated and retained as evidence, and available to you under clause " +
+            "10. The other providers you can choose place their processing differently " +
+            "again — one of them names no region we could pin at all — and the " +
+            "sub-processor page states, for each, where it runs and what we can and " +
+            "cannot prove about it. Moving any leg to a resource or a provider in " +
+            "another place is a change of processing location, notified to you under " +
+            "clause 5 before it takes effect; it is not something we treat as a " +
+            "settings adjustment because the setting is where it happens to live.",
         },
         {
           kind: "para",

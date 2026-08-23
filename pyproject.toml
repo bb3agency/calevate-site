@@ -134,7 +134,18 @@ src = ["apps", "packages"]
 # every future contributor remembering a caveat is not a rule. Style lint on a vendor's
 # documentation was never wanted anyway — the code in there is THEIRS, and its value is
 # that it is verbatim.
-extend-exclude = ["alembic/versions", "bolna-findings"]
+#
+# `docs/evidence` IS ON THIS LIST FOR EXACTLY THE SAME REASON, AND IT WAS ADDED AFTER THE
+# SAME DEFECT HAPPENED A SECOND TIME. `ruff format .` rewrote a fenced Python block inside
+# `docs/evidence/llm-multi-provider-2026-08.md` — restyling `MINIMAL = 'MINIMAL'` to double
+# quotes and re-indenting a class body — and that block is a VERBATIM QUOTE of
+# `googleapis/python-genai@66807187f212 google/genai/types.py:364-376`, cited by line as
+# proof that Google's `ThinkingLevel` enum has no zero. An evidence page whose quoted bytes
+# have been restyled is no longer evidence: the next reader diffing it against the vendor's
+# real file finds differences our formatter introduced, and cannot tell those from the
+# vendor having changed. `docs/evidence/` holds no Python of its own (checked — zero `.py`
+# files), so nothing is lost by excluding it and the verbatim quotes stay verbatim.
+extend-exclude = ["alembic/versions", "bolna-findings", "docs/evidence"]
 # `extend-exclude` alone is NOT enough, and the difference is the whole defect. Ruff
 # honours exclusions during directory traversal but IGNORES them for paths handed to it
 # explicitly on the command line — and `.pre-commit-config.yaml` runs `ruff-format` as a

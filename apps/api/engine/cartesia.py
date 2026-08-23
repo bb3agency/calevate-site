@@ -136,6 +136,7 @@ from calevate_shared.engine import (
     KBSourceRef,
     ListingIncompleteReason,
     LlmCredentialPlacement,
+    LlmProvider,
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
@@ -870,7 +871,9 @@ class CartesiaEngine:
         """
         require_capability("inbound_binding", engine=self)
 
-    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+    async def set_llm_credential(
+        self, secret: str, *, provider: LlmProvider
+    ) -> LlmCredentialPlacement:
         """Refuses, because this engine's LLM is not ours to credential (D-404).
 
         `CARTESIA_CAPABILITIES.llm == "engine"` — Line runs the model, we do not choose it

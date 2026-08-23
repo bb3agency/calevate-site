@@ -19,6 +19,7 @@ from apps.api.core.errors import install_error_handlers
 from apps.api.core.platform_config import start_config_refresher
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.flags.registry import assert_flag_registry_wellformed
+from apps.api.ops.pricing_snapshot import start_pricing_refresher
 
 
 async def _startup() -> AsyncIterator[None]:
@@ -35,8 +36,17 @@ async def _startup() -> AsyncIterator[None]:
     default would decide hard rule 3's question — what may run beside the webhook path —
     on that service's behalf, in a file its owner does not read. `start_config_refresher`
     is idempotent, so adopting it there later is the same single line.
+
+    `start_pricing_refresher` is the same adoption for the attested-price seam: it installs
+    the two sync readers billing/ and the picker consume (`ops/pricing_snapshot.py`) and
+    begins polling `platform_model_prices`. Started HERE and not in `create_app` for the
+    identical reason — it is a background poll, and voice-runtime must not inherit one. The
+    worker process (`apps/workers/settings.py::startup`) prices the dashboard assist and
+    should call it too once an OpenAI/Google model is selectable; until then only Azure is
+    offerable and it bills off its verified catalogue reading with no reader installed.
     """
     start_config_refresher()
+    start_pricing_refresher()
     yield
 
 
@@ -102,6 +112,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.ops.config_routes import router as ops_config_router
+    from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.routes import router as ops_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
@@ -254,6 +265,10 @@ def _mount_routers(application: FastAPI) -> None:
     # Credentials — its OWN permission (`platform:secrets`), held by fewer people than
     # anything else on this list. No route on it returns plaintext (§7).
     application.include_router(ops_secrets_router)
+    # Operator-attested model prices — `platform:config` like the config panel (a price is
+    # configuration, not a credential), effective-dated and append-only. What lets a model
+    # whose catalogue price is unverified become offerable.
+    application.include_router(ops_model_prices_router)
 
 
 _mount_routers(app)

@@ -43,6 +43,8 @@ from apps.api.core.rbac import (
     MUTATING_PERMISSIONS,
     NORMAL_ADMIN_ROLE,
     ROLE_PERMISSIONS,
+    SUPERADMIN_ONLY_PERMISSIONS,
+    SUPERADMIN_PERMISSIONS,
     SUPERADMIN_ROLE,
     role_has,
 )
@@ -112,9 +114,9 @@ def test_the_normal_admin_tier_holds_none_of_the_four_platform_authorities() -> 
     """The exact list of what a normal admin cannot do, stated once and asserted.
 
     `admin:operators` is the load-bearing one — it is the permission that could grant the
-    other three — and the other three are the surfaces the founder's question named. Each
-    is spelled out rather than covered by a prefix scan, because a prefix rename would
-    make a scan pass while the grant changed.
+    other three — and the other three are the surfaces the founder named when asked to
+    draw the boundary. Each is spelled out rather than covered by a prefix scan, because
+    a prefix rename would make a scan pass while the grant changed.
     """
     for permission in ("admin:operators", "platform:secrets", "platform:config", "ops:manage"):
         assert not role_has(NORMAL_ADMIN_ROLE, permission), (  # type: ignore[arg-type]
@@ -125,6 +127,53 @@ def test_the_normal_admin_tier_holds_none_of_the_four_platform_authorities() -> 
     # `superadmin` having it: a normal admin more able than the platform's owner is the
     # drift this pairing catches in the other direction.
     assert ROLE_PERMISSIONS[NORMAL_ADMIN_ROLE] < ROLE_PERMISSIONS[SUPERADMIN_ROLE]
+
+
+def test_the_tier_boundary_is_exactly_the_four_and_nothing_else() -> None:
+    """THE FOUNDER'S SENTENCE AS AN EQUATION OVER THE CONSTANTS, not over a list retyped
+    here — which is the whole difference between this test and the one above it.
+
+    "The other normal admins can do literally everything that a super admin can except
+    ops config and other things that are vital in that level." Written as a set identity
+    that difference is `SUPERADMIN_ONLY_PERMISSIONS`, so the test reads as the sentence
+    does: everything, minus four.
+
+    ## Why this is stated over the constants rather than as a longhand list
+
+    The test above names the four and would keep passing if a FIFTH permission were
+    quietly withheld from the normal tier — including a permission added to the
+    `Permission` `Literal` next week and simply never granted to anybody but
+    `superadmin`. That is precisely the drift the founder's correction to D-457 was
+    fixing: `calls:read_raw` and `leads:dispatch` were on the wrong side of the line for
+    no reason anybody had decided, they were just never added. This equation cannot be
+    satisfied by inattention — a new permission fails it until somebody puts it on one
+    side or the other ON PURPOSE, by editing `ROLE_PERMISSIONS["operator"]` or
+    `SUPERADMIN_ONLY_PERMISSIONS`.
+
+    ## And it does NOT weaken deny-by-default
+
+    `ROLE_PERMISSIONS["operator"]` stays a hand-kept set; nothing here computes it. So
+    the RUNTIME default for a new permission is still DENY to the normal tier
+    (`core/rbac.py`'s module docstring argues why deriving it would invert that), and
+    what this adds is a red test rather than a silent grant. Failing closed and failing
+    LOUDLY are different properties, and D-457 shipped only the first.
+    """
+    normal = ROLE_PERMISSIONS[NORMAL_ADMIN_ROLE]
+    withheld = SUPERADMIN_PERMISSIONS - normal
+    assert withheld == SUPERADMIN_ONLY_PERMISSIONS, (
+        "the two admin tiers no longer differ by exactly SUPERADMIN_ONLY_PERMISSIONS. "
+        "A permission was added to the Permission type, or moved between tiers, without "
+        "deciding which side it belongs on. Withheld from `operator` but not named as "
+        f"superadmin-only: {sorted(withheld - SUPERADMIN_ONLY_PERMISSIONS)}; named "
+        "superadmin-only but granted to `operator`: "
+        f"{sorted(SUPERADMIN_ONLY_PERMISSIONS & normal)}"
+    )
+    # The two the founder moved, pinned by name so a revert is a visible one. They are
+    # PER-TENANT support work — role-checked and audit-logged at every route that
+    # declares them — not platform authorities, which is the distinction the boundary is
+    # drawn on.
+    assert role_has(NORMAL_ADMIN_ROLE, "calls:read_raw")
+    assert role_has(NORMAL_ADMIN_ROLE, "leads:dispatch")
 
 
 def test_managing_operators_is_a_mutating_permission() -> None:
@@ -781,6 +830,43 @@ async def test_adding_a_superadmin_needs_a_different_confirmation_from_adding_an
         )
     assert response.status_code == 403, response.text
     assert response.json()["type"].endswith("/step_up_required")
+
+
+async def test_a_second_superadmin_can_be_appointed_because_there_is_no_break_glass() -> None:
+    """THE DECISION "there will only be one super admin" IS NOT ENFORCED, AND THIS PINS
+    THAT IT IS NOT — so a future `AT MOST one` guard cannot land without meeting the
+    condition `authn/operators.py` states for it.
+
+    The founder's sentence is a fact about who they intend to appoint. Turning it into a
+    cap was considered and refused, because this repository has NO break-glass path to
+    mint or restore a superadmin: `bootstrap_first_admin` refuses the moment any live
+    operator holds a password (which is exactly the state a lockout happens in),
+    `scripts/seed_dev.py` cannot run outside `APP_ENV=local` and never re-roles a row,
+    and `set_operator_role` — the only statement in the tree that updates
+    `admin_users.role` — sits behind the very role it would restore. With a cap in force,
+    `_refuse_self` also makes the role non-TRANSFERABLE: promoting a successor is refused
+    while the incumbent exists, and the incumbent cannot demote themselves, so there is
+    no order of operations that hands the platform to another person.
+
+    What keeps the count at one is therefore the narrow default (`OperatorCreateIn.role`),
+    `admin:operators` being superadmin-only, a step-up bound to the ROLE, and a ledger row
+    — deliberate acts, not an accident. If a cap is ever wanted, a real break-glass has to
+    land first; this test is what will fail and say so.
+    """
+    actor = await _make_admin()
+    colleague = await _make_operator()
+    async with _client() as http:
+        promoted = await http.patch(
+            f"/v1/admin/operators/{colleague}",
+            headers=_headers(actor, f"set_operator_role:{colleague}"),
+            json={"role": SUPERADMIN_ROLE, **REASON},
+        )
+    assert promoted.status_code == 200, (
+        "a second superadmin was refused. If that is now intended, `authn/operators.py` "
+        "asks for a documented break-glass to exist FIRST — a lockout with no recovery "
+        f"is the failure this refusal buys: {promoted.status_code} {promoted.text[:300]}"
+    )
+    assert promoted.json()["role"] == SUPERADMIN_ROLE
 
 
 async def test_a_revoked_operator_is_invisible_to_every_identity_read() -> None:

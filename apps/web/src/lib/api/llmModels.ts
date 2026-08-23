@@ -52,10 +52,16 @@
  * what was agreed fails the build rather than compiling over the difference.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { agentKeys, type Agent, type AgentUpdateIn } from "./agents";
 import { apiRequest, type Session } from "./client";
+import { lookup } from "@/lib/lookup";
 import type { components } from "./schema";
 
 /**
@@ -83,11 +89,12 @@ import type { components } from "./schema";
  * Both are decimal strings and stay strings: see `lib/llmRates.ts` for why neither is ever
  * parsed into a number.
  *
- * `is_available` is CAN THIS PLATFORM ACTUALLY RUN IT. A model with no Azure deployment
- * behind it would be quoted at its own price and answered by a different one, so `PUT`
- * refuses it with `llm_model_not_deployed`. A screen renders such a row DISABLED with
- * `unavailable_reason` beside it rather than hiding it, so the reader can see what is left
- * to configure instead of wondering where a model went.
+ * `is_available` is CAN THIS PLATFORM ACTUALLY RUN IT. A model this platform is not set up
+ * to run — no provider credential installed for it, or no price attested for it — would be
+ * quoted at its own price and answered by a different one, so `PUT` refuses it with
+ * `llm_model_not_deployed`. A screen renders such a row DISABLED with `unavailable_reason`
+ * beside it rather than hiding it, so the reader can see what is left to configure instead
+ * of wondering where a model went.
  */
 type Schemas = components["schemas"];
 
@@ -136,7 +143,11 @@ export function useOrganizationLlmDefaults(
 ): UseQueryResult<OrganizationLlmDefaults> {
   return useQuery({
     queryKey: llmModelKeys.organizationDefaults(session.orgSlug),
-    queryFn: () => apiRequest<OrganizationLlmDefaults>(session, ORGANIZATION_LLM_DEFAULTS_PATH),
+    queryFn: () =>
+      apiRequest<OrganizationLlmDefaults>(
+        session,
+        ORGANIZATION_LLM_DEFAULTS_PATH,
+      ),
     enabled,
     staleTime: 5 * 60_000,
   });
@@ -164,15 +175,23 @@ export function useSetOrganizationLlmDefault(session: Session) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: SetOrganizationLlmDefaultIn) =>
-      apiRequest<OrganizationLlmDefaults>(session, ORGANIZATION_LLM_DEFAULTS_PATH, {
-        method: "PUT",
-        body: input,
-      }),
+      apiRequest<OrganizationLlmDefaults>(
+        session,
+        ORGANIZATION_LLM_DEFAULTS_PATH,
+        {
+          method: "PUT",
+          body: input,
+        },
+      ),
     onSuccess: () =>
       Promise.all([
-        client.invalidateQueries({ queryKey: llmModelKeys.organizationDefaults(session.orgSlug) }),
+        client.invalidateQueries({
+          queryKey: llmModelKeys.organizationDefaults(session.orgSlug),
+        }),
         client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
-        client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) }),
+        client.invalidateQueries({
+          queryKey: agentKeys.allDetails(session.orgSlug),
+        }),
       ]),
   });
 }
@@ -268,7 +287,11 @@ export interface AgentLlmView {
 export function agentLlmView(agent: AgentWithLlm): AgentLlmView | null {
   const effective = agent.llm_model_effective;
   if (effective === undefined || effective === "") return null;
-  return { chosen: agent.llm_model ?? null, effective, source: agent.llm_model_source };
+  return {
+    chosen: agent.llm_model ?? null,
+    effective,
+    source: agent.llm_model_source,
+  };
 }
 
 /**
@@ -317,10 +340,14 @@ export function agentOwnModel(agent: AgentWithLlm): string | null {
  * somebody is on it, or an API build without the field — which every caller renders as
  * "we cannot say" rather than as free.
  */
-export function inForceSurcharge(defaults: OrganizationLlmDefaults): string | null {
+export function inForceSurcharge(
+  defaults: OrganizationLlmDefaults,
+): string | null {
   if (defaults.default_llm_model === null) return "0";
-  return modelOption(defaults.available, defaults.effective_default)
-    ?.client_surcharge_inr_per_minute ?? null;
+  return (
+    modelOption(defaults.available, defaults.effective_default)
+      ?.client_surcharge_inr_per_minute ?? null
+  );
 }
 
 /**
@@ -337,7 +364,10 @@ export function agentInForceSurcharge(
   options: readonly LlmModelOption[],
 ): string | null {
   if (view.source !== "agent" && view.source !== "organization") return "0";
-  return modelOption(options, view.effective)?.client_surcharge_inr_per_minute ?? null;
+  return (
+    modelOption(options, view.effective)?.client_surcharge_inr_per_minute ??
+    null
+  );
 }
 
 /**
@@ -362,15 +392,47 @@ export function platformDefaultOption(
 }
 
 /**
+ * OUR NAME FOR EACH MODEL PROVIDER, spelled once for both realms.
+ *
+ * The wire carries a machine value (`azure_openai`, `openai`, `google`) — OUR word for
+ * where a leg runs, read from the declared residency posture, not the vendor's own label
+ * (`apps/api/agents/llm_routes.py::LlmModelOptionOut.provider`). A raw `azure_openai` on a
+ * client's screen is an internal token leaking into a bill, so it is turned into a name a
+ * person reads. The three declared legs (D-456) are presented ON EQUAL FOOTING: a model is
+ * a model, and which vendor answers is a fact about the row, not a hierarchy between rows.
+ *
+ * An UNKNOWN key returns unchanged rather than throwing: a provider the server adds before
+ * this table learns its name must still render as SOMETHING a reader can see, and the wire
+ * value is a truer fallback than a blank. `providerLabel` is the one reading, imported by
+ * every surface that shows a model so a fourth provider is renamed in one place.
+ */
+export const PROVIDER_LABELS: Readonly<Record<string, string>> = {
+  azure_openai: "Azure OpenAI",
+  openai: "OpenAI",
+  google: "Google Gemini",
+};
+
+export function providerLabel(provider: string): string {
+  return lookup(PROVIDER_LABELS, provider) ?? provider;
+}
+
+/**
  * What we say when the server marks a model unavailable and sends no reason.
  *
  * A LAST RESORT, never the usual answer: `unavailable_reason` is populated by the route
  * for every row it marks, so this sentence should only ever be reached by an API build
- * that carries `is_available` and not the reason beside it. It says the same thing in the
- * same words as the server's own text so the two cannot read as different problems.
+ * that carries `is_available` and not the reason beside it.
+ *
+ * **PROVIDER-NEUTRAL, and that is the correction (D-456).** It used to say "this platform
+ * has no deployment behind it yet" — an Azure-only sentence, because the only leg that was
+ * ever selectable took an Azure deployment. With OpenAI and Google models offerable too, a
+ * model is now unavailable for one of two reasons that hold across every provider: no
+ * credential is installed for it, or no price has been attested for it (hard rule 7 — an
+ * unpriced model cannot be quoted). Worded so it reads the same whichever provider the row
+ * belongs to, so a client and the operator on the phone to them see one explanation.
  */
 export const MODEL_UNAVAILABLE_FALLBACK =
-  "this platform has no deployment behind it yet, so a call would run a different model.";
+  "it is not set up to run here yet — either no provider credential is installed for it, or its price has not been attested — so a call would run a different model.";
 
 /**
  * Why this option cannot be chosen, or `null` when it can — the ONE reading of

@@ -31,6 +31,7 @@ import {
   inForceSurcharge,
   modelOption,
   platformDefaultOption,
+  providerLabel,
   type LlmModelOption,
   type OrganizationLlmDefaults,
   type SetOrganizationLlmDefaultIn,
@@ -357,6 +358,30 @@ function priceChangeSentence(from: string | undefined, to: string | undefined): 
 /** The inherit row's description, referenced by `aria-describedby`. */
 const INHERIT_DETAIL_ID = "llm-option-inherit-detail";
 
+/**
+ * The catalogue, gathered by provider in first-appearance order (D-456).
+ *
+ * The three declared legs — Azure OpenAI, OpenAI, Google Gemini — are presented on equal
+ * footing: a group per provider, the server's ordering preserved. Kept beside the form
+ * rather than inlined so the grouping reads as one expression and the render stays a map.
+ */
+function providerGroups(
+  options: readonly LlmModelOption[],
+): { key: string; label: string; options: LlmModelOption[] }[] {
+  const groups: { key: string; label: string; options: LlmModelOption[] }[] = [];
+  for (const option of options) {
+    const group = groups.find((candidate) => candidate.key === option.provider);
+    if (group) group.options.push(option);
+    else
+      groups.push({
+        key: option.provider,
+        label: providerLabel(option.provider),
+        options: [option],
+      });
+  }
+  return groups;
+}
+
 /** The catalogue, the choice, the consequence, and the typed confirmation. */
 function ChoiceForm({
   defaults,
@@ -426,17 +451,37 @@ function ChoiceForm({
 
         <fieldset>
           <legend className={FIELD_LABEL}>This client&apos;s default</legend>
-          <div className="mt-2 space-y-2">
-            {defaults.available.map((option) => (
-              <ModelOption
-                key={option.model}
-                option={option}
-                checked={choice === option.model}
-                disabled={!write.allowed}
-                currentSurcharge={currentSurcharge}
-                onPick={() => pick(option.model)}
-              />
-            ))}
+          {/* GROUPED BY PROVIDER, ON EQUAL FOOTING (D-456). The client's own pickers do the
+              same through `ModelPicker`; this console renders its own rows because it shows
+              BOTH per-minute figures, so the grouping is repeated here rather than shared —
+              a labelled sub-group per provider, each a `role="group"` so an operator on a
+              screen reader hears the vendor once instead of on every row. "Follow the
+              platform default" belongs to no provider and stays at the end, ungrouped, but
+              inside the one radio group. */}
+          <div className="mt-2 space-y-4">
+            {providerGroups(defaults.available).map((group, index) => {
+              const headingId = `admin-llm-provider-${index}`;
+              return (
+                <div key={group.key} role="group" aria-labelledby={headingId} className="space-y-2">
+                  <p
+                    id={headingId}
+                    className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint"
+                  >
+                    {group.label}
+                  </p>
+                  {group.options.map((option) => (
+                    <ModelOption
+                      key={option.model}
+                      option={option}
+                      checked={choice === option.model}
+                      disabled={!write.allowed}
+                      currentSurcharge={currentSurcharge}
+                      onPick={() => pick(option.model)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
             <label className="flex cursor-pointer gap-2 rounded-card border border-line p-3 text-xs hover:bg-black/5 dark:hover:bg-white/5">
               <input
                 type="radio"
@@ -608,8 +653,9 @@ function ModelOption({
       />
       <span id={describedBy}>
         <span className="font-medium text-ink">{option.model}</span>
+        {/* The provider is the group heading above this row now (D-456), so the money line
+            leads with what the operator came for — both per-minute figures. */}
         <span className="mt-0.5 block text-ink-muted">
-          {option.provider} ·{" "}
           {compareRates(option.client_surcharge_inr_per_minute, "0") === "same"
             ? "no extra charge to them"
             : `+${formatRupeeRate(option.client_surcharge_inr_per_minute)} per minute to them`}{" "}

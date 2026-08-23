@@ -691,10 +691,16 @@ async def get_delivery_payload(
     # the form the endpoint's `include_raw_phone` choice produced, which is the same
     # class of thing as `text` versus `text_redacted`, and hard rule 5 puts that behind
     # a role check AND an audit row. `crm.routes.get_lead_contact` makes the identical
-    # call for the identical reason. It also settles the D-22 question in the right
-    # direction by construction: `operator` does not hold `calls:read_raw` at all, so an
-    # impersonating support user sees the delivery list — which is what they need to
-    # answer "did it arrive?" — and never the payload.
+    # call for the identical reason.
+    #
+    # WHAT D-22 LEAVES STANDING HERE, now that BOTH admin tiers hold `calls:read_raw`
+    # (the founder's correction to D-457): the delivery LIST is `org:read` and the
+    # payload is not, so an impersonating support user still has to ask for the body
+    # deliberately — and asking for it costs them a step-up at the impersonation door
+    # (D-210) plus the `audit_log` row this handler writes before the object is fetched.
+    # It used to be refused outright, because `operator` held no raw permission at all;
+    # what replaces "they cannot" is "they can, once, attributably", which is the same
+    # control a client `owner` reading their own payload is under.
     principal: Principal = Depends(requires("calls:read_raw")),
 ) -> DeliveryPayloadOut:
     """One retained delivery body. Absent, expired and unreachable are three answers.

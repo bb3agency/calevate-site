@@ -162,6 +162,12 @@ ATTESTATION_PATH: Final = Path("docs/evidence/azure-deployment-attestation.json"
 #: direction of dependency.
 
 
+#: The three things a `retires_on` can mean. Closed, so a fourth reading has to be added to
+#: the type before it can be filed — the `EngineName`/`LlmProvider` doctrine (D-103), applied
+#: to the field hard rule 11 was written about.
+RetirementStance = Literal["dated", "none-announced", "unread"]
+
+
 @dataclass(frozen=True, slots=True)
 class ModelLifecycle:
     """One catalogue model's dated vendor facts.
@@ -200,6 +206,29 @@ class ModelLifecycle:
     #: (`check_model_lifecycle.refusals`), so the gap cannot reach a call; it warns on every
     #: run naming the URL that closes it.
     retires_on: date | None
+    #: **WHICH OF THE THREE THINGS A MISSING DATE MEANS.** `retires_on: date | None` cannot
+    #: say, and the day it could not say was expensive: hard rule 11 exists because a
+    #: REPORTED `2026-10-16` sat in this file, was repeated downstream as fact into an
+    #: evidence document and a lane brief, and was simply WRONG — Google announces no
+    #: shutdown for the GA `gemini-2.5-flash` at all, and that date belonged to a dated
+    #: PREVIEW snapshot nobody here ships. A `None` and a wrong date are both silent; a
+    #: stance is not.
+    #:
+    #: * `"dated"` — the vendor publishes a shutdown date and it is in `retires_on`.
+    #: * `"none-announced"` — somebody READ the vendor's own deprecation page and it lists
+    #:   this identifier with no shutdown date. This is a READING, and the strongest state a
+    #:   model can be in; it is NOT the absence of one.
+    #: * `"unread"` — nobody here has opened that page for this identifier. The honest state
+    #:   on a leg whose deprecation host every egress path refuses, and the ONE state that
+    #:   forbids `selectable` (`check_model_lifecycle.refusals`).
+    #:
+    #: **`"none-announced"` IS THE FIELD'S WHOLE REASON TO EXIST AND IT IS THE ONE THAT CAN
+    #: BE ABUSED**, so the check is stated against it in both directions: it may not carry a
+    #: `retires_on` (one of the two is stale), and — since a claim that a vendor announced
+    #: nothing is a claim about the outside world — its `retirement` Evidence must name the
+    #: page and the date it was read. An unverifiable "none announced" is a guess wearing the
+    #: shape of a reading, which is exactly what hard rule 11 forbids.
+    retirement_stance: RetirementStance
     #: The vendor's own word: GA · Legacy · Deprecated · Retired · or "unread".
     stage: str
     #: What the vendor names as the migration target, or None when there is none published.
@@ -216,6 +245,30 @@ class ModelLifecycle:
     @property
     def offered_on_mandated_type(self) -> bool:
         return MANDATED_DEPLOYMENT_TYPE in self.offered_in_region
+
+    def __post_init__(self) -> None:
+        """The stance and the date have to agree, and neither can be inferred from the other.
+
+        Written as an invariant on the RECORD rather than as a rule in `check_model_lifecycle`
+        because it is a property of the entry, not of a run: a row that says `"dated"` with no
+        date is incoherent in a test fixture and in a REPL exactly as it is in CI, and a
+        guard that owned this would let a hand-built entry into a unit test that could never
+        exist in the tree.
+        """
+        if (self.retires_on is not None) != (self.retirement_stance == "dated"):
+            raise ValueError(
+                f"{self.model!r} files retirement_stance {self.retirement_stance!r} with "
+                f"retires_on={self.retires_on!r}. 'dated' means the date is here and the "
+                "other two stances mean it is not — a stance that disagrees with its own "
+                "date is the ambiguity this field was added to end (hard rule 11)."
+            )
+        if self.retirement_stance == "none-announced" and not self.retirement.verified:
+            raise ValueError(
+                f"{self.model!r} claims the vendor announced no retirement, on evidence "
+                f"nobody verified ({self.retirement.source}). 'no shutdown date is published'"
+                " is a claim about the outside world and needs a page somebody opened; "
+                "without one the honest stance is 'unread'."
+            )
 
     def days_left(self, today: date) -> int | None:
         """Days until the vendor turns it off, or `None` when no date has been read.
@@ -247,6 +300,20 @@ _STANDARD_MATRIX: Final = (
 )
 _READ_ON: Final = date(2026, 8, 22)
 
+#: When the founder opened the vendor pages this container cannot reach, in a browser, and
+#: relayed what they said. A SEPARATE constant from `_READ_ON` because it is a different
+#: ACT with a different evidence class: `_READ_ON` dates readings our own toolchain made
+#: against a hash-pinned mirror or a pinned git commit and can make again; this dates
+#: readings of a live page nothing here can re-fetch. Rows carrying it are the ones a
+#: rate-card review has to re-ask a human about.
+_FOUNDER_READ_ON: Final = date(2026, 8, 23)
+
+#: Where the founder's readings are written up in full, cited by every row that carries one
+#: so a reader meets the URLs, the page dates and the corrections in one place.
+_FOUNDER: Final = (
+    "docs/evidence/llm-multi-provider-2026-08.md ADDENDUM (VENDOR-PUBLISHED, founder-relayed)"
+)
+
 #: THE CATALOGUE'S LIFECYCLE, keyed by the same identifiers as `LLM_MODEL_NAMES` — every
 #: model on every declared leg, selectable or not.
 #:
@@ -273,6 +340,7 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         provider="azure_openai",
         version="2024-07-18",
         retires_on=date(2027, 4, 14),
+        retirement_stance="dated",
         stage="Deprecated",
         replacement=None,
         offered_in_region=frozenset({"standard-regional", "global-standard"}),
@@ -316,6 +384,7 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         provider="azure_openai",
         version="2025-04-14",
         retires_on=date(2027, 4, 14),
+        retirement_stance="dated",
         stage="Legacy",
         replacement=None,
         offered_in_region=frozenset({"standard-regional", "global-standard"}),
@@ -342,36 +411,50 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             ),
         ),
     ),
-    # --- THE OPENAI-DIRECT LEG: UNDATED, AND THE ABSENCE IS THE FINDING ---------------
+    # --- THE OPENAI-DIRECT LEG: ONE MODEL READ AT THE VENDOR, ONE STILL UNREAD --------
     #
-    # Both entries carry `retires_on=None`. That is not a gap somebody forgot to fill: it is
-    # the concrete form of one of D-449's four grounds for keeping Azure. Microsoft publishes
-    # a dated retirement schedule per model version and per SKU, in a git repository this
-    # environment can read at a named commit; OpenAI publishes deprecations on a page every
-    # egress path here refuses. So on this leg the honest answer to "when does it stop
-    # answering" is nobody here knows, and `check_model_lifecycle` says so on every run
-    # rather than letting a green line imply otherwise.
+    # THIS BLOCK USED TO SAY BOTH ENTRIES WERE UNDATED AND THAT THE ABSENCE WAS THE FINDING.
+    # Half of that is now closed and the way it closed is the point: the pages are still
+    # egress-blocked from this container and from CI, so nothing here re-fetched them — the
+    # FOUNDER opened them in a browser and relayed the reading. That is VENDOR-PUBLISHED
+    # evidence (a vendor page, read, with a URL and a date) obtained through a human rather
+    # than through our toolchain, which is stronger than the third-party trackers it
+    # corroborates and weaker than something CI could re-check. It is filed `verified=True`
+    # on the RETIREMENT axis because a page was genuinely read; the PRICE axis stays
+    # unverified in `LLM_MODELS` for the separate reason that a price reaches money and is
+    # settled by an operator attestation rather than by any figure in source.
     "gpt-5.4-mini": ModelLifecycle(
         model="gpt-5.4-mini",
         provider="openai",
         version="unread",
         retires_on=None,
-        stage="unread",
+        # NOT "unread" — SOMEBODY LOOKED, AND THAT IS THE WHOLE DISTINCTION THIS FIELD ADDS.
+        # OpenAI's own model page lists this model as current with no deprecation notice, and
+        # their published policy is >=6 months' notice for a GA model. "No date exists yet"
+        # and "nobody checked" are the same `None` and opposite facts, and only the first one
+        # may sit under a model a client can choose.
+        retirement_stance="none-announced",
+        stage="GA",
         replacement=None,
         # EMPTY BECAUSE THE CONCEPT DOES NOT EXIST HERE, not because the matrix omits it.
         # There are no deployments on this leg, so there is no SKU for a model to be offered
         # on and no per-region matrix to read — see `ModelLifecycle.deployment_types_apply`.
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="platform.openai.com/docs/deprecations (NOT READ — egress-blocked)",
-            read_on=_READ_ON,
-            verified=False,
+            source="developers.openai.com/api/docs/models/gpt-5.4-mini",
+            read_on=_FOUNDER_READ_ON,
+            verified=True,
             note=(
-                "openai.com, platform.openai.com and help.openai.com are all refused by "
-                "this environment's egress proxy (measured 22 Aug 2026, "
-                "docs/evidence/llm-provider-postures.md §0.2), so no OpenAI retirement page "
-                "was read at its own URL. No date is invented here. Closed by a human on an "
-                "unblocked network; until then this model cannot be selectable."
+                "VENDOR-PUBLISHED, founder-relayed (2026-08-23): the vendor's own model page "
+                "carries no deprecation notice for this identifier, and OpenAI's published "
+                "policy is at least six months' notice before a GA model is retired. ⚠ THIS "
+                "CONTAINER DID NOT AND CANNOT RE-FETCH IT — openai.com, platform.openai.com "
+                "and developers.openai.com are all refused by this environment's egress proxy "
+                "on two independent paths, so CI can never re-check this line. That is why "
+                "the stance is filed rather than a date: a page saying 'nothing is announced' "
+                "is exactly as perishable as one saying '2027-09-21', and the honest record "
+                "is WHAT WAS READ and WHEN. Re-read at the next rate-card review. "
+                f"{_FOUNDER}."
             ),
         ),
         availability=Evidence(
@@ -394,14 +477,28 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         provider="openai",
         version="unread",
         retires_on=None,
+        # STILL "unread", AND THE CONTRAST WITH THE ROW ABOVE IS THE USEFUL PART. The founder
+        # opened the vendor's page for `gpt-5.4-mini` and not for this one, so the honest
+        # stance here is that nobody has looked — which is what keeps it out of
+        # `SELECTABLE_LLM_MODELS`. Nothing about this leg blocks it; one page-read closes it.
+        retirement_stance="unread",
         stage="unread",
         replacement=None,
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="platform.openai.com/docs/deprecations (NOT READ — egress-blocked)",
-            read_on=_READ_ON,
+            source="developers.openai.com/api/docs/models/gpt-5.6-luna (NOT READ)",
+            read_on=_FOUNDER_READ_ON,
             verified=False,
-            note="Same blocked host as gpt-5.4-mini; no date is invented here either.",
+            note=(
+                "UNKNOWN. Every OpenAI-owned host is egress-blocked here (measured 23 Aug "
+                "2026 on two independent paths), and the founder's browser reading covered "
+                "gpt-5.4-mini and gpt-5.4 but not this identifier. No date and no 'nothing "
+                "announced' is invented for it: `check_model_lifecycle.refusals` keeps an "
+                "unread model out of the selectable set, and `LLM_MODELS` carries the "
+                "matching withdrawn_reason. ⚠ NOTE THE STALE URL THIS ROW USED TO NAME — "
+                "platform.openai.com/docs/deprecations. The pricing and deprecation pages "
+                "moved to developers.openai.com; whoever closes this should be sent there."
+            ),
         ),
         availability=Evidence(
             source="bolna-findings/mirror/pages/providers/llm-model/openai.md:38-51",
@@ -417,36 +514,49 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             ),
         ),
     ),
-    # --- THE GOOGLE LEG: DATED, 55 DAYS OUT, AND SELECTABLE BY NOBODY -----------------
+    # --- THE GOOGLE LEG: TWO DURABLE AND SAFE, TWO REFUSED ON A TRAP ------------------
     #
-    # These two are the reason `check_model_lifecycle` had to learn the difference between a
-    # retired SELECTABLE model (a build failure — an operator can flip a switch onto it) and
-    # a retired withdrawn one (a warning — the entry is the dated record of WHY it is
-    # withdrawn, and deleting it on the day it expires would delete the evidence). D-410
-    # removed the last dated constant from this repository and recorded that as a benefit;
-    # these rows put a date back, on models nobody may run, which is the only shape that
-    # benefit survives in.
+    # ⚠ **THE ENTRIES BELOW ARE THE CORRECTION HARD RULE 11 WAS WRITTEN ABOUT.** Until this
+    # revision both GA rows carried `retires_on=date(2026, 10, 16)` on REPORTED evidence, and
+    # that date was WRONG: Google's own deprecations page lists the GA identifiers with no
+    # shutdown date at all, and 16 Oct belonged to a dated PREVIEW snapshot
+    # (`gemini-2.5-flash-preview-09-25`) this repository has never shipped. The wrong date did
+    # not stay here. It was read back out of this file by a later session, restated as fact in
+    # `docs/evidence/`, and passed into a lane brief as the premise for withdrawing the whole
+    # Google leg — which is precisely the laundering-by-repetition the rule now forbids. The
+    # correction is filed rather than quietly applied because the failure mode is the finding.
     "gemini-2.5-flash": ModelLifecycle(
         model="gemini-2.5-flash",
         provider="google",
-        version="2.5",
-        retires_on=date(2026, 10, 16),
-        stage="Deprecated",
-        replacement="gemini-3.6-flash",
+        version="2.5 GA",
+        retires_on=None,
+        retirement_stance="none-announced",
+        stage="GA",
+        # NO REPLACEMENT IS NAMED, AND NAMING ONE WOULD BE THE SAME MISTAKE AGAIN. This row
+        # used to point at `gemini-3.6-flash`, which is not on the engine's published
+        # supported-model list at all — it exists only in the engine's OSS thinking map — so
+        # it was a migration target nothing could actually be configured onto. There is no
+        # successor to name: every gemini-3.* model is refused in `LLM_MODELS` because the
+        # vendor states in its own words that they "do not support full thinking-off". A
+        # `None` here means the honest thing: this model needs no replacement, and if it ever
+        # does, none exists today.
+        replacement=None,
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="docs/evidence/gemini-direct-api.md §4.1",
-            read_on=_READ_ON,
-            verified=False,
+            source="ai.google.dev/gemini-api/docs/deprecations (page dated 2026-08-13 UTC)",
+            read_on=_FOUNDER_READ_ON,
+            verified=True,
             note=(
-                "REPORTED: every ai.google.dev host is egress-blocked here, so this is search "
-                "summaries of Google's release notes rather than the vendor's page. ⚠ GOOGLE'S "
-                "OWN PAGES DISAGREE BY FOUR DAYS — 16 Oct in release notes, 20 Oct on the "
-                "lifecycle page — and the EARLIER date is carried, because a retirement guard "
-                "that rounds toward the vendor's slower page is a guard that warns after the "
-                "outage. The named replacement, gemini-3.6-flash, is global-only with no data "
-                "residency and takes a non-zero thinking level with no way to reach zero, "
-                "which is why this is a dead end rather than a migration."
+                "VENDOR-PUBLISHED, founder-relayed (2026-08-23): Google's own deprecations "
+                "page lists the GA identifier with NO shutdown date. ⚠ IT SUPERSEDES A WRONG "
+                "DATE THAT WAS IN THIS FILE — 2026-10-16, REPORTED from search summaries, "
+                "which conflated the GA id with dated preview snapshots "
+                "(`gemini-2.5-flash-preview-05-20` shut 2025-11-18, "
+                "`gemini-2.5-flash-preview-09-25` shuts 2026-02-17). Google's shutdown dates "
+                "are also published as the EARLIEST possible retirement rather than a "
+                "commitment, so 'none announced' is the strongest state this identifier can "
+                "be in and is not a guarantee of longevity. ai.google.dev is egress-blocked "
+                f"here, so CI cannot re-check this line. {_FOUNDER}."
             ),
         ),
         availability=Evidence(
@@ -455,8 +565,11 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             verified=True,
             note=(
                 "VERIFIED-VENDOR-DOCS: the engine lists it and marks it 'Recommended — "
-                "proven, stable, fast'. The engine will accept the identifier; what it will "
-                "not do is let us set a thinking budget, which is the trap recorded at "
+                "proven, stable, fast', and its own latency page ties it with gpt-4.1-mini at "
+                "~150ms TTFT (concepts/latency.md:69). The thinking trap that governs this "
+                "leg is ELIMINATED on this model — the engine sends thinking_budget=0 and "
+                "Google's own docs say 0 disables thinking — which is why it is selectable "
+                "where every 3.x successor is not. See "
                 "calevate_shared.engine.THINKING_TOKENS_SHARE_THE_REPLY_BUDGET."
             ),
         ),
@@ -464,24 +577,24 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
     "gemini-2.5-flash-lite": ModelLifecycle(
         model="gemini-2.5-flash-lite",
         provider="google",
-        version="2.5",
-        retires_on=date(2026, 10, 16),
-        stage="Deprecated",
-        replacement="gemini-3.1-flash-lite",
+        version="2.5 GA",
+        retires_on=None,
+        retirement_stance="none-announced",
+        stage="GA",
+        replacement=None,
         offered_in_region=frozenset(),
         retirement=Evidence(
-            source="docs/evidence/gemini-direct-api.md §4.1",
-            read_on=_READ_ON,
-            verified=False,
+            source="ai.google.dev/gemini-api/docs/deprecations (page dated 2026-08-13 UTC)",
+            read_on=_FOUNDER_READ_ON,
+            verified=True,
             note=(
-                "REPORTED, and WEAKER THAN ITS SIBLING'S BY ONE STEP WORTH NAMING: the source "
-                "dates 'gemini-2.5-pro and gemini-2.5-flash' explicitly and treats -flash-lite "
-                "as part of the same retiring family ('gemini-2.5-flash/-lite ... retires in "
-                "~8 weeks') without naming it in the sentence carrying the date. So this row's "
-                "date is an INFERENCE from the family, not a reading of this identifier, and "
-                "it is recorded as one. It fails in the safe direction — an early warning on a "
-                "model nobody may select — and the same human opening "
-                "ai.google.dev/gemini-api/docs/pricing settles it."
+                "VENDOR-PUBLISHED, founder-relayed (2026-08-23): listed GA with no shutdown "
+                "date. ⚠ THE ROW IT REPLACES WAS THE WEAKEST IN THE FILE AND SAID SO — its "
+                "2026-10-16 was not even a reading of this identifier, it was an INFERENCE "
+                "from the '2.5 wave'. Both the inference and the date it inferred from were "
+                "wrong. That an entry which honestly labelled itself an inference still "
+                "propagated downstream as fact is the strongest argument for hard rule 11 in "
+                f"this tree. {_FOUNDER}."
             ),
         ),
         availability=Evidence(
@@ -490,9 +603,71 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             verified=True,
             note=(
                 "VERIFIED-VENDOR-DOCS: listed by the engine, and named beside gpt-4.1-mini as "
-                "a low-TTFT choice on the engine's own latency page (concepts/latency.md:127) "
-                "— which is the strongest thing anybody can say for this leg and is still not "
-                "enough to outweigh a retirement 55 days out."
+                "a low-TTFT choice on the engine's own latency page (concepts/latency.md:127)."
+                " Google's own thinking documentation states its DEFAULT is not to think, and "
+                "thinking_budget=0 disables it outright — so this is the cheapest identifier "
+                "in the catalogue ($0.10/$0.40) with the trap fully off."
+            ),
+        ),
+    ),
+    # The two 3.x rows exist so the refusal is a dated, checked record rather than a memory,
+    # and so `check_model_residency` check 7 keeps seeing a leg its models name. Neither is
+    # selectable, so an `unread` stance is legitimate here and costs nothing.
+    "gemini-3.1-flash-lite": ModelLifecycle(
+        model="gemini-3.1-flash-lite",
+        provider="google",
+        version="3.1",
+        retires_on=None,
+        retirement_stance="unread",
+        stage="unread",
+        replacement=None,
+        offered_in_region=frozenset(),
+        retirement=Evidence(
+            source="ai.google.dev/gemini-api/docs/deprecations (NOT READ for this identifier)",
+            read_on=_FOUNDER_READ_ON,
+            verified=False,
+            note=(
+                "UNKNOWN, and deliberately left so. The founder's reading covered the two GA "
+                "2.5 identifiers; nobody has read this one, and a tracker figure would be the "
+                "class of evidence that produced the 2026-10-16 error two rows up. It does "
+                "not matter yet: this model is refused on a correctness ground the vendor "
+                "states in its own words, so a date would not make it choosable."
+            ),
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/llm-model/gemini.md:37",
+            read_on=_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-DOCS: on the engine's supported list, 'Budget, high-volume "
+                "agents; fastest in Gemini 3 family'. The engine WILL accept the identifier — "
+                "which is exactly why it needs a withdrawn_reason rather than an omission."
+            ),
+        ),
+    ),
+    "gemini-3.5-flash": ModelLifecycle(
+        model="gemini-3.5-flash",
+        provider="google",
+        version="3.5",
+        retires_on=None,
+        retirement_stance="unread",
+        stage="unread",
+        replacement=None,
+        offered_in_region=frozenset(),
+        retirement=Evidence(
+            source="ai.google.dev/gemini-api/docs/deprecations (NOT READ for this identifier)",
+            read_on=_FOUNDER_READ_ON,
+            verified=False,
+            note="UNKNOWN, same as gemini-3.1-flash-lite and for the same reason.",
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/llm-model/gemini.md:35",
+            read_on=_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-DOCS: on the engine's supported list, 'Latest generation; "
+                "stable'. Refused on TWO grounds rather than one — the unmitigable thinking "
+                "level and a $1.50/$9.00 price that is 10x the shipped default on input."
             ),
         ),
     ),

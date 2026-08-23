@@ -397,8 +397,8 @@ async def test_the_ledger_row_names_no_screen_and_no_query_string() -> None:
     )
 
 
-async def test_a_view_as_session_cannot_take_the_contact_list_in_bulk() -> None:
-    """The question D-436 forces, answered with the two controls that actually stand.
+async def test_a_view_as_bulk_export_writes_its_own_row_naming_the_operator() -> None:
+    """The question D-436 forces, answered with the control that actually stands.
 
     Before D-436 a support person in a view-as session saw `••••••10` on the leads
     screen; they now see the whole contact list, and the presence row above is coalesced
@@ -406,24 +406,46 @@ async def test_a_view_as_session_cannot_take_the_contact_list_in_bulk() -> None:
     something the ledger answers, by design (`core/auth._record_impersonated_read`
     argues the volume case at length, and the request log carries the route).
 
-    What keeps that acceptable is that READING A SCREEN and TAKING THE LIST are separate
-    acts with separate gates, and this pins the second one. `POST /v1/leads/export.csv`
-    requires `calls:read_raw` — a permission `operator` does not hold at all — so the
-    support role that does impersonation cannot extract in bulk under any circumstances.
-    A `superadmin` can, and that act writes its OWN `audit_log` row naming the row count
-    and the columns, on top of the presence row.
+    **THIS TEST USED TO ASSERT A 403 AND NOW ASSERTS THE LEDGER ROW, AND THE INVERSION IS
+    THE FOUNDER'S CORRECTION TO D-457 RATHER THAN A REGRESSION.** `calls:read_raw` was
+    superadmin-only, so the support tier could not extract in bulk under any
+    circumstances; it is now held by both admin tiers, because a per-tenant read that is
+    role-checked and audited is ordinary support work. The exposure that buys is exactly
+    what the old docstring warned about — "an operator took a client's entire customer
+    list" — so what has to hold instead is that the ledger says so in as many words, and
+    that is what is pinned here.
 
-    If this ever starts answering 200 for an operator, the exposure is no longer "an
-    operator read a screen we can prove they were on"; it is "an operator took a client's
-    entire customer list and the ledger says they visited".
+    READING A SCREEN and TAKING THE LIST are still separate acts with separate gates:
+    entry needed an impersonation grant minted behind a second factor (D-210, `view_as_
+    headers` mints one), and the export writes its OWN `leads.export` row naming the
+    admin, the tenant and the row count on top of the coalesced presence row. If THIS
+    ever stops appearing, the exposure is back to "an operator took a client's entire
+    customer list and the ledger says they visited".
     """
-    _admin_id, token = await _make_admin("operator")
+    admin_id, token = await _make_admin("operator")
     org = await _make_org()
+    tenant_id = uuid.UUID(str(org["id"]))
 
     async with _client() as http:
         headers = await view_as_headers(http, token, str(org["slug"]))
-        refused = await http.post("/v1/leads/export.csv", headers=headers, json={})
-    assert refused.status_code == 403, (
-        "an operator in a view-as session took a bulk export of a client's contact list: "
-        f"{refused.status_code} {refused.text[:300]}"
+        exported = await http.post("/v1/leads/export.csv", headers=headers, json={})
+    assert exported.status_code == 200, (
+        "a normal admin in a view-as session was refused the export their tier now holds: "
+        f"{exported.status_code} {exported.text[:300]}"
     )
+
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT actor_type, actor_id, object_type FROM audit_log "
+                    "WHERE action = 'leads.export' AND tenant_id = :tid "
+                    "ORDER BY at DESC LIMIT 1"
+                ),
+                {"tid": tenant_id},
+            )
+        ).first()
+    assert row is not None, (
+        "an operator took a client's whole contact list and the ledger has no row for it"
+    )
+    assert (row[0], str(row[1]), row[2]) == ("admin", str(admin_id), "lead_export"), row

@@ -80,9 +80,11 @@ from typing import NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
 from calevate_shared.engine import (
+    LLM_MODELS,
     AgentConfig,
     CallContext,
     DisclosurePosture,
+    LlmModelTrapName,
     LlmProvider,
     ModelConfig,
     NumberSeries,
@@ -93,6 +95,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     compose_opening_line,
     leg_for_model,
+    openai_base_url,
 )
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -100,11 +103,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents.llm_models import (
-    UNAVAILABLE_REASON,
     ResolvedLlmModel,
     deployment_for,
     platform_default_model,
     resolve_llm_model,
+    unofferable_reason,
 )
 from apps.api.agents.models import AGENT_DIRECTIONS, CALL_CAP_DEFAULT_S, AgentDirection
 from apps.api.agents.verification import verify_publish
@@ -499,6 +502,12 @@ class InCallLLM(TypedDict):
     llm_model: str | None
     llm_provider: NotRequired[LlmProvider]
     llm_base_url: NotRequired[str]
+    #: The model's request-field traps, in OUR vocabulary, for the adapter to render into
+    #: the vendor's body (`ModelConfig.llm_traps`). `NotRequired` for the same arity reason
+    #: as the two above: the passthrough arm decides no model, so it has no traps to state
+    #: — as against stating an empty tuple, which would be a claim that the model it did not
+    #: choose has none.
+    llm_traps: NotRequired[tuple[LlmModelTrapName, ...]]
 
 
 def resolved_llm_model(agent: AgentRow) -> ResolvedLlmModel:
@@ -605,7 +614,7 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
 
     ⚠ **AND IT REFUSES RATHER THAN FALLING BACK when no deployment serves the chosen
     model.** The API cannot normally produce that state (`validate_llm_model` refuses the
-    selection at the write path, from the SAME `addressable_models()` predicate), so this
+    selection at the write path, from the SAME `offerable_models()` predicate), so this
     is the arm for the one way it can still arise: an operator removing a deployment entry
     from `Settings.azure_openai_deployments` under accounts that already chose. Falling
     back to the default deployment there is precisely the silent wrong-model charge this
@@ -629,6 +638,38 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     reading `binding.addressed` gets the right string under every posture, which is what
     stops the wire/price distinction being a convention two settings apart.
 
+    **AND IT DISPATCHES ON THE MODEL'S OWN LEG NOW, NOT ON WHETHER AZURE IS CONFIGURED.**
+    Everything above is the Azure leg's story and all of it still holds; what changed is that
+    it is no longer the only story. `leg_for_model` resolves which of the three declared legs
+    a chosen identifier runs on, and the three differ in ARITY rather than only in value:
+
+    * **`azure_openai`** — a resource, a key and a per-model deployment, all three checked
+      above, and the endpoint built from the resource. The only leg with an indirection
+      between the model somebody chose and the string that goes on the wire.
+    * **`openai`** — the model's own published name, and `openai_base_url()`, which pins the
+      `us` data-residency host in the AUTHORITY. That endpoint is sent deliberately even
+      though the leg would work without one: it is the only leg in this product whose region
+      a BUILD can prove (`check_model_residency` check 4 reads the label off the builder's
+      own return template), and the documented cost — the engine drops its persistent
+      WebSocket when any `base_url` is set — is a latency optimisation nobody has measured
+      against a residency property this tree can check from its own AST.
+    * **`google`** — the model's own name and NO endpoint at all. Not an omission: the
+      engine's Gemini provider builds its client from a single API key and never reads a base
+      URL, so a configured endpoint there is a value nothing sends. `ModelConfig` enforces
+      the absence rather than tolerating it.
+
+    ⚠ **THE CREDENTIALS FOR THE OTHER TWO LEGS ARE NOT OURS TO HOLD, AND THAT IS WHY THERE IS
+    NO `openai_credentials()` BESIDE `azure_credentials()`.** Azure's key reaches the vendor
+    through OUR endpoint, so this repository must hold it. OpenAI's and Google's live in the
+    ENGINE's own credential store (`_OPENAI_PROVIDER_KEY` / `_GOOGLE_PROVIDER_KEY` in the
+    adapter) — one flat entry each, installed by an operator, and invisible to any read-back
+    of ours. What this function can check is that the platform CLAIMS to hold one, which is
+    `llm_models.installed_llm_providers()`, and that check belongs at SELECTION time where a
+    person can act on it rather than at publish time where it is an outage. So the refusal
+    below is stated over `unofferable_reason` — one predicate, one sentence, whichever of the
+    three conditions failed — instead of over a deployment lookup that means nothing on two
+    of the three legs.
+
     Returns a dict rather than a `ModelConfig` because the caller is building one with the
     speech legs alongside, and two `ModelConfig`s merged is a second place for the LLM
     fields to be decided. `InCallLLM` rather than `dict[str, object]`, so that dict stays
@@ -637,61 +678,87 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     four speech fields beside them all became unverified together.
     """
     credentials = azure_credentials()
-    if credentials is None:
-        return {"llm_model": configured_model}
-    # THE THIRD ELEMENT IS DELIBERATELY DROPPED. `azure_credentials()` answers "is this
-    # leg configured at all", and the deployment it returns is the PLATFORM model's —
-    # which is the right one only when nobody chose. Which deployment serves the model
-    # this agent actually runs is `deployment_for()`'s question, and it is the only
-    # function permitted to answer it. (For an agent on the platform model the two are the
-    # same string, read from the same field, so there is no second source of truth here.)
-    resource, _api_key, _platform_deployment = credentials
-    # The platform's own model is the last rung of `agent -> organization -> platform`,
-    # applied HERE because this is the arm where it means something: on the passthrough
-    # arm above there is no Azure leg for it to name. `platform_default_model()` is the
-    # same function the API's resolver uses for the same rung, so the model this publishes
-    # and the model the screen reports are one decision.
+    # WHICH LEG BEFORE ANYTHING ELSE, because it decides which of the questions below even
+    # applies. `platform_default_model()` is the last rung of `agent -> organization ->
+    # platform` and is the same function the API's resolver uses for the same rung, so the
+    # model this publishes and the model the screen reports are one decision.
     model = configured_model or platform_default_model()
-    deployment = deployment_for(model)
-    if deployment is None:
+    leg = leg_for_model(model)
+    traps = tuple(trap.name for trap in LLM_MODELS[model].traps)
+
+    if leg.provider == "azure_openai" and credentials is None:
+        # THE PASSTHROUGH ARM, unchanged and deliberately narrow. With no Azure leg
+        # configured there is no deployment indirection and no endpoint to name, so the
+        # model goes to the engine's own default client — which is what every conformance
+        # fixture and every local run exercises. `configured_model` rather than `model`:
+        # nobody chose, so the engine's default is the honest thing to send, and
+        # substituting the platform's model here would publish a choice nobody made.
+        #
+        # ⚠ IT IS AZURE-ONLY ON PURPOSE. The other two legs have no analogue: their
+        # credential lives in the engine's store, so "unconfigured" there is not a
+        # passthrough, it is an agent that will 401 on its first turn. They fall through to
+        # the refusal below, which is the loud direction.
+        return {"llm_model": configured_model}
+
+    refusal = unofferable_reason(model)
+    if refusal is not None:
         log.error(
-            "agent_llm_model_has_no_deployment",
-            # The MODEL, never a client's own values: it is a platform configuration
-            # constant and it is the whole of what an operator has to act on.
-            extra={"llm_model": model},
+            "agent_llm_model_not_offerable",
+            # The MODEL and the LEG, never a client's own values: both are platform
+            # configuration and together they are the whole of what an operator has to act
+            # on.
+            extra={"llm_model": model, "llm_provider": leg.provider},
         )
         raise ProblemError(
             kind="business_rule",
             code="llm_model_not_deployed",
             title="This agent's language model is not switched on for this platform",
             detail=(
-                f"The agent is set to run {model}, and {UNAVAILABLE_REASON}. Publishing it "
-                "against a different model's deployment would run — and bill — a model "
-                "nobody chose."
+                f"The agent is set to run {model}, and {refusal}. Publishing it anyway "
+                "would put a client's calls on a model this platform cannot price or "
+                "authenticate — and bill them for it."
             ),
             remediation=(
                 "Choose a model this platform runs, or ask support to switch this one on."
             ),
         )
+
     # THE TWO MODEL STRINGS, BOUND UNDER THE DECLARED POSTURE rather than picked apart
-    # here (D-432). `bind_model` is what knows that on this posture the API addresses a
-    # DEPLOYMENT and the model name is only the cost model's key; a posture that addresses
-    # the model by its own name binds both to one string and refuses a stray deployment id.
-    # Reading `.addressed` (never `.priced`) is what makes the wire/pricing distinction a
-    # property of a type instead of a comment two settings apart.
+    # here (D-432). `bind_model` is what knows that Azure addresses a DEPLOYMENT while the
+    # other two legs address the model by its own published name; it REFUSES a deployment
+    # id on a leg that has nowhere to put one, so the two arms cannot be confused by a
+    # caller. Reading `.addressed` (never `.priced`) is what makes the wire/pricing
+    # distinction a property of a type instead of a comment two settings apart.
     #
-    # `model` rather than `Settings.azure_openai_model` on the priced half: the deployment
-    # above was chosen BECAUSE it serves this model, so the pair cannot describe two
-    # different models — which is the wrong-invoice failure this whole seam exists for.
+    # `deployment_for` is asked ONLY on the leg that has deployments — the refusal above
+    # already proved one exists there — because on the other two it would answer a question
+    # that does not apply with a `None` that reads like a failure.
+    deployment = deployment_for(model) if leg.addresses_a_deployment else None
     binding = bind_model(deployment=deployment, model=model)
-    return {
+    decided: InCallLLM = {
         "llm_model": binding.addressed,
         # From the MODEL, not the posture (D-456): three legs are declared, so the
         # provider follows the model that was actually resolved above. Reading it off the
         # posture would have named one vendor for every leg the day a second was declared.
-        "llm_provider": leg_for_model(model).provider,
-        "llm_base_url": azure_openai_base_url(resource),
+        "llm_provider": leg.provider,
+        "llm_traps": traps,
     }
+    if leg.provider == "azure_openai":
+        # `credentials is not None` is proved by the passthrough arm above, which returned
+        # on exactly the case where it is None for this leg. Unpacked rather than indexed so
+        # the third element is DELIBERATELY DROPPED: `azure_credentials()` answers "is this
+        # leg configured at all", and the deployment it carries is the PLATFORM model's —
+        # right only when nobody chose. Which deployment serves the model this agent runs is
+        # `deployment_for()`'s question and it is the only function permitted to answer it.
+        assert credentials is not None
+        resource, _api_key, _platform_deployment = credentials
+        decided["llm_base_url"] = azure_openai_base_url(resource)
+    elif leg.builder is not None:
+        # The OpenAI leg. `builder is not None` rather than a second `provider ==` test, so
+        # a fourth leg with a builder is carried by this branch instead of falling silently
+        # into the endpoint-less one — the direction that fails loud.
+        decided["llm_base_url"] = openai_base_url()
+    return decided
 
 
 def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:

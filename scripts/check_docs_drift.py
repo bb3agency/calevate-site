@@ -1127,14 +1127,30 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
 # computation; the doc quotes it at 1, 5 and 10 minutes; this proves the quotes are still
 # what the function returns.
 #
-# AND SINCE D-410 THERE ARE TWO CURVES, ONE PER SELECTABLE MODEL. `Settings
-# .azure_openai_model` switches between `gpt-4o-mini` and `gpt-4.1-mini` live and the
-# second costs 2.7x the first, so §10.1 publishes a row for each and this check scores
-# each row against `llm_cost_inr_per_minute(minutes, model=<that row's model>)`. THE
-# CONTRACT WITH THE DOC IS ONE LINE: a `| LLM …` row must contain the model's exact
-# identifier, because that identifier is how this check knows which price the row's
-# figures are supposed to be. Every model in `AZURE_OPENAI_MODELS` must have such a row —
-# a missing one is reported, not skipped, for the reason `llm_cost_curve_drift` gives.
+# AND THERE IS ONE CURVE PER SELECTABLE MODEL — FIVE SINCE THE CATALOGUE OPENED TO THREE
+# LEGS, TWO BEFORE. A client picks their own model per agent (D-454) and the spread across
+# the offered set is now nearly 8x per minute at five minutes, so §10.1 publishes a row for
+# each and this check scores each row against
+# `llm_cost_inr_per_minute(minutes, model=<that row's model>)`. THE CONTRACT WITH THE DOC IS
+# ONE LINE: a `| LLM …` row must contain the model's exact identifier, because that
+# identifier is how this check knows which price the row's figures are supposed to be. Every
+# model in `SELECTABLE_LLM_MODELS` must have such a row — a missing one is reported, not
+# skipped, for the reason `llm_cost_curve_drift` gives.
+#
+# ⚠ **SCORED AGAINST THE CATALOGUE REFERENCE, NOT AGAINST AN ATTESTED PRICE**, and that is
+# why `llm_cost_inr_per_minute` keeps reading `llm_reference_inr_per_ktok`. §10 is the MARGIN
+# MODEL — the same number on a laptop, in CI and on a founder's screen. An attestation is
+# per-deployment and absent in CI, so a doc gate stated over one would be unrunnable
+# anywhere the ops console had not been filled in, and TRD's published economics would move
+# whenever an operator typed. What a minute costs THIS account is `llm_inr_per_ktok`; the
+# known gap between the two is the +10% Azure Regional Standard premium named in
+# `billing/rates.py`.
+#
+# ⚠ **STATED OVER `SELECTABLE_LLM_MODELS`, NOT `AZURE_OPENAI_MODELS`, AND NOT OVER THE
+# OFFERABLE SET.** The Azure spelling was this scoring's subject while Azure was the only
+# leg; the offerable set would be wrong in the other direction, because it depends on a
+# credential and an attestation that no CI run has — so a doc row would silently stop being
+# scored on the machine where the check matters most.
 
 #: `| LLM — **gpt-4o-mini** | … | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |` —
 #: every `₹X (N min)` pair in one §10.1 LLM row.
@@ -1155,10 +1171,20 @@ def doc_llm_per_minute(text: str | None = None, *, model: str | None = None) -> 
     The Sarvam row beside these is a superseded default and is not what
     `llm_cost_inr_per_minute` computes; scoring it would report a disagreement that is the
     table working as intended.
+
+    ⚠ **THE IDENTIFIER IS MATCHED IN BACKTICKS, NOT AS A BARE SUBSTRING, AND THAT IS A BUG
+    FIX RATHER THAN A TIGHTENING.** A bare `wanted in line` was correct for exactly as long
+    as no model identifier was a PREFIX of another: it silently scored `gemini-2.5-flash`
+    against the `gemini-2.5-flash-lite` row — whichever came first in the table — and
+    reported drift of 3x on a document that was right. The same collision is waiting in
+    `gpt-4.1` / `gpt-4.1-mini` and `gpt-5.4` / `gpt-5.4-mini`, so the fix is the general one
+    and not a re-ordering of the rows. Every §10.1 LLM row already spells its identifier in
+    backticks, so the contract with the doc is unchanged in practice and is now stated
+    precisely: **a `| LLM …` row must contain its model identifier in backticks.**
     """
     from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL
 
-    wanted = model or AZURE_OPENAI_DEFAULT_MODEL
+    wanted = f"`{model or AZURE_OPENAI_DEFAULT_MODEL}`"
     document = text if text is not None else TRD.read_text(encoding="utf-8")
     body = _section(document, TTS_RATE_HEADING, "\n### ")
     if body is None:
@@ -1176,9 +1202,9 @@ def doc_llm_cost_points(text: str | None = None) -> dict[str, dict[int, Decimal]
     """Every §10.1 LLM row, keyed by the model it names — exactly what
     `llm_cost_curve_drift` scores, so the summary line at the bottom of this script counts
     the same points the check verified rather than one model's worth of them."""
-    from calevate_shared.engine import AZURE_OPENAI_MODELS
+    from calevate_shared.engine import SELECTABLE_LLM_MODELS
 
-    return {model: doc_llm_per_minute(text, model=model) for model in sorted(AZURE_OPENAI_MODELS)}
+    return {model: doc_llm_per_minute(text, model=model) for model in sorted(SELECTABLE_LLM_MODELS)}
 
 
 def _at_doc_precision(computed: Decimal, quoted: Decimal) -> Decimal:
@@ -1218,7 +1244,7 @@ def llm_cost_curve_drift(text: str | None = None) -> list[str]:
                 f"{_rel(TRD)} §10.1 carries no `| LLM …` row naming `{model}` and quoting "
                 "`₹X (N min)` points. Every model this platform can be switched to has a "
                 "cost curve the margin turns on; restore the row (it must contain the "
-                "model identifier verbatim) or delete this check deliberately."
+                "model identifier in backticks) or delete this check deliberately."
             )
             continue
         computed = {

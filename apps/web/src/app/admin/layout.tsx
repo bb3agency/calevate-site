@@ -10,6 +10,7 @@ import {
   Gauge,
   HeartPulse,
   Hourglass,
+  KeyRound,
   Lock,
   Menu,
   PanelLeftClose,
@@ -81,6 +82,18 @@ interface NavItem {
   permission: string;
   /** What the entry lets you do, completing "…so you cannot ___" in the refusal. */
   action: string;
+  /**
+   * ABSENT for a session that may not use it, rather than shown and dead — the ONE
+   * exception to this shell's standing doctrine, and `renderItem` argues why it is
+   * granted to exactly one surface.
+   *
+   * It also inverts which side of the unknown the entry falls on: a hidden entry is
+   * rendered on `allowed` (the server has SAID yes) rather than on `!refused`, because
+   * `refused` is false while the identity read is in flight and after it fails — so
+   * keying on it would show this entry to every normal admin for the whole of that
+   * window, which is exactly what the flag exists to prevent.
+   */
+  hideUnlessAllowed?: true;
 }
 
 interface NavGroup {
@@ -179,6 +192,31 @@ const NAV: NavGroup[] = [
         action: "open the operations console",
       },
       {
+        // THE OPS CONFIG PANEL, WHICH HAD NO NAME IN THIS LIST UNTIL NOW. "Only super
+        // admin has access to ops config panel and it should be added to the sidebar in
+        // the super admin login" (the founder, correcting D-457). The three panels behind
+        // it — platform settings, vendor credentials, key management — used to sit at the
+        // bottom of Operations, so the surface every vendor key is installed on was
+        // findable only by scrolling the screen you open when calls have stopped. It has
+        // its own route now (`/admin/ops/config`), because a nav entry needs a
+        // destination and two entries on one path would make `currentNavItem` decide the
+        // header title and the highlight by a tie-break.
+        //
+        // `platform:config` is the permission its primary read carries
+        // (`GET /v1/ops/config`, `apps/api/ops/config_routes.py`) — NOT `ops:manage`,
+        // which is the entry above and a different authority. The credential panels on
+        // the same screen gate themselves on `platform:secrets`, which is narrower still,
+        // so a session holding one and not the other gets the screen and a withheld card.
+        //
+        // AND IT IS THE ONE HIDDEN ENTRY IN EITHER SHELL. See `renderItem`.
+        href: "/admin/ops/config",
+        label: "Platform configuration",
+        icon: KeyRound,
+        permission: "platform:config",
+        action: "change platform configuration or install vendor credentials",
+        hideUnlessAllowed: true,
+      },
+      {
         // Its own entry rather than a panel on Operations, and the reason is discovery
         // rather than layout: whoever is handling a regulator's complaint is following
         // `runbooks/dnc-complaint.md`, not scrolling a screen of platform switches — and
@@ -267,6 +305,41 @@ function currentItem(pathname: string): NavItem | undefined {
  *
  * The one case that must not be treated as a refusal is not knowing: see `adminAccess`,
  * where navigation deliberately fails OPEN.
+ *
+ * ## THE ONE EXCEPTION, AND IT IS ONE ENTRY
+ *
+ * `hideUnlessAllowed` makes an entry ABSENT rather than dead, and exactly one entry sets
+ * it: Platform configuration. The founder asked for it in those terms when they drew the
+ * tier boundary ("only super admin has access to ops config panel"), and the doctrine's
+ * three reasons are weighed rather than waved past:
+ *
+ * 1. **"A console whose shape depends on the viewer cannot be talked about"** is the
+ *    strongest of the three and it is the one that does not apply here. It has force
+ *    where the refused person might be ASKED to open the screen, or has an access request
+ *    to make — which is true of Operations ("open Operations and halt outbound") and true
+ *    of Admin accounts ("open Admin accounts and add her"). It is not true of this one:
+ *    the tier boundary puts this surface with ONE account by product decision, not by a
+ *    grant somebody might make tomorrow, so no operator will ever be told to open it and
+ *    none of them has anybody to ask. A permanently dead entry with a sentence under it
+ *    is not information, it is furniture.
+ * 2. **"Hiding buys no security"** — still true, and nothing here is claimed to. The API
+ *    refuses every route on the screen, and typing the URL gets a normal admin the screen
+ *    with three withheld cards and no requests fired. This is not a control.
+ * 3. **"It is one mechanism, not two"** — this is the cost, stated rather than hidden.
+ *    The console now answers "may I?" two ways in one list, and the flag exists so the
+ *    exception is a declared property of ONE entry that a reviewer can see in the data
+ *    rather than a branch somebody has to find in the rendering.
+ *
+ * WHICH SIDE OF THE UNKNOWN IT FALLS ON IS THE OPPOSITE, AND HAS TO BE. Every other
+ * entry stays a live link while the identity read is in flight or after it failed, so an
+ * unreadable identity cannot lock an operator out of the console (BACKEND-PATTERNS §6).
+ * A hidden entry cannot use that rule: `refused` is false in both of those states, so
+ * `!refused` would show this entry to every normal admin for the whole in-flight window
+ * and permanently after a failed read — the opposite of what it is for. It renders on
+ * `allowed` instead: absent until the server has said yes. The cost is one appearance on
+ * first load, and it is bounded to this entry; the incident surface it sits under is
+ * still shown unconditionally, so nothing about this decision can keep somebody from the
+ * big red switch while `/v1/admin/me` is unwell.
  */
 function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: () => void }) {
   const pathname = usePathname();
@@ -282,6 +355,12 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
     const active = item === current;
     const Icon = item.icon;
     const access = adminAccess(me, item.permission, item.action);
+
+    // The hidden entry, decided BEFORE the refusal branch and on the other boolean —
+    // `allowed`, not `!refused`. See the doctrine above: an entry that must be absent for
+    // everyone but its holder cannot render on a verdict that is false while we are still
+    // asking.
+    if (item.hideUnlessAllowed && !access.allowed) return null;
 
     // `refused`, not `!allowed`: while the identity read is in flight, and if it FAILED,
     // every entry stays a live link. Nothing appears or disappears under the pointer, and

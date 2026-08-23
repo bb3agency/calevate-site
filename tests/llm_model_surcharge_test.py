@@ -38,6 +38,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 from typing import Any
+from unittest import mock
 from uuid import UUID
 
 import pytest
@@ -64,7 +65,14 @@ from apps.api.billing.service import (
 )
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from calevate_shared.engine import AZURE_OPENAI_MODELS
+from calevate_shared.engine import (
+    AZURE_OPENAI_MODELS,
+    LLM_MODEL_NAMES,
+    LLM_MODELS,
+    SELECTABLE_LLM_MODELS,
+    LlmModelSpec,
+    LlmPrice,
+)
 from sqlalchemy import text
 from tests.smoke_pipeline_test import _seed_tenant
 
@@ -275,17 +283,77 @@ def test_the_baseline_is_the_frozen_constant_and_not_the_live_setting() -> None:
 
 
 def test_every_model_the_surcharge_applies_to_actually_costs_us_more() -> None:
-    """`is_surchargeable_llm_model` is the crude test 'not the base model', and this is
-    what keeps it honest. The day a CHEAPER model is added to the allow-list the two stop
-    being the same set, and a client would be surcharged for saving us money — so this
-    fails and a founder decides, rather than a predicate deciding for them."""
+    """The consistency check between two statements of one rule.
+
+    It used to be a TRIPWIRE under a crude predicate — `is_surchargeable_llm_model` tested
+    "not the base model", and this was designed to fail the day a cheaper model joined the
+    choosable set. One did. The fix was to correct the predicate rather than to widen this,
+    so what it now guards is that the predicate and the price table still agree.
+    """
     assert surchargeable_models_are_dearer(), (
-        "a selectable model is no longer dearer than the base-rate one; "
-        "`is_surchargeable_llm_model` cannot keep meaning 'an upgrade'"
+        "a model the surcharge applies to is not dearer than the base-rate one on both "
+        "token legs; `is_surchargeable_llm_model` has stopped meaning 'an upgrade'"
     )
 
 
-@pytest.mark.parametrize("model", [*sorted(AZURE_OPENAI_MODELS), "", "gpt-retired-9"])
+def test_a_model_cheaper_than_the_base_rate_is_not_surcharged() -> None:
+    """**THE INVERSION, PINNED — a client must never be charged an upgrade for saving us
+    money.**
+
+    This is not hypothetical and it is not a future guard: `gemini-2.5-flash-lite` lists at
+    $0.10/$0.40 against the base model's $0.15/$0.60, so it is CHEAPER on both token legs and
+    the old "not the base model" predicate would have surcharged it. A charge for an upgrade
+    that was a downgrade is not a pricing disagreement — it is a charge for something we did
+    not supply.
+
+    **AND THERE IS NO NEGATIVE ARM.** A cheaper model is not a credit either: what a client
+    PAYS is a term of their plan set by a founder, never a figure derived from our supplier
+    cost (D-455). The surcharge floors at zero and the client keeps their plan's rate.
+
+    FAILS IF: the predicate goes back to comparing identifiers instead of prices, or the
+    catalogue loses the model that makes the case real.
+    """
+    cheaper = [
+        model
+        for model in SELECTABLE_LLM_MODELS
+        if LLM_MODELS[model].price.input_usd_per_mtok
+        < LLM_MODELS[BASE_RATE_LLM_MODEL].price.input_usd_per_mtok
+    ]
+    assert cheaper, (
+        "no selectable model is cheaper than the base rate any more, so this test proves "
+        "nothing — do not delete it, find out whether the cheap leg was withdrawn"
+    )
+    for model in cheaper:
+        assert not is_surchargeable_llm_model(model), model
+        assert not llm_surcharge_applies(model=model, source="agent"), model
+
+
+def test_a_model_dearer_on_one_leg_and_cheaper_on_the_other_is_not_surcharged() -> None:
+    """Both legs must be dearer, not their blend.
+
+    A model cheaper on input and dearer on output is not a straightforward upgrade: which way
+    it lands depends on a conversation's shape rather than on a rate card, and that is a
+    founder's decision rather than a predicate's. The default is therefore the one that
+    cannot overcharge.
+    """
+    base = LLM_MODELS[BASE_RATE_LLM_MODEL].price
+    mixed = LlmModelSpec(
+        model="gpt-mixed-fixture",
+        provider="azure_openai",
+        price=LlmPrice(
+            input_usd_per_mtok=base.input_usd_per_mtok / 2,
+            output_usd_per_mtok=base.output_usd_per_mtok * 2,
+            evidence=base.evidence,
+        ),
+        traps=(),
+        selectable=True,
+        withdrawn_reason=None,
+    )
+    with mock.patch.dict(LLM_MODELS, {mixed.model: mixed}):
+        assert not is_surchargeable_llm_model(mixed.model)
+
+
+@pytest.mark.parametrize("model", [*sorted(LLM_MODEL_NAMES), "", "gpt-retired-9"])
 @pytest.mark.parametrize("source", ["agent", "organization", "platform", ""])
 async def test_the_sql_and_the_python_bucket_a_row_identically(model: str, source: str) -> None:
     """The twin, guarded rather than trusted.

@@ -1117,12 +1117,29 @@ unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
 | TTS — Bulbul **v2** | ₹1.50 / 1,000 chars | **₹0.54–0.81** |
 | LLM — **`gpt-4o-mini` on Azure OpenAI `eastus2`** (D-410 default; region per D-449) | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
+| LLM — `gemini-2.5-flash-lite` on Google Gemini Developer API *(the cheapest leg we offer, and cheaper than the platform default — so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
+| LLM — `gemini-2.5-flash` on Google Gemini Developer API *(the vendor's own production recommendation; thinking budget zeroed by the engine)* | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |
+| LLM — `gpt-5.4-mini` on OpenAI direct `us` *(the engine's own voice recommendation, and the dearest thing we offer)* | $0.75/$4.50 per 1M tok | **₹0.54 (1 min) / ₹0.85 (5 min) / ₹1.24 (10 min)** |
 | LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and §10.3's value rung)* | free per token | ₹0.00 |
+
+⚠ **Every LLM rate above is the vendor's published LIST price and none of them is what a
+bill is computed from.** The authoritative billing figure is an **operator attestation** —
+the founder's reading of his own invoice, entered in the ops console — because a list price
+is not what an account pays: Azure's mandated **Regional Standard** deployment is
+vendor-confirmed at **+10%** on the two rows above (`$0.165/$0.66` and `$0.44/$1.76` in East
+US 2, read 23 Aug 2026), Gemini 3.6/3.7 Flash carry a dated 2x step on 1 Jan 2027, and
+negotiated rates appear on no page at all. These rows are the **margin model**: they are what
+`scripts/check_docs_drift.py` scores against `llm_cost_inr_per_minute`, which reads the
+catalogue reference deliberately so the figure is identical on a laptop, in CI and on a
+founder's screen. `billing/rates.py::llm_inr_per_ktok` is the billing door and it **raises**
+for a model nobody has attested — an unpriced minute is unmetered spend, not a free one.
 
 **BYOK model subtotal, by combination** (identical on every platform — not a decision
 variable, D-32):
 
-Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt-4o-mini`, ₹0.44 on `gpt-4.1-mini`** — because a blended average has to pick a call length and five minutes is the one §10's other assumptions are written for. A ten-minute call adds **₹0.08/min** to every `gpt-4o-mini` row and **₹0.21/min** to every `gpt-4.1-mini` row. Neither figure is a rate: `llm_cost_inr_per_minute` takes a duration because §6.1 resends the whole conversation each turn, and it takes `model` as a required keyword because the two rows above differ by 2.67x.
+Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt-4o-mini`**, ₹0.44 on `gpt-4.1-mini`, ₹0.11 on `gemini-2.5-flash-lite`, ₹0.36 on `gemini-2.5-flash`, ₹0.85 on `gpt-5.4-mini` — because a blended average has to pick a call length and five minutes is the one §10's other assumptions are written for. A ten-minute call adds **₹0.08/min** to every `gpt-4o-mini` row, **₹0.21/min** to `gpt-4.1-mini`, ₹0.05 to `gemini-2.5-flash-lite`, ₹0.15 to `gemini-2.5-flash` and ₹0.39 to `gpt-5.4-mini`. None of them is a rate: `llm_cost_inr_per_minute` takes a duration because §6.1 resends the whole conversation each turn, and it takes `model` as a required keyword because the offered set now spans **7.7x per minute** at five minutes — from ₹0.11 to ₹0.85.
+
+**The cheapest offered model is not the platform default, and the surcharge floors at zero because of it.** `gemini-2.5-flash-lite` costs us less per minute than `gpt-4o-mini`, which the plan's rate is struck at, so `billing/rates.py::is_surchargeable_llm_model` compares both token legs against the base model and returns False for anything at or below it — a client who moves to a cheaper model keeps their plan rate and is **not** charged an upgrade. There is no negative arm: a derived discount would publish our margin in the one direction a client could arithmetic backwards (D-455's own argument for why what a client pays is a plan term rather than a figure derived from supplier cost).
 
 | Combination | Per call-minute |
 |---|---|

@@ -837,11 +837,23 @@ custom-function behaviour.
 D-454 gave clients a per-tenant and per-agent model choice with a price against each
 option, and it landed after the legal sweep, so no document mentioned it. Two of the three
 consequences were cheap: the DPA's clause 2 instruction list now names the model choice,
-and clause 9 plus `/legal/subprocessors` §3.3 say that the choice moves no vendor, no
-resource and no region (every member of `AZURE_OPENAI_MODELS` is served from the same
+and clause 9 plus `/legal/subprocessors` §3.3 said that the choice moved no vendor, no
+resource and no region (every member of `AZURE_OPENAI_MODELS` being served from the same
 `azure_openai_resource`). §3.3 previously said the opposite — *"changing which model an
 agent uses is a data-residency change and not a settings tweak"* — which was true only
 while nobody outside this company could change it.
+
+⚠ **AND THE ROUND TRIP IS COMPLETE: THAT REASSURANCE IS NOW WITHDRAWN IN ITS TURN, AND
+§3.3's ORIGINAL SENTENCE WAS RIGHT ALL ALONG FOR A REASON NOBODY HAD YET.** The offered set
+spans three providers — Azure OpenAI in East US 2, OpenAI direct on its `us` residency host,
+and Google's Gemini Developer API, which has no region to request at all. A client picking a
+model is therefore picking which provider handles the language leg and where it runs, which
+IS a sub-processor change. Both `/legal/dpa` and `/legal/subprocessors` now say the
+single-vendor, single-region promise about that leg is **WITHDRAWN, not narrowed** — the
+same move D-449 made about India, one level down and for the same reason. Worth recording as
+a pattern rather than an incident: this clause has now been rewritten three times in one
+direction each time, and every rewrite that tried to KEEP a promise by qualifying it was the
+one that had to be undone.
 
 **The third is a money claim and it is not consistent with the contract.**
 `inr_per_minute_five_min` is derived from `AZURE_LIST_PRICE_USD_PER_MTOK` — Calevate's own

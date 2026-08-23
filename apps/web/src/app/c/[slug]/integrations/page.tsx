@@ -92,10 +92,14 @@ export default function IntegrationsPage() {
    *
    * `calls:read_raw` gates the offer, read off `/v1/me` — the SERVER's answer about this
    * session — and REFUSED while the answer is in flight so the screen never offers an
-   * action it is about to withdraw. The permission covers D-22 without a second
-   * condition: `operator` does not hold `calls:read_raw` at all (core/rbac.py), so an
-   * impersonating support user keeps the delivery log — which answers "did it arrive?" —
-   * and is never offered the payload.
+   * action it is about to withdraw. It used to say more than that: `operator` held no raw
+   * permission at all, so an impersonating support user was never offered the payload by
+   * construction. The founder's correction to D-457 moved `calls:read_raw` into the
+   * normal admin tier, so BOTH tiers are now offered it inside a view-as session — which
+   * is the same answer this line already gave for a `superadmin`, and it is still the
+   * server's answer rather than this screen's guess. What stands behind the offer is
+   * unchanged: the API checks the permission, and the handler writes an `audit_log` row
+   * before the body is fetched.
    *
    * Through `useWriteAccess` rather than inline, which is the whole of the fix: the line
    * this replaced was `me.data?.permissions?.includes("calls:read_raw") ?? false`, and

@@ -25,12 +25,23 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
  *    `operator` following it got a page that is entirely a 403. Shown-and-dead WITH the
  *    reason is the console's existing doctrine for controls (`useWriteAccess` +
  *    `RestrictionNote`), and the sidebar now follows it.
+ * 1b. **EXACTLY ONE ENTRY IS THE OTHER WAY, AND IT IS PINNED AS AN EXCEPTION RATHER THAN
+ *    AS THE RULE.** Platform configuration (`/admin/ops/config`, `platform:config`) is
+ *    ABSENT for a session that may not use it — the founder's instruction when they drew
+ *    the tier boundary, and `layout.tsx::renderItem` weighs it against the doctrine's own
+ *    three reasons. The cases below assert both halves: this entry vanishes and every
+ *    other refused entry does not, so a future edit that "tidied up" by hiding the rest
+ *    fails here.
  * 2. **The unknown is not a refusal — in EITHER direction.** While the identity read is
  *    in flight, and if it fails outright, every entry stays live: the API is the
  *    enforcement, and a console that locks an operator out of the ops surface because a
  *    read was slow is worse than one that lets them meet the server's own answer. The
  *    other side of the same rule is that nothing appears or disappears once the answer
  *    lands, so no entry flashes in or out under the pointer.
+ *    - The hidden entry falls on the OPPOSITE side of the unknown, and has to: `refused`
+ *      is false while the read is in flight and after it fails, so an entry rendered on
+ *      `!refused` would be shown to every normal admin for the whole of that window.
+ *      It renders on `allowed` instead — absent until the server has said yes.
  * 3. **A screen's own gate comes from the same answer.** The directory's "New client"
  *    used to be gated on a 403 from the directory read itself — one of three mechanisms
  *    for one question; there is now one.
@@ -51,7 +62,19 @@ function me(over: Partial<AdminMe> = {}): AdminMe {
 const OPERATOR = me();
 const SUPERADMIN = me({
   role: "superadmin",
-  permissions: ["admin:tenants", "agents:read", "billing:read", "ops:manage", "org:read"],
+  permissions: [
+    "admin:tenants",
+    "agents:read",
+    "billing:read",
+    "ops:manage",
+    "org:read",
+    // The two the ops config screen is gated on. Present here because `superadmin` holds
+    // every permission by derivation (`core/rbac.SUPERADMIN_PERMISSIONS`), so a fixture
+    // calling itself a superadmin while missing them describes a session the server
+    // cannot issue — and it is what the hidden-entry cases below turn on.
+    "platform:config",
+    "platform:secrets",
+  ],
 });
 
 /**
@@ -102,9 +125,14 @@ function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
 
 /** The Operations entry as the sidebar renders it — a link, or a dead label. */
 function operationsEntry(container: HTMLElement): HTMLElement | null {
+  return navEntry(container, "Operations");
+}
+
+/** Any sidebar entry by its label — a link, a dead label, or null when it is not there. */
+function navEntry(container: HTMLElement, label: string): HTMLElement | null {
   return (
     Array.from(container.querySelectorAll<HTMLElement>("a, span")).find(
-      (node) => node.textContent?.trim() === "Operations",
+      (node) => node.textContent?.trim() === label,
     ) ?? null
   );
 }
@@ -163,6 +191,61 @@ describe("the admin nav, once the console knows who it is", () => {
       );
       expect(entry, `${label} must still be a link`).toBeDefined();
     }
+  });
+
+  it("offers Platform configuration to a superadmin as a real link", async () => {
+    // The founder's ask, at the seam it was asked for: "only super admin has access to
+    // ops config panel and it should be added to the sidebar in the super admin login".
+    // Before this it had no entry at all — the panel was the bottom third of Operations.
+    const { container } = renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      shell({ [ADMIN_ME_PATH]: SUPERADMIN }),
+    );
+
+    await waitFor(() =>
+      expect(navEntry(container, "Platform configuration")?.tagName).toBe("A"),
+    );
+    expect(navEntry(container, "Platform configuration")?.getAttribute("href")).toBe(
+      "/admin/ops/config",
+    );
+  });
+
+  it("does not show Platform configuration to an operator AT ALL — absent, not dead", async () => {
+    // The ONE exception to the shell's shown-and-dead doctrine, and the assertions are
+    // deliberately in both directions: this entry is gone, and the other refused entry on
+    // the same screen is still there with its reason. A future change that hid every
+    // refused entry would pass the first assertion and fail the second.
+    const { container } = renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      shell(),
+    );
+
+    await waitFor(() => expect(operationsEntry(container)?.tagName).toBe("SPAN"));
+    expect(navEntry(container, "Platform configuration")).toBeNull();
+    expect(container.querySelector('a[href="/admin/ops/config"]')).toBeNull();
+    // Not hidden AND explained — hidden means hidden. A leftover sentence naming the
+    // permission would be the entry back in a costume.
+    expect(container.textContent).not.toContain("platform:config");
+    // The doctrine still holds for everything else.
+    expect(container.textContent).toContain("Operations");
+    expect(container.textContent).toContain("ops:manage");
+  });
+
+  it("keeps Platform configuration hidden while the identity read is in flight", async () => {
+    // THE INVERTED UNKNOWN, and it is the whole reason the flag keys on `allowed` rather
+    // than on `!refused`. `refused` is false until the server answers, so an entry
+    // rendered on `!refused` would be visible to every normal admin for the entire
+    // in-flight window — the exact state the entry exists to prevent. Meanwhile the
+    // entries that fail OPEN are untouched, which is what keeps an unreadable identity
+    // from locking anybody out of the ops surface (BACKEND-PATTERNS §6).
+    const container = await renderShellWithIdentityInFlight();
+
+    expect(container.querySelector('a[href="/admin/ops/config"]')).toBeNull();
+    expect(container.querySelector('a[href="/admin/ops"]')).not.toBeNull();
   });
 
   it("keeps every entry live while the identity read is still in flight", async () => {

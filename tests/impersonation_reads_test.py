@@ -82,6 +82,13 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "session has no business seeing: it is OUR deployment's settings, not the "
         "client's. Nothing on a client screen depends on it"
     ),
+    "/v1/ops/model-prices": (
+        "the founder's attested per-model prices (D-459) — superadmin ops surface, "
+        "gated on platform:config for the same reason /v1/ops/config is. A view-as "
+        "session is on a CLIENT dashboard, never the ops console, so it is never "
+        "reached through impersonation; and a price is OUR cost basis, not the "
+        "client's to see"
+    ),
 }
 
 

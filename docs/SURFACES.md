@@ -375,6 +375,20 @@ Admin realm (`/admin/…`)
   balance the write produced, rendered as a stop-toned notice — never re-derived on the
   client. `runbooks/topup-payments.md` §3 no longer describes hand-constructing the call.
   The self-serve wallet UI in §2b is separately still M2.
+- **Platform configuration** (`/admin/ops/config`; `GET`/`PUT`/`DELETE /v1/ops/config`,
+  `platform:config`; `GET`/`PUT /v1/ops/secrets`, `POST /v1/ops/secrets/{key}/test`,
+  `GET /v1/ops/secrets/kek`, `platform:secrets`). The ops config panel — every setting
+  this deployment can change without an SSH session, every vendor credential it
+  authenticates with, and the key-management state behind them. PLATFORM-CONFIG §7 and §8
+  own the detail. **A screen of its own since the founder's correction to D-457**, which
+  asked for it in the sidebar: the three panels used to be the bottom third of Ops, so the
+  surface every vendor key is installed on was findable only by scrolling the screen you
+  open when calls have stopped. Its nav entry is gated on `platform:config` and is the one
+  entry in either console that is ABSENT rather than shown-and-dead for a session that may
+  not use it — the tier boundary puts this surface with one account by product decision,
+  not by a grant somebody might make, so a permanently dead entry with a sentence under it
+  would be furniture. Reaching the URL anyway gets a normal admin three withheld cards and
+  no requests fired; the API is the enforcement either way.
 - **Ops** (`/admin/ops`; `/v1/ops/platform`, `/v1/ops/outbox/replay`, `/v1/ops/audit/verify`).
   `GET /v1/ops/platform` returns the load-shed mode, the outbound halt, **`halt_reason`**
   and the TM registration in ONE row read — a halt shown beside a reason from a different

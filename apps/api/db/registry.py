@@ -255,6 +255,18 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "for the whole platform and there is no tenant whose row it could be. Holds an "
         "engine name, a minute and two integers: no tenant id, no call, no number."
     ),
+    "platform_model_prices": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). Operator-attested vendor "
+        "list prices per LLM model, effective-dated — one Azure/OpenAI/Google subscription "
+        "for the whole deployment, one price per model at an instant, so there is no tenant "
+        "whose row this could be and it carries no tenant_id. Reachable only behind "
+        "`platform:config` in the admin realm; every attestation is step-up confirmed and "
+        "lands an audit_log row in the same transaction. Holds a model identifier, two "
+        "NUMERIC USD-per-Mtok figures, an attester id and a source note — no PII, no "
+        "credential, no tenant data. Append-only (see APPEND_ONLY_TABLES): a correction is "
+        "a new effective-dated row, never an edit, so a re-rendered invoice resolves the "
+        "price that was live in the month it is re-rendering."
+    ),
     "platform_ai_spend": (
         "platform-scoped, admin realm only. The dashboard AI's monthly spend against the "
         "platform ceiling (D-127) — OUR bill to Google, not a client's, so there is no "
@@ -357,4 +369,10 @@ APPEND_ONLY_TABLES = [
     # including every DELETE — migration b8e3f2a71c04 argues it and records the rejected
     # alternative.
     "platform_secrets",
+    # Operator-attested model prices, effective-dated (PLATFORM-CONFIG §5). A correction is
+    # a NEW effective-dated row so that "which price was live when this month's minutes ran"
+    # stays answerable for a re-rendered invoice. Unlike platform_secrets there is NO
+    # rewrap exception: the blanket `calevate_forbid_mutation` applies, so every column is
+    # immutable once written and there is no UPDATE this table ever needs.
+    "platform_model_prices",
 ]
