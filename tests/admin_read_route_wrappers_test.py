@@ -402,7 +402,9 @@ async def test_staff_cannot_read_the_payment_capability() -> None:
         refused = await http.get(CAPABILITY, headers=headers)
     assert control.status_code == 200, control.text
     assert refused.status_code == 403, refused.text
-    assert "billing:read" in refused.json()["detail"], refused.text
+    # A permission refusal, by its stable code. The scope name is deliberately not in the
+    # user-facing detail — it is engineer jargon a client cannot act on.
+    assert refused.json()["type"].endswith("/forbidden"), refused.text
 
 
 # --- POST /v1/lead-sources/{webhook_id}/meta/redrive ----------------------------------
@@ -511,7 +513,9 @@ async def test_staff_cannot_redrive_and_a_neighbours_source_is_invisible() -> No
             headers={"Authorization": f"Bearer {owner}", "X-Org-Slug": slug},
         )
     assert by_staff.status_code == 403, by_staff.text
-    assert "org:manage" in by_staff.json()["detail"], by_staff.text
+    # A permission refusal, by its stable code. The scope name is deliberately not in the
+    # user-facing detail — it is engineer jargon a client cannot act on.
+    assert by_staff.json()["type"].endswith("/forbidden"), by_staff.text
     assert crossed.status_code == 404, crossed.text
     neighbour_actions = await _audit_actions(other_id, stranger)
     assert neighbour_actions, "non-vacuity: the neighbour's source has a create row"

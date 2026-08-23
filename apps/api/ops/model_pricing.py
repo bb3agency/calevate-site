@@ -252,11 +252,11 @@ def _require_known_model(model: str) -> None:
             kind="not_found",
             code="model_price_unknown_model",
             title="No such model",
-            detail=f"{model!r} is not a model this repository's catalogue knows.",
+            detail=f"{model!r} isn't a model in Calevate's catalogue.",
             remediation=(
-                "GET /v1/ops/model-prices lists every model, its provider and whether it "
-                "still needs a price. A new model is a decision-log entry and a "
-                "calevate_shared.engine.LLM_MODELS entry, not a free-form price row."
+                "The model-prices list shows every model, its provider and whether it "
+                "still needs a price. Adding a new model is a code change, not something "
+                "that can be entered here as a price on its own."
             ),
         )
 

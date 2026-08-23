@@ -397,7 +397,7 @@ async def _field(session: AsyncSession, key: str) -> ConfigFieldOut:
         kind="internal",
         code="config_key_vanished",
         title="The setting could not be read back",
-        detail=f"{key!r} was written but is not in the managed set.",
+        detail=f"{key!r} was saved, but Calevate could not read it back afterwards.",
     )
 
 
@@ -552,8 +552,8 @@ async def revert_config(
             title="Nothing to revert",
             detail=f"{key!r} has no stored value, so it is already at its default.",
             remediation=(
-                "The value in force comes from the environment or from the code "
-                "default; GET /v1/ops/config reports which."
+                "The value in force comes from the environment or from the built-in "
+                "default; the settings list shows which."
             ),
         )
     await _audit(
@@ -678,7 +678,7 @@ def _projected_field(result: WriteResult) -> ConfigFieldOut:
         kind="internal",
         code="config_key_vanished",
         title="The setting could not be read back",
-        detail=f"{result.key!r} was written but is not in the managed set.",
+        detail=f"{result.key!r} was saved, but Calevate could not read it back afterwards.",
     )
 
 

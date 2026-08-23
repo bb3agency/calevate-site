@@ -241,7 +241,7 @@ describe("the engine latency report", () => {
         [WINDOW_PATH(7)]: problem(403, {
           type: "urn:calevate:auth/forbidden",
           title: "Forbidden",
-          detail: "This action requires the ops:manage permission.",
+          detail: "You do not have permission to do this.",
         }),
       }),
     );

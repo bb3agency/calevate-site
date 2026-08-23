@@ -127,7 +127,7 @@ describe("creating the account", () => {
     renderAdminPage(<NewClientPage />, {
       [TENANTS]: problem(403, {
         title: "Forbidden",
-        detail: "This action requires the admin:tenants permission.",
+        detail: "You do not have permission to do this.",
         remediation: "Ask a superadmin to create the account.",
       }),
       [UNFINISHED]: [],
@@ -136,7 +136,7 @@ describe("creating the account", () => {
     fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create client" }));
 
-    await screen.findByText("This action requires the admin:tenants permission.");
+    await screen.findByText("You do not have permission to do this.");
     const button = screen.getByRole("button", { name: "Create client" }) as HTMLButtonElement;
     // A permission refusal will not change on the second click, so the button says so
     // rather than inviting an identical 403.

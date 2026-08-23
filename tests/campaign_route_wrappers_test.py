@@ -367,7 +367,9 @@ async def test_staff_cannot_load_a_dialing_list() -> None:
         )
     assert control.status_code == 200, control.text
     assert refused.status_code == 403, refused.text
-    assert "leads:dispatch" in refused.json()["detail"], refused.text
+    # A permission refusal, by its stable code. The scope name is deliberately not in the
+    # user-facing detail — it is engineer jargon a client cannot act on.
+    assert refused.json()["type"].endswith("/forbidden"), refused.text
 
     async with tenant_session(tenant_id) as session:
         count = (

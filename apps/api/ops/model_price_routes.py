@@ -289,7 +289,7 @@ async def attest_model_price(
         raise ProblemError(
             kind="validation",
             code="model_price_invalid",
-            title="That is not a price this store can hold",
+            title="That is not a valid price",
             detail=str(exc),
             remediation='Send USD per million tokens as a decimal string, e.g. "0.15".',
         ) from None

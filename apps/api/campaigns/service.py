@@ -95,7 +95,7 @@ NO_PROVENANCE_REASON = (
 )
 PURCHASED_LIST_REASON = (
     "This list is recorded as purchased. Calevate does not dial bought or rented "
-    "contact lists — there is no consent artefact behind them (policy, SEC-COMP §3)."
+    "contact lists, because there is no record of the customers having agreed to be called."
 )
 # The TWO ways one campaign's number can fail to be the number its calls come from
 # (D-420), beside each other for this block's reason. Both are the same rule —
@@ -397,7 +397,7 @@ def _validated_window(calling_hours: dict[str, Any]) -> dict[str, str]:
             kind="validation",
             code="campaign_window_invalid",
             title="Invalid calling window",
-            detail='calling_hours must be {"start": "HH:MM", "end": "HH:MM"} in IST.',
+            detail="Enter the calling window as a start time and an end time (HH:MM), in IST.",
         ) from None
     if start >= end:
         raise ProblemError(

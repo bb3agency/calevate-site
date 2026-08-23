@@ -444,16 +444,18 @@ describe("the ops screen when the platform state cannot be read", () => {
       routes(
         problem(403, {
           title: "Forbidden",
-          detail: "This action requires the ops:manage permission.",
+          detail: "You do not have permission to do this.",
         }),
         OPERATOR,
       ),
     );
 
     await screen.findByText("We do not know whether outbound calling is halted");
-    // The permission the ROUTE requires, named — the operator learns what to ask for
-    // rather than meeting a 403 that reads like a fault.
-    expect(container.textContent).toContain("ops:manage");
+    // The refusal in words, beside the disabled control — the plain reason the operator
+    // can act on ("ask a superadmin"), NOT the raw permission scope. The scope is engineer
+    // vocabulary a non-technical operator cannot use, and a superadmin granting access maps
+    // the named action to the scope themselves; neither leg needs it in the copy now.
+    expect(container.textContent).toContain("does not have permission to");
     expect(container.textContent).toContain("Ask a superadmin");
     // Still no state claim, and still no control.
     expect(screen.queryByText("Outbound calling is running")).toBeNull();

@@ -163,8 +163,8 @@ type BlockerNote = { text: ReactNode; owner?: "calevate" | "client" };
  * these sentences are not a paraphrase of the server's: they exist BECAUSE the server's
  * are wrong for this audience. `launch_blockers` writes for an operator reading an API
  * response — "The agent must be published first.", "Campaign is running, not draft." —
- * and `PURCHASED_LIST_REASON` cites "(policy, SEC-COMP §3)", a document the client cannot
- * open. The three DLT-entity blockers are the sharpest case: the server says the
+ * sentences that report system state rather than tell this client what to do next. The
+ * three DLT-entity blockers are the sharpest case: the server says the
  * registration is not active, which reads like a to-do, and this table is the only place
  * that says WHOSE desk it is on. Making the server's sentence primary puts every one of
  * those back.

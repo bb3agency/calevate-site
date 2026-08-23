@@ -528,12 +528,13 @@ def _column_out(column: lead_column_registry.LeadColumn) -> LeadColumnOut:
 _SEARCH_MOVED_TO_POST = ProblemError(
     kind="validation",
     code="search_must_be_posted",
-    title="Search terms are sent in a request body, not a URL",
+    title="Please search from the Leads screen",
     detail=(
-        "The search box matches phone numbers, and a URL is written to access logs, "
-        "browser history and referrers."
+        "The search box matches phone numbers, so the search cannot be put in the web "
+        "address — a web address is saved to logs and browser history, and a phone number "
+        "must not be."
     ),
-    remediation="Send the same lens to POST /v1/leads/search (or POST /v1/leads/export.csv).",
+    remediation="Run the search from the Leads screen, which sends it safely.",
 )
 
 

@@ -349,7 +349,7 @@ describe("the client detail screen", () => {
     const { container } = await render({
       [TENANT_PATH]: problem(403, {
         title: "Forbidden",
-        detail: "This action requires the admin:tenants permission.",
+        detail: "You do not have permission to do this.",
         retryable: false,
       }),
     });
@@ -359,6 +359,6 @@ describe("the client detail screen", () => {
     // "Client not found" would send an operator hunting for a deleted tenant that is
     // sitting right there.
     expect(container.textContent).not.toContain("Client not found");
-    expect(container.textContent).toContain("This action requires the admin:tenants permission.");
+    expect(container.textContent).toContain("You do not have permission to do this.");
   });
 });

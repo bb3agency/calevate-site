@@ -262,9 +262,9 @@ function stalePrecondition() {
       "'self_serve_inr_per_min' moved between the value you read and this request, so " +
       "nothing was written — it is now \"7.25\", set by Priya.",
     remediation:
-      "Re-read GET /v1/ops/config, decide whether your change still applies to the new " +
-      "value, and send it again with the If-Match from that read. Your value was NOT " +
-      "stored and the other operator's was NOT overwritten.",
+      "Reload the setting to see the new value, decide whether your change still applies " +
+      "to it, and save it again with the fresh If-Match token from that reload. Your value " +
+      "was NOT stored and the other operator's was NOT overwritten.",
     retryable: false,
   });
 }
