@@ -514,3 +514,41 @@ def test_our_language_cost_is_nowhere_near_a_clients_per_minute_price() -> None:
             f"of what a client pays for a whole minute ({client_rate}/min) — these are "
             "different numbers and neither is a substitute for the other"
         )
+
+
+def test_a_non_positive_attested_price_is_refused() -> None:
+    """`LlmPriceAttestation.__post_init__`'s first guard. A zero or negative rate bills
+    every minute on that model at ₹0 and looks exactly like a working leg — the one
+    metering failure nobody investigates — so the attestation refuses to exist rather than
+    letting the number reach `unit_cost_paid`. Both legs of the price are checked."""
+    good = {
+        "model": "gpt-5.4-mini",
+        "read_on": date(2026, 8, 23),
+        "attested_by": "ops@calevate.tech",
+        "source": "openai console invoice 2026-08",
+    }
+    with pytest.raises(ValueError, match="non-positive price"):
+        LlmPriceAttestation(
+            input_usd_per_mtok=Decimal("0"), output_usd_per_mtok=Decimal("4.50"), **good
+        )
+    with pytest.raises(ValueError, match="non-positive price"):
+        LlmPriceAttestation(
+            input_usd_per_mtok=Decimal("0.75"), output_usd_per_mtok=Decimal("-1"), **good
+        )
+
+
+def test_an_attestation_with_no_reader_or_no_source_is_refused() -> None:
+    """The second guard. An attestation is stronger evidence than a vendor's page ONLY
+    because somebody named is answering for it; a blank reader or a blank source makes it a
+    number in a text box, which is the D-31/D-32 defect class. Whitespace does not count as
+    an answer."""
+    priced = {
+        "model": "gpt-5.4-mini",
+        "input_usd_per_mtok": Decimal("0.75"),
+        "output_usd_per_mtok": Decimal("4.50"),
+        "read_on": date(2026, 8, 23),
+    }
+    with pytest.raises(ValueError, match="no reader or no source"):
+        LlmPriceAttestation(attested_by="   ", source="an invoice", **priced)
+    with pytest.raises(ValueError, match="no reader or no source"):
+        LlmPriceAttestation(attested_by="ops@calevate.tech", source="", **priced)

@@ -726,3 +726,74 @@ def test_a_model_this_platform_has_no_deployment_for_is_refused_not_substituted(
     assert raised.value.code == "llm_model_not_deployed"
     assert undeployed in raised.value.detail
     assert "deployment" in raised.value.detail
+
+
+def test_in_call_llm_routes_an_openai_model_to_the_openai_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `elif leg.builder is not None` arm — the OpenAI leg's own endpoint.
+
+    OFFERABILITY IS MONKEYPATCHED, NOT REBUILT, and that is deliberate: whether a model is
+    offerable (selectable + credential installed + price attested) is `unofferable_reason`'s
+    job and is covered end to end in `tests/model_pricing_test.py`. What is under test here
+    is the ROUTING decision one layer down — given an offerable model, which base URL does
+    `in_call_llm` choose — and isolating it keeps this a fast unit test rather than a second
+    copy of the offerability setup.
+
+    An OpenAI model addresses itself by its own published name (no Azure deployment
+    indirection), so `bind_model` returns the identifier unchanged and the endpoint is the
+    region-pinned `openai_base_url()`. No Azure credential is configured, which is also the
+    point: the OpenAI leg reaches its endpoint without one.
+    """
+    from apps.api.agents import service
+
+    monkeypatch.setattr(service, "unofferable_reason", lambda _model: None)
+    leg = service.in_call_llm("gpt-5.4-mini")
+
+    assert leg["llm_provider"] == "openai"
+    assert leg["llm_base_url"] == openai_base_url()
+    # Addressed by its own name — never a deployment id, which only Azure has.
+    assert leg["llm_model"] == "gpt-5.4-mini"
+
+
+def test_in_call_llm_routes_an_azure_model_to_its_resource_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `if leg.provider == "azure_openai"` arm — the resource endpoint and the
+    deployment id, together, on a fully configured Azure leg.
+
+    Same isolation as the OpenAI case: offerability is stubbed so the test is about routing.
+    With all three Azure credentials present the wire carries the DEPLOYMENT id (never the
+    model name — that is Azure's one trap) and the base URL is built from the resource.
+    """
+    from apps.api.agents import service
+
+    _configure(monkeypatch)
+    monkeypatch.setattr(service, "unofferable_reason", lambda _model: None)
+    leg = service.in_call_llm(AZURE_OPENAI_DEFAULT_MODEL)
+
+    assert leg["llm_provider"] == "azure_openai"
+    assert leg["llm_base_url"] == azure_openai_base_url(RESOURCE)
+    # The deployment the platform default was configured with, not the model name.
+    assert leg["llm_model"] == DEPLOYMENT
+
+
+def test_in_call_llm_gives_a_google_model_no_base_url_the_engine_builds_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third arm — neither `azure_openai` nor a leg with a builder.
+
+    The Google leg has `builder=None` on purpose: the engine constructs its Gemini client
+    from a single API key and reads no base URL of ours (there is no endpoint knob to set),
+    so `in_call_llm` must leave `llm_base_url` UNSET rather than inventing one. This is the
+    `756->761` path — the `if`/`elif` both fall through — and it is a real shipped route now
+    that gemini-2.5-flash is selectable, not a defensive dead end.
+    """
+    from apps.api.agents import service
+
+    monkeypatch.setattr(service, "unofferable_reason", lambda _model: None)
+    leg = service.in_call_llm("gemini-2.5-flash")
+
+    assert leg["llm_provider"] == "google"
+    assert "llm_base_url" not in leg
+    assert leg["llm_model"] == "gemini-2.5-flash"
