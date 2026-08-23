@@ -45,9 +45,17 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  MonoValue,
   NoticeBox,
+  TermGloss,
   type NoticeTone,
 } from "@/components/ui";
+
+// `MonoValue` and `TermGloss` now live in the shared primitives (components/ui) so the
+// client realm and the marketing site gloss terms and render codes the same way this
+// console does. Re-exported here so the ops screens that import them from this module
+// keep working — one definition, two import paths, no drift.
+export { MonoValue, TermGloss };
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 1. WHEN A CHANGE TAKES EFFECT  ("applies")
@@ -364,49 +372,7 @@ export function dncSourceCopy(source: string): ProvenanceCopy {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 7. GLOSSING A LEGAL / TECHNICAL TERM IN PLACE
- *
- * `<TermGloss term="DLT">India's telecom message registry…</TermGloss>` renders the term
- * with a dotted underline and a native tooltip, and — because a tooltip is invisible to a
- * touch user and to some screen readers — also exposes the gloss as the accessible
- * description. This is the "keep the term, explain it where it's used" pattern; it is the
- * only sanctioned way to put DLT / PE / TM / DND on screen.
- * ──────────────────────────────────────────────────────────────────────────── */
-
-export function TermGloss({ term, children }: { term: string; children: string }) {
-  return (
-    <abbr
-      title={children}
-      aria-label={`${term}: ${children}`}
-      className="cursor-help underline decoration-dotted underline-offset-2"
-    >
-      {term}
-    </abbr>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * 8. A FIXED-WIDTH VALUE  (keys' last-4, IDs, versions, codes)
- *
- * Anything an operator reads character-by-character renders in JetBrains Mono via
- * `font-mono` (globals.css), where 0/O and 1/l/I are distinct. A component rather than a
- * bare `<span className="font-mono">` so the choice is made once and a reader is never
- * asked to tell an O from a 0 in a proportional font on one screen and a mono one on the
- * next.
- * ──────────────────────────────────────────────────────────────────────────── */
-
-export function MonoValue({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <span className={clsx("font-mono", className)}>{children}</span>;
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * 9. THE KEY / SECRET INPUT
+ * 8. THE KEY / SECRET INPUT
  *
  * The field an operator pastes an API key into. This is the control the whole rebuild was
  * asked for, so its rules are deliberate:
