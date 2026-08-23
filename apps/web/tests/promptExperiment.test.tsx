@@ -5,7 +5,7 @@ import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/pro
 import type { Experiment, ExperimentState } from "@/lib/api/publishing";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
-import { problem, type Routes } from "./harness";
+import { browserOffline, problem, type Routes } from "./harness";
 
 /**
  * The A/B script test panel on the agent's prompt screen (ROADMAP M3).
@@ -553,5 +553,32 @@ describe("the call cap", () => {
     expect(inForce.tagName).toBe("DD");
     expect(within(inForce.closest("div") as HTMLElement).getByText("In force")).toBeTruthy();
     expect(container.textContent).toContain("(10 minutes, platform default)");
+  });
+});
+
+/**
+ * §52 on the version history — the `?.length` collapse the guard cannot see.
+ *
+ * `history.data?.length ? <ul/> : <EmptyState "No prompt versions yet"/>` read the empty
+ * state off a query whose `data` is undefined not only while it loads but for a read
+ * TanStack never started — the paused state a dropped connection produces (`isLoading ===
+ * false`, `error === null`, `data === undefined`). So an operator whose connection had
+ * dropped was told this agent has no prompt history — on the screen where they would then
+ * write what they believe is its first version. The refusal now owns the failed read AND
+ * the paused one, folded into the card so a failure is not stated as an empty history at
+ * the same time.
+ */
+describe("the version history when the read did not answer (§52)", () => {
+  it("refuses rather than claiming no versions over a read the browser never made", async () => {
+    browserOffline();
+    const { container } = await render();
+
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        "We could not reach Calevate. Check your connection and try again.",
+      ),
+    );
+    // Never "No prompt versions yet" off a request that never left the browser.
+    expect(container.textContent).not.toContain("No prompt versions yet");
   });
 });

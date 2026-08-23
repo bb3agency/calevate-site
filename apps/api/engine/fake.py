@@ -37,6 +37,7 @@ from calevate_shared.engine import (
     ExecutionSnapshot,
     KBSourceRef,
     LlmCredentialPlacement,
+    LlmProvider,
     ModelConfig,
     NumberSpec,
     ProvisionedNumber,
@@ -355,7 +356,7 @@ class FakeEngine:
         #: HELD, not discarded, because the conformance clause has to be able to ask what
         #: the engine ENDED UP with — an adapter that accepted the write and kept nothing
         #: would pass a "did it raise" test while proving nothing about the rotation.
-        self._llm_credential: str | None = None
+        self._llm_credentials: dict[LlmProvider, str] = {}
 
     def holds_credentials(self) -> bool:
         """Always True: this adapter IS its own vendor, so there is nothing to configure.
@@ -486,10 +487,21 @@ class FakeEngine:
             # rather than the engine's own product name (`AgentSnapshot.models`): the
             # engine's voice id is a vendor string, and a caller comparing it against our
             # catalogue would find no match and conclude the write had been dropped.
+            #
+            # THE LLM LEG ROUND-TRIPS ITS PROVIDER AND ENDPOINT, NOT ONLY ITS MODEL, and
+            # that is what makes this fake a truthful stand-in rather than a mirror that
+            # flatters every adapter. A real `control_plane` adapter (BolnaEngine) reads
+            # `llm_provider` and `llm_base_url` back off the agent object — the endpoint is
+            # the leg's residency proof — so a fake that dropped them let the conformance
+            # suite pass an adapter that dropped them too. It gates on `is_ours("llm")` for
+            # the same reason `llm_model` does: a dictated LLM leg has no selection of ours
+            # to report, and reporting one would read exactly like an applied BYOK choice.
             models=ModelConfig(
                 stt_provider=cfg.models.stt_provider if self.capabilities.is_ours("stt") else None,
                 stt_model=cfg.models.stt_model if self.capabilities.is_ours("stt") else None,
                 llm_model=cfg.models.llm_model if self.capabilities.is_ours("llm") else None,
+                llm_provider=cfg.models.llm_provider if self.capabilities.is_ours("llm") else None,
+                llm_base_url=cfg.models.llm_base_url if self.capabilities.is_ours("llm") else None,
                 tts_provider=cfg.models.tts_provider if self.capabilities.is_ours("tts") else None,
                 tts_voice=cfg.models.tts_voice if self.capabilities.is_ours("tts") else None,
             ),
@@ -620,7 +632,9 @@ class FakeEngine:
         call["transferred_to"] = to
         call["transfer_warm"] = warm
 
-    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+    async def set_llm_credential(
+        self, secret: str, *, provider: LlmProvider
+    ) -> LlmCredentialPlacement:
         """Hold the in-call LLM bearer, replacing whatever was there (D-404).
 
         REFUSES ON A DICTATED LLM LEG, and that arm is the reason this is not a one-liner.
@@ -633,6 +647,12 @@ class FakeEngine:
         `require_speech_leg` gives about dropping a value: an adapter that accepted `""`
         would let a minting bug install a blank bearer, and the leg would fail on the next
         call with a vendor 401 that names nothing on our side.
+
+        **HELD PER LEG, WHICH IS WHAT MAKES THE FAKE WORTH ANYTHING HERE.** The posture
+        declares three legs and an operator installs a key for each; a fake that kept one
+        string would pass a conformance suite while modelling the exact bug the Protocol's
+        required `provider` argument exists to prevent — one leg's rotation silently
+        overwriting another's. A dict costs nothing and makes the separation checkable.
         """
         require_capability("llm", engine=self)
         if not secret:
@@ -642,7 +662,9 @@ class FakeEngine:
                 title="No credential to install",
                 detail="An empty credential was offered to the voice platform.",
             )
-        self._llm_credential = secret
+        self._llm_credentials[provider] = secret
+        # Always replace-in-place: a dict has no append semantics to model, which is the
+        # HAPPY vendor behaviour `set_llm_credential`'s three-call dance exists to detect.
         return LlmCredentialPlacement(replaced_in_place=True)
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:

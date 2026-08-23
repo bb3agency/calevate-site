@@ -100,15 +100,17 @@ from __future__ import annotations
 
 import random
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from types import MappingProxyType
 from typing import Any, Final, NamedTuple
 from urllib.parse import urlsplit
 
 import httpx
 from calevate_shared.config import bolna_source_ips
 from calevate_shared.engine import (
+    DECLARED_POSTURE,
     E164,
     LLM_TTFT_BUDGET_MS,
     AgentConfig,
@@ -133,6 +135,7 @@ from calevate_shared.engine import (
     TurnLatency,
     WebhookVerdict,
     compose_engine_prompt,
+    openai_base_url,
 )
 from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
 from pydantic import ValidationError
@@ -337,6 +340,36 @@ _STATUS_MAP: dict[str, CallStatus] = {
 }
 
 
+#: **OUR LEG VOCABULARY -> THE ENGINE'S WIRE VALUE.** The whole of hard rule 2 for the LLM
+#: leg lives in this dict: `LlmProvider` is ours and closed, these three strings are theirs,
+#: and nothing outside `apps/api/engine/` may name either side of the arrow.
+#:
+#: **TOTAL OVER `LlmProvider` ON PURPOSE, AND mypy PROVES IT.** Annotated
+#: `Mapping[LlmProvider, str]`, so a fourth declared leg is a type error at this line rather
+#: than a `KeyError` on the first publish after somebody adds one — which is the D-104
+#: doctrine (a Literal and its value table derived together) applied to a table that cannot
+#: be derived, because only the vendor knows how they spell it.
+#:
+#: VERIFIED-VENDOR-DOCS, hash-checked mirror, each value stated TWICE on its own provider
+#: page — once in a copy-pasteable `llm_config` body under "Quick config" and once in the
+#: "Key settings" table: `azure-openai` (`azure-openai.md:20,59`), `openai` (`openai.md:20,59`)
+#: and `google` (`gemini.md:20,52`). Corroborated VERIFIED-OSS against the engine's own
+#: `LLMProvider` enum (`bolna/enums.py:93-118`). Two classes of evidence, machine-readable
+#: on both sides — see `_llm_routing` for what happens when a wire value is read off a
+#: human-readable LABEL instead, which is the whole of D-417.
+_WIRE_PROVIDER: Final[Mapping[LlmProvider, str]] = MappingProxyType(
+    {"azure_openai": "azure-openai", "openai": "openai", "google": "google"}
+)
+
+#: THE WIRE VALUE -> OUR LEG, the inverse of `_WIRE_PROVIDER`, DERIVED rather than retyped
+#: (D-104: a Literal and its value table are built together, not spelled twice). The read
+#: half needs it: `_agent_models` identifies a leg WITH an endpoint from the endpoint
+#: itself, but the `google` leg has none — its only identifier on the agent object is the
+#: `provider` string the engine echoes, and this maps that string back to our vocabulary.
+_OUR_PROVIDER: Final[Mapping[str, LlmProvider]] = MappingProxyType(
+    {wire: ours for ours, wire in _WIRE_PROVIDER.items()}
+)
+
 #: THE vendor's spelling of "Azure OpenAI" in an agent's `llm_config.provider` — one
 #: place, because `_llm_routing` writes it and `tests/in_call_llm_provider_test.py` pins
 #: it, and a second literal is how a corrected value gets applied in one of them.
@@ -345,7 +378,7 @@ _STATUS_MAP: dict[str, CallStatus] = {
 #: azure-openai.md` states it as a copy-pasteable `llm_config` body and again in its Key
 #: settings table. See `_llm_routing` for why that beats the two display labels D-410
 #: chose `"azure"` from, and for the fallback order if the live platform disagrees.
-_AZURE_LLM_PROVIDER: Final = "azure-openai"
+_AZURE_LLM_PROVIDER: Final = _WIRE_PROVIDER["azure_openai"]
 
 #: EVERY credential-store key Bolna's Azure OpenAI provider is documented to require, in
 #: the vendor's own words. **This is the answer to the last marked assumption in D-410**
@@ -389,6 +422,167 @@ _AZURE_PROVIDER_KEYS: Final[dict[str, str]] = {
     "AZURE_OPENAI_API_BASE": "Your Azure URL",
     "AZURE_OPENAI_API_VERSION": "Your Azure Model API version",
 }
+
+#: **EVERY CREDENTIAL-STORE ENTRY EACH DECLARED LEG NEEDS, PER LEG.** The store is a FLAT
+#: `provider_name -> provider_value` map with no per-provider object (VERIFIED-OAS,
+#: `references/openapi.yml` md5 5597f7da080d47564696bc05c12e9112; restated
+#: VERIFIED-VENDOR-DOCS at `bolna-findings/mirror/pages/api-reference/providers/add.md`), so
+#: "install this leg" is N separate `POST /providers` calls and the count differs per leg.
+#:
+#: **THE ASYMMETRY IS THE USEFUL PART AND IT IS THE VENDOR'S, NOT OURS.** VERIFIED-VENDOR-DOCS,
+#: `providers.md` "LLMs" tab, under *"All these keys **must** be added for the respective
+#: provider"*: Azure OpenAI takes FOUR entries (`:96-102`) because its endpoint, its
+#: deployment and an api-version are all per-account; OpenAI takes ONE, `OPENAI` (`:87`); and
+#: Google Gemini takes ONE, `GOOGLE` (`:105-109`). **Neither of the single-entry legs has a
+#: base-URL field at all**, which is the store-side confirmation of what `GOOGLE_DIRECT_LEG`
+#: says from the other direction — the engine's Gemini client is `genai.Client(api_key=...)`
+#: and reads no endpoint of ours.
+#:
+#: ⚠ **ONE NAME IS DISPUTED AND IT IS NOT INVENTED HERE.** Two of the vendor's own pages
+#: disagree about whether the OpenAI entry is `OPENAI` or `OPENAI_API_KEY`. The root
+#: `providers.md` table — the page that carries the "all these keys must be added" sentence
+#: and the one every other value here comes from — says `OPENAI`, so `OPENAI` is what this
+#: table carries, and `Settings.bolna_llm_credential_name` remains the live override an
+#: operator uses to correct it against a real account without a deploy. That is the same
+#: shape D-417 left the Azure name in, and the same gate closes it: install, `GET /providers`,
+#: place one call (OPERATIONS §2 gate 16f).
+#:
+#: ⚠ **THIS IS DATA FOR AN OPERATOR AND FOR THE GATE, NOT AN INSTALLER.** `set_llm_credential`
+#: pushes exactly ONE entry — the API key — because that is the only one of the four whose
+#: value this repository can produce without inventing something, and because a key is the
+#: one value that must never be typed into a console by a human. On the two single-entry legs
+#: that ONE is the whole of it, so those legs are fully installable by us and Azure's is not.
+_LLM_PROVIDER_KEYS: Final[Mapping[LlmProvider, tuple[str, ...]]] = MappingProxyType(
+    {
+        "azure_openai": tuple(_AZURE_PROVIDER_KEYS),
+        "openai": ("OPENAI",),
+        "google": ("GOOGLE",),
+    }
+)
+
+#: The ONE entry per leg that holds the secret — the entry `set_llm_credential` pushes.
+#: Derived by position from the table above rather than retyped: on every leg the vendor's own
+#: table lists the key first, and a second literal is how a corrected name gets applied in one
+#: place and not the other (D-104's argument, one level down).
+_LLM_CREDENTIAL_KEY: Final[Mapping[LlmProvider, str]] = MappingProxyType(
+    {provider: names[0] for provider, names in _LLM_PROVIDER_KEYS.items()}
+)
+
+
+def llm_provider_keys(provider: LlmProvider) -> tuple[str, ...]:
+    """Every credential-store entry `provider`'s leg requires, in the vendor's own names.
+
+    **THE ONE READER OUTSIDE THIS MODULE IS AN OPERATOR RUNBOOK, WHICH IS WHY IT IS A
+    FUNCTION AND NOT AN EXPORTED DICT.** What an operator has to install is a question about
+    THIS engine, so it is answered by THIS adapter (hard rule 2) — a caller that imported the
+    table could iterate it and start believing the names are portable across engines, which
+    is exactly the coupling the rule forbids. Returning a tuple rather than the mapping keeps
+    it read-only at the call site as well as at the definition.
+    """
+    return _LLM_PROVIDER_KEYS[provider]
+
+
+#: THE REPLY BUDGET, in tokens, and the one place it is written.
+#:
+#: A cap is a SAFETY VALVE against a runaway generation, not a style control: brevity is the
+#: script's job, and a ceiling that bites mid-sentence does not shorten a reply, it truncates
+#: one — the TTS then speaks a fragment and hangs. The vendor's own default is 100
+#: (VERIFIED-OSS, `bolna/models.py` `Llm.max_tokens`), which is close enough to a real reply
+#: to bite; 400 is roughly ten times a spoken turn at `REFERENCE_CALL`'s shape.
+_MAX_REPLY_TOKENS: Final = 400
+
+#: WHAT WE SEND FOR `temperature` ON A MODEL THAT ACCEPTS A CHOICE.
+#:
+#: This agent reads a client's script and carries `TRUTHFUL_ANSWER_DIRECTIVE` underneath it;
+#: the failure we care about is the model paraphrasing away a compliance sentence or
+#: improvising a price, and low temperature is the setting that makes that rarest. Raising it
+#: buys "sounds more natural", which is a prompt-and-voice problem on a phone call rather
+#: than a sampling one. Written here rather than inherited because a vendor default is
+#: somebody else's release note.
+_DEFAULT_TEMPERATURE: Final = 0.1
+
+#: The ONE temperature a GPT-5-series model accepts. VERIFIED-VENDOR-DOCS,
+#: `bolna-findings/mirror/pages/providers/llm-model/openai.md:29`: *"GPT-5-series models
+#: require `"temperature": 1`. Any other value is rejected with `400 For GPT-5 models,
+#: temperature must be 1`, and the field defaults to `0.1` when omitted, so send it
+#: explicitly."* Restated in their agent-create schema (`create.md:826-835`).
+_GPT5_TEMPERATURE: Final = 1
+
+#: The reasoning budget we ask for on a model whose reasoning tokens share the reply budget.
+#:
+#: `"none"` is accepted by `gpt-5.4-mini` (VERIFIED-VENDOR-DOCS, `openai.md:87`; VERIFIED-OSS,
+#: `bolna/constants.py:323`) and is the vendor's own advice for live calls — *"For live calls,
+#: stay at `none` or `low`. Each step up adds reasoning tokens before the first spoken word,
+#: which lands directly in time-to-first-token"* (`openai.md:96`).
+_NO_REASONING: Final = "none"
+
+
+def _llm_trap_settings(models: ModelConfig) -> dict[str, object]:
+    """The `llm_config` keys that make THIS model's request legal, from its declared traps.
+
+    **THE DEFECT THIS CLOSES.** `ModelConfig.llm_traps` and `LlmModelSpec.traps` recorded
+    every one of these behaviours in prose, at a named line of the vendor's own docs, and
+    NOTHING READ THEM AT RUNTIME. The body below this function sent `temperature: 0.1` and
+    `max_tokens: 400` unconditionally, which is correct for every model that had ever been
+    selectable and is a **400 at agent-create time** for the first GPT-5 model that becomes
+    one. A trap catalogue nobody consults is documentation wearing the shape of a control.
+
+    ⚠ **THE CREATE-TIME REFUSAL IS THE ONE THAT MATTERS, AND IT IS NOT THE ONE THE ENGINE'S
+    SOURCE PROTECTS AGAINST.** The engine force-overwrites temperature on its own
+    Responses-API path at CALL time, so a reader of its OSS could conclude the trap is
+    already handled. It is not: `POST /agent/v2` validates the raw body, so an agent carrying
+    `temperature: 0.1` on a GPT-5 model is REFUSED BEFORE IT EXISTS — no call is ever placed,
+    and the failure surfaces as `engine_rejected` on a publish rather than as anything a
+    client hears. Mitigating at publish is therefore both necessary and free.
+
+    **KEYED ON THE TRAP, NOT ON THE PROVIDER OR ON A MODEL-NAME PREFIX**, and that is the
+    design decision worth defending. A `startswith("gpt-5")` here would be wrong twice: on the
+    Azure leg `llm_model` is a DEPLOYMENT ID an operator named freely, so the string carries
+    no family at all (the engine has its own `canonical_model` heuristic for exactly this and
+    it is a heuristic); and a future non-GPT-5 model with the same requirement would need a
+    second branch. The catalogue already knows which models carry which traps, `in_call_llm`
+    resolves them where the real model name is in scope, and this function renders each one
+    into the vendor's keys. Hard rule 2 is kept on both sides: the trap NAMES are ours, and
+    every JSON key below appears only in this file.
+
+    **THE GEMINI TRAP APPEARS HERE AS AN ABSENCE, AND IT IS DELIBERATE ENOUGH TO NAME.** On
+    `gemini-2.5-flash` / `-flash-lite` the engine sends `ThinkingConfig(thinking_budget=0)`
+    unconditionally, and Google's own docs say `thinkingBudget: 0` disables thinking — so the
+    trap is already eliminated and there is nothing for us to add. What we must NOT do is send
+    a `thinking_budget` of our own: a non-zero value switches thinking back ON through the
+    first branch of the engine's `_get_thinking_config`, and the key is an undocumented
+    passthrough whose acceptance by the hosted API is unverified anyway. So the mitigation for
+    this trap is to send nothing, which is what the empty arm below does — written as a
+    comment rather than as no code at all, because "nothing here" and "nobody thought about
+    it" are indistinguishable otherwise.
+    """
+    settings: dict[str, object] = {
+        "max_tokens": _MAX_REPLY_TOKENS,
+        "temperature": _DEFAULT_TEMPERATURE,
+    }
+    traps = frozenset(models.llm_traps)
+    if "temperature-must-be-one" in traps:
+        settings["temperature"] = _GPT5_TEMPERATURE
+    if "max-tokens-becomes-max-completion-tokens" in traps:
+        # ⚠ WE DO NOT RENAME THE KEY, AND THAT IS CORRECT RATHER THAN AN OMISSION. The
+        # ENGINE performs the rename — `max_tokens_key = "max_completion_tokens"` on any
+        # GPT-5-prefixed model (VERIFIED-OSS, `bolna/llms/openai_llm.py:163-171` @
+        # `0172347b601e`) — and their published `SimpleLlmAgent` schema has `max_tokens` and
+        # no `max_completion_tokens` at all, so sending the renamed key would be sending a
+        # field their validator does not know. What is OURS is the CONSEQUENCE the rename
+        # brings with it: reasoning tokens are drawn from the same budget as the reply, so a
+        # cap sized for a spoken turn truncates the turn instead. We close that by asking for
+        # no reasoning at all rather than by raising the cap, because a raised cap costs
+        # tail latency on every turn while `reasoning_effort: "none"` costs nothing and the
+        # vendor recommends it for live calls.
+        #
+        # SENT EXPLICITLY THOUGH IT IS ALSO THE ENGINE'S DEFAULT (`default_reasoning_effort`
+        # returns the lowest the model accepts, which is `none` for `gpt-5.4-mini`). A
+        # default is somebody else's release note — the same argument `_llm_routing` makes
+        # for sending `provider` when omitting it would also have worked.
+        settings["reasoning_effort"] = _NO_REASONING
+    # `thinking-tokens-share-the-reply-budget` intentionally adds NOTHING — see the docstring.
+    return settings
 
 
 def _llm_routing(models: ModelConfig) -> dict[str, str]:
@@ -502,7 +696,7 @@ def _llm_routing(models: ModelConfig) -> dict[str, str]:
     """
     if models.llm_provider is None:
         return {"provider": "openai", "family": "openai"}
-    body = {"provider": _AZURE_LLM_PROVIDER, "family": "openai"}
+    body = {"provider": _WIRE_PROVIDER[models.llm_provider], "family": "openai"}
     if models.llm_base_url:
         # Proven by `ModelConfig` itself to be an endpoint `azure_openai_base_url()`
         # could have emitted, on a single-DNS-label resource — which is the only reason
@@ -1350,6 +1544,45 @@ def _agent_greeting(agent: dict[str, Any]) -> tuple[str | None, bool]:
     return (greeting if isinstance(greeting, str) else ""), True
 
 
+def _provider_of_endpoint(base_url: str) -> LlmProvider | None:
+    """Which declared leg's builder could have emitted this read-back endpoint, or None.
+
+    THE READ-BACK'S RESIDENCY CHECK, AND IT COVERS EVERY LEG THAT HAS AN ENDPOINT — not
+    only Azure. The endpoint is what identifies a leg that names one: an `azure_openai`
+    leg names ONE resource (the one in `AZURE_LOCATION`), an `openai` leg pins the `us`
+    data-residency host in the authority — so an agent aimed at somebody else's resource,
+    or at OpenAI's region-less `global` host, is exactly the drift this read exists to
+    catch.
+
+    RECOGNISING ONLY AZURE WAS A LIVE DEFECT ONCE THE OPENAI LEG SHIPPED AN ENDPOINT
+    (D-456). It was correct while Azure was the only leg with a base URL (D-410): the whole
+    of `_agent_models`'s residency story was "some Azure resource, and is it OURS". But
+    `in_call_llm` now sends `openai_base_url()` on a `gpt-5.4-mini` agent and `_llm_routing`
+    puts it on the wire, so a legitimately-published OpenAI-direct agent read back through
+    the Azure-only predecessor logged `engine_llm_endpoint_unrecognised` against
+    `us.api.openai.com` and DISCARDED it — a false drift alarm on our own endpoint, which is
+    how an operator learns to ignore the real one, and the loss of the very residency proof
+    this read exists to confirm (the `us` host is that proof — see `openai_base_url`).
+
+    THE `google` LEG NEVER REACHES HERE, and that is not a gap. Its client is built from an
+    API key alone and reads no base URL of ours (`GOOGLE_DIRECT_LEG`), so a google agent
+    carries no endpoint — `_agent_models` finds no `base_url`, this function is not called,
+    and `llm_base_url` stays None with nothing to verify.
+
+    OpenAI is an EXACT match against the one endpoint its builder emits — there is only one
+    OpenAI-direct endpoint this product may address. Azure is asked of its own validator,
+    because that leg's endpoint is per-resource and there is nothing to compare a single
+    label against without it (`ModelConfig._llm_endpoint_is_coherent`).
+    """
+    if base_url == openai_base_url():
+        return "openai"
+    try:
+        ModelConfig(llm_provider="azure_openai", llm_base_url=base_url)
+    except ValidationError:
+        return None
+    return "azure_openai"
+
+
 def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     """`(selections, readable)` — the BYOK choices the agent is RUNNING, in our terms.
 
@@ -1434,15 +1667,19 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     llm_model = leaf("llm_agent", "llm_config", "model") or leaf("llm_agent", "model")
 
     # WHERE THE LLM LEG IS RUNNING, read back rather than assumed (D-400, re-aimed by
-    # D-410). THE ENDPOINT IS WHAT IDENTIFIES THE LEG, AND IT STAYS THAT WAY EVEN THOUGH
-    # THE PROVIDER NAME BECAME INVERTIBLE. Under Vertex both of our arms rendered to
-    # `"custom"`, so there was no choice; since D-410 an `azure_openai` leg renders to
-    # `"azure-openai"` and an unset one to `"openai"`, so `provider` alone would now
-    # appear to answer the question. It does not: `azure-openai` says the agent points at
-    # SOME Azure OpenAI resource, and this repository's guarantee is about ONE — that in
-    # `AZURE_LOCATION`. An agent aimed at somebody else's resource, or at a resource an
-    # operator created in the wrong region, is exactly the drift a read-back exists to
-    # catch, and only the endpoint carries that fact.
+    # D-410, widened to the multi-provider legs by D-456). THE ENDPOINT IS WHAT IDENTIFIES
+    # A LEG THAT NAMES ONE, AND THE PROVIDER NAME ALONE DOES NOT. Under Vertex both of our
+    # arms rendered to `"custom"`, so there was no choice; now three legs are declared and
+    # two of them build an endpoint whose region is the whole of the residency claim —
+    # `azure-openai` points at SOME Azure OpenAI resource (our guarantee is about ONE, in
+    # `AZURE_LOCATION`), and `openai` at OpenAI direct (our guarantee is the `us` host in
+    # the authority). An agent aimed at somebody else's resource, or at OpenAI's region-less
+    # `global` host, is exactly the drift a read-back exists to catch — and only the
+    # endpoint carries that fact, which is why `_provider_of_endpoint` reads the endpoint
+    # rather than trusting the `provider` string beside it. The `google` leg is the one
+    # exception, and it proves the rule: it builds NO endpoint (its client is an API key
+    # alone), so there is no host to identify it by and none to verify — its only handle on
+    # the agent object is the `provider` string, read back below when no base URL is present.
     #
     # DUAL-SPELLED FOR THE SAME REASON `llm_model` IS, and it did not arrive that way.
     # D-400 wrote this read against a FLAT `llm_agent` because the branch it came from
@@ -1451,27 +1688,40 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     # report every v2 agent's endpoint as ABSENT — the same confident-wrong answer the
     # paragraph above rejects, on the one field that carries residency.
     #
-    # A base URL WE DO NOT RECOGNISE is reported as no provider and LOGGED, never
-    # normalised away and never raised. `ModelConfig` refuses anything that is not a v1
-    # endpoint on a single-label Azure resource (that is the point of its validator), so
-    # accepting the value here would be impossible and letting the ValidationError escape
-    # would turn a read-back into a failed publish — the one shape D-260 says a snapshot
-    # must never take. The log line carries the HOST only: it is a vendor's endpoint, not
-    # transcript text, and the host is the whole of what an operator needs to see that
-    # something is off.
+    # WHICH DECLARED LEG'S ENDPOINT THIS IS — azure_openai OR openai — via the ONE
+    # predicate that knows both (`_provider_of_endpoint`). A base URL that matches no leg
+    # this product builds is reported as no provider and LOGGED, never normalised away and
+    # never raised: letting the ValidationError escape would turn a read-back into a failed
+    # publish, the one shape D-260 says a snapshot must never take, and a recognised-but-
+    # wrong endpoint is exactly the drift the log line exists to surface. It carries the
+    # HOST only — a vendor's endpoint, not transcript text, and the whole of what an
+    # operator needs to see that something is off.
     base_url = leaf("llm_agent", "llm_config", "base_url") or leaf("llm_agent", "base_url")
+    provider_wire = leaf("llm_agent", "llm_config", "provider") or leaf("llm_agent", "provider")
     llm_provider: LlmProvider | None = None
     if base_url is not None:
-        try:
-            ModelConfig(llm_provider="azure_openai", llm_base_url=base_url)
-        except ValidationError:
+        llm_provider = _provider_of_endpoint(base_url)
+        if llm_provider is None:
             log.warning(
                 "engine_llm_endpoint_unrecognised",
                 extra={"engine": "bolna", "host": urlsplit(base_url).netloc},
             )
             base_url = None
-        else:
-            llm_provider = "azure_openai"
+    elif provider_wire is not None:
+        # A LEG WITH NO ENDPOINT (google) can only be identified by the `provider` string
+        # the engine echoes — there is no host to read a region off, and none to verify —
+        # so it is reverse-mapped from the vendor's wire value. Accepted ONLY for a
+        # builder-less leg, and both halves of that guard matter: an endpoint leg seen with
+        # no base URL cannot be reported (its `ModelConfig` requires one — the construction
+        # below would raise), and the UNSET/passthrough body also carries `provider:
+        # "openai"` with no base URL (`_llm_routing`), which must read back as NO leg rather
+        # than as OpenAI-direct. `builder is None` is exactly the line that separates the
+        # google leg from both. The `provider` echo is the same evidence class as the
+        # `model` and `base_url` reads above — their server returns the stored agent object
+        # (`get_agent`'s docstring) — and is settled against a live account by the same gate.
+        mapped = _OUR_PROVIDER.get(provider_wire)
+        if mapped is not None and DECLARED_POSTURE.leg(mapped).builder is None:
+            llm_provider = mapped
     return (
         ModelConfig(
             stt_provider=leaf("transcriber", "provider"),
@@ -2240,12 +2490,12 @@ class BolnaEngine:
                                     # `Settings.azure_openai_model` is a different string
                                     # that never reaches the wire; see `_llm_routing`.
                                     "model": cfg.models.llm_model,
-                                    # SENT EXPLICITLY, and the reason is that NOT sending them
-                                    # was a decision nobody had taken (D-283).
+                                    # SENT EXPLICITLY, and the reason is that NOT sending
+                                    # them was a decision nobody had taken (D-283).
                                     #
-                                    # READ AT SOURCE, bolna-ai/bolna@cd2e192, `bolna/models.py`:
-                                    # `Llm.max_tokens` defaults to **100** and
-                                    # `Llm.temperature` to **0.1**, and
+                                    # READ AT SOURCE, bolna-ai/bolna@cd2e192,
+                                    # `bolna/models.py`: `Llm.max_tokens` defaults to **100**
+                                    # and `Llm.temperature` to **0.1**, and
                                     # `task_manager.__setup_llm` reads both with bare
                                     # subscripts off `llm_agent_config`. Our body omitted
                                     # them, so the stored `agent_config.model_dump()` filled
@@ -2253,59 +2503,17 @@ class BolnaEngine:
                                     # ran with a 100-token ceiling on each reply — a real
                                     # product knob, silently inherited.
                                     #
-                                    # WHY 400 AND NOT 100. A cap is a SAFETY VALVE against a
-                                    # runaway generation, not a style control: brevity is the
-                                    # script's job, and a ceiling that bites mid-sentence does
-                                    # not shorten a reply, it truncates one — the TTS then
-                                    # speaks a fragment and hangs. 100 is close enough to a
-                                    # normal turn to bite, and it is worse in OUR language than
-                                    # the number suggests: token fertility (tokens per word) is
-                                    # ~2.1-2.3 for Telugu against ~1.2-1.4 for English on
-                                    # general tokenizers, and Sarvam's own reaches 1.4-2.1 for
-                                    # Indic — so 100 tokens is roughly 45 Telugu words, and a
-                                    # receptionist reading back three appointment slots passes
-                                    # that. 400 clears every legitimate turn while still
-                                    # bounding a monologue a caller would have to sit through.
-                                    # (Fertility figures: FLORES-200 tokenizer comparisons,
-                                    # searched 18 Aug 2026 — arxiv.org/pdf/2605.29379 and the
-                                    # IndicSuperTokenizer report. REPORTED, NOT READ against
-                                    # Sarvam's own tokenizer, and it does not need to be: the
-                                    # decision is "leave headroom", and the direction is not in
-                                    # doubt.)
-                                    #
-                                    # THE HEADROOM USED TO BE FREE AND IS NOT ANY MORE (D-400,
-                                    # repriced by D-410). This paragraph ended "the LLM leg is
-                                    # Sarvam 105B, FREE PER TOKEN, so the headroom costs nothing
-                                    # on the money path" — true under D-36 and false the moment
-                                    # the leg moved to a paid provider, where output tokens are
-                                    # the expensive ones: 4x input on `gpt-4o-mini` and on
-                                    # `gpt-4.1-mini` alike (`LLM_MODELS[model].price`),
-                                    # against 8.3x on the Vertex leg this replaced. **The number
-                                    # does not move**, and that is the point
-                                    # worth recording: a cap is a safety valve against a runaway
-                                    # generation, not a budget, and a ceiling that bites
-                                    # mid-sentence still truncates a reply rather than shortening
-                                    # one. What changed is that the argument now has to be made
-                                    # on its merits instead of leaning on a zero. The real
-                                    # spending bound is unchanged too: `max_call_duration_s` from
-                                    # one side and, per `billing/rates.py::llm_cost_inr_per_minute`,
-                                    # a cost curve dominated by the RESENT history rather than by
-                                    # any single reply.
-                                    #
-                                    # WHY 0.1 — THE VENDOR'S DEFAULT IS RIGHT, AND IS SENT
-                                    # ANYWAY. This agent reads a client's script and carries
-                                    # `TRUTHFUL_ANSWER_DIRECTIVE` underneath it; the failure we
-                                    # care about is the model paraphrasing away a compliance
-                                    # sentence or improvising a price, and low temperature is
-                                    # the setting that makes that rarest. Raising it buys
-                                    # "sounds more natural", which is a prompt-and-voice problem
-                                    # on a phone call rather than a sampling one. It is written
-                                    # here rather than inherited because a vendor default is
-                                    # somebody else's release note: a compliance-bearing prompt
-                                    # is not a thing to leave on a number that can change
-                                    # without our deploying.
-                                    "max_tokens": 400,
-                                    "temperature": 0.1,
+                                    # **PER MODEL SINCE THE CATALOGUE OPENED, AND THE PAIR OF
+                                    # LITERALS THAT USED TO SIT HERE WAS THE DEFECT.** They
+                                    # were right for every Azure model and are a 400 at
+                                    # agent-create time on a GPT-5 one, which requires
+                                    # `temperature: 1` exactly. `_llm_trap_settings` renders
+                                    # this config's declared traps into the vendor's keys and
+                                    # carries the defaults (400 tokens, 0.1) for a model with
+                                    # none — read it for why the branch is on the TRAP and not
+                                    # on a model-name prefix, which on the Azure leg would be
+                                    # reading a deployment id an operator named freely.
+                                    **_llm_trap_settings(cfg.models),
                                 },
                             },
                             # MARKED ASSUMPTION, AND THE EVIDENCE IS AGAINST IT (D-358).
@@ -2898,8 +3106,38 @@ class BolnaEngine:
             and row.get("provider_id") is not None
         }
 
-    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
-        """Write the in-call LLM credential into Bolna's credential store (D-404/D-410).
+    @staticmethod
+    def _credential_entry_name(provider: LlmProvider) -> str:
+        """The store entry name this leg's secret goes under.
+
+        **ONE LEG HAS A LIVE OVERRIDE AND TWO DO NOT, AND THAT ASYMMETRY IS EVIDENCE-SHAPED
+        RATHER THAN ARBITRARY.** `Settings.bolna_llm_credential_name` exists because D-417
+        found the Azure name had been guessed (`AZURE`) and shipped wrong, and the operator
+        who discovers a live account wants something else is looking at a broken leg while
+        they correct it — a deploy is the wrong length of loop for that. It defaults to the
+        vendor's documented `AZURE_OPENAI_API_KEY` and stays a setting for that reason.
+
+        ⚠ **IT DOES NOT COVER THE OTHER TWO LEGS, AND MUST NOT BE MADE TO.** It is ONE
+        string; three legs need three names, and a single override applied to whichever leg
+        happened to call would rename the wrong entry. `OPENAI` and `GOOGLE` come straight
+        from the vendor's table. **The OpenAI one is disputed** — two of their pages say
+        `OPENAI` and `OPENAI_API_KEY` — and the ground for taking `OPENAI` is written at
+        `_LLM_PROVIDER_KEYS`; if a live account disagrees, the fix is that table, one string,
+        with the reading that settled it. That is a smaller and more honest surface than a
+        per-leg settings field nobody has needed yet.
+
+        Read per call rather than copied at construction: the adapter is cached per process,
+        so a constructor copy would make the setting's `applies: live` classification a lie.
+        This runs once per key rotation; the read costs nothing.
+        """
+        if provider == "azure_openai":
+            return get_settings().bolna_llm_credential_name
+        return _LLM_CREDENTIAL_KEY[provider]
+
+    async def set_llm_credential(
+        self, secret: str, *, provider: LlmProvider
+    ) -> LlmCredentialPlacement:
+        """Write ONE leg's in-call LLM credential into Bolna's credential store (D-404/D-410).
 
         VERIFIED-OAS (`bolna-ai/skills@28b24aa`, `references/openapi.yml`, md5
         5597f7da080d47564696bc05c12e9112 — re-downloaded and re-hashed 18 Aug 2026, so
@@ -2912,17 +3150,27 @@ class BolnaEngine:
         object and no way to write several fields in one call, which is what makes the
         four-key requirement below four separate installs rather than one structured one.
 
-        **THIS METHOD WRITES ONE OF FOUR DOCUMENTED KEYS, ON PURPOSE — see
-        `_AZURE_PROVIDER_KEYS`.** Their Azure OpenAI provider wants
-        `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE` and
-        `AZURE_OPENAI_API_VERSION`, and "all these keys must be added". Three of the four
-        are values this repository holds; the fourth has no derivable value and the
-        vendor's two pages disagree about whether it is needed at all, so installing
-        three of four automatically would leave the provider incomplete while REPORTING
-        success — the failure mode this method's whole count-before/count-after design
-        exists to avoid. The key is the one that must never be typed into a console by a
-        human, so it is the one that is pushed; the rest are the operator's, and gate 16f
-        is where they are recorded once the account exists.
+        **WHICH ENTRY IT WRITES DEPENDS ON THE LEG, AND SO DOES HOW MUCH OF THE LEG IT
+        FINISHES** — `_LLM_PROVIDER_KEYS` is the table and `llm_provider_keys()` is what an
+        operator runbook reads. The vendor's own store wants FOUR entries for Azure OpenAI
+        (`AZURE_OPENAI_API_KEY`, `_MODEL`, `_API_BASE`, `_API_VERSION`, and "all these keys
+        must be added"), ONE named `OPENAI` for OpenAI direct, and ONE named `GOOGLE` for
+        Gemini. This method writes exactly the FIRST of each — the secret — which means:
+
+        * on the two single-entry legs it installs the WHOLE leg, and there is nothing left
+          for a human to do in the vendor's console;
+        * on Azure it installs one of four, deliberately. Three of the four are values this
+          repository holds, but the fourth (`AZURE_OPENAI_API_VERSION`) has no derivable
+          value and the vendor's two pages disagree about whether it is needed at all — so
+          installing three of four automatically would leave the provider incomplete while
+          REPORTING success, which is the failure this method's whole count-before/count-after
+          design exists to avoid. The key is the one value that must never be typed into a
+          console by a human, so it is the one that is pushed; the rest are the operator's,
+          and gate 16f is where they are recorded once the account exists.
+
+        **THE ARGUMENT IS REQUIRED AND HAS NO DEFAULT** (see the Protocol). One store, three
+        legs, three entry names: a caller who did not say which leg they were rotating would
+        overwrite one leg's key with another leg's secret and get a green result for it.
 
         **WHY THIS IS A THREE-CALL DANCE AND NOT ONE POST**, which is the whole design
         question here. The POST response's `status` enum has exactly one member,
@@ -2965,15 +3213,8 @@ class BolnaEngine:
         # else's model. `has("llm")` is `is_ours("llm")` — see the Protocol's note on why
         # this is that gate rather than a capability flag of its own.
         require_capability("llm", engine=self)
-        # Read per call rather than copied at construction. The default is no longer a
-        # derivation — `Settings.bolna_llm_credential_name` defaults to
-        # `AZURE_OPENAI_API_KEY`, the vendor's own name for it (`_AZURE_PROVIDER_KEYS`) —
-        # but it stays a live setting for the reason it always had: the operator who
-        # discovers the account wants something else is looking at a broken leg while
-        # they correct it, and a deploy is the wrong length of loop for that. The adapter
-        # is cached per process, so a constructor copy would make the `applies: live`
-        # classification a lie. This runs once per key rotation; the read costs nothing.
-        name = get_settings().bolna_llm_credential_name
+        # See `_credential_entry_name` for why the Azure leg alone consults a setting.
+        name = self._credential_entry_name(provider)
         before = await self._llm_credential_ids(name)
         await self._request(
             "POST", "/providers", json={"provider_name": name, "provider_value": secret}

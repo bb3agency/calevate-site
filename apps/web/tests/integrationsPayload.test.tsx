@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import type { Delivery, Endpoint } from "@/lib/api/integrations";
 
-import { problem, renderClientPage } from "./harness";
+import { browserOffline, problem, renderClientPage } from "./harness";
 
 /**
  * "What did you send?" on the integrations screen (D-23).
@@ -273,5 +273,57 @@ describe("the payload offer when we could not check the permission", () => {
 
     expect(await screen.findByRole("button", { name: "View" })).toBeTruthy();
     expect(container.textContent).not.toContain("open a delivered payload");
+  });
+});
+
+/**
+ * §52 on the endpoint list and the delivery log — the `?.length` collapse the guard
+ * cannot see.
+ *
+ * `endpoints.data?.length ? … : <EmptyState/>` and the delivery log's twin read the empty
+ * state off a query whose `data` is undefined not only while it loads but after a FAILED
+ * read AND for a query TanStack never started — the paused state a dropped connection
+ * produces (`fetchStatus: "paused"`: `isLoading === false`, `error === null`, `data ===
+ * undefined`). So "No endpoints yet" and "Nothing sent yet" were stated off requests that
+ * never left the browser, and the endpoints card rendered a blank box on an outright
+ * failure. Both now refuse on either non-answer, the way the dashboard's latest-calls card
+ * does. `browserOffline()` flips the library's own switch, so this is the branch a lost
+ * connection actually produces.
+ */
+describe("the integration logs when the read did not answer (§52)", () => {
+  it("refuses rather than claiming an empty log over a read the browser never made", async () => {
+    browserOffline();
+    const { container } = await renderClientPage(page, routes());
+
+    // Neither empty state may be stated about a request that was never sent.
+    expect(container.textContent).not.toContain("No endpoints yet");
+    expect(container.textContent).not.toContain("Nothing sent yet");
+    // Both cards say we could not reach the server instead.
+    expect(
+      screen.getAllByText(
+        "We could not reach Calevate. Check your connection and try again.",
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("refuses the endpoints failure once, in the card, not twice", async () => {
+    // The endpoints read failure is now owned by the card (folded with the paused case),
+    // and the page-level copy was removed so a failure does not render TWO identical
+    // refusals. The delivery log succeeds here (non-empty), so this isolates the endpoints
+    // card.
+    await renderClientPage(page, {
+      ...routes({
+        "/v1/integrations/endpoints": problem(503, {
+          title: "Service unavailable",
+          detail: "Your endpoints could not be read.",
+          retryable: true,
+        }),
+      }),
+    });
+
+    // Present — the failure is a refusal, never the empty state or a blank box…
+    expect(await screen.findAllByText("Your endpoints could not be read.")).toHaveLength(1);
+    // …and stated once, not once per place that used to carry it.
+    expect(screen.queryByText("No endpoints yet")).toBeNull();
   });
 });

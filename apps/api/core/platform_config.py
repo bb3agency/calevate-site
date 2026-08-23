@@ -487,6 +487,15 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # wrong thing needs. Setting it changes the SENTENCE, not the endpoint — within one
     # poll interval, which is what `live` claims.
     "gemini_api_key": AppliesRule(LIVE),
+    # OpenAI direct (D-456's third declared leg). `live`, and CHECKED against its own
+    # danger rather than inherited from the family: `needs_republish` warns that a cached
+    # copy will be stale, and nothing caches this one — no `openai`-leg model is selectable
+    # (`LlmModelSpec` refuses an unverified price), so no adapter is built with it and the
+    # engine holds no copy. A rotation therefore cannot be stale anywhere, which is what
+    # `live` claims. `azure_openai_api_key` below is `needs_republish` precisely because the
+    # engine DOES cache its copy; the day an `openai`-leg model is switched on, the lane that
+    # builds that reader moves this row to `needs_republish` in the same change.
+    "openai_api_key": AppliesRule(LIVE),
     # The Azure OpenAI key (D-410), and the classification is the CONSERVATIVE of the two
     # answers its two surfaces give. The dashboard-AI path reads it through
     # `get_settings()` per request, which is `live`; the in-call leg's copy does not live

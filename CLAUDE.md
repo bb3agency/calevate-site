@@ -13,8 +13,9 @@ voice engine (Bolna primary per D-31) with BYOK models. **Speech is Sarvam** (Sa
 Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Azure OpenAI in East US 2**
 — `AZURE_LOCATION` (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with
 `gpt-4.1-mini` a live config switch. **D-410 supersedes D-400/D-404 on the in-call leg and
-D-127 on the dashboard leg; Vertex is OUT of this product and Gemini is DECLARED BUT
-OFFERED TO NOBODY (D-456, below). D-449 (22 Aug 2026)
+D-127 on the dashboard leg; Vertex is OUT of this product and Gemini is now OFFERED on its
+two safe models (see the multi-provider paragraph below, which supersedes D-456 on the
+offering question). D-449 (22 Aug 2026)
 MOVED THE REGION OFF INDIA** — because the engine's
 orchestrator is US-hosted (`bolna-findings/mirror/pages/concepts/security.md:29`, AWS
 us-east-1), so every in-call turn was an ocean round trip inside an unmeasured 350ms TTFT
@@ -22,18 +23,42 @@ budget, and because Microsoft's Standard (regional) matrix does not offer our de
 in `southindia`. **The default model is UNCHANGED and TRD §10 is UNREPRICED** — that
 contradiction was `southindia`-only. **The client-facing India warranty is WITHDRAWN, not
 narrowed.** **D-456 (22 Aug 2026) THEN RENAMED THE POSTURE TO `multi-provider-byok`** and
-made it THREE declared legs — `azure_openai`, `openai`, `google` — of which **only Azure's
-two models are selectable**. It is not a region change and it moves no traffic: `eastus2`,
-the default model, the rate card and TRD §10 are all untouched, and
-`SELECTABLE_LLM_MODELS == AZURE_OPENAI_MODELS` today. The name lost its `us-` prefix
-because Google's Developer API has NO region to request (its SDK raises before a packet
-leaves the machine), so a posture promising one region would be a claim one of its own
-declared legs cannot keep. OpenAI direct is withheld because **no price here was read from
-the vendor** — `LlmModelSpec` raises at import on a selectable model with unverified price
-evidence, so hard rule 7 is enforced by the type rather than remembered; Gemini is withheld
-on merit (thinking tokens share the reply budget and can return NO content — silence on a
-phone call — and the only two models the engine mitigates are the two Google retires
-16 Oct 2026). Read the three LLM surfaces separately — two moved, one deliberately did not:
+made it THREE declared legs — `azure_openai`, `openai`, `google`. It is not a region change
+and it moves no traffic: `eastus2`, the default model, the rate card and TRD §10 are all
+untouched. The name lost its `us-` prefix because Google's Developer API has NO region to
+request (its SDK raises before a packet leaves the machine), so a posture promising one
+region would be a claim one of its own declared legs cannot keep.
+
+**ALL THREE LEGS ARE NOW ON OFFER, AND D-456's "ONLY AZURE IS SELECTABLE" IS SUPERSEDED.**
+Clients bring no BYOK: the founder holds all three vendor accounts and installs all three
+keys in the ops console, so the product has to offer the choices. **`SELECTABLE_LLM_MODELS`
+NO LONGER EQUALS `AZURE_OPENAI_MODELS`** — any assertion or sentence still saying it does is
+out of date. It is `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5.4-mini` (OpenAI direct) and
+`gemini-2.5-flash` / `-flash-lite` (Google). Three things changed to allow it, and each
+matters more than the widening:
+
+1. **The billing price became an OPERATOR ATTESTATION and `LlmPrice` became a CATALOGUE
+   REFERENCE.** Hard rule 7 is unweakened and is now structural rather than a flag: the
+   catalogue price has NO path to `unit_cost_paid` at all, `billing/rates.py::
+   llm_inr_per_ktok` is the one door and it opens only on an attested figure or a catalogue
+   figure somebody read from the vendor, and it RAISES otherwise. `llm_cost_inr_per_minute`
+   keeps reading the reference so TRD §10's margin model is the same number in CI.
+2. **The GPT-5 traps are applied at the wire.** `LlmModelSpec.traps` had no runtime reader:
+   the adapter sent `temperature: 0.1` unconditionally, which a GPT-5 model rejects at agent
+   CREATE. `ModelConfig.llm_traps` carries them to `engine/bolna.py::_llm_trap_settings`.
+3. **The Gemini trap is real and splits the leg.** Google's own docs say `thinkingBudget: 0`
+   disables thinking on 2.5 flash/flash-lite (which the engine sends) and that Gemini 3
+   Flash "do not support full thinking-off" — so 3.x can return a candidate with no content,
+   which on a phone call is dead air. Every `gemini-3.*` is `selectable=False` with the
+   ground recorded. ⚠ **The "Gemini retires 16 Oct 2026" claim was WRONG** — that date
+   belonged to preview snapshots, the GA ids carry no announced shutdown, and it propagated
+   out of our own `model_lifecycle.py` as if it were fact. Hard rule 11 is the response, and
+   `ModelLifecycle.retirement_stance` now separates "the vendor announced nothing" from
+   "nobody looked". `gpt-5.6-luna` is withheld solely because nobody has read a page for it.
+
+**What a client may pick is `agents/llm_models.offerable_models()`, never a constant** —
+selectable AND its provider's credential installed AND its price attested. Read the three
+LLM surfaces separately — two moved, one deliberately did not:
 
 1. **In-call** (inside the engine, BYOK) — the engine calls our Azure deployment on
    `azure_openai_base_url(resource)`, which emits
@@ -282,6 +307,34 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
     response** — it is an equality gate that only shrinks, so a hand-widened baseline makes
     the next person's PR fail instead of yours. If uncovered units genuinely went up, write
     the tests; if a unit is genuinely unreachable, say which and why in the commit.
+
+11. **Never state a fact you have not verified, and a value already in this repo is NOT
+    verification of itself.** This rule exists because a vendor retirement date sitting in
+    `model_lifecycle.py` — a REPORTED figure a past session wrote — was repeated downstream
+    as if it were fact, propagated into an evidence doc and a lane brief, and was simply
+    WRONG: the model had no announced retirement at all, and the date belonged to a
+    different (preview) identifier. The number looked authoritative because it was in our
+    own code, which is exactly the trap.
+    - **A claim about the outside world** — a price, a retirement date, a model id, an API
+      field, a rate limit, a law, what a vendor's endpoint returns — is asserted only from a
+      PRIMARY SOURCE you actually read this session: the vendor's own page/docs/OSS at a
+      named URL or pinned commit, the hash-pinned `bolna-findings/` mirror, or a reading the
+      user/founder relays from one. Cite it (URL/file:line + date) at the point of use, so
+      the next reader inherits the evidence, not the conclusion.
+    - **Repo-internal values are claims, not evidence.** A constant, a comment, a decision
+      row, a prior agent's report, or a figure in `docs/evidence/` carries its OWN evidence
+      class (VERIFIED-VENDOR-DOCS / VENDOR-PUBLISHED / REPORTED / ESTIMATE / UNKNOWN). If it
+      is REPORTED or worse, it may not be re-stated as fact and may not reach money, a wire
+      value, or a client-facing claim without being re-verified — re-verify it or label it,
+      never launder it by repetition.
+    - **When you cannot verify, say so in those words** ("UNKNOWN — <host> is egress-blocked
+      here" / "REPORTED, not confirmed"), mark the artefact accordingly, and route the gap to
+      a human or an operator-attested input. Do NOT fill the gap with a guess dressed as a
+      finding, and do NOT soften a guess with hedges ("likely", "~", "treat as") to make it
+      read like knowledge. If pressed for an answer you do not have, the answer is "I have
+      not verified this," not a plausible number.
+    - This binds visible reasoning and lane briefs too: an unverified premise passed to a
+      subagent becomes its foundation. Verify before you delegate a fact.
 
 ## Conventions
 

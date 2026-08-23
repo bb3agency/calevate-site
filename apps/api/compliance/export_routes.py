@@ -14,9 +14,12 @@ waiting on was settled by NOT having one — the document is handed to the calle
 and never rendered into the console, so nothing here emails a person's data around.
 
 **Permission: `calls:read_raw`.** Confirmed in `apps/api/core/rbac.py` — it is held by
-`owner` in the client realm and `superadmin` in the admin realm, and by nobody else;
-`staff` and `operator` do not have it. That is the right gate, and the alternatives are
-worse:
+`owner` in the client realm and by BOTH admin tiers since the founder's correction to
+D-457; `staff` is the one role that does not have it. That widening is deliberate and
+this route is one of the six it reaches: an operator in a view-as session can now produce
+a data-subject export, having passed a second factor at the impersonation door (D-210),
+and the `audit_log` row below records that they did. That is the right gate, and the
+alternatives are worse:
 
 - `calls:read` / `leads:read` include `staff`, and this response is a strictly greater
   disclosure than either surface those permissions guard — it is every call, every

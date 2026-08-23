@@ -142,18 +142,30 @@ def refusals(
                     f"{name}: {label} evidence claims to have been read on "
                     f"{evidence.read_on.isoformat()}, which is in the future."
                 )
-        # THE UNDATED-AND-SELECTABLE ARM IS THE WHOLE REASON `retires_on` MAY BE `None` AT
-        # ALL. An unread date is an honest reading; an unread date under a model an operator
-        # can flip a live switch onto is the state this guard exists to end, restated with a
-        # `None` instead of a missing row. It refuses rather than warns because the answer is
-        # not "act sooner", it is "you cannot measure this and you are running it anyway".
-        if entry.retires_on is None and name in choosable:
+        # THE UNREAD-AND-SELECTABLE ARM IS THE WHOLE REASON `retires_on` MAY BE `None` AT
+        # ALL. It refuses rather than warns because the answer is not "act sooner", it is
+        # "you cannot measure this and you are running it anyway".
+        #
+        # ⚠ **IT IS STATED OVER THE STANCE NOW, NOT OVER `retires_on is None`, AND THAT IS
+        # THE DIFFERENCE HARD RULE 11 WAS WRITTEN ABOUT.** A missing date meant two opposite
+        # things and this arm could not tell them apart: "the vendor publishes no shutdown
+        # date for this identifier, and somebody opened the page and saw that" is the
+        # STRONGEST state a model can be in, and "nobody has looked" is the state this guard
+        # exists to end. Collapsing them forced a choice between refusing a durable GA model
+        # and inventing a date for it — and inventing one is exactly what happened: a
+        # REPORTED `2026-10-16` belonging to a preview snapshot sat under two GA Gemini rows,
+        # was restated downstream as fact, and became the premise for withdrawing a whole
+        # leg. `ModelLifecycle.retirement_stance` is the fix, and the record's own
+        # `__post_init__` is what stops the new state being claimed without a reading: a
+        # `none-announced` entry must carry VERIFIED retirement evidence.
+        if entry.retirement_stance == "unread" and name in choosable:
             problems.append(
-                f"{name} is selectable but MODEL_LIFECYCLE has read no retirement date for "
-                f"it ({entry.retirement.source}). Either the date gets read and filed, or "
-                "the model comes off the selectable set in LLM_MODELS with a "
-                "withdrawn_reason. An undated selectable model is a 410 Gone nobody has a "
-                "clock for."
+                f"{name} is selectable and NOBODY HAS READ a retirement page for it "
+                f"({entry.retirement.source}). Either somebody opens the vendor's "
+                "deprecation page and files what it says — a date, or `none-announced` if "
+                "it lists the identifier with no shutdown — or the model comes off the "
+                "selectable set in LLM_MODELS with a withdrawn_reason. An unread model is a "
+                "410 Gone nobody has a clock for."
             )
         # THE LEG HAS TO AGREE WITH THE CATALOGUE. Two registries name the provider — this
         # one and `LLM_MODELS` — and they are written by hand in different files on purpose
@@ -215,10 +227,17 @@ def failures(
             f"replacement: {replacement}. Source: {entry.retirement.source}. An operator or "
             "a client flipping the picker to it buys a 410 Gone on the next call."
         )
+    # WHAT COUNTS AS A SURVIVOR, and `none-announced` is one — which it could not be while a
+    # missing date was ambiguous. A model whose vendor has announced no shutdown at all
+    # outlives the lead time more convincingly than one dated eighteen months out, and
+    # treating it as a non-survivor would fire "NO REPLACEMENT IS CONFIGURED" on a catalogue
+    # of perfectly durable models. `unread` is still not a survivor, and cannot reach here
+    # anyway: `refusals()` above stops the run before it is scored.
     survivors = {
         name
         for name, e in scored.items()
-        if (left := e.days_left(today)) is not None and left > WARN_LEAD.days
+        if e.retirement_stance == "none-announced"
+        or ((left := e.days_left(today)) is not None and left > WARN_LEAD.days)
     }
     if scored and not survivors:
         problems.append(
@@ -286,18 +305,35 @@ def warnings(
     for name, entry in sorted(table.items()):
         offered = "SELECTABLE" if name in choosable else "withdrawn"
         left = entry.days_left(today)
-        if left is None:
+        if entry.retirement_stance == "none-announced":
+            # THE VENDOR ANNOUNCED NOTHING, AND SOMEBODY CHECKED. Reported on every run and
+            # NOT as a defect: it is the strongest state an identifier can be in, and it is
+            # here because it is PERISHABLE in a way a date is not. A shutdown date stays
+            # true until it arrives; "nothing is announced" is true only as of the day the
+            # page was read, and on both of the legs that carry this stance the page is
+            # egress-blocked from this container and from CI — so no run can ever re-check
+            # it, and the only thing that can is a person at the next rate-card review.
+            #
+            # ⚠ It also carries the caveat that makes the state honest: Google publishes its
+            # shutdown dates as the EARLIEST possible retirement rather than a commitment,
+            # and OpenAI's is a >=6-month notice policy, so "none announced" bounds the
+            # notice period and never the lifetime.
+            notes.append(
+                f"{name} ({entry.provider}, {offered}): NO SHUTDOWN IS ANNOUNCED, read "
+                f"{entry.retirement.read_on.isoformat()} at {entry.retirement.source}. That "
+                "is a reading and not a blank — but it is only true as of that date, and "
+                "this leg's deprecation page is egress-blocked here, so no run can re-check "
+                "it. Re-read at the next rate-card review."
+            )
+        elif left is None:
             # THE UNREAD-DATE WARNING, WHICH IS THE PER-LEG DIFFERENCE MADE VISIBLE ON EVERY
             # RUN. It is not a defect in this file: it is the reading. Azure publishes a
-            # dated schedule and this table consumes it; OpenAI publishes deprecations on a
-            # page every egress path here refuses. Printing that once a run is what stops
-            # "no date" being mistaken for "no clock".
+            # dated schedule and this table consumes it; OpenAI and Google publish
+            # deprecations on pages every egress path here refuses.
             notes.append(
-                f"{name} ({entry.provider}, {offered}): NO RETIREMENT DATE HAS BEEN READ. "
-                f"{entry.retirement.source}. This leg publishes no schedule this repository "
-                "can reach, so the model cannot be made selectable until a human on an "
-                "unblocked network reads one — see LLM_MODELS for the other half of the "
-                "same block."
+                f"{name} ({entry.provider}, {offered}): NOBODY HAS READ A RETIREMENT PAGE "
+                f"FOR IT. {entry.retirement.source}. The model cannot be made selectable "
+                "until somebody does — see LLM_MODELS for the other half of the same block."
             )
         elif left <= 0 and name not in choosable:
             # RETIRED AND WITHDRAWN: a warning rather than a failure, and the entry STAYS.

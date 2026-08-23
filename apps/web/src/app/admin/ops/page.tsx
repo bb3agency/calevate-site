@@ -18,15 +18,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-import {
-  identityAnswerPending,
-  useAdminAccess,
-  useAdminMe,
-  type AdminAccess,
-} from "@/app/admin/access";
-import { ConfigPanel } from "@/app/admin/ops/ConfigPanel";
-import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
-import { WithheldPanel } from "@/app/admin/withheld";
+import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
   Card,
@@ -84,6 +76,14 @@ import { hasKey, lookup } from "@/lib/lookup";
  * on the permission alone, because neither reads or moves that row: refusing to let an
  * operator verify the audit chain because an unrelated row was unreadable would remove
  * the control precisely when the platform is behaving strangely.
+ *
+ * ONE PERMISSION, NOT THREE. This screen used to carry the platform-configuration,
+ * credential and key-management panels as well, on `platform:config` and
+ * `platform:secrets` — so a screen the sidebar could describe with only one permission
+ * string actually needed three, and the two it could not name were the two the founder
+ * installs every vendor key with. They are `/admin/ops/config` now, with a sidebar entry
+ * of their own (the founder's correction to D-457). What is left here is the INCIDENT
+ * surface, and every route it calls is `ops:manage`.
  *
  * ## The properties every control on this screen holds
  *
@@ -306,38 +306,9 @@ export default function OpsPage() {
   // letter queue. `useAdminMe` shares one query key, so this is a second verdict on one
   // request, not a second request.
   const mayRecover = useAdminAccess("ops:manage", "run the platform recovery tools");
-  // A DIFFERENT permission from the three panels above (`platform:config`, not
-  // `ops:manage`). The config panel reads no platform-row state, so it is gated on the
-  // permission alone — the same rule the replay and the audit-chain panels follow.
-  const mayConfigure = useAdminAccess("platform:config", "change platform configuration");
-  // A THIRD permission, and the narrowest one on this screen. `platform:secrets` is held
-  // by fewer people than anything else (§10's first mitigation), so the credential and
-  // key-management panels gate on it alone — an operator who may change the calling
-  // window does not thereby get to replace the Bolna key.
-  const maySecrets = useAdminAccess("platform:secrets", "install or rotate credentials");
-  /**
-   * Has the identity read ANSWERED yet — the one thing the four verdicts above cannot
-   * say, and the reason the three permission-gated panels below wait for it.
-   *
-   * The same query the four `useAdminAccess` calls share (one key, `["admin","me"]`), so
-   * this is a fifth reading of one request rather than a fifth request.
-   *
-   * WHY THE PANELS WAIT. `adminAccess` fails open while the answer is missing, which is
-   * right for the nav and wrong as a MOUNT decision here: mounting the credentials panel
-   * for an unknown session fires `GET /v1/ops/secrets` immediately, and for a normal
-   * admin that request can only be a 403 — so the operator sees the live panel, then a
-   * skeleton, then the panel disappearing and a refusal taking its place. That is the
-   * flicker `admin/layout.tsx` forbids in the sidebar ("nothing appears or disappears
-   * under the pointer"), plus a guaranteed 403 in the API log.
-   *
-   * NOT `isLoading` on its own — `identityAnswerPending` argues the trap in full: a
-   * refetch of a FAILED identity read puts the query back into `pending`, so a body
-   * mounted on that boolean unmounts again on every retry, and on a screen whose body
-   * also observes the query that mount is what triggers the retry. It is "loading AND
-   * never answered", which settles once and stays settled, and which leaves a query
-   * PAUSED by an offline browser falling through to the panels' own honest states.
-   */
-  const identityLoading = identityAnswerPending(useAdminMe());
+  // TWO VERDICTS, NOT FOUR. `platform:config` and `platform:secrets` were read here as
+  // well until their panels moved to `/admin/ops/config`; this screen now asks about one
+  // permission, which is what its own nav entry has always declared.
   const access = opsAccess(mayManage, state);
 
   return (
@@ -388,66 +359,18 @@ export default function OpsPage() {
       <KnowledgeDriftPanel drift={kbDriftState(state)} />
       <AuditChainPanel access={mayRecover} />
 
-      {/* Gated on `platform:config`, NOT on `ops:manage`, and that is the point of the
-          separate permission: the incident levers above are held by whoever is on call,
-          and changing what engine the platform dials on is change management. The panel
-          lives here because §8 puts it beside the other ops panels, and it disables
-          itself with its own reason for a session that lacks its own permission.
+      {/* THE CONFIG AND CREDENTIAL PANELS USED TO SIT HERE AND NOW HAVE THEIR OWN SCREEN
+          (`/admin/ops/config`), because the founder's correction to D-457 asked for the
+          ops config panel to be findable from the sidebar and a nav entry needs a
+          destination of its own. The split is also what the permissions were already
+          saying: everything above is `ops:manage` — the incident levers, held by whoever
+          is on call — and everything that moved is `platform:config` or
+          `platform:secrets`, which is change management. One screen carrying three
+          permissions meant its nav entry could declare only one of them.
 
-          `refused`, NOT `!allowed` — the distinction `adminAccess` exists to draw. A
-          refusal is the server's settled answer, and this panel's READ carries the same
-          permission as its writes, so mounting it for that session would fire a request
-          whose only outcome is a 403 and then render "we could not read the platform
-          configuration", which is the sentence for an outage. Not knowing yet (the
-          identity read in flight, or dead) still mounts the panel: the API is the
-          enforcement, an unreadable identity must never remove the ops surface
-          (BACKEND-PATTERNS §6), and `configState` has its own 403 branch for that race. */}
-      {identityLoading ? (
-        <PanelPending title="Platform configuration" />
-      ) : mayConfigure.refused ? (
-        <WithheldPanel
-          title="Platform configuration"
-          reason={mayConfigure.reason ?? "Your admin account cannot change platform configuration."}
-          subject="This panel would list every setting this deployment can change without an SSH session, and the value in force for each."
-        />
-      ) : (
-        <ConfigPanel access={mayConfigure} />
-      )}
-
-      {/* Credentials and the keys that protect them (§8 panels 3 and 4). Gated on
-          `platform:secrets`, not on `platform:config`: the blast radii are not
-          comparable, and the separation IS the mitigation §10's accepted trade rests on.
-
-          THE SHARPEST EDGE ON THIS SCREEN, so the withheld panels say LESS than the
-          config one and deliberately not more: a normal admin is told what the panel is
-          for and nothing whatever about what is installed. Not a count, not a key name,
-          not "no credentials found" — this console holds no answer to that question for
-          this session, and a placeholder that reads as an inventory is one an operator
-          would act on. */}
-      {identityLoading ? (
-        <>
-          <PanelPending title="Vendor credentials" />
-          <PanelPending title="Key management" />
-        </>
-      ) : maySecrets.refused ? (
-        <>
-          <WithheldPanel
-            title="Vendor credentials"
-            reason={maySecrets.reason ?? "Your admin account cannot install or rotate credentials."}
-            subject="This panel would list the key names this deployment holds and the last four characters of each."
-          />
-          <WithheldPanel
-            title="Key management"
-            reason={maySecrets.reason ?? "Your admin account cannot install or rotate credentials."}
-            subject="This panel would show which key-encryption key is active and how many stored versions are still wrapped under an older one."
-          />
-        </>
-      ) : (
-        <>
-          <SecretsPanel access={maySecrets} />
-          <KeyManagementPanel access={maySecrets} />
-        </>
-      )}
+          Deliberately NOT left behind as a link: this screen is what an operator opens
+          when calls have stopped, and a pointer to the credential console is not
+          something that belongs on it. The sidebar is where surfaces are discovered. */}
 
       <Card title="What is never shed">
         <ul className="space-y-1.5 text-sm text-ink-muted">
@@ -506,22 +429,6 @@ function UnknownStatePanel({ reason }: { reason: string | null }) {
   );
 }
 
-/**
- * A panel whose PERMISSION is still unknown — the shape held while `/v1/admin/me` is in
- * flight, so the card does not appear, populate and then vanish.
- *
- * A skeleton rather than an empty space or a spinner, because the honest statement is
- * "something belongs here and we are finding out whether you may see it", and that is
- * exactly what §52 already spends a skeleton on everywhere else in this console. It
- * claims nothing about the subject: no count, no field, no "none installed".
- */
-function PanelPending({ title }: { title: string }) {
-  return (
-    <Card title={title}>
-      <Skeleton rows={3} label={`Checking whether you may see ${title.toLowerCase()}…`} />
-    </Card>
-  );
-}
 
 /**
  * The big red switch, with its current position and its reason.

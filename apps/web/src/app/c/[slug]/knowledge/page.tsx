@@ -316,19 +316,22 @@ export default function KnowledgePage() {
 
                         {open && (
                           <div className="mt-3 rounded-lg border border-line bg-app p-3">
-                            {/* Three answers that used to look identical: still
-                                fetching, could not fetch, and "the server says there is
-                                nothing in here". Only the third one is emptiness, and
-                                the other two read to a client as text that arrived
-                                blank. */}
+                            {/* Answers that used to look identical: still fetching, no
+                                answer at all, and "the server says there is nothing in
+                                here". Only the last is emptiness; the others read to a
+                                client as text that arrived blank. "No answer" is a failed
+                                read AND a paused query (offline: not loading, `error ===
+                                null`, `data === undefined`) — `chunks.data?.length` alone
+                                collapsed the paused case into the emptiness sentence, so
+                                the refusal owns both non-answers (§52). */}
                             {chunks.isLoading ? (
                               <Skeleton rows={2} />
-                            ) : chunks.error ? (
+                            ) : chunks.error || !chunks.data ? (
                               <ProblemNotice
-                                error={chunks.error}
+                                error={chunks.error ?? new Error("This preview could not be loaded.")}
                                 onRetry={() => void chunks.refetch()}
                               />
-                            ) : chunks.data?.length ? (
+                            ) : chunks.data.length ? (
                               <div className="space-y-2">
                                 {chunks.data.map((chunk) => (
                                   <p

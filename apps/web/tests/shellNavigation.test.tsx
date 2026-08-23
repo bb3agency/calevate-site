@@ -242,6 +242,10 @@ describe("currentNavItem", () => {
     { href: "/admin/new" },
     { href: "/admin/ops" },
     { href: "/admin/ops/dnc" },
+    // The newest child of `/admin/ops` (the founder's correction to D-457 gave the ops
+    // config panel its own screen), and the one that makes the longest-prefix rule pay
+    // for itself twice: it is a sibling of `/admin/ops/dnc` AND a child of `/admin/ops`.
+    { href: "/admin/ops/config" },
   ];
 
   it("prefers the longest matching prefix, not list order", () => {
@@ -250,6 +254,9 @@ describe("currentNavItem", () => {
     expect(currentNavItem(NAV, "/admin/ops/dnc")?.href).toBe("/admin/ops/dnc");
     expect(currentNavItem(NAV, "/admin/ops/dnc/anything")?.href).toBe("/admin/ops/dnc");
     expect(currentNavItem(NAV, "/admin/ops")?.href).toBe("/admin/ops");
+    // Platform configuration keeps its own name rather than inheriting "Operations",
+    // which is the whole reason it could not have been an anchor on `/admin/ops`.
+    expect(currentNavItem(NAV, "/admin/ops/config")?.href).toBe("/admin/ops/config");
   });
 
   it("matches on a path SEGMENT, so a longer sibling name cannot borrow the prefix", () => {

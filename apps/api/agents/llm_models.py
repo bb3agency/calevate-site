@@ -20,34 +20,49 @@ changing under a constant nobody re-derived) on the surface that tells a client 
 their calls cost. On an unflipped deployment the two are the same string, which is why
 this is strictly more correct rather than differently correct.
 
-THE ALLOW-LIST IS `AZURE_OPENAI_MODELS` AND THERE IS NO SECOND COPY OF IT HERE
------------------------------------------------------------------------------
-Both the choosable set and the refusal message read that frozenset (via `selectable_
-models()`), and the PRICE of each comes from `billing/rates.py` — so "what you may
-choose" and "what it costs" cannot come to disagree about which models exist.
-`every_selectable_model_is_priced()` states that as one predicate, and
-`tests/llm_model_selection_test.py` fails if the two sets ever diverge: a selectable
-model nobody priced is unmetered spend, and a priced model nobody can select is a number
-that rots unnoticed.
+THREE CONDITIONS DECIDE WHAT A CLIENT MAY PICK, AND ONLY ONE OF THEM IS IN SOURCE
+---------------------------------------------------------------------------------
+This module used to state one question — is the model in `AZURE_OPENAI_MODELS` and does
+this platform have a deployment for it — because there was one leg and one vendor. The
+product now offers three legs (Azure OpenAI, OpenAI direct, Google Gemini), the founder
+holds all three accounts and installs all three keys, and "what may this client choose"
+became a conjunction of three facts with three different owners:
+
+1. **`selectable`** — this repository permits the model on merit: the engine supports the
+   identifier, its request-field traps are ones we mitigate at the wire, and it sits in the
+   per-minute cost tier a voice product can carry. A reviewed commit; lives in
+   `calevate_shared.engine.LLM_MODELS`.
+2. **The leg is addressable here** — a credential for the provider, and on Azure ALSO a
+   deployment, because Azure alone addresses an operator-chosen deployment id that can
+   never be derived from a model name.
+3. **The price is billable** — an operator has attested what this account actually pays,
+   or the catalogue figure was read from the vendor. `billing/rates.py` owns it.
+
+`offerable_models()` is the ONE predicate that ANDs them, and every surface reads it: the
+picker, `validate_llm_model`, the publish path and the rate card. `unofferable_reason()`
+says which condition failed, in one sentence an operator can act on, because the three
+have three different fixes — a portal deployment, a pasted key, an invoice figure — and a
+screen that could not tell them apart would send all three to support.
+
+⚠ A FUNCTION, NEVER A CONSTANT, and that is load-bearing rather than stylistic. Two of the
+three conditions are live properties of a deployment: a key installed at 14:00 and a price
+attested at 14:05 change the answer twice with no release. A module-level frozenset would
+be computed at import and would answer for the process's first second forever — which is
+exactly how a picker comes to offer a model the publish path then refuses.
 
 ⚠ THE MENU MAY NOT CONTAIN A DISH THE KITCHEN CANNOT COOK
 ---------------------------------------------------------
-Under the declared `us-azure-openai` posture the engine addresses a **deployment id**,
-not a model name (`calevate_shared.engine.ModelBinding`), and a deployment id is chosen
-freely by whoever created it — it can NEVER be derived from the model name. So "which
-models may a client choose" is not the allow-list on its own: it is the allow-list
-INTERSECTED with the models this deployment has an Azure deployment for.
+Condition (2) is not a nicety on the Azure leg. `gpt-4.1-mini` costs 2.7x `gpt-4o-mini`,
+and a picker that offered it while the wire kept addressing the default deployment would
+quote and meter a client at the dearer rate for calls that ran the cheaper model — a
+charge for something we did not deliver, invisible in a transcript, invisible in an
+execution payload, and a hard-rule-7 defect rather than a cosmetic one.
 
-That intersection is not a nicety. `gpt-4.1-mini` costs 2.7x `gpt-4o-mini`, and a picker
-that offered it while the wire kept addressing the default deployment would quote and
-meter a client at the dearer rate for calls that ran the cheaper model — a charge for
-something we did not deliver, invisible in a transcript, invisible in an execution
-payload, and a hard-rule-7 defect rather than a cosmetic one. So there is ONE predicate,
-`addressable_models()`, and everything else reads it: `available_models()` marks what
-cannot run and says WHY, `validate_llm_model` refuses selecting it, and
-`agents/service.py::in_call_llm` refuses to publish one. `tests/llm_model_selection_
-test.py` asserts the offered set and the addressable set are the SAME SET, in both
-directions, so they cannot drift apart by an edit to one of them.
+Condition (3) is the same failure one step earlier and is why the PICKER is gated rather
+than only the wire: `llm_inr_per_ktok` raises on a model nobody priced, so a selection we
+accepted would surface that raise on a metering path AFTER the call was placed — a minute
+delivered, a vendor billed, and nothing our ledger can charge for. Refusing the selection
+is the only place the failure is free.
 
 WHERE THE DEPLOYMENTS COME FROM, and why it is two fields rather than one:
 `Settings.azure_openai_deployment` is the deployment for `Settings.azure_openai_model` —
@@ -58,23 +73,38 @@ either, so "which deployment serves this model" has one answer and one place.
 
 ON A DEPLOYMENT WITH NO AZURE CREDENTIALS AT ALL — local, CI, any staging without a
 resource — there is no deployment indirection: `in_call_llm` passes the model straight
-to the engine, so every allow-listed model is addressable and the picker offers them all.
-That is not a special case bolted on; it is the same question ("can this deployment put
-this model on the wire?") answered for the other arm of the same switch.
+to the engine, so every Azure-catalogue model is addressable and the picker offers them
+all. That is not a special case bolted on; it is the same question ("can this deployment
+put this model on the wire?") answered for the other arm of the same switch. The other two
+legs have no such arm: their credential lives in the engine's own store and there is
+nothing to fall back to.
+
+WHAT THIS MODULE STILL DOES NOT DO, on purpose: it holds no key, stores no attestation and
+reads no database. The ops console owns both (`apps/api/ops/`), and reaches this module
+through exactly two installed functions — `install_llm_credential_reader` here and
+`billing/rates.install_llm_price_attestations` — so a rate card and a picker stay
+exercisable without a database and the money module never imports the console.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final, Literal, get_args
 
-from calevate_shared.engine import AZURE_OPENAI_MODELS, LlmProvider, leg_for_model
+from calevate_shared.engine import (
+    LLM_MODELS,
+    SELECTABLE_LLM_MODELS,
+    LlmProvider,
+    leg_for_model,
+)
 
 from apps.api.billing.rates import (
     PRICED_LLM_MODELS,
     is_surchargeable_llm_model,
     llm_cost_inr_per_minute,
+    llm_price_is_billable,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -163,13 +193,17 @@ class SelectableModel:
 
 
 def selectable_models() -> tuple[str, ...]:
-    """Every model this platform may be told to run, sorted.
+    """Every model this repository PERMITS ON MERIT, sorted. NOT the picker's list.
 
-    Sorted so the picker's order is stable across interpreter runs — `AZURE_OPENAI_MODELS`
-    is a frozenset, whose iteration order is not, and an unstable order here would make
-    the OpenAPI snapshot and the screen shuffle for no reason.
+    Sorted so the order is stable across interpreter runs — `SELECTABLE_LLM_MODELS` is a
+    frozenset, whose iteration order is not, and an unstable order here would make the
+    OpenAPI snapshot and the screen shuffle for no reason.
+
+    ⚠ **THIS IS CONDITION (1) OF THREE.** What a client may actually choose is
+    `offerable_models()`; see this module's docstring. A surface stated over this function
+    alone would offer a model with no key behind it and no price anybody has attested.
     """
-    return tuple(sorted(AZURE_OPENAI_MODELS))
+    return tuple(sorted(SELECTABLE_LLM_MODELS))
 
 
 def platform_default_model() -> str:
@@ -216,6 +250,13 @@ def deployment_for(model: str) -> str | None:
     win would point published agents at one deployment and the credential store at
     another. It is ignored instead.
 
+    ⚠ **ASK IT ONLY ABOUT AN AZURE MODEL.** Deployments are an Azure artefact; on the other
+    two legs the API addresses the model's own published name and a deployment id has
+    nowhere to go (`calevate_shared.engine.bind_model` raises on one). A Gemini identifier
+    reaching here would find nothing and read as "not deployed", which is a true sentence
+    about a question that does not apply — `_leg_is_addressable` is what keeps the question
+    where it belongs.
+
     Blank-stripping both sides rather than trusting them: `azure_openai_deployment` is
     `str | None` and an operator clearing it in the console leaves `""`, which is not a
     deployment and must not be returned as one.
@@ -225,31 +266,165 @@ def deployment_for(model: str) -> str | None:
     return (_configured_deployments().get(model) or "").strip() or None
 
 
-def addressable_models() -> frozenset[str]:
-    """Every allow-listed model this deployment can actually put on the wire.
+# --- WHICH LEGS THIS PLATFORM HOLDS A CREDENTIAL FOR ---------------------------------
+#
+# **THE CONTRACT, NOT THE STORE.** The founder holds all three vendor accounts and enters
+# all three keys in the ops console; `apps/api/ops/` owns where those keys live, who may
+# write one and what the form looks like. This module owns the QUESTION — which legs are
+# usable right now — and the seam between them is one installed function, for the reason
+# `billing/rates.install_llm_price_attestations` gives at length: the picker must not
+# import the console, and it must stay exercisable without a database.
 
-    THE ONE PREDICATE BEHIND THE MENU, THE VALIDATOR AND THE PUBLISH REFUSAL — see the
-    module docstring for why offering a model we cannot address is a money defect and not
-    a cosmetic one.
+#: A function returning every leg whose credential this platform holds. Installed by ops.
+LlmCredentialReader = Callable[[], frozenset[LlmProvider]]
 
-    TWO ARMS, because `in_call_llm` has two and this has to answer for the same switch.
-    With no Azure credentials there is no deployment indirection at all: the chosen model
-    IS what the engine is sent, so every allow-listed model is addressable. With an Azure
-    leg, the wire value is a deployment id and only the models one is configured for can
-    run.
+_credential_reader: LlmCredentialReader | None = None
+
+
+def install_llm_credential_reader(reader: LlmCredentialReader | None) -> None:
+    """Register where installed-credential state comes from. `None` uninstalls.
+
+    The sibling of `billing/rates.install_llm_price_attestations`, deliberately the same
+    shape: the two facts an operator supplies (a key and a price) arrive through two
+    functions with one pattern rather than through two mechanisms. Read that function's note
+    on wiring — the reader is synchronous and closes over a refreshed snapshot, because its
+    callers sit behind a picker and on a publish path and none of them can await.
     """
+    global _credential_reader
+    _credential_reader = reader
+
+
+def installed_llm_providers() -> frozenset[LlmProvider]:
+    """The legs this platform can actually put a call on today.
+
+    **WITH NO READER INSTALLED THE ANSWER IS DERIVED FROM `Settings`, AND IT IS AZURE-ONLY.**
+    That is not a placeholder: it reproduces exactly what this repository did before there
+    was a second leg, so CI, every unit test and any deployment whose console has not been
+    filled in behave as they always have. The other two legs are simply not usable until
+    somebody installs a key, which is the honest state and the one the picker should show.
+
+    ⚠ **AZURE IS PRESENT ON *BOTH* ARMS OF `azure_credentials()`, AND THAT IS NOT A BUG.**
+    A deployment with no Azure credentials at all has no Azure leg to configure — and on
+    that arm `in_call_llm` sends the model identifier straight through to the engine's own
+    default client, which is the passthrough every conformance fixture and every local run
+    exercises. So "can this platform run an Azure-catalogue model" is true either way, and
+    it is `_leg_is_addressable` below that knows the two arms need different questions
+    asked of them.
+    """
+    if _credential_reader is not None:
+        return _credential_reader()
+    return frozenset({"azure_openai"})
+
+
+def _leg_is_addressable(model: str) -> bool:
+    """Can this platform put `model` on the wire at all — credential AND, on Azure, a
+    deployment?
+
+    TWO QUESTIONS, ONE PER LEG SHAPE, because the legs genuinely differ in what "configured"
+    means and collapsing them would make one of the two answers wrong:
+
+    * **Azure addresses a DEPLOYMENT ID an operator chose** (`PostureLeg.addresses_a_
+      deployment`), which can never be derived from the model name. So a key is not enough:
+      a model with no deployment would be quoted at its own price while every call ran a
+      different deployment — a charge for something we did not deliver, invisible in a
+      transcript and in an execution payload, and a hard-rule-7 defect rather than a
+      cosmetic one. On the no-credentials arm there is no deployment indirection at all, so
+      the model IS what the engine is sent and every catalogue model is addressable.
+    * **OpenAI and Google address the model's own published name.** There is nothing to
+      configure per model, so the whole question is whether the leg's credential is
+      installed — and if it is, every model on it is addressable.
+    """
+    leg = leg_for_model(model)
+    if leg.provider not in installed_llm_providers():
+        return False
+    if not leg.addresses_a_deployment:
+        return True
     if azure_credentials() is None:
-        return AZURE_OPENAI_MODELS
-    return frozenset(model for model in AZURE_OPENAI_MODELS if deployment_for(model))
+        return True
+    return deployment_for(model) is not None
 
 
-#: Why a model in the allow-list cannot be run here. ONE sentence, read by the API
-#: response and by the refusal, so an operator and a client are told the same thing.
-UNAVAILABLE_REASON: Final = (
+#: Why a permitted model cannot be offered here — ONE sentence per ground, keyed by the
+#: ground. Read by the API response and by the refusal, so an operator and a client are told
+#: the same thing about the same model.
+#:
+#: **THREE GROUNDS AND THEY HAVE THREE DIFFERENT OWNERS**, which is the whole reason they are
+#: separate strings rather than one "unavailable". "No deployment" is an operator's five
+#: minutes in the Azure portal; "no credential" is a key the founder pastes into the ops
+#: console; "no attested price" is a figure read off an invoice. A screen that could not tell
+#: them apart would send all three to support.
+NO_DEPLOYMENT_REASON: Final = (
     "no Azure deployment is configured for this model on this platform, so it cannot be "
     "addressed — create a deployment for it and add a `model=deployment` entry to "
     "azure_openai_deployments"
 )
+NO_CREDENTIAL_REASON: Final = (
+    "this platform holds no API key for the provider that serves this model, so a call on it "
+    "would authenticate against nothing — install the provider's key in the ops console"
+)
+NO_ATTESTED_PRICE_REASON: Final = (
+    "nobody has recorded what this model costs on this account, and an unpriced minute is "
+    "unmetered spend rather than a free one — enter the input and output price from the "
+    "vendor invoice in the ops console"
+)
+
+#: Kept under its old name because two guards and a doc quote it; it is the Azure ground.
+UNAVAILABLE_REASON: Final = NO_DEPLOYMENT_REASON
+
+
+def unofferable_reason(model: str) -> str | None:
+    """Why `model` cannot be offered here, or `None` when it can.
+
+    **THE ONE PLACE THE THREE CONDITIONS ARE ORDERED**, and the order is by whose problem it
+    is rather than by cost: a leg with no key cannot be fixed by attesting a price, so the
+    key is reported first and the reader is sent to one action at a time. A model failing two
+    conditions gets the earlier sentence, which is the one that has to happen first anyway.
+
+    Raises through `leg_for_model` on an identifier the catalogue does not know — deliberately
+    the same refusal `bind_model` makes, because a model with no leg has no credential to
+    check and no price to attest, and answering "not offered" would imply the question made
+    sense.
+    """
+    if model not in SELECTABLE_LLM_MODELS:
+        spec = LLM_MODELS.get(model)
+        # A withdrawn model carries its own sentence and it is a better one than any generic
+        # phrasing here: it names the trap, the price or the unread page that withheld it.
+        return (spec.withdrawn_reason if spec else None) or "this platform does not run it"
+    leg = leg_for_model(model)
+    if leg.provider not in installed_llm_providers():
+        return NO_CREDENTIAL_REASON
+    if not _leg_is_addressable(model):
+        return NO_DEPLOYMENT_REASON
+    if not llm_price_is_billable(model):
+        return NO_ATTESTED_PRICE_REASON
+    return None
+
+
+def offerable_models() -> frozenset[str]:
+    """**THE ONE PREDICATE BEHIND THE MENU, THE VALIDATOR, THE PUBLISH PATH AND THE RATE
+    CARD.** Every model a client or an operator may actually choose right now.
+
+    Three conditions, ANDed, each owned by somebody different (`LlmModelSpec`'s docstring
+    states them; `unofferable_reason` above names them one at a time):
+
+    1. this repository permits it on merit — `selectable`, a reviewed commit;
+    2. its leg is addressable here — a credential, and on Azure a deployment;
+    3. its price is billable — an operator's attestation, or a catalogue figure somebody
+       read from the vendor.
+
+    **WHY A FUNCTION AND NOT A CONSTANT**, which is the load-bearing part. Two of the three
+    conditions are live properties of a deployment: a key installed at 14:00 and a price
+    attested at 14:05 change this set twice without a release. A module-level frozenset would
+    be computed at import and would answer for the process's first second forever — which is
+    exactly how a picker comes to offer a model the publish path then refuses.
+
+    ⚠ **CONDITION 3 IS HARD RULE 7 AND IT IS WHY THIS SET GATES THE PICKER RATHER THAN ONLY
+    THE WIRE.** `llm_inr_per_ktok` raises on an unpriced model; if a client could SELECT one,
+    the raise would land on a metering path after the call was already placed — a minute
+    delivered, a vendor billed and nothing our ledger can charge for. Refusing the selection
+    is the only place the failure is free.
+    """
+    return frozenset(model for model in SELECTABLE_LLM_MODELS if unofferable_reason(model) is None)
 
 
 def resolve_llm_model(
@@ -276,16 +451,29 @@ def resolve_llm_model(
 
 
 def every_selectable_model_is_priced() -> bool:
-    """Is every model a client may choose one this repository can put a rupee on?
+    """Is every model this repository permits one it can also put a rupee REFERENCE on?
+
+    **STATED OVER `SELECTABLE_LLM_MODELS`, WHICH IS WHAT IT ALWAYS MEANT.** It read
+    `PRICED_LLM_MODELS == AZURE_OPENAI_MODELS` while Azure was the only leg anything was
+    offered on, and that spelling was a coincidence of the evidence rather than the
+    invariant: several tests and documents went on to assert the Azure identity as if it
+    were the rule. The rule is that the reference card and the permitted set are the SAME
+    SET, in both directions — a permitted model with no reference figure is a blank cell
+    where the console's pre-fill should be, and a reference for a model nobody may choose
+    is a number that rots unnoticed.
+
+    ⚠ **IT IS NOT THE HARD-RULE-7 CHECK ANY MORE, AND THAT IS A PROMOTION RATHER THAN A
+    LOSS.** "Is this model BILLABLE" is a live, per-deployment question — an attestation
+    installed this morning changes it — so it cannot be an equality between two module
+    constants at all. It is condition (3) of `offerable_models()`, asked per model, and
+    `llm_inr_per_ktok` refuses the money outright rather than trusting anyone to have
+    checked. This predicate went back to being what its name says.
 
     A PREDICATE RATHER THAN AN `assert` AT IMPORT, because the two callers want different
     things from the same fact: `tests/llm_model_selection_test.py` wants a named failure,
-    and a reader wants one place that states the invariant in words. An unpriced
-    selectable model is unmetered spend — `llm_inr_per_ktok` raises `ValueError` on it,
-    which on the assist path is a 500 for the client who chose it — so the two sets are
-    held equal in BOTH directions rather than by containment.
+    and a reader wants one place that states the invariant in words.
     """
-    return PRICED_LLM_MODELS == AZURE_OPENAI_MODELS
+    return PRICED_LLM_MODELS == SELECTABLE_LLM_MODELS
 
 
 def quoted_inr_per_minute(model: str) -> Decimal:
@@ -309,7 +497,6 @@ def available_models() -> tuple[SelectableModel, ...]:
     spend.
     """
     default = platform_default_model()
-    addressable = addressable_models()
     return tuple(
         SelectableModel(
             model=model,
@@ -323,10 +510,14 @@ def available_models() -> tuple[SelectableModel, ...]:
             inr_per_minute=quoted_inr_per_minute(model),
             is_platform_default=model == default,
             is_surcharged=is_surchargeable_llm_model(model),
-            is_available=model in addressable,
-            unavailable_reason=None if model in addressable else UNAVAILABLE_REASON,
+            # ONE call, not two, and the pair is derived from it: a row whose flag and
+            # whose sentence were computed by separate predicates is a row that can say
+            # "available" and give a reason why not, which is the shape of a screen nobody
+            # can act on.
+            is_available=reason is None,
+            unavailable_reason=reason,
         )
-        for model in selectable_models()
+        for model, reason in ((model, unofferable_reason(model)) for model in selectable_models())
     )
 
 
@@ -361,26 +552,32 @@ def validate_llm_model(value: str | None, *, field: str) -> str | None:
     enum, so adding a model would silently break every generated client pinned to the old
     union. The allow-list is a live property of the platform, not of the wire contract.
     """
-    addressable = addressable_models()
-    if value is None or value in addressable:
+    offerable = offerable_models()
+    if value is None or value in offerable:
         return value
     # THE OFFERED SET AND THE REFUSAL'S SET ARE ONE EXPRESSION, so a message can never
     # name a model the write path would then reject.
-    permitted = ", ".join(sorted(addressable)) or "none"
-    if value in AZURE_OPENAI_MODELS:
+    permitted = ", ".join(sorted(offerable)) or "none"
+    if value in SELECTABLE_LLM_MODELS:
+        # A MODEL THIS REPOSITORY PERMITS THAT THIS DEPLOYMENT CANNOT SERVE YET. The
+        # reason is one of three and is an OPERATOR'S to fix — a deployment, a key or a
+        # price — so it carries its own sentence rather than the Azure-shaped one this
+        # branch used to hard-code, which would have told a client to create an Azure
+        # deployment for a Gemini model.
         raise ProblemError(
             kind="validation",
             code="llm_model_not_deployed",
             title="That language model is not switched on for this platform yet",
             detail=(
-                f"{value!r} is a model this platform supports, but {UNAVAILABLE_REASON}. "
-                f"Until it is, the models you can choose are: {permitted}."
+                f"{value!r} is a model this platform supports, but "
+                f"{unofferable_reason(value)}. Until it is, the models you can choose "
+                f"are: {permitted}."
             ),
             remediation=(
                 f"Choose one of {permitted} for now, or ask support to switch "
                 f"{value} on for this platform."
             ),
-            fields=[{"name": field, "reason": "no deployment is configured for this model"}],
+            fields=[{"name": field, "reason": "this platform cannot serve this model yet"}],
         )
     raise ProblemError(
         kind="validation",
@@ -399,18 +596,25 @@ def validate_llm_model(value: str | None, *, field: str) -> str | None:
 
 __all__ = [
     "LLM_MODEL_SOURCES",
+    "NO_ATTESTED_PRICE_REASON",
+    "NO_CREDENTIAL_REASON",
+    "NO_DEPLOYMENT_REASON",
     "QUOTED_CALL_MINUTES",
     "UNAVAILABLE_REASON",
+    "LlmCredentialReader",
     "LlmModelSource",
     "ResolvedLlmModel",
     "SelectableModel",
-    "addressable_models",
     "available_models",
     "deployment_for",
     "every_selectable_model_is_priced",
+    "install_llm_credential_reader",
+    "installed_llm_providers",
+    "offerable_models",
     "platform_default_model",
     "quoted_inr_per_minute",
     "resolve_llm_model",
     "selectable_models",
+    "unofferable_reason",
     "validate_llm_model",
 ]

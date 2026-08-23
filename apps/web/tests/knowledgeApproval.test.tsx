@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
@@ -6,6 +6,7 @@ import type { Me } from "@/lib/api/client";
 import type { KbSource } from "@/lib/api/kb";
 
 import {
+  browserOffline,
   expectTextCount,
   problem,
   renderClientPage,
@@ -241,6 +242,28 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     fireEvent.click(screen.getByRole("button", { name: /preview/i }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(container.textContent).not.toContain(
+      "There is nothing in this submission for the agent to say.",
+    );
+  });
+
+  it("does not render a PAUSED preview as an empty submission either", async () => {
+    // The other non-answer, and the one the error branch above did not cover: a preview
+    // TanStack never started because the browser is offline reports `isLoading === false`,
+    // `error === null`, `data === undefined`. `chunks.data?.length` alone collapsed that
+    // into "nothing in this submission" — the emptiness sentence, off a request that
+    // never left the browser. The list loads first, then the connection drops.
+    const { container } = await renderKnowledge([source()]);
+    await screen.findByText("Opening hours");
+
+    browserOffline();
+    fireEvent.click(screen.getByRole("button", { name: /preview/i }));
+
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        "We could not reach Calevate. Check your connection and try again.",
+      ),
+    );
     expect(container.textContent).not.toContain(
       "There is nothing in this submission for the agent to say.",
     );

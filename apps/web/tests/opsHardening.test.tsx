@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
-import OpsPage from "@/app/admin/ops/page";
+import OpsConfigPage from "@/app/admin/ops/config/page";
 import { appliesVerdict } from "@/app/admin/ops/ConfigPanel";
 import { verdictTitle, verdictTone } from "@/app/admin/ops/SecretsPanel";
 import { ApiProblem } from "@/lib/api/client";
@@ -22,6 +22,7 @@ import {
   type SecretTest,
   type SecretsList,
 } from "@/lib/api/opsSecrets";
+import { OPS_MODEL_PRICES_PATH, type ModelPrices } from "@/lib/api/opsModelPricing";
 
 import { expectNoA11yViolations } from "./a11y";
 import { expectTextCount, problem, stubApi, type Routes } from "./harness";
@@ -65,8 +66,6 @@ import { expectTextCount, problem, stubApi, type Routes } from "./harness";
  * seam.
  */
 
-const PLATFORM = "/v1/ops/platform";
-
 function me(permissions: string[]): AdminMe {
   return {
     realm: "admin",
@@ -84,34 +83,6 @@ const SUPERADMIN = me([
   "platform:secrets",
 ]);
 
-const PLATFORM_STATE = {
-  load_shed_mode: "normal",
-  outbound_halted: false,
-  halt_reason: null,
-  // `deferred` is required on the wire (`DeadLetterQueueOut`), so a fixture without it is
-  // a shape the server never sends. Zero here: this file is about the config/secret
-  // panels, and an outbox in trouble is `ops.test.tsx`'s subject.
-  outbox_dead_letters: { depth: 0, deferred: 0, oldest_at: null, by_job: [] },
-  // Required on the wire for the same reason (`EngineDriftOut` declares no defaults), and
-  // SWEPT rather than all-null: a never-swept platform raises the "nobody is watching"
-  // banner, which is `ops.test.tsx`'s subject and noise in this file's.
-  engine_drift: {
-    live_agents: 0,
-    never_checked: 0,
-    out_of_sync: 0,
-    in_sync: 0,
-    undetermined: 0,
-    oldest_drift_at: null,
-    oldest_checked_at: "2026-08-15T04:07:00Z",
-  },
-  tm_registration: {
-    status: "active",
-    tm_id: "TM-110022",
-    registered_at: "2026-01-04T06:30:00Z",
-    verified_at: "2026-08-01T06:30:00Z",
-    is_live: true,
-  },
-};
 
 function configField(over: Partial<ConfigField> = {}): ConfigField {
   return {
@@ -179,6 +150,33 @@ const KEK: KekState = {
   pending: 0,
 };
 
+// The model-prices panel shares the `/admin/ops/config` screen with the config and
+// credential panels, so every `renderOps` case needs its route stubbed or the panel's
+// query errors and paints a `ProblemNotice` (retry button, alert) onto a screen these
+// tests assert the exact controls of. One attested row is enough for the panel to render
+// its populated state without a lever of its own that these cases exercise.
+const MODEL_PRICES: ModelPrices = {
+  prices: [
+    {
+      model: "gpt-4o-mini",
+      provider: "azure_openai",
+      credential_installed: true,
+      price_attested: true,
+      offerable: true,
+      input_usd_per_mtok: "0.150000",
+      output_usd_per_mtok: "0.600000",
+      effective_from: "2026-08-01T00:00:00Z",
+      attested_at: "2026-08-12T09:00:00Z",
+      attested_by: "Ops",
+      source_note: "Azure invoice 2026-08",
+      reference_input_usd_per_mtok: "0.15",
+      reference_output_usd_per_mtok: "0.60",
+      reference_verified: true,
+    },
+  ],
+  as_of: "2026-08-23T00:00:00Z",
+};
+
 /**
  * Merge route tables WITHOUT spreading.
  *
@@ -201,9 +199,12 @@ function merged(...tables: Routes[]): Routes {
 function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
   return merged(
     {
-      [PLATFORM]: PLATFORM_STATE,
+      // NO `/v1/ops/platform`: these panels live on `/admin/ops/config` since the
+      // founder's correction to D-457, and that screen reads no platform-row state. The
+      // harness throws on an unrouted request, so a case that fetched it would say so.
       [ADMIN_ME_PATH]: identity,
       [OPS_CONFIG_PATH]: configList([configField()]),
+      [OPS_MODEL_PRICES_PATH]: MODEL_PRICES,
       [OPS_SECRETS_PATH]: SECRETS,
       [`${OPS_SECRETS_PATH}/kek`]: KEK,
     },
@@ -211,7 +212,7 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
   );
 }
 
-/** The ops screen with its QueryClient exposed — see the file header for why. */
+/** The ops CONFIG screen with its QueryClient exposed — see the file header for why. */
 function renderOps(routes: Routes) {
   const calls = stubApi(routes);
   const client = new QueryClient({
@@ -219,7 +220,7 @@ function renderOps(routes: Routes) {
   });
   const result = render(
     <QueryClientProvider client={client}>
-      <OpsPage />
+      <OpsConfigPage />
     </QueryClientProvider>,
   );
   return Object.assign(result, { calls, client });

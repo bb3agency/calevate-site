@@ -287,6 +287,12 @@ class TestRlsCoverage:
             "platform_settings",
             "platform_config_version",
             "platform_secrets",
+            # D-459: the founder's attested per-model prices, set once per model in
+            # the ops console and read by billing for `unit_cost_paid`. Platform-
+            # global for the same reason `platform_secrets` is — a price is the
+            # founder's, not a tenant's — so it carries no `tenant_id` and is
+            # policied on the ops GUC rather than tenant-isolated.
+            "platform_model_prices",
             "platform_state",
             "platform_ai_spend",
             # The state behind `engine_error_spike` (OPERATIONS §4): one row per

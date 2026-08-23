@@ -22,14 +22,37 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, LargeBinary, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    Numeric,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base
+
+#: A vendor LIST PRICE, in **USD per MILLION tokens** — the unit
+#: `calevate_shared.engine.LlmPrice` publishes and `billing/rates.py` converts from. Six
+#: decimals rather than `billing.models.MONEY`'s four: this is a per-MILLION-token dollar
+#: figure ($0.15, $0.075, …), and the conversion to a NUMERIC(12,4) rupee `unit_cost_paid`
+#: multiplies by the FX rate and divides by 1,000 downstream — so the precision that
+#: matters is the vendor's published one, not the ledger column's. USD and not INR is
+#: deliberate and matches the rate card's own doctrine (hard rule 7): the vendor publishes
+#: dollars, `usd_inr_rate` is a live console value, and a figure that has already
+#: multiplied the two cannot be re-derived when either moves (the D-103/D-105 defect on the
+#: money axis). NUMERIC, never a float.
+USD_PER_MTOK = Numeric(12, 6)
 
 
 class PlatformSetting(Base):
@@ -175,9 +198,77 @@ class PlatformEngineHealth(Base):
     unreachable: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
 
 
+class PlatformModelPrice(Base):
+    """One OPERATOR-ATTESTED vendor list price for one LLM model, effective-dated (§5).
+
+    THE PRICE HARD RULE 7 HAS NO 'REPORTED' TIER FOR. `calevate_shared.engine.LlmModelSpec`
+    refuses to make a model selectable on an unverified price, and every OpenAI/Google
+    pricing page is egress-blocked from this deployment — so no price for those legs can be
+    VERIFIED in the tree. The founder's own workflow supplies the missing evidence class:
+    the AUTHORITATIVE billing price is a value the operator reads off THEIR OWN vendor
+    console or invoice and types here. That is first-party evidence and the only figure true
+    for THIS account, which a published list price never is (a Regional Standard deployment
+    is reported to cost more than the Global Standard list `LlmModelSpec` carries).
+
+    CONFIG, NOT A SECRET — so it is NOT in `platform_secrets` and NOT encrypted. A price has
+    to be auditable and revertible (an operator has to see what it is set to and correct a
+    wrong one), which is the opposite of a write-only credential. It carries no PII and no
+    credential; the only sensitive thing about it is that it reaches `unit_cost_paid`, and
+    that is served by making it visible and effective-dated rather than hidden.
+
+    APPEND-ONLY AND EFFECTIVE-DATED, which are one property here. A correction is a NEW ROW
+    with a later `effective_from`, never an edit — so `attested_model_prices(session, at=…)`
+    can answer "what was the price live when THIS month's minutes ran" a year later, and a
+    re-rendered invoice is re-derivable rather than re-priced by whatever an operator changed
+    since. It joins the hard-rule-4 family: the immutability + truncate triggers ship in the
+    migration and `check_ledger_immutability` picks the table up from
+    `db/registry.APPEND_ONLY_TABLES`. There is no rewrap exception (unlike
+    `platform_secrets`); the blanket `calevate_forbid_mutation` applies, so EVERY column is
+    immutable once written.
+
+    NOT tenant-scoped and never will be: one account, one Azure/OpenAI/Google subscription,
+    one price per model at an instant — there is no tenant whose row this could be. It is
+    `platform_*`-named for the family it belongs to, and registered in
+    `db/registry.RLS_EXEMPT_TENANT_COLUMNS` with that as the written reason (the RLS sweep's
+    rule 7a REQUIRES a `platform_*` table to appear there).
+
+    Declared as an ORM model, like its siblings above, so `Base.metadata` knows about it and
+    `check_rls_coverage` can compare the live schema against it.
+    """
+
+    __tablename__ = "platform_model_prices"
+
+    #: The model identifier in OUR vocabulary — a key of `calevate_shared.engine.LLM_MODELS`.
+    #: A plain string and not a `Literal`, because a price read back for a historical invoice
+    #: must resolve even for a model the allow-list no longer carries — the same reason
+    #: `LLM_MODELS` itself is keyed by `str` (see its comment).
+    model: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The instant this price becomes authoritative. Part of the PK with `model`, so two
+    #: attestations for one model at the same instant collide rather than silently both
+    #: existing — a correction is a DISTINCT instant. Resolution at instant T is the row for
+    #: this model with the greatest `effective_from <= T` (`ix_platform_model_prices_model`).
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    #: USD per MILLION input tokens, exactly as the vendor publishes it. See `USD_PER_MTOK`.
+    input_usd_per_mtok: Mapped[Decimal] = mapped_column(USD_PER_MTOK, nullable=False)
+    #: USD per MILLION output tokens.
+    output_usd_per_mtok: Mapped[Decimal] = mapped_column(USD_PER_MTOK, nullable=False)
+    #: The operator who attested it — every price in this table was typed by a person, so
+    #: NOT NULL, referencing `admin_users` exactly as `platform_settings.updated_by` does.
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    attested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: WHERE the figure came from, in the operator's words — "Azure invoice 2026-08, line 3",
+    #: "openai.com/api/pricing 23 Aug 2026". Required at the boundary (it is the evidence that
+    #: makes this an attestation rather than a guess) and NOT NULL here.
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 __all__ = [
+    "USD_PER_MTOK",
     "PlatformConfigVersion",
     "PlatformEngineHealth",
+    "PlatformModelPrice",
     "PlatformSecret",
     "PlatformSetting",
 ]

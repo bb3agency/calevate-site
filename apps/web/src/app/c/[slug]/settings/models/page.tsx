@@ -192,9 +192,10 @@ function OrganizationDefault({
     ...defaults.available.map<ModelChoice>((option) => ({
       value: option.model,
       label: option.model,
-      detail: option.is_platform_default
-        ? `${option.provider} · the model we run by default`
-        : option.provider,
+      // The provider is the GROUP heading now (D-456), so the row's own note carries only
+      // what is specific to this model — nothing, unless it is the one we run by default.
+      provider: option.provider,
+      detail: option.is_platform_default ? "The model we run by default" : "",
       surcharge: option.client_surcharge_inr_per_minute,
       badge: defaults.default_llm_model === option.model ? "in use" : undefined,
       baseline:

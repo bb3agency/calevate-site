@@ -49,6 +49,54 @@ A superadmin therefore cannot remove their own account, and that is the intended
 rather than a gap — a departing operator is removed by a colleague, which is the same
 two-person rule that makes every other row in this ledger evidence. The refusal says so.
 
+═══ "THERE WILL ONLY BE ONE SUPER ADMIN" IS A FACT ABOUT THE FOUNDER, NOT A CAP ═══
+
+The founder's words, and the question they raise is whether this module should REFUSE a
+second `superadmin` — an `AT MOST one` guard on `create_operator(role="superadmin")` and
+on `set_operator_role(role="superadmin")`. **It should not, and the reason is that this
+repository has no break-glass path to mint or restore a superadmin.** That was
+established by looking rather than assumed:
+
+  * `scripts/bootstrap_admin.py` → `bootstrap_first_admin` REFUSES the moment ANY live
+    operator holds a password (state 3, no `--force`, deliberately). A platform that has
+    lost its superadmin while its normal admins are working is exactly that state, so the
+    bootstrap cannot help there. It is a FIRST-admin script, not a recovery one.
+  * `scripts/seed_dev.py::_upsert_admin` is gated on `Settings.app_env == "local"` and
+    cannot run against a deployment; it also only INSERTS, never re-roles an existing row.
+  * `set_operator_role` below is the ONLY statement in the tree that updates
+    `admin_users.role`, and it sits behind `admin:operators` — behind the very role it
+    would be restoring.
+  * There is no CLI, route, job or runbook for the remaining option. `bootstrap.py` names
+    it in as many words: "a database-level act by whoever holds the owner role". That is
+    outside the product, outside this repo, and not a path anybody has walked.
+
+**So a cap would be a deadlock, not a safeguard.** With one enforced, promoting a
+successor is refused while the incumbent exists, and `_refuse_self` forbids the incumbent
+demoting themselves — there is no ORDER of operations that hands the platform to another
+person. It would also delete the one in-app recovery that exists today, which is the
+founder appointing a standby superadmin BEFORE they need one: a lost mailbox, a lost
+device or a departure would otherwise end with `psql` as the only way back into a running
+platform.
+
+**WHAT KEEPS THE COUNT AT ONE INSTEAD, and it is not hope.** `OperatorCreateIn.role`
+defaults to the narrow tier, so the common act is the safe one; minting or promoting a
+superadmin needs `admin:operators`, which one account holds; each is step-up confirmed
+(`add_operator:<role>` is bound to the ROLE precisely so that consent to add a colleague
+is not consent to add a second owner of the platform); and each writes
+`admin.operator_{created,role_changed}` into the hash-chained ledger. A second superadmin
+cannot appear by accident — only by the one person deliberately naming the role, on a
+screen that tells them what it means.
+
+⚠ **THE RESIDUAL RISK, STATED PLAINLY BECAUSE NOTHING IN THE CODE CAN CARRY IT:** while
+exactly one superadmin exists, the loss of that one account (mailbox, device, person)
+leaves the platform with no way to install vendor credentials, change platform config,
+move a kill switch or add an administrator, and no in-product path back. The mitigation is
+a decision only the founder can take — appoint a second superadmin as a standby — and it
+is deliberately left available rather than legislated away here. If a cap is ever wanted,
+the thing that has to land FIRST is a real break-glass (a documented owner-role SQL
+procedure in `runbooks/`, or a `--recover` mode on the bootstrap that refuses unless no
+live superadmin exists), and then the cap is safe.
+
 ═══ REVOCATION IS A COLUMN, NOT A `DELETE` ═══
 
 Migration f2c74b81a9d3 carries the argument in full: eight tables reference `admin_users`

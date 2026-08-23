@@ -271,10 +271,9 @@ function ModelForm({
     ...catalogue.available.map<ModelChoice>((option) => ({
       value: option.model,
       label: option.model,
-      detail:
-        option.model === catalogue.effective_default
-          ? `${option.provider} · your organisation default`
-          : option.provider,
+      // Provider is the group heading (D-456); the row's note is model-specific only.
+      provider: option.provider,
+      detail: option.model === catalogue.effective_default ? "Your organisation default" : "",
       surcharge: option.client_surcharge_inr_per_minute,
       badge: view.chosen === option.model ? "in use" : undefined,
       baseline: view.chosen !== null && view.effective === option.model,

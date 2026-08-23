@@ -1776,6 +1776,14 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "agent",
         "agent_id",
         "agent_ref",
+        # OUR OWN VOCABULARY, WHICH IS THE STRONGEST CASE IN EITHER LIST. `azure_openai` is
+        # a member of `calevate_shared.engine.LlmProvider` — a closed `Literal` we define —
+        # and it appears in the adapter only as a KEY of `_WIRE_PROVIDER`, the table that
+        # maps our spelling onto the vendor's. THE VENDOR'S SPELLING IS THE HYPHENATED
+        # `azure-openai`, and that one IS banned above: the arrow's two ends are classified
+        # oppositely, which is exactly what hard rule 2 is about. Banning this one would
+        # fire on the portability contract that defines it.
+        "azure_openai",
         "calls",
         "completed_at",
         "content",
@@ -1789,6 +1797,24 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "cost",
         "created_at",
         "currency",
+        # A GENERIC SAMPLING PARAMETER, not a Bolna noun: every OpenAI-compatible provider
+        # and our own `TEMPERATURE_MUST_BE_ONE` trap name it, and `workers/extraction.py`
+        # sends one to Sarvam. Finding it outside the adapter proves nothing.
+        "temperature",
+        # ⚠ THE UNCOMFORTABLE ONE, AND IT IS CLASSIFIED HONESTLY RATHER THAN CONVENIENTLY.
+        # `reasoning_effort` really is a vendor field name and by the letter of the rule
+        # above it belongs in the ban list. It cannot go there, and the reason is worth
+        # stating because it bounds what this guard can promise: the TRAP CATALOGUE in
+        # `calevate_shared.engine` has to NAME the field to be evidence — a trap record that
+        # said "a certain request field" instead of `reasoning_effort` would be a citation
+        # nobody could check — and `config.py` names it explaining why an Azure deployment
+        # must be named after its model. So the word appears in our contract as the SUBJECT
+        # of documentation rather than as a payload key, and a ban would fire on the two
+        # files whose job is to document it. What still holds the line is narrower and is
+        # the part to rely on: the only place a `reasoning_effort` KEY is ever WRITTEN into
+        # a body is `bolna.py::_llm_trap_settings`, and `ModelConfig.llm_traps` carries our
+        # own closed vocabulary rather than the vendor's spelling across the seam.
+        "reasoning_effort",
         # OURS OVERWHELMINGLY, AND THIS IS THE CLEAREST CASE IN EITHER LIST. `routes` is
         # Bolna's name for an agent's semantic-match shortcuts, and it is also the word
         # every FastAPI module in this tree uses for its own endpoints — 82 shipped files

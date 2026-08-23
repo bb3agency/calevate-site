@@ -40,13 +40,19 @@ and that covers the READ as much as the write:
   them only that somebody else should be called — which is what the 403's remediation
   says already, without the inventory.
 
-THE FOUNDER'S SENTENCE FOR THIS SURFACE IS AMBIGUOUS AND IS FLAGGED RATHER THAN
-INTERPRETED: "I can add more admins who are NOT super admins and do have access to some
-things like the ops config panel where I put in all the API keys". Read one way that
-grants every operator this panel. PLATFORM-CONFIG §10 is authoritative and says the
-opposite, CLAUDE.md says the docs win, so the narrow reading ships and the widening is one
-line in `ROLE_PERMISSIONS["operator"]` if it is ever decided — with the consequence
-recorded there rather than rediscovered here.
+THE AMBIGUITY D-457 FLAGGED HERE IS CLOSED, AND THE NARROW READING WAS THE RIGHT ONE.
+D-457 could not tell whether "I can add more admins who are NOT super admins and do have
+access to some things like the ops config panel where I put in all the API keys" granted
+every operator this panel; it shipped the narrow reading because PLATFORM-CONFIG §10 says
+the opposite and CLAUDE.md makes the docs win. Asked to name the boundary, the founder
+settled it in the same direction and with no ambiguity left: **"only super admin has
+access to ops config panel"**, with `platform:secrets` and `platform:config` two of the
+four names in `core/rbac.SUPERADMIN_ONLY_PERMISSIONS`. The one-line widening this
+paragraph used to hold open is therefore withdrawn rather than still pending, and the
+console reflects it — `/admin/ops/config` is the panel's own screen, and its sidebar entry
+is the one entry in either shell that is ABSENT for a session that may not use it
+(`apps/web/src/app/admin/layout.tsx` argues why this surface, and only this surface, is
+the exception to "shown and dead").
 """
 
 from __future__ import annotations

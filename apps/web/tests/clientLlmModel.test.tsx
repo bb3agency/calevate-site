@@ -69,7 +69,7 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
     available: [
       {
         model: "gpt-4o-mini",
-        provider: "Azure OpenAI",
+        provider: "azure_openai",
         platform_cost_inr_per_minute: "0.2400",
         client_surcharge_inr_per_minute: "0",
         is_platform_default: true,
@@ -78,7 +78,7 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
       },
       {
         model: "gpt-4.1-mini",
-        provider: "Azure OpenAI",
+        provider: "azure_openai",
         platform_cost_inr_per_minute: "0.4830",
         client_surcharge_inr_per_minute: "1.5000",
         is_platform_default: false,
@@ -342,14 +342,14 @@ describe("the account's default model", () => {
       available: [
         {
           model: "gpt-4o-mini",
-          provider: "Azure OpenAI",
+          provider: "azure_openai",
           platform_cost_inr_per_minute: "0.2400",
           client_surcharge_inr_per_minute: "0",
           is_platform_default: true,
         },
         {
           model: "gpt-4.1-mini",
-          provider: "Azure OpenAI",
+          provider: "azure_openai",
           platform_cost_inr_per_minute: "0.4830",
           client_surcharge_inr_per_minute: "1.5000",
           is_platform_default: false,
@@ -375,6 +375,91 @@ describe("the account's default model", () => {
     expect(container.textContent).toContain("your agents use");
     const save = screen.getByRole("button", { name: /Save model/ });
     expect((save as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("groups the offerable models under their provider labels, on equal footing", async () => {
+    // THE FOUNDER'S DECISION (D-456): OpenAI and Gemini shown on par with Azure. The picker
+    // turns each wire provider token (`azure_openai`, `openai`, `google`) into a friendly
+    // heading through `providerLabel` and gathers that provider's models under it — one
+    // radio group throughout, three labelled sub-groups within, no vendor the header act.
+    const threeProviders = defaults({
+      available: [
+        ...defaults().available, // the two azure_openai models
+        {
+          model: "gpt-5-mini",
+          provider: "openai",
+          platform_cost_inr_per_minute: "0.3000",
+          client_surcharge_inr_per_minute: "0.5000",
+          is_platform_default: false,
+          is_available: true,
+          unavailable_reason: null,
+        },
+        {
+          // A Gemini model CHEAPER than the base rate — its surcharge is "0", never a
+          // negative, so the row reads "No extra charge" (the surcharge floors at zero on
+          // the server; the picker must never render a minus sign against a cheaper model).
+          model: "gemini-2.5-flash-lite",
+          provider: "google",
+          platform_cost_inr_per_minute: "0.1000",
+          client_surcharge_inr_per_minute: "0",
+          is_platform_default: false,
+          is_available: true,
+          unavailable_reason: null,
+        },
+      ],
+    });
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({ "/v1/organization/llm-defaults": threeProviders }),
+    );
+
+    // Anchored: the inherit row's own name also contains "gpt-4o-mini" ("Today that is …").
+    await screen.findByRole("radio", { name: /^gpt-4o-mini/ });
+    // An EXACT string name, so "OpenAI" does not also match "Azure OpenAI".
+    for (const label of ["Azure OpenAI", "OpenAI", "Google Gemini"]) {
+      expect(
+        screen.getByRole("group", { name: label }),
+        `provider ${label} must head its own group`,
+      ).toBeTruthy();
+    }
+    // Each model sits under its own provider, never crammed into another's group.
+    const google = screen.getByRole("group", { name: "Google Gemini" });
+    expect(google.textContent).toContain("gemini-2.5-flash-lite");
+    expect(google.textContent).toContain("No extra charge");
+    expect(screen.getByRole("group", { name: "OpenAI" }).textContent).toContain("gpt-5-mini");
+    // A cheaper model is not a negative charge, anywhere on the screen.
+    expect(container.textContent).not.toContain("-₹");
+  });
+
+  it("blocks the picker under a view-as admin, and says why — the D-22 gap flagged for RBAC", async () => {
+    /**
+     * THE FOUNDER WANTS AN IMPERSONATING ADMIN TO BE ABLE TO CHANGE THIS, and today they
+     * cannot. `useWriteAccess` (`lib/api/hooks.ts`) disables every write for
+     * `me.impersonating`, and the server would refuse it regardless: `org:manage` is in
+     * `MUTATING_PERMISSIONS` and `core/auth.py::requires()` refuses a mutating permission to
+     * an impersonating principal — D-22 view-as is read-only end to end. Enabling the
+     * control on the client alone would hand the operator a 403, the reachable-but-refused
+     * shape `useWriteAccess` exists to prevent.
+     *
+     * So this pins the CURRENT, truthful state — disabled, with the reason on screen, and
+     * pointed at the admin console where the write DOES work — and FLAGS the gap: letting an
+     * impersonating admin set the model needs an RBAC/back-end carve-out permitting this one
+     * write under view-as. This lane must not weaken that permission check itself. When the
+     * carve-out lands, this expectation flips to a submit. A gap no test names is one the
+     * next change reopens silently.
+     */
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({ "/v1/me": { ...OWNER, impersonating: true } }),
+    );
+
+    await screen.findByText(/viewing this account read-only/);
+    // Directed at the working path, not a dead end.
+    expect(container.textContent).toContain("Do it from the admin console instead");
+    const save = screen.getByRole("button", { name: /Save model/ });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    // Awaited: the group is disabled by the same flag, which arrives on the /v1/me read.
+    await waitFor(() => expect(radio(/^gpt-4o-mini/).disabled).toBe(true));
   });
 });
 

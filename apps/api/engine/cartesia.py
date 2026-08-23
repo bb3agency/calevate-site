@@ -136,6 +136,7 @@ from calevate_shared.engine import (
     KBSourceRef,
     ListingIncompleteReason,
     LlmCredentialPlacement,
+    LlmProvider,
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
@@ -870,7 +871,9 @@ class CartesiaEngine:
         """
         require_capability("inbound_binding", engine=self)
 
-    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+    async def set_llm_credential(
+        self, secret: str, *, provider: LlmProvider
+    ) -> LlmCredentialPlacement:
         """Refuses, because this engine's LLM is not ours to credential (D-404).
 
         `CARTESIA_CAPABILITIES.llm == "engine"` — Line runs the model, we do not choose it
@@ -1025,7 +1028,20 @@ class CartesiaEngine:
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=_first_str(payload, ("agent_id",)),
-            direction="outbound" if payload.get("direction") == "outbound" else "inbound",
+            # UNKNOWN DIRECTION FALLS BACK TO OUTBOUND, for THREE reasons that all point the
+            # same way — and it used to fall back to INBOUND, which pointed the other way on
+            # every one of them. (1) COMPLIANCE-SAFE: outbound is the side carrying DNC and
+            # calling-hours obligations, so a call we cannot classify is over-regulated
+            # rather than under — the convention the Bolna adapter documents and its snapshot
+            # tests pin. (2) INTERNALLY CONSISTENT: the from/to just above map straight
+            # through, which the comment there says is right for OUTBOUND and inverted for
+            # inbound — so labelling the same payload inbound made the direction and the two
+            # numbers disagree. (3) MATCHES THIS FILE'S OWN `parse_webhook`, which already
+            # defaults outbound; two code paths answering one question oppositely is the
+            # drift `one way per problem` exists to stop. `AgentCall` carries no `direction`
+            # field at all (READ AT SOURCE — see `_snapshot`'s docstring), so this fallback
+            # is what EVERY reconciled and fetched Line call takes, not an edge case.
+            direction="inbound" if payload.get("direction") == "inbound" else "outbound",
             status=_STATUS_MAP.get(raw_status, "failed"),
             raw_status=raw_status or "unknown",
             terminal=raw_status in _TERMINAL_RAW,

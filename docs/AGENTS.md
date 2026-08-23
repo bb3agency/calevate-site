@@ -17,9 +17,19 @@ orchestrator is US-hosted, so every turn was an ocean round trip, and Microsoft 
 offer our default model in South India on Regional Standard. The default model and TRD §10
 are UNCHANGED; the client-facing India warranty is WITHDRAWN. D-456 then renamed the
 posture to `multi-provider-byok` and made it three declared legs (`azure_openai`,
-`openai`, `google`), of which only Azure's two models are selectable — OpenAI direct on an
-unread price, Gemini on merit. No traffic moves; `SELECTABLE_LLM_MODELS ==
-AZURE_OPENAI_MODELS`.**
+`openai`, `google`). **ALL THREE ARE NOW ON OFFER — D-456's "only Azure is selectable" is
+SUPERSEDED.** Clients bring no BYOK: the founder holds all three vendor accounts and
+installs the keys in the ops console, so `SELECTABLE_LLM_MODELS` is `gpt-4o-mini`,
+`gpt-4.1-mini`, `gpt-5.4-mini` and `gemini-2.5-flash`/`-flash-lite` and **no longer equals
+`AZURE_OPENAI_MODELS`**. Three things made it safe: the BILLING price is an operator
+attestation (`LlmPrice` is a catalogue reference with no path to `unit_cost_paid`, so hard
+rule 7 is structural rather than a flag); the GPT-5 traps are applied at the wire
+(`ModelConfig.llm_traps` -> `engine/bolna.py::_llm_trap_settings`); and every `gemini-3.*`
+stays refused because the vendor states its 3.x Flash models "do not support full
+thinking-off", so a turn can return no content — dead air on a call. ⚠ The "Gemini retires
+16 Oct 2026" claim was WRONG (preview-snapshot date, hard rule 11); the GA ids carry no
+announced shutdown. What a client may pick is `offerable_models()` — selectable AND
+credentialled AND priced — never a constant.**
 Three LLM surfaces, two of which moved: **in-call** and **dashboard AI** both run on the
 same Azure resource, region and model constants, reached through the ONE builder
 `azure_openai_base_url()` (`https://{resource}.openai.azure.com/openai/v1` — the

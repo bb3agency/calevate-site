@@ -9256,6 +9256,207 @@
         "title": "MetricOut",
         "type": "object"
       },
+      "ModelPriceAttestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "input_usd_per_mtok": {
+            "title": "Input Usd Per Mtok",
+            "type": "string"
+          },
+          "output_usd_per_mtok": {
+            "title": "Output Usd Per Mtok",
+            "type": "string"
+          },
+          "source_note": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Source Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "input_usd_per_mtok",
+          "output_usd_per_mtok",
+          "source_note"
+        ],
+        "title": "ModelPriceAttestIn",
+        "type": "object"
+      },
+      "ModelPriceOut": {
+        "additionalProperties": false,
+        "description": "One catalogue model, as the pricing panel renders it.\n\nMONEY IS A STRING END TO END (hard rule 7): a JSON float cannot hold a per-token price\nexactly, and a value that reaches a browser as `0.15000000000000002` is one nobody can\nreconcile against an invoice. `null` where a model has never been attested \u2014 a real\nstate the console renders as \"needs a price\", distinct from a zero.\n\nNO FIELD CARRIES A DEFAULT, the same rule the config and secret panels follow: every\nfact the console must trust is required on the wire, and `null` is used where the answer\ngenuinely has no value.",
+        "properties": {
+          "attested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "attested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested By"
+          },
+          "credential_installed": {
+            "title": "Credential Installed",
+            "type": "boolean"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Usd Per Mtok"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "offerable": {
+            "title": "Offerable",
+            "type": "boolean"
+          },
+          "output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Usd Per Mtok"
+          },
+          "price_attested": {
+            "title": "Price Attested",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reference_input_usd_per_mtok": {
+            "title": "Reference Input Usd Per Mtok",
+            "type": "string"
+          },
+          "reference_output_usd_per_mtok": {
+            "title": "Reference Output Usd Per Mtok",
+            "type": "string"
+          },
+          "reference_verified": {
+            "title": "Reference Verified",
+            "type": "boolean"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          }
+        },
+        "required": [
+          "model",
+          "provider",
+          "credential_installed",
+          "price_attested",
+          "offerable",
+          "input_usd_per_mtok",
+          "output_usd_per_mtok",
+          "effective_from",
+          "attested_at",
+          "attested_by",
+          "source_note",
+          "reference_input_usd_per_mtok",
+          "reference_output_usd_per_mtok",
+          "reference_verified"
+        ],
+        "title": "ModelPriceOut",
+        "type": "object"
+      },
+      "ModelPriceWriteOut": {
+        "additionalProperties": false,
+        "description": "The model as it now stands, plus the instant the rest of the list was resolved at.",
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/ModelPriceOut"
+          }
+        },
+        "required": [
+          "price",
+          "as_of"
+        ],
+        "title": "ModelPriceWriteOut",
+        "type": "object"
+      },
+      "ModelPricesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/ModelPriceOut"
+            },
+            "title": "Prices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "prices",
+          "as_of"
+        ],
+        "title": "ModelPricesOut",
+        "type": "object"
+      },
       "NationalDndScrubOut": {
         "additionalProperties": false,
         "description": "The national preference scrub of this campaign's list, as evidence.\n\nCounts and a provider reference; never a number (hard rule 6) \u2014 the provider's own\nreport returns counts too. `is_current` is computed by\n`compliance.preference_scrub.ScrubState`, the same property the launch gate and the\ndispatch tick read, so a screen can never say \"scrubbed\" about a run the gate is\nrefusing.",
@@ -25099,6 +25300,103 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/model-prices": {
+      "get": {
+        "description": "Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet \u2014 which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value.",
+        "operationId": "list_model_prices_v1_ops_model_prices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPricesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every model's provider, reference price, attested price and offerability",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/model-prices/{model}": {
+      "post": {
+        "description": "Records a price you read off your own vendor console or invoice as a NEW effective-dated row \u2014 a correction is a later attestation, never an edit, so a re-rendered invoice resolves the price that was live in its month. Requires `X-Confirm-Action: attest_model_price:<model>`. Money is sent as a decimal string (USD per million tokens), never a float. This is what lets a model whose catalogue price is unverified become offerable.",
+        "operationId": "attest_model_price_v1_ops_model_prices__model__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "pattern": "^[a-z0-9][a-z0-9.\\-]*$",
+              "title": "Model",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelPriceAttestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPriceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest one model's vendor price (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
       }
     },
     "/v1/ops/outbox/replay": {

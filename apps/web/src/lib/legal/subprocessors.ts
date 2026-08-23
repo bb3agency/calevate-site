@@ -120,12 +120,14 @@ export const SUBPROCESSORS: LegalDocument = {
             ],
             [
               "Microsoft — Azure OpenAI",
-              "Both language-model legs: the model that holds the conversation during a " +
-                "call, and the dashboard assistant a client triggers from their own " +
-                "screen. A client may choose which of the models we run their agents " +
-                "use; every one of them is served by this vendor, from the same account " +
-                "resource and region, so the choice changes which model answers and not " +
-                "who processes or where (section 3.3).",
+              "Both language-model legs when the client runs an Azure model: the model " +
+                "that holds the conversation during a call, and the dashboard assistant " +
+                "a client triggers from their own screen. A client may instead choose a " +
+                "model from another provider (see the OpenAI and Google — Gemini API " +
+                "rows), and then that provider handles the language leg in this vendor's " +
+                "place. So the choice is a choice of provider and place, not only of " +
+                "which model answers — the single-vendor claim this row used to make is " +
+                "withdrawn (section 3.3).",
               "On the call leg, the conversation as it happens — everything the caller " +
                 "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
                 "transcript and the client's own configuration, never raw personal data. " +
@@ -145,6 +147,35 @@ export const SUBPROCESSORS: LegalDocument = {
                 "22 August 2026 the region moved out of India; the vendor did not " +
                 "change, and neither did the speech provider or the first reading of " +
                 "your transcript, which are Indian and stay Indian.",
+            ],
+            [
+              "OpenAI",
+              "An alternative provider for the two language-model legs, reached when a " +
+                "client chooses one of its models. It does the same job as the Azure " +
+                "OpenAI row above — the model that holds the conversation during a call, " +
+                "and the dashboard assistant on redacted data — for the calls that run " +
+                "on it.",
+              "On the call leg, the conversation as it happens, turn by turn. On the " +
+                "dashboard leg, the redacted transcript and the client's own " +
+                "configuration, never raw personal data. Never the recording.",
+              "United States. This provider's API offers no Indian region to request.",
+              "Client-selectable. Reached only when a client picks one of this " +
+                "provider's models; no client data reaches it otherwise.",
+            ],
+            [
+              "Google — Gemini API",
+              "An alternative provider for the two language-model legs, reached when a " +
+                "client chooses one of its Gemini models. This is a separate Google " +
+                "service from the Sheets API below: once a Gemini model is selectable, a " +
+                "model request does reach Google again, which is why the Sheets row no " +
+                "longer says none does.",
+              "On the call leg, the conversation as it happens, turn by turn. On the " +
+                "dashboard leg, the redacted transcript and the client's own " +
+                "configuration, never raw personal data. Never the recording.",
+              "Google, global. This provider's developer API names no region we can " +
+                "request, so we cannot pin where it processes and do not claim to.",
+              "Client-selectable. Reached only when a client picks one of this " +
+                "provider's Gemini models; no client data reaches it otherwise.",
             ],
             [
               "Exotel · Vobiz · Plivo",
@@ -212,9 +243,13 @@ export const SUBPROCESSORS: LegalDocument = {
             ],
             [
               "Google — Sheets API",
-              "Writes each new lead into a Google Sheet you own. Since 19 August 2026 " +
-                "this is the ONLY thing any Google service does for us: no call audio, " +
-                "no transcript and no model request reaches Google any more.",
+              "Writes each new lead into a Google Sheet you own. This is a separate " +
+                "Google service from the Gemini API row above and receives lead fields " +
+                "only: no call audio, no transcript and no model request reaches the " +
+                "Sheets API. From 19 August 2026 until Gemini models became selectable " +
+                "this was the only thing any Google service did for us; that is no longer " +
+                "so, because a client can now choose a Gemini model, and the earlier " +
+                "sentence saying no model request reached Google any more is withdrawn.",
               "The lead's fields, including name and — depending on the option you choose " +
                 "— the phone number in raw or masked form. Never the recording or the " +
                 "transcript.",
@@ -330,20 +365,24 @@ export const SUBPROCESSORS: LegalDocument = {
         },
         {
           id: "llm-residency",
-          heading: "3.2 The language model is no longer in India, and what we still promise about it",
+          heading: "3.2 The language model is no longer in India or with one vendor, and what we still promise",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
-              title: "A claim we have withdrawn, not narrowed",
+              title: "Two claims we have withdrawn, not narrowed",
               text:
                 "Until 22 August 2026 this page told you that the language model ran in " +
-                "an Indian region. That is no longer true and we are not going to keep " +
-                "the sentence alive with qualifiers: on that date the model region moved " +
-                "to East US 2, in the United States, and the claim that model inference " +
-                "happens in India is withdrawn. The vendor did not change and neither " +
-                "did anything else on this page. What replaced the claim is set out " +
-                "below, and it is a promise about our code rather than about a country.",
+                "an Indian region, and that every model we offered ran with one vendor " +
+                "from one account resource. Neither is true any more and we are not " +
+                "going to keep the sentences alive with qualifiers: on that date the " +
+                "default model's region moved to East US 2, in the United States, " +
+                "withdrawing the claim that model inference happens in India; and the " +
+                "product now offers models from more than one provider — Azure OpenAI, " +
+                "OpenAI and Google — so a client's choice of model is also a choice of " +
+                "provider and place. What replaced both claims is set out below, and it " +
+                "is a promise about our code rather than about a country or a single " +
+                "vendor.",
             },
             {
               kind: "para",
@@ -351,64 +390,69 @@ export const SUBPROCESSORS: LegalDocument = {
                 "Until 19 August 2026 the language model ran on an endpoint whose own " +
                 "address contained the region it served, so a check in our build could " +
                 "read the region out of the code and fail the release if it were ever " +
-                "anything else. Our current provider's address contains no region at " +
-                "all: the region is a property of the account resource the address " +
-                "points at, not of the address. That is a genuinely weaker guarantee " +
-                "than the one we could make in July, and it was weaker before the region " +
-                "moved — the two changes are separate and we would rather you read both " +
-                "here than infer either later.",
+                "anything else. The provider we run by default now uses an address that " +
+                "contains no region at all: the region is a property of the account " +
+                "resource the address points at, not of the address. That is a " +
+                "genuinely weaker guarantee than the one we could make in July, and it " +
+                "was weaker before the region moved — the two changes are separate and " +
+                "we would rather you read both here than infer either later.",
             },
             {
               kind: "para",
               text:
-                "What the build still proves, and it is the same shape as before: there " +
-                "is exactly one place in our code that can construct a model endpoint, " +
-                "it can produce only the single region our source declares, that region " +
-                "is written once and is not a setting anyone can edit, and no " +
-                "configuration field is allowed to carry a region or an endpoint at all. " +
-                "So no change to our software can move the language leg to a third " +
-                "country; only a reviewed change to the declared region can, " +
-                "and the build refuses that change until every other file in the tree " +
-                "agrees with it. What moved on 22 August 2026 is which region is named, " +
-                "not whether one is.",
+                "What the build still proves, in a shape that survived the move to more " +
+                "than one provider: the set of providers our code may reach for the " +
+                "language leg is fixed in the source, written down once, and no " +
+                "configuration field is allowed to carry a region, an endpoint or a " +
+                "provider it does not name. So no change to our software can send the " +
+                "language leg to a provider or a place the source does not declare; " +
+                "only a reviewed change to that declaration can, and the build refuses " +
+                "that change until every other file in the tree agrees with it. What " +
+                "moved on 22 August 2026 is which region the default provider names, and " +
+                "what changed since is that there is now more than one provider to " +
+                "choose between — not whether the set of them is pinned in code.",
             },
             {
               kind: "para",
               text:
                 "One thing that sentence does not cover, and we would rather write it " +
-                "than let you assume it away. The address our code builds names an " +
-                "account resource, and which resource it names is an operational " +
-                "setting of ours, not a line of code — so an operator pointing the " +
-                "service at a resource created in another region would move the " +
-                "processing without any check above failing. Nothing else about the " +
-                "region is machine-readable either, which is why the reading below is " +
-                "done by a person against that specific resource. We treat a move like " +
-                "that as a change of processing location, notified under clause 5 of " +
-                "the Data Processing Addendum before it takes effect, and not as a " +
-                "settings change that happens to have a consequence.",
+                "than let you assume it away. For the leg served from the hyperscale " +
+                "provider, the address our code builds names an account resource, and " +
+                "which resource it names is an operational setting of ours, not a line " +
+                "of code — so an operator pointing the service at a resource created in " +
+                "another region would move that leg's processing without any check " +
+                "above failing. Nothing else about that region is machine-readable " +
+                "either, which is why the reading below is done by a person against that " +
+                "specific resource. We treat a move like that as a change of processing " +
+                "location, notified under clause 5 of the Data Processing Addendum " +
+                "before it takes effect, and not as a settings change that happens to " +
+                "have a consequence.",
             },
             {
               kind: "callout",
               tone: "warning",
-              title: "Two facts a person confirms, not the build",
+              title: "Facts a person confirms, not the build",
               text:
-                "First, that the provider account itself was created in the East US 2 " +
-                "region — the same attestation as before, aimed at the new region. " +
-                "Second, that the model deployment inside it is the regional kind rather " +
-                "than the provider's global default, which would process requests " +
-                "wherever there is capacity in the world; that one is unchanged by the " +
-                "move and still matters, because a global deployment would put your " +
-                "callers' words in a country neither of us has named. Both are read from " +
-                "the provider's console by a person, dated and filed as evidence, and " +
-                "neither can be seen from the endpoint, from the response, or from any " +
-                "check we could write. We say so because a document that called this " +
-                "machine-enforced would be overstating it.",
+                "For the leg served from the hyperscale provider: first, that the " +
+                "provider account itself was created in the East US 2 region — the same " +
+                "attestation as before, aimed at the current region. Second, that the " +
+                "model deployment inside it is the regional kind rather than the " +
+                "provider's global default, which would process requests wherever there " +
+                "is capacity in the world; that one is unchanged by the move and still " +
+                "matters, because a global deployment would put your callers' words in a " +
+                "country neither of us has named. Both are read from the provider's " +
+                "console by a person, dated and filed as evidence, and neither can be " +
+                "seen from the endpoint, from the response, or from any check we could " +
+                "write. The other providers a client can choose place their processing " +
+                "on their own terms, stated in their rows above — one of them names no " +
+                "region we could pin at all. We say all of this because a document that " +
+                "called it machine-enforced would be overstating it.",
             },
           ],
         },
         {
           id: "byok",
-          heading: "3.3 You can choose the model, and what that does not change",
+          heading: "3.3 You can choose the model, across providers, and what that means",
           blocks: [
             {
               kind: "para",
@@ -423,28 +467,32 @@ export const SUBPROCESSORS: LegalDocument = {
               text:
                 "You can choose which of the models we run your agents use, for your " +
                 "whole account or for a single agent, and the product shows a figure " +
-                "against each one. This section used to say that changing an agent's " +
-                "model was a data-residency change rather than a settings tweak. That " +
-                "was written when nobody but us could change it, and it is no longer " +
-                "the shape of the thing: every model on the list is served by the same " +
-                "vendor, from the same account resource, in the region named in the " +
-                "register, so your choice moves which model answers and moves nothing " +
-                "about who processes your callers' data or where. The region our code " +
-                "declares is a different kind of thing: it moves only by a reviewed " +
-                "change to that code, it is never a control on a screen — ours or " +
-                "yours — and the one setting that can still reach where processing " +
-                "happens is named in section 3.2 rather than left out of this " +
-                "comparison.",
+                "against each one. This section used to say that choosing a model moved " +
+                "which model answered and moved nothing about who processed your " +
+                "callers' data or where — that every model on the list was served by " +
+                "the same vendor, from the same account resource, in the region named " +
+                "in the register. That was written when only one provider was on the " +
+                "list, and it is no longer true. The models on offer now run with more " +
+                "than one provider — Azure OpenAI, OpenAI and Google — in more than one " +
+                "place, so your choice is a choice of which provider handles the " +
+                "language leg and where. The single-vendor, single-region promise this " +
+                "section used to make is WITHDRAWN, not narrowed. What has NOT changed: " +
+                "the set of providers our code may reach at all is fixed in code and " +
+                "moves only by a reviewed change to it, never by a control on a screen — " +
+                "ours or yours — and the one operator setting that can still reach where " +
+                "a given provider processes is the account resource named in section " +
+                "3.2.",
             },
             {
               kind: "para",
               text:
-                "The figure beside each model is OUR cost of running that model, at the " +
-                "provider's published price, over a minute of a five-minute call. We " +
-                "publish it so a " +
-                "choice about quality is not made blind to price; it is not a charge, " +
-                "and nothing about your bill changes when you switch models. Clause 6.1 " +
-                "of the Terms of Service is what you actually pay.",
+                "The figure beside each model on THIS page is OUR cost of running that " +
+                "model, at the provider's published price, over a minute of a " +
+                "five-minute call. We publish it so a choice about quality is not made " +
+                "blind to what it costs us. It is not the figure a client sees on their " +
+                "own screen, and it is not by itself a charge: what a client pays, and " +
+                "whether choosing a model changes it, is clause 6.1 of the Terms of " +
+                "Service.",
             },
           ],
         },

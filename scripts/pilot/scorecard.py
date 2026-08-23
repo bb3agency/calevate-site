@@ -624,16 +624,21 @@ def _llm_cost_line() -> CostLine:
     from calevate_shared.engine import (
         AZURE_LOCATION,
         AZURE_OPENAI_DEFAULT_MODEL,
-        AZURE_OPENAI_MODELS,
+        SELECTABLE_LLM_MODELS,
     )
 
     # The DEFAULT first, then the rest in a stable order. Not alphabetical: an operator
-    # reading this line wants the band their pilot most likely ran, and `gpt-4.1-mini`
-    # sorts ahead of `gpt-4o-mini` while being the one nobody gets without flipping a
-    # switch.
+    # reading this line wants the band their pilot most likely ran, and both `gpt-4.1-mini`
+    # and every Gemini identifier sort ahead of `gpt-4o-mini` while being models nobody gets
+    # without choosing one.
+    #
+    # STATED OVER `SELECTABLE_LLM_MODELS` RATHER THAN THE AZURE LEG: a pilot call can now
+    # run on any of three providers, and a band line that listed only the Azure two would
+    # quote a range the pilot may not have been inside. The spread is 7.7x at five minutes,
+    # so this is not a cosmetic widening.
     models = [
         AZURE_OPENAI_DEFAULT_MODEL,
-        *sorted(AZURE_OPENAI_MODELS - {AZURE_OPENAI_DEFAULT_MODEL}),
+        *sorted(SELECTABLE_LLM_MODELS - {AZURE_OPENAI_DEFAULT_MODEL}),
     ]
     bands = "; ".join(
         f"{model} INR {llm_cost_inr_per_minute(1, model=model)} (1 min) - "

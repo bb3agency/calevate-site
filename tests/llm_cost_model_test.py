@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -53,14 +54,21 @@ from apps.api.billing.rates import (
     MONEY_Q,
     PRICED_LLM_MODELS,
     ROUNDING,
+    LlmPriceAttestation,
+    install_llm_price_attestations,
     llm_cost_inr_per_minute,
     llm_inr_per_ktok,
+    llm_price_is_billable,
+    llm_reference_inr_per_ktok,
 )
 from apps.api.core.settings import get_settings
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_OPENAI_MODELS,
+    GOOGLE_DIRECT_MODELS,
     LLM_MODELS,
+    OPENAI_DIRECT_MODELS,
+    SELECTABLE_LLM_MODELS,
 )
 
 
@@ -91,6 +99,17 @@ def list_price_usd_per_mtok(model: str) -> dict[str, Decimal]:
 PUBLISHED_CURVE: dict[str, dict[int, Decimal]] = {
     "gpt-4o-mini": {1: Decimal("0.1021"), 5: Decimal("0.1639"), 10: Decimal("0.2411")},
     "gpt-4.1-mini": {1: Decimal("0.2734"), 5: Decimal("0.4389"), 10: Decimal("0.6457")},
+    # The multi-provider legs. Note the ordering these three make visible and that no
+    # single-vendor catalogue could: the CHEAPEST model this product offers is a Google one
+    # and it is cheaper than the platform default, which is why the model surcharge had to
+    # learn to floor at zero (`rates.is_surchargeable_llm_model`).
+    "gemini-2.5-flash-lite": {
+        1: Decimal("0.0685"),
+        5: Decimal("0.1100"),
+        10: Decimal("0.1618"),
+    },
+    "gemini-2.5-flash": {1: Decimal("0.2310"), 5: Decimal("0.3550"), 10: Decimal("0.5099")},
+    "gpt-5.4-mini": {1: Decimal("0.5385"), 5: Decimal("0.8519"), 10: Decimal("1.2437")},
 }
 
 #: What the retired `gemini-2.5-flash` leg cost per minute at the same three points, at
@@ -116,16 +135,23 @@ def test_every_model_an_operator_can_select_has_a_published_price() -> None:
     live and nobody redeployed. A price for a model nobody can select is a number that
     rots unread until it is quoted somewhere by mistake.
     """
-    assert PRICED_LLM_MODELS == AZURE_OPENAI_MODELS
-    # STATED OVER THE CATALOGUE'S OWN AZURE LEG (D-456) rather than over a price table
+    # **THE SET IS `SELECTABLE_LLM_MODELS`, NOT `AZURE_OPENAI_MODELS`**, and the older
+    # spelling was a coincidence of the evidence rather than the rule: it held while Azure
+    # was the only leg anything was offered on. The rule is that the REFERENCE card and the
+    # permitted set are the same set in both directions.
+    assert PRICED_LLM_MODELS == SELECTABLE_LLM_MODELS
+    # STATED OVER THE CATALOGUE'S OWN PER-LEG PARTITION rather than over a price table
     # beside it. Same failure caught, one fewer thing to keep in step: a model whose
-    # `provider` said `azure_openai` but which the Literal never listed would be
-    # priced, dated and addressable by nothing.
-    assert {
-        name for name, spec in LLM_MODELS.items() if spec.provider == "azure_openai"
-    } == AZURE_OPENAI_MODELS
+    # `provider` named a leg but which that leg's Literal never listed would be priced,
+    # dated and addressable by nothing.
+    for leg, members in (
+        ("azure_openai", AZURE_OPENAI_MODELS),
+        ("openai", OPENAI_DIRECT_MODELS),
+        ("google", GOOGLE_DIRECT_MODELS),
+    ):
+        assert {name for name, spec in LLM_MODELS.items() if spec.provider == leg} == members
     assert AZURE_OPENAI_DEFAULT_MODEL in PRICED_LLM_MODELS
-    assert set(PUBLISHED_CURVE) == AZURE_OPENAI_MODELS, (
+    assert set(PUBLISHED_CURVE) == SELECTABLE_LLM_MODELS, (
         "a model was added or removed and this file's published curve was not updated"
     )
 
@@ -139,9 +165,9 @@ def test_the_rupee_table_derives_from_the_one_published_dollar_price() -> None:
     publishes dollars, and a constant that has already multiplied cannot be corrected when
     either half moves.
     """
-    for model in AZURE_OPENAI_MODELS:
+    for model in SELECTABLE_LLM_MODELS:
         usd = list_price_usd_per_mtok(model)
-        inr = llm_inr_per_ktok(model)
+        inr = llm_reference_inr_per_ktok(model)
         assert set(inr) == {"in", "out"}, model
         for leg, usd_per_mtok in usd.items():
             expected = (usd_per_mtok * LIST_PRICE_USD_INR / Decimal("1000")).quantize(
@@ -221,11 +247,76 @@ def test_an_unpriced_model_is_refused_rather_than_approximated() -> None:
     model, and a zero makes a leg look free. The message names what IS priced, because the
     reader hitting this is looking at a model identifier read back off a historical ledger
     row and needs to know the set has moved."""
-    for unpriced in ("gemini-2.5-flash", "gpt-4o", "", "GPT-4O-MINI"):
-        with pytest.raises(ValueError, match="no published price"):
+    for unpriced in ("gpt-4o", "", "GPT-4O-MINI", "gemini-9.9-imaginary"):
+        with pytest.raises(ValueError, match="not a model this repository knows"):
             llm_inr_per_ktok(unpriced)
-        with pytest.raises(ValueError, match="no published price"):
+        with pytest.raises(ValueError, match="no published reference price"):
+            llm_reference_inr_per_ktok(unpriced)
+        with pytest.raises(ValueError, match="no published reference price"):
             llm_cost_inr_per_minute(5, model=unpriced)
+
+
+def test_a_reported_price_is_never_billable_however_selectable_the_model_is() -> None:
+    """**HARD RULE 7, RELOCATED FROM A FLAG TO THE SEAM IT GUARDS.**
+
+    It used to be enforced by `LlmModelSpec` refusing `selectable=True` on unverified price
+    evidence — correct, but it protected `unit_cost_paid` by DELETING the model, which is why
+    an egress rule blocked a whole multi-vendor offering. The protection now sits on the
+    money: `llm_inr_per_ktok` is the one door to a bill and it opens on exactly two keys — an
+    operator attestation, or a catalogue figure somebody read from the vendor.
+
+    So a REPORTED figure cannot reach `unit_cost_paid` **however `LLM_MODELS` is edited**,
+    which is strictly stronger than the flag was. The three models below are `selectable=True`
+    and still refuse to price, because nothing has been attested in this process.
+
+    FAILS IF: `llm_inr_per_ktok` ever falls back to `LlmPrice`, or a REPORTED catalogue entry
+    is quietly re-labelled `verified=True` to quiet it.
+    """
+    for model in sorted(SELECTABLE_LLM_MODELS):
+        spec = LLM_MODELS[model]
+        if spec.price.evidence.verified:
+            # The Azure leg: read from the vendor by D-410, so it bills today exactly as it
+            # did before this seam existed — the change moves no existing behaviour.
+            assert llm_price_is_billable(model), model
+            assert llm_inr_per_ktok(model)["in"] > 0, model
+            continue
+        assert not llm_price_is_billable(model), model
+        with pytest.raises(ValueError, match="no billable price"):
+            llm_inr_per_ktok(model)
+        # ...and the REFERENCE figure is still available, which is the whole point of the
+        # split: TRD §10's margin model and the console's pre-fill keep working while the
+        # billing door stays shut.
+        assert llm_reference_inr_per_ktok(model)["in"] > 0, model
+
+
+def test_the_reference_price_is_not_reachable_from_the_billing_path() -> None:
+    """The other half of the same property, stated as an experiment rather than by reading.
+
+    An operator attestation OVERRIDES a verified catalogue figure — deliberately, because our
+    mandated Azure Regional Standard deployment is vendor-confirmed at +10% over the Global
+    list price the catalogue carries, so an invoice reading is strictly better than the
+    constant. This proves the override happens AND that the reference figure is untouched by
+    it, which is what lets `llm_cost_inr_per_minute` stay a stable margin model.
+    """
+    model = AZURE_OPENAI_DEFAULT_MODEL
+    before = llm_inr_per_ktok(model)["in"]
+    reference = llm_reference_inr_per_ktok(model)["in"]
+    assert before == reference
+    attested = LlmPriceAttestation(
+        model=model,
+        input_usd_per_mtok=Decimal("0.165"),
+        output_usd_per_mtok=Decimal("0.66"),
+        read_on=date(2026, 8, 23),
+        attested_by="founder",
+        source="Azure invoice, East US 2 Regional Standard",
+    )
+    install_llm_price_attestations(lambda: {model: attested})
+    try:
+        assert llm_inr_per_ktok(model)["in"] > before
+        assert llm_reference_inr_per_ktok(model)["in"] == reference
+    finally:
+        install_llm_price_attestations(None)
+    assert llm_inr_per_ktok(model)["in"] == before
 
 
 # --- 3. the published curve --------------------------------------------------------
@@ -423,3 +514,41 @@ def test_our_language_cost_is_nowhere_near_a_clients_per_minute_price() -> None:
             f"of what a client pays for a whole minute ({client_rate}/min) — these are "
             "different numbers and neither is a substitute for the other"
         )
+
+
+def test_a_non_positive_attested_price_is_refused() -> None:
+    """`LlmPriceAttestation.__post_init__`'s first guard. A zero or negative rate bills
+    every minute on that model at ₹0 and looks exactly like a working leg — the one
+    metering failure nobody investigates — so the attestation refuses to exist rather than
+    letting the number reach `unit_cost_paid`. Both legs of the price are checked."""
+    good = {
+        "model": "gpt-5.4-mini",
+        "read_on": date(2026, 8, 23),
+        "attested_by": "ops@calevate.tech",
+        "source": "openai console invoice 2026-08",
+    }
+    with pytest.raises(ValueError, match="non-positive price"):
+        LlmPriceAttestation(
+            input_usd_per_mtok=Decimal("0"), output_usd_per_mtok=Decimal("4.50"), **good
+        )
+    with pytest.raises(ValueError, match="non-positive price"):
+        LlmPriceAttestation(
+            input_usd_per_mtok=Decimal("0.75"), output_usd_per_mtok=Decimal("-1"), **good
+        )
+
+
+def test_an_attestation_with_no_reader_or_no_source_is_refused() -> None:
+    """The second guard. An attestation is stronger evidence than a vendor's page ONLY
+    because somebody named is answering for it; a blank reader or a blank source makes it a
+    number in a text box, which is the D-31/D-32 defect class. Whitespace does not count as
+    an answer."""
+    priced = {
+        "model": "gpt-5.4-mini",
+        "input_usd_per_mtok": Decimal("0.75"),
+        "output_usd_per_mtok": Decimal("4.50"),
+        "read_on": date(2026, 8, 23),
+    }
+    with pytest.raises(ValueError, match="no reader or no source"):
+        LlmPriceAttestation(attested_by="   ", source="an invoice", **priced)
+    with pytest.raises(ValueError, match="no reader or no source"):
+        LlmPriceAttestation(attested_by="ops@calevate.tech", source="", **priced)

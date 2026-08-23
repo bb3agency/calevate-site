@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import OpsConfigPage from "@/app/admin/ops/config/page";
 import OpsPage from "@/app/admin/ops/page";
 import {
   OUTBOX_REPLAY_CONFIRMATION,
@@ -27,6 +28,7 @@ import {
   type ConfigField,
   type ConfigList,
 } from "@/lib/api/opsConfig";
+import { OPS_MODEL_PRICES_PATH, type ModelPrices } from "@/lib/api/opsModelPricing";
 
 import { formatISTInput, istInputToInstant } from "@/components/ui";
 
@@ -120,10 +122,58 @@ function routes(
   return {
     [PLATFORM]: platformAnswer,
     [ADMIN_ME_PATH]: identity,
+    ...extra,
+  };
+}
+
+/**
+ * The OPS CONFIG screen's routes — `/admin/ops/config`, which is a different screen from
+ * `/admin/ops` since the founder's correction to D-457 moved the three config and
+ * credential panels onto one of their own.
+ *
+ * NO `/v1/ops/platform` HERE, and that absence is the point rather than an omission: this
+ * screen reads no platform-row state, so it is gated on `platform:config` and
+ * `platform:secrets` alone. The harness THROWS on an unrouted request rather than 404ing,
+ * so a case that fetched the platform row from this screen would fail loudly — which is
+ * what keeps the split honest.
+ */
+function configRoutes(identity: unknown = SUPERADMIN, extra: Routes = {}): Routes {
+  return {
+    [ADMIN_ME_PATH]: identity,
     [OPS_CONFIG_PATH]: configList(),
+    // The model-prices panel shares this screen, so every OpsConfigPage render stubs its
+    // read too — an unrouted one paints a `ProblemNotice` (retry button, alert) onto a
+    // screen these cases assert the exact controls of.
+    [OPS_MODEL_PRICES_PATH]: modelPrices(),
     [OPS_SECRETS_PATH]: secretsList(),
     [`${OPS_SECRETS_PATH}/kek`]: kekState(),
     ...extra,
+  };
+}
+
+/** One attested, offerable row is enough for the panel to render its populated state with
+ *  no lever these cases exercise. */
+function modelPrices(): ModelPrices {
+  return {
+    prices: [
+      {
+        model: "gpt-4o-mini",
+        provider: "azure_openai",
+        credential_installed: true,
+        price_attested: true,
+        offerable: true,
+        input_usd_per_mtok: "0.150000",
+        output_usd_per_mtok: "0.600000",
+        effective_from: "2026-08-01T00:00:00Z",
+        attested_at: "2026-08-12T09:00:00Z",
+        attested_by: "Ops",
+        source_note: "Azure invoice 2026-08",
+        reference_input_usd_per_mtok: "0.15",
+        reference_output_usd_per_mtok: "0.60",
+        reference_verified: true,
+      },
+    ],
+    as_of: "2026-08-23T00:00:00Z",
   };
 }
 
@@ -1772,8 +1822,8 @@ describe("our own telemarketer registration", () => {
 describe("the platform configuration panel", () => {
   it("refuses to show values it did not receive", async () => {
     renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: problem(503, {
           title: "Service unavailable",
           detail: "The database is not reachable.",
@@ -1787,7 +1837,7 @@ describe("the platform configuration panel", () => {
   });
 
   it("renders an env-pinned key read-only, with the variable that pins it", async () => {
-    const { container } = renderAdminPage(<OpsPage />, routes(platform()));
+    const { container } = renderAdminPage(<OpsConfigPage />, configRoutes());
 
     await screen.findByText("object_store_bucket");
     // The value is SHOWN — hiding it would leave an operator hunting for a setting they
@@ -1800,8 +1850,8 @@ describe("the platform configuration panel", () => {
 
   it("sends the confirmation bound to the key it is changing", async () => {
     const { calls } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
           previous: null,
@@ -1853,8 +1903,8 @@ describe("the platform configuration panel", () => {
 
   it("uses a DIFFERENT confirmation string to revert", async () => {
     const { calls } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({
           fields: [configField({ value: "7.25", source: "db", updated_by: "Ops" })],
         }),
@@ -1894,8 +1944,8 @@ describe("the platform configuration panel", () => {
 
   it("says so when the serving process has never read the store", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({ never_loaded: true, config_version: 0 }),
       }),
     );
@@ -1908,8 +1958,8 @@ describe("the platform configuration panel", () => {
 
   it("distinguishes a stale refresh from a process that never loaded", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({ stale: true }),
       }),
     );
@@ -1923,8 +1973,8 @@ describe("the platform configuration panel", () => {
 
   it("warns on a setting that will not take effect until a restart", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({
           fields: [
             configField({
@@ -1964,11 +2014,15 @@ describe("the platform configuration panel", () => {
    * reason once `/v1/admin/me` has answered, and nothing is fetched.
    */
   it("withholds the configuration panel from a session without platform:config", async () => {
-    const { container, calls } = renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+    const { container, calls } = renderAdminPage(<OpsConfigPage />, configRoutes(OPERATOR));
 
     // Awaited on the REFUSAL, not on the card title: the title is in both branches, so
-    // finding it proves only that the screen rendered.
-    await screen.findByText(/does not have the platform:config permission/);
+    // finding it proves only that the screen rendered. TWO panels gate on platform:config
+    // now — Platform configuration and Model prices — so the reason appears on both;
+    // `findAllByText` waits for it, and the settings panel is then pinned by its own
+    // subject line, which no other withheld card shares.
+    await screen.findAllByText(/does not have the platform:config permission/);
+    screen.getByText(/This panel would list every setting this deployment can change/);
     // Not a disabled control — no control, and no field name to hang one on.
     expect(screen.queryAllByRole("button", { name: /Change/ })).toEqual([]);
     expect(container.textContent).not.toContain("self_serve_inr_per_min");
@@ -1992,8 +2046,8 @@ describe("the platform configuration panel", () => {
    */
   it("files the language model and the sign-in switch under their own headings", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({
           fields: [
             configField({
@@ -2055,8 +2109,8 @@ function secretInput(): HTMLInputElement {
 describe("the credentials panel", () => {
   it("never puts a credential on screen, including after a test", async () => {
     const { container, calls } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
           key: "bolna_api_key",
           outcome: "accepted",
@@ -2088,8 +2142,8 @@ describe("the credentials panel", () => {
 
   it("marks an unverified probe as indicative rather than authoritative", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: {
           key: "bolna_api_key",
           outcome: "rejected",
@@ -2112,8 +2166,8 @@ describe("the credentials panel", () => {
 
   it("refuses to report 'not installed' from a read that failed", async () => {
     renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [OPS_SECRETS_PATH]: problem(503, { title: "Service unavailable" }),
       }),
     );
@@ -2122,7 +2176,7 @@ describe("the credentials panel", () => {
   });
 
   it("says when a stored credential is inert because the environment sets it", async () => {
-    const { container } = renderAdminPage(<OpsPage />, routes(platform()));
+    const { container } = renderAdminPage(<OpsConfigPage />, configRoutes());
     await screen.findByText("sarvam_api_key");
     expect(container.textContent).toContain("SARVAM_API_KEY");
     expect(container.textContent).toContain("the environment always wins");
@@ -2130,8 +2184,8 @@ describe("the credentials panel", () => {
 
   it("sends the key-bound confirmation when installing", async () => {
     const { calls } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [`PUT ${OPS_SECRETS_PATH}/bolna_api_key`]: {
           ...SECRETS_FIXTURE.secrets[0],
           version: 3,
@@ -2165,8 +2219,8 @@ describe("the credentials panel", () => {
 describe("the key-management panel", () => {
   it("tells the operator NOT to remove the retired key while any DEK is pending", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [`${OPS_SECRETS_PATH}/kek`]: kekState({
           has_retired_kek: true,
           versions: 5,
@@ -2184,8 +2238,8 @@ describe("the key-management panel", () => {
 
   it("names the versions a rewrap could not open rather than counting them away", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), SUPERADMIN, {
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
         [`POST ${OPS_SECRETS_PATH}/kek/rewrap`]: {
           examined: 4,
           rewrapped: 3,
@@ -2218,7 +2272,7 @@ describe("the key-management panel", () => {
    * nothing whatever about what is installed. No count, no key name, no "none found".
    */
   it("withholds both credential panels from a session without platform:secrets", async () => {
-    const { container, calls } = renderAdminPage(<OpsPage />, routes(platform(), OPERATOR));
+    const { container, calls } = renderAdminPage(<OpsConfigPage />, configRoutes(OPERATOR));
 
     await screen.findAllByText(/does not have the platform:secrets permission/);
     expect(screen.getByText("Vendor credentials")).toBeTruthy();
@@ -2246,8 +2300,8 @@ describe("the key-management panel", () => {
    */
   it("renders a 403 on the credential read as a refusal, not as an outage", async () => {
     const { container } = renderAdminPage(
-      <OpsPage />,
-      routes(platform(), problem(503, { title: "identity unavailable" }), {
+      <OpsConfigPage />,
+      configRoutes(problem(503, { title: "identity unavailable" }), {
         [OPS_SECRETS_PATH]: problem(403, {
           title: "Forbidden",
           detail: "This account does not have the platform:secrets permission.",

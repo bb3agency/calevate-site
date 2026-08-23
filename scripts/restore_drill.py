@@ -221,7 +221,14 @@ AUDIT_ENTRIES = 6
 #: A real reassignment of `tenant_id` is also the mutation worth naming: moving a ledger
 #: row to another tenant is the specific thing hard rule 4 and hard rule 1 both forbid.
 #: The FK it would violate is never reached — these are BEFORE ROW triggers.
-_APPEND_ONLY_PROBE_SET = {"platform_secrets": "last_four = last_four || 'x'"}
+_APPEND_ONLY_PROBE_SET = {
+    "platform_secrets": "last_four = last_four || 'x'",
+    # D-459: not tenant-scoped, so the default `tenant_id = ...` probe would not
+    # parse and `_raises` would read the UndefinedColumn as "not refused" — a
+    # correct ledger reported UNPROTECTED. A real value change on `source_note`
+    # is what the append-only trigger must refuse.
+    "platform_model_prices": "source_note = source_note || 'x'",
+}
 
 
 def _append_only_probe_set(table: str) -> str:
@@ -706,6 +713,14 @@ class RestoreDrill:
             "dek_nonce, kek_version, last_four, created_by) VALUES "
             "('DRILL_FIXTURE_KEY', 1, '\\x01'::bytea, '\\x02'::bytea, '\\x03'::bytea, "
             f"'\\x04'::bytea, 1, '0000', '{ADMIN_ID}')",
+            # D-459: one attested price so `append_only_enforced` has a row to probe
+            # on `platform_model_prices` (a FOR EACH ROW trigger cannot fire on an
+            # empty table). `attested_by` is the ADMIN_ID seeded above; prices are
+            # >0 for the CHECK. Values are a fixture, never read as a real rate.
+            "INSERT INTO platform_model_prices (model, effective_from, "
+            "input_usd_per_mtok, output_usd_per_mtok, attested_by, source_note) "
+            f"VALUES ('gpt-4o-mini', now(), 0.1500, 0.6000, '{ADMIN_ID}', "
+            "'restore-drill fixture')",
         ]
         for tenant, agent, user, prefix in (
             (TENANT_A, AGENT_A, USER_A, "9111"),

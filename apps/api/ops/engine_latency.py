@@ -99,7 +99,14 @@ WALK_BUDGET_S = 5.0
 #: `scripts/pilot/latency.SummaryBasis`, and for the same reason.
 SummaryBasis = Literal["measured", "insufficient_samples"]
 
-_DIRECTORY = "SELECT id FROM organizations WHERE status <> 'deleted'"
+# LIVE tenants only, by `deleted_at IS NULL` — the same predicate `_load_admin_principal`
+# resolves the directory with and `admin/health.client_health` walks by. This read
+# `status <> 'deleted'`, which excluded NOTHING: `'deleted'` is not one of `ORG_STATUSES`
+# and the `status_enum` CHECK refuses it, so the clause was always true and a soft-deleted
+# (being-erased) tenant's turns landed in the distribution. Soft-delete is `deleted_at`, not
+# a status — `ck_organizations_deleted_implies_churned` binds the two — so a CHURNED account
+# that has not yet been erased stays in: its recent calls are real engine measurements.
+_DIRECTORY = "SELECT id FROM organizations WHERE deleted_at IS NULL"
 
 # ONE ROW PER TIMED TURN, expanded from the stored array under the tenant's own GUC. Only
 # `llm_ttft_ms` is pulled: it is the leg whose geography D-410 chose, and it is the one

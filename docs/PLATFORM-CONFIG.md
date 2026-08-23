@@ -29,7 +29,7 @@ the most likely way this ends badly.
 
 | | **Core config** | **Secrets** |
 |---|---|---|
-| Examples | engine selection, calling windows, retry ladders, vertical templates, rate limits, the big red switch | Sarvam key, Bolna key, `AZURE_OPENAI_API_KEY` (D-410), Cartesia key, Google Sheets service account (D-23), Razorpay webhook secret, Meta page access tokens, R2 credentials. **No authentication credential appears here at all** — D-177 removed the vendor whose secret keys this cell used to name, and there is nothing in its place to configure |
+| Examples | engine selection, calling windows, retry ladders, vertical templates, rate limits, the big red switch, **operator-attested model prices** (§5) | Sarvam key, Bolna key, `AZURE_OPENAI_API_KEY` (D-410), `OPENAI_API_KEY` + `GEMINI_API_KEY` (D-456's two other declared LLM legs, installable so the founder can switch a leg on once its price is attested), Cartesia key, Google Sheets service account (D-23), Razorpay webhook secret, Meta page access tokens, R2 credentials. **No authentication credential appears here at all** — D-177 removed the vendor whose secret keys this cell used to name, and there is nothing in its place to configure |
 | Storage | plaintext rows | ciphertext + wrapped DEK |
 | Readable back in the UI | **yes** — you must be able to see what the value is | **never** — last-4, who, when |
 | Blast radius if leaked | embarrassing | catastrophic |
@@ -189,6 +189,20 @@ CREATE TABLE platform_config_version (
     version  bigint  NOT NULL DEFAULT 1,
     bumped_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Operator-attested vendor prices per LLM model. CONFIG, not a secret (visible,
+-- revertible), effective-dated, and append-only: a correction is a new dated row. See
+-- the note below and migration c7f1a9e34b62.
+CREATE TABLE platform_model_prices (
+    model               text        NOT NULL,     -- a key of calevate_shared.engine.LLM_MODELS
+    effective_from      timestamptz NOT NULL,     -- when this price becomes authoritative
+    input_usd_per_mtok  numeric(12,6) NOT NULL CHECK (input_usd_per_mtok > 0),
+    output_usd_per_mtok numeric(12,6) NOT NULL CHECK (output_usd_per_mtok > 0),
+    attested_by         uuid        NOT NULL REFERENCES admin_users(id),
+    attested_at         timestamptz NOT NULL DEFAULT now(),
+    source_note         text        NOT NULL,     -- the invoice/console the figure was read off
+    PRIMARY KEY (model, effective_from)
+);
 ```
 
 **`platform_secrets` is append-only and joins the hard-rule-4 family** (`usage_events`,
@@ -199,6 +213,38 @@ live when this call was billed?" answerable a year later.
 
 **`last_four` is the only plaintext fragment that touches disk**, and it exists so the
 console can show *which* key is installed without being able to show the key.
+
+**`platform_model_prices` is where hard rule 7 meets the two BYOK legs whose prices
+nobody here can read** (D-456's `openai` and `google`). A price is the one vendor claim
+that reaches `unit_cost_paid`, so `calevate_shared.engine.LlmModelSpec` refuses to make a
+model selectable on an unverified price — and every OpenAI and Google pricing page is
+egress-blocked from this deployment. The founder's own workflow supplies the missing
+evidence: the AUTHORITATIVE billing price is a figure they read off their own vendor
+console or invoice and attest here (first-party evidence, and the only figure true for
+THIS account). It is CONFIG, not a secret — auditable and revertible, never encrypted —
+and it is **append-only and effective-dated** (it joins the hard-rule-4 family with the
+SHARED `calevate_forbid_mutation`/`calevate_forbid_truncate` triggers, `ENABLE ALWAYS`,
+picked up by `check_ledger_immutability`): a correction is a new dated row, so a
+re-rendered invoice resolves the price that was live in the month it is re-rendering
+(`ops.model_pricing.attested_model_prices(session, at=…)`, the same effective-dating
+`billing/plans.py` gives plans). Azure is the exception that needs NO attestation — D-410
+read its price first-hand, so `billing/rates.llm_price_is_billable` treats it as billable
+off the verified catalogue figure — which is why the panel shows Azure offerable with no
+row here. It is NOT tenant-scoped and carries no `tenant_id`, exempted in
+`check_rls_coverage` with a written reason like its siblings.
+
+**How an attested price reaches billing** is the seam the catalogue lane defined
+(`billing/rates.install_llm_price_attestations`, `agents/llm_models
+.install_llm_credential_reader` — a sync, no-argument reader each, installed once at
+startup). `ops/pricing_snapshot.py` is the ops side: it keeps an in-process snapshot of
+the attested prices and the installed legs, refreshes it off the request path on a poll,
+and installs both readers — the same durable-truth-in-Postgres / snapshot-in-front shape
+`core/platform_config` uses, and for the same reason (the readers are sync and must not
+open a database on the metering path). With no reader installed the seam defaults to
+Azure-only and the catalogue's verified prices, exactly as the platform billed before the
+seam existed. **The offerability rule the console renders and the seam encodes: a model is
+offerable only when its provider credential is installed AND its price is billable** (an
+operator attestation, or the catalogue figure being a first-hand vendor reading).
 
 ## 6. Resolution and propagation — no restart, no SSH
 
@@ -235,6 +281,8 @@ All under the existing admin realm. Permission `platform:config` for §1's left 
 | `PUT /v1/ops/secrets/{key}` | `platform:secrets` | new version; step-up `X-Confirm-Action: set_secret:<key>` |
 | `POST /v1/ops/secrets/{key}/test` | `platform:secrets` | **dry-run against the vendor** before the value goes live — see below |
 | `POST /v1/ops/kek/rewrap` | superadmin | KEK rotation: re-wrap every DEK under the new KEK |
+| `GET /v1/ops/model-prices` | `platform:config` | every catalogue model: provider, reference price (greyed pre-fill), attested price if any, and offerability (credential installed? price billable?) |
+| `POST /v1/ops/model-prices/{model}` | `platform:config` | attest a price as a NEW effective-dated row; step-up `X-Confirm-Action: attest_model_price:<model>`; money sent as a decimal STRING, never a float |
 
 **There is no read-back route and there will not be one.** A console that can display a
 credential is a console that leaks every credential through one screenshot or one
@@ -259,8 +307,20 @@ convenience and being a new outage source.
 
 ## 8. The console
 
-`admin.calevate.tech/ops` gains panels beside the existing ones (outbox replay, DLQ depth,
-spend-cap recompute, audit-chain verify):
+**`admin.calevate.tech/ops/config` — its OWN screen, with its own sidebar entry**, and the
+first line of this section used to say these panels sat beside the incident ones on
+`/ops`. They did, and the founder's correction to D-457 moved them: "only super admin has
+access to ops config panel and it should be added to the sidebar in the super admin
+login". A nav entry needs a destination, and one screen carrying three different
+permissions could declare only one of them in the nav — `/ops` is `ops:manage` (the
+incident levers, held by whoever is on call) while everything below is `platform:config`
+or `platform:secrets`, which is change management. The entry is gated on `platform:config`
+and is the ONE entry in either console that is ABSENT rather than shown-and-dead for a
+session that may not use it (`apps/web/src/app/admin/layout.tsx::renderItem` argues why
+this surface is the exception).
+
+The panels — beside the incident ones on `/ops`, which keep outbox replay, DLQ depth,
+spend-cap recompute and audit-chain verify:
 
 1. **Engine** — which adapter is live (`bolna` / `cartesia` / `fake`), its capability
    descriptor rendered from the API rather than hard-coded, and its credential status.
@@ -271,6 +331,12 @@ spend-cap recompute, audit-chain verify):
 3. **Secrets** — key, last-4, version, who, when. Set (write-only), test, rotate.
 4. **Key management** — KEK version, how many DEKs are wrapped under each, and the rewrap
    action with its progress.
+5. **Model prices** — every catalogue model with its leg, its offerability, and the
+   per-million-token price billing charges. The founder enters the figure their own
+   vendor invoice states; the catalogue's reference figure is shown greyed as a pre-fill
+   to confirm against, never as the value (money is a decimal STRING end to end, never a
+   float). Gated on `platform:config` like Core config — a price is configuration, not a
+   credential — so it sits beside the settings rather than the secrets.
 
 Every destructive or credential-touching action follows the repo's existing step-up
 pattern (`X-Confirm-Action`), and every one writes `audit_log` in the same transaction as
@@ -284,7 +350,9 @@ the operator's stated reason. It records **no value and no fragment beyond `last
 The audit rows land in the existing hash-chained `audit_log`, so "who changed the Bolna
 key on the day the margin moved" is answerable and tamper-evident. New action names:
 `platform.config_set`, `platform.config_reverted`, `platform.secret_set`,
-`platform.secret_tested`, `platform.kek_rewrapped`.
+`platform.secret_tested`, `platform.kek_rewrapped`, `platform.model_price_attested` (the
+model, the two USD-per-Mtok figures, the instant it takes effect and the operator's stated
+source — no secret, no PII).
 
 ## 10. The trade, stated plainly
 

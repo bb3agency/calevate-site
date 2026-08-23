@@ -49,8 +49,11 @@ PERMISSIONS
   argument in full). Both admin roles hold it.
 * detail — `calls:read`. It discloses a redacted call, which is precisely what that
   permission means in the client realm; using the same name for the same disclosure
-  keeps one vocabulary. Both admin roles hold it; neither holds `calls:read_raw` except
-  `superadmin`, and this route never asks for raw anyway.
+  keeps one vocabulary. Both admin roles hold it. Both now hold `calls:read_raw` as well
+  (the founder's correction to D-457), which changes nothing here: this route never asks
+  for raw, and a reviewer sampling calls for quality has no business reading the
+  unredacted text — the surface that serves that is `/v1/calls/{id}/transcript/raw`,
+  which writes its own audit row for the person who opened it.
 * review — `admin:tenants`. Recording a verdict is a mutation, so it carries a mutating
   permission and an impersonating admin is refused it (D-22, no acting-as).
 """

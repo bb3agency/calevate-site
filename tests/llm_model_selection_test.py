@@ -41,10 +41,10 @@ from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, llm_models, prompts
 from apps.api.agents.llm_models import (
     LLM_MODEL_SOURCES,
-    addressable_models,
     available_models,
     deployment_for,
     every_selectable_model_is_priced,
+    offerable_models,
     resolve_llm_model,
     selectable_models,
     validate_llm_model,
@@ -63,6 +63,11 @@ from apps.api.engine.fake import FakeEngine
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_OPENAI_MODELS,
+    GOOGLE_DIRECT_MODELS,
+    LLM_MODEL_NAMES,
+    LLM_MODELS,
+    OPENAI_DIRECT_MODELS,
+    SELECTABLE_LLM_MODELS,
     AgentConfig,
 )
 from fastapi import FastAPI
@@ -160,22 +165,30 @@ def test_the_three_levels_are_the_whole_vocabulary() -> None:
 # --- 2. the menu and the kitchen ---------------------------------------------------------
 
 
-def test_with_no_azure_leg_every_allow_listed_model_is_addressable(
+def test_with_no_azure_leg_every_azure_model_is_offerable_and_no_other_leg_is(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """There is no deployment indirection on this arm: `in_call_llm` sends the model
-    itself, so anything the allow-list admits can genuinely run."""
+    """There is no deployment indirection on this arm: `in_call_llm` sends the model itself,
+    so anything the Azure catalogue admits can genuinely run.
+
+    **AND THE OTHER TWO LEGS ARE NOT OFFERED, WHICH IS THE ASYMMETRY WORTH PINNING.** Their
+    credential lives in the ENGINE's own store, so "unconfigured" there is not a passthrough
+    — it is an agent that 401s on its first turn. `installed_llm_providers()` answers
+    Azure-only with nothing installed, which reproduces this repository's behaviour from
+    before there was a second leg: CI and every local run see exactly what they always saw.
+    """
     _no_azure(monkeypatch)
-    assert addressable_models() == AZURE_OPENAI_MODELS
+    assert offerable_models() == AZURE_OPENAI_MODELS
+    assert not offerable_models() & (OPENAI_DIRECT_MODELS | GOOGLE_DIRECT_MODELS)
 
 
 def test_with_an_azure_leg_only_the_models_with_a_deployment_are_addressable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _azure(monkeypatch)
-    assert addressable_models() == {AZURE_OPENAI_DEFAULT_MODEL}
+    assert offerable_models() == {AZURE_OPENAI_DEFAULT_MODEL}
     _azure(monkeypatch, deployments=f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}")
-    assert addressable_models() == AZURE_OPENAI_MODELS
+    assert offerable_models() == AZURE_OPENAI_MODELS
 
 
 def test_the_platform_models_deployment_comes_from_its_own_field_and_the_map_cannot_win(
@@ -211,11 +224,11 @@ def test_the_offered_set_and_the_addressable_set_are_the_same_set(
     side can drift by an edit to the other.
 
     Asserted three ways because there are three surfaces that could disagree: what the
-    menu marks available, what the validator accepts, and what `addressable_models()`
+    menu marks available, what the validator accepts, and what `offerable_models()`
     says can run.
     """
     _azure(monkeypatch, deployments=deployments)
-    addressable = addressable_models()
+    addressable = offerable_models()
 
     offered = {option.model for option in available_models() if option.is_available}
     assert offered == addressable, why
@@ -238,12 +251,23 @@ def test_an_unavailable_model_is_shown_with_a_reason_rather_than_hidden(
     is identical, and only the operator-facing behaviour differs."""
     _azure(monkeypatch)
     rows = {option.model: option for option in available_models()}
-    assert set(rows) == AZURE_OPENAI_MODELS
+    # EVERY PERMITTED MODEL IS A ROW, including the two legs this platform holds no key for
+    # — a missing row tells an operator nothing.
+    assert set(rows) == SELECTABLE_LLM_MODELS
     blocked = rows[ALTERNATE_MODEL]
     assert blocked.is_available is False
     assert blocked.unavailable_reason is not None
     assert "deployment" in blocked.unavailable_reason
     assert rows[AZURE_OPENAI_DEFAULT_MODEL].unavailable_reason is None
+    # THE THREE GROUNDS ARE THREE SENTENCES, because they have three different owners: a
+    # portal deployment, a pasted key, an invoice figure. A screen that could not tell them
+    # apart would send all three to support.
+    for other_leg in sorted(OPENAI_DIRECT_MODELS | GOOGLE_DIRECT_MODELS):
+        if other_leg not in rows:
+            continue
+        reason = rows[other_leg].unavailable_reason
+        assert reason is not None and "API key" in reason, other_leg
+        assert reason != blocked.unavailable_reason, other_leg
 
 
 def test_the_two_refusals_are_different_codes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -296,7 +320,7 @@ def test_the_allow_list_and_the_rate_card_are_the_same_set() -> None:
     """Both directions. A selectable model nobody priced is unmetered spend; a priced
     model nobody can select is a number that rots unnoticed."""
     assert every_selectable_model_is_priced()
-    assert PRICED_LLM_MODELS == AZURE_OPENAI_MODELS
+    assert PRICED_LLM_MODELS == SELECTABLE_LLM_MODELS
 
 
 def test_every_offered_row_carries_a_price_derived_from_the_rate_card(
@@ -324,8 +348,18 @@ def test_the_migrations_frozen_allow_list_still_matches_the_live_one() -> None:
     rather than importing it — and this is what makes the copy honest. Adding a model to
     the Literal fails HERE, while the fix is still free: widen the CHECK in a new
     revision, or the database will refuse the value the API just accepted."""
-    revision = _load_revision("b7d2f10c93ae_a_client_chooses_the_model_their_agents_run")
-    assert set(revision.ALLOWED_LLM_MODELS) == AZURE_OPENAI_MODELS
+    original = _load_revision("b7d2f10c93ae_a_client_chooses_the_model_their_agents_run")
+    widened = _load_revision("d3a7c81f45be_a_client_chooses_a_model_on_any_declared_leg")
+    # THE LIVE CONSTRAINT IS THE LATER REVISION'S, AND IT IS THE WHOLE CATALOGUE. A CHECK is
+    # a FLOOR against values no writer should produce; which models may be CHOSEN depends on
+    # a live credential and a live attestation, facts a constraint cannot see (see that
+    # revision's docstring for the argument in full).
+    assert set(widened.ALLOWED_LLM_MODELS) == LLM_MODEL_NAMES
+    # AND THE EARLIER REVISION'S COPY IS FROZEN AT WHAT IT ADMITTED, which is what the
+    # downgrade path restores — so the two are checked against each other rather than one
+    # being quietly re-pointed at today's set.
+    assert set(original.ALLOWED_LLM_MODELS) == set(widened.PRIOR_ALLOWED_LLM_MODELS)
+    assert set(original.ALLOWED_LLM_MODELS) < set(widened.ALLOWED_LLM_MODELS)
 
 
 # --- 4. the API, end to end ---------------------------------------------------------------
@@ -556,7 +590,10 @@ async def test_prices_reach_the_wire_as_strings(monkeypatch: pytest.MonkeyPatch)
         assert Decimal(row["platform_cost_inr_per_minute"]) == llm_cost_inr_per_minute(
             5, model=row["model"]
         )
-        assert row["provider"] == "azure_openai"
+        # THE PROVIDER FOLLOWS THE MODEL, not the product: three legs are declared, so a
+        # row's leg is a property of the model it names (`leg_for_model`), and a hard-coded
+        # "azure_openai" here was correct only while there was one leg to name.
+        assert row["provider"] == LLM_MODELS[row["model"]].provider
     assert [row["model"] for row in body.json()["available"]] == list(selectable_models())
     assert sum(1 for row in body.json()["available"] if row["is_platform_default"]) == 1
 
@@ -979,7 +1016,7 @@ async def test_the_module_exposes_no_second_allow_list() -> None:
     """One way per problem, checked rather than promised: everything this module offers is
     derived from `AZURE_OPENAI_MODELS`, so a second hand-written tuple of model names
     would show up here as a set that is not that set."""
-    assert set(selectable_models()) == AZURE_OPENAI_MODELS
+    assert set(selectable_models()) == SELECTABLE_LLM_MODELS
     assert set(llm_models.selectable_models()) == set(PRICED_LLM_MODELS)
 
 

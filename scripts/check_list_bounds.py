@@ -114,34 +114,50 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "DELETE /v1/ops/config/{key}": BoundedByConstruction(
         by="the ONE field reset, and its `options` list from the same registry."
     ),
-    # The model picker (D-454). `available` is one row per member of
-    # `calevate_shared.engine.AZURE_OPENAI_MODELS` — a closed `Literal`, so its length is
-    # decided by a decision-log entry and never by anybody's row count. All four verbs
-    # answer with the same `LlmDefaultsOut`, which is why the write paths are declared too:
-    # each returns the freshly-read state rather than an acknowledgement.
+    # The model picker (D-454, widened to three legs). `available` is one row per member of
+    # `calevate_shared.engine.SELECTABLE_LLM_MODELS` — derived from `LLM_MODELS`, whose keys
+    # are the union of three closed `Literal`s — so its length is decided by a decision-log
+    # entry and never by anybody's row count. All four verbs answer with the same
+    # `LlmDefaultsOut`, which is why the write paths are declared too: each returns the
+    # freshly-read state rather than an acknowledgement.
+    #
+    # ⚠ THE BOUND MOVED FROM `AZURE_OPENAI_MODELS` TO THE WHOLE CATALOGUE AND IS STILL A
+    # BOUND, which is the only property this file is about. Widening a closed set does not
+    # weaken a bounded-by-construction claim; unclosing one would, and nothing here did.
+    # Note that a row per SELECTABLE model is the right ceiling even though the picker marks
+    # some rows unavailable: an unofferable model is PRESENT and marked (see
+    # `agents/llm_models.SelectableModel`), because a missing row tells an operator nothing
+    # and a row that says why tells them the one thing they can act on.
     "GET /v1/usage": BoundedByConstruction(
         by=(
             "`llm_surcharge_models` names the models this month's minutes actually ran "
-            "on, one entry each, so it is bounded by `AZURE_OPENAI_MODELS` — a closed "
-            "Literal — and not by how much the tenant called. It is a DISTINCT over the "
-            "same month the totals are read from, so it cannot outgrow the allow-list "
-            "even for a tenant that switched model every day of the month."
+            "on, one entry each, so it is bounded by `LLM_MODEL_NAMES` — the union of "
+            "three closed Literals — and not by how much the tenant called. It is a "
+            "DISTINCT over the same month the totals are read from, so it cannot outgrow "
+            "the catalogue even for a tenant that switched model every day of the month. "
+            "Stated over the CATALOGUE rather than the selectable set because a historical "
+            "month can name a model that has since been withdrawn — which is exactly why "
+            "`LLM_MODELS` is keyed by `str` and keeps entries the Literals no longer carry."
         )
     ),
     "GET /v1/organization/llm-defaults": BoundedByConstruction(
-        by="`available` is one row per model in `AZURE_OPENAI_MODELS`, a closed Literal."
+        by="`available` is one row per model in `SELECTABLE_LLM_MODELS`, a derived closed set."
     ),
     "PUT /v1/organization/llm-defaults": BoundedByConstruction(
-        by="the same `available`, read back after the write — same closed Literal."
+        by="the same `available`, read back after the write — same closed set."
     ),
     "GET /v1/admin/organizations/{org_id}/llm-defaults": BoundedByConstruction(
-        by="the admin view of the same `available` — one row per `AZURE_OPENAI_MODELS` member."
+        by=("the admin view of the same `available` — one row per `SELECTABLE_LLM_MODELS` member.")
     ),
     "PUT /v1/admin/organizations/{org_id}/llm-defaults": BoundedByConstruction(
-        by="the same `available`, read back after the write — same closed Literal."
+        by="the same `available`, read back after the write — same closed set."
     ),
     "GET /v1/ops/secrets": BoundedByConstruction(
         by="the vendor-credential registry in `ops/secrets.py` — one row per known key."
+    ),
+    "GET /v1/ops/model-prices": BoundedByConstruction(
+        by="one row per model in `calevate_shared.engine.LLM_MODELS`, a closed catalogue "
+        "whose size is a decision-log entry — never a caller's row count."
     ),
     "POST /v1/ops/secrets/kek/rewrap": BoundedByConstruction(
         by="`unreadable` is at most one entry per registry key, same registry as above."

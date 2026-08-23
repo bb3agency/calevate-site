@@ -41,7 +41,13 @@ import httpx
 import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.engine import bolna as bolna_module
-from apps.api.engine.bolna import BASE_URL, BOLNA_CAPABILITIES, BolnaEngine, _agent_models
+from apps.api.engine.bolna import (
+    BASE_URL,
+    BOLNA_CAPABILITIES,
+    BolnaEngine,
+    _agent_models,
+    llm_provider_keys,
+)
 from calevate_shared.config import Settings
 from calevate_shared.engine import AgentConfig, CallContext, KBSourceRef, ModelConfig
 
@@ -316,6 +322,48 @@ def _provider_row(provider_id: str, name: str) -> dict[str, str]:
     return {"provider_id": provider_id, "provider_name": name, "provider_value": "xxxxxxxaz"}
 
 
+def test_each_legs_credential_entries_are_the_vendors_documented_ones() -> None:
+    """**THE COUNT PER LEG IS A VENDOR FACT AND `set_llm_credential` RELIES ON IT.**
+
+    That method's docstring makes a claim that is only true if this table is right: on the
+    two single-entry legs it installs the WHOLE leg and there is nothing left for a human to
+    do in the vendor's console, while on Azure it installs one of four and gate 16f owns the
+    rest. If OpenAI or Google in fact wanted a second entry, the method would report success
+    on a leg that cannot authenticate — the exact silent-green failure its count-before /
+    count-after dance exists to prevent, arriving through the door the dance does not watch.
+
+    VERIFIED-VENDOR-DOCS, hash-checked mirror, `providers.md` "LLMs" tab under *"All these
+    keys **must** be added for the respective provider"*: Azure OpenAI four (`:96-102`),
+    OpenAI one named `OPENAI` (`:87`), Google Gemini one named `GOOGLE` (`:105-109`).
+
+    ⚠ THE OPENAI NAME IS DISPUTED between two of the vendor's own pages (`OPENAI` vs
+    `OPENAI_API_KEY`). The root table wins because it is the page carrying the "must be
+    added" sentence and every other value here; the live account settles it at gate 16f. This
+    test pins WHICH READING WE SHIPPED, so correcting it is a visible diff rather than a
+    silent drift.
+    """
+    assert llm_provider_keys("openai") == ("OPENAI",)
+    assert llm_provider_keys("google") == ("GOOGLE",)
+    azure = llm_provider_keys("azure_openai")
+    assert azure == (
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_MODEL",
+        "AZURE_OPENAI_API_BASE",
+        "AZURE_OPENAI_API_VERSION",
+    )
+    # THE SECRET IS ALWAYS THE FIRST ENTRY, which is what lets `_LLM_CREDENTIAL_KEY` be
+    # derived by position instead of retyped — and it is what `set_llm_credential` pushes.
+    for provider in ("azure_openai", "openai", "google"):
+        assert llm_provider_keys(provider)[0].endswith(("API_KEY", "OPENAI", "GOOGLE"))
+
+    # AND EVERY DECLARED LEG HAS AN ENTRY: a leg the credential table forgot would raise a
+    # KeyError on the first rotation rather than at import.
+    from calevate_shared.engine import DECLARED_LEGS
+
+    for leg in DECLARED_LEGS:
+        assert llm_provider_keys(leg.provider), leg.provider
+
+
 async def test_installing_the_llm_credential_posts_the_documented_body() -> None:
     """`ProviderRequest` is `{provider_name, provider_value}`, both required. The name
     comes from `Settings.bolna_llm_credential_name` rather than a literal, because a
@@ -340,7 +388,7 @@ async def test_installing_the_llm_credential_posts_the_documented_body() -> None
             return httpx.Response(200, json=[])
         return httpx.Response(200, json={"message": "successful", "status": "added"})
 
-    placement = await _engine(handler).set_llm_credential("ya29.fresh")
+    placement = await _engine(handler).set_llm_credential("ya29.fresh", provider="azure_openai")
 
     assert placement.replaced_in_place is True
     assert placement.superseded_removed == 0
@@ -369,7 +417,7 @@ async def test_a_store_that_appends_is_reported_rather_than_tolerated() -> None:
         return httpx.Response(200, json={"message": "successful", "status": "added"})
 
     with pytest.raises(ProblemError) as raised:
-        await _engine(handler).set_llm_credential("ya29.fresh")
+        await _engine(handler).set_llm_credential("ya29.fresh", provider="azure_openai")
 
     assert raised.value.code == "engine_credential_not_replaced"
 
@@ -388,7 +436,7 @@ async def test_other_providers_are_never_counted_as_ours() -> None:
             )
         return httpx.Response(200, json={"message": "successful", "status": "added"})
 
-    placement = await _engine(handler).set_llm_credential("ya29.fresh")
+    placement = await _engine(handler).set_llm_credential("ya29.fresh", provider="azure_openai")
 
     assert placement.replaced_in_place is True
 
@@ -470,7 +518,9 @@ async def test_the_other_three_azure_entries_are_not_mistaken_for_ours() -> None
             return httpx.Response(200, json=list(companions))
         return httpx.Response(200, json={"message": "successful", "status": "added"})
 
-    placement = await _engine(handler).set_llm_credential("azure-static-key")
+    placement = await _engine(handler).set_llm_credential(
+        "azure-static-key", provider="azure_openai"
+    )
 
     assert placement.replaced_in_place is True
     assert placement.superseded_removed == 0
@@ -489,7 +539,7 @@ async def test_the_write_happens_before_any_delete_could() -> None:
             return httpx.Response(200, json=[])
         return httpx.Response(200, json={"message": "successful", "status": "added"})
 
-    await _engine(handler).set_llm_credential("ya29.fresh")
+    await _engine(handler).set_llm_credential("ya29.fresh", provider="azure_openai")
 
     assert "DELETE" not in order
     assert order.index("POST") < len(order) - 1, "the read-back must follow the write"

@@ -410,6 +410,43 @@ class Settings(BaseSettings):
     # liability the extraction rewrite deleted it to avoid.
     gemini_api_key: str | None = None
 
+    # OPENAI DIRECT — the `openai` leg's credential (D-456's third declared leg). ONE key,
+    # unlike Azure's four: OpenAI's own API is a single OpenAI-compatible surface, so the
+    # engine's credential store takes exactly one entry named `OPENAI`
+    # (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers.md:87,105-109`, "LLMs"
+    # tab, "OpenAI" accordion — one row, `OPENAI` = "Your OpenAI API key"). The mapping of
+    # this field to that store entry is an ENGINE concern (hard rule 2) and lives beside
+    # the Azure four in `engine/bolna.py`; this field carries only the value the platform
+    # installs.
+    #
+    # OFFERED TO NOBODY TODAY, and installable anyway — the same posture as `gemini_api_key`
+    # one field up (D-456: `azure_openai`, `openai`, `google` are all DECLARED, only Azure's
+    # two models are SELECTABLE). Every `openai`-leg model in `calevate_shared.engine
+    # .LLM_MODELS` carries `selectable=False` because its list price is REPORTED, not read
+    # (every OpenAI pricing host is egress-blocked here) — and `LlmModelSpec` refuses to make
+    # a model selectable on an unverified price. The founder's resolution is the ops panel's
+    # OPERATOR-ATTESTED price (`ops/model_pricing.py`): once the founder installs this key
+    # AND attests a price from their own OpenAI invoice, the model becomes offerable. So this
+    # credential is installed in anticipation of that attestation, exactly as an operator
+    # would install a vendor key before switching its leg on.
+    #
+    # SEALED OUT OF THE PLAINTEXT TABLE BY ITS NAME (`api_key` is one of
+    # `platform_config._SECRET_NAME_FRAGMENTS`), so `manageable_secret_keys()` picks it up
+    # with no list to edit and `platform_secrets` holds it encrypted. Injected from the
+    # secrets manager at deploy time, never a committed file, never logged. Bounded like the
+    # Azure key: 512 is far above any real key and far below the megabyte a jsonb-replicated
+    # string could carry.
+    #
+    # `applies: live` (`core/platform_config.FIELD_APPLIES`) and not `needs_republish`: NO
+    # process caches this credential and no engine holds a copy of it, because no model runs
+    # on the `openai` leg yet — so a rotation cannot be stale anywhere, which is the exact
+    # condition `needs_republish` exists to warn about. `azure_openai_api_key` is
+    # `needs_republish` BECAUSE the engine caches its copy; the day an `openai`-leg model is
+    # switched on and the engine begins to hold this one, the lane that wires that reader
+    # reclassifies this field in the same change (the repo's rule: the reader and its
+    # classification land together).
+    openai_api_key: str | None = Field(default=None, max_length=512)
+
     # AZURE OPENAI — BOTH LLM SURFACES, ONE RESOURCE (D-410). The in-call leg the engine
     # calls and the user-triggered dashboard AI read the same four values below.
     #

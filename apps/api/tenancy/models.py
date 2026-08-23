@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from calevate_shared.engine import AZURE_OPENAI_MODELS
+from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -35,16 +35,17 @@ class Organization(PKMixin, TimestampMixin, Base):
         CheckConstraint("slug ~ '^[a-z0-9-]{3,40}$'", name="slug_shape"),
         CheckConstraint(f"status IN {ORG_STATUSES!r}".replace("(", "(", 1), name="status_enum"),
         CheckConstraint(f"plan_tier IN {PLAN_TIERS!r}", name="plan_tier_enum"),
-        # The account's language-model choice, admitted only from the allow-list.
-        # DERIVED from `AZURE_OPENAI_MODELS`, never retyped (D-104): the frozenset is the
+        # The account's language-model choice, admitted only from the catalogue.
+        # DERIVED from `LLM_MODEL_NAMES`, never retyped (D-104): the frozenset is the
         # source, `sorted` makes the rendered SQL byte-stable across interpreter runs, and
-        # a model added to the Literal therefore changes this constraint in the same edit
-        # or it changes neither. NULL is admitted EXPLICITLY because it is the "inherit
-        # the platform's model" sentinel, not by the accident that a NULL-returning CHECK
-        # passes. Migration b7d2f10c93ae.
+        # a model added to any of the three per-leg Literals therefore changes this
+        # constraint in the same edit or it changes neither. NULL is admitted EXPLICITLY
+        # because it is the "inherit the platform's model" sentinel, not by the accident
+        # that a NULL-returning CHECK passes. Migrations b7d2f10c93ae, then d3a7c81f45be
+        # which widened it from the Azure-only list to the whole catalogue — see that
+        # revision for why the floor is the catalogue and the policy is in code.
         CheckConstraint(
-            "default_llm_model IS NULL OR default_llm_model IN "
-            f"{tuple(sorted(AZURE_OPENAI_MODELS))!r}",
+            f"default_llm_model IS NULL OR default_llm_model IN {tuple(sorted(LLM_MODEL_NAMES))!r}",
             name="default_llm_model_allowed",
         ),
     )

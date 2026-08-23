@@ -392,6 +392,51 @@ async def test_the_report_groups_by_region_and_that_is_the_gate_4_answer() -> No
     assert report.llm_ttft_budget_ms == LLM_TTFT_BUDGET_MS
 
 
+async def test_a_soft_deleted_tenants_turns_are_not_walked() -> None:
+    """The directory enumerates tenants by `deleted_at IS NULL` — the predicate
+    `admin/health.client_health` and `core/auth._load_admin_principal` both walk by.
+
+    A soft-deleted account is one being erased (`organizations.deleted_at`, the only thing
+    in the product that sets it); its calls must not surface in a fleet ops report. The
+    filter was `status <> 'deleted'` — a value `ORG_STATUSES` does not contain and the
+    `status_enum` CHECK refuses — so it excluded NOTHING, and a soft-deleted tenant's turns
+    landed in the distribution.
+
+    A CHURNED-but-not-deleted tenant is kept IN: its recent calls are real engine
+    measurements, and `deleted_at IS NULL` is the whole predicate — so this also pins that
+    the fix keys on `deleted_at` (as `_load_admin_principal` does) rather than on churning,
+    and does not silently drop live data.
+    """
+    live, gone, churned = await _tenant(), await _tenant(), await _tenant()
+    live_region, gone_region, churned_region = _region(), _region(), _region()
+    await _measured_call(live, region=live_region, ttfts=[300.0 + n for n in range(P50_MIN_TURNS)])
+    await _measured_call(gone, region=gone_region, ttfts=[300.0 + n for n in range(P50_MIN_TURNS)])
+    await _measured_call(
+        churned, region=churned_region, ttfts=[300.0 + n for n in range(P50_MIN_TURNS)]
+    )
+    # `deleted_at` implies `churned` (ck_organizations_deleted_implies_churned), so the
+    # erased account carries both; the churned-only account carries the status alone. A
+    # tenant session may soft-delete its own organization (organizations_delete_rls_test).
+    async with tenant_session(gone.tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET status = 'churned', deleted_at = now() WHERE id = :id"),
+            {"id": gone.tenant_id},
+        )
+    async with tenant_session(churned.tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET status = 'churned' WHERE id = :id"),
+            {"id": churned.tenant_id},
+        )
+
+    async with admin_session() as session:
+        report = await engine_latency_report(session, days=1)
+
+    regions = {g.region for g in report.groups}
+    assert live_region in regions, "a live tenant's turns must be reported"
+    assert churned_region in regions, "a churned-but-not-erased tenant's turns are real data"
+    assert gone_region not in regions, "a soft-deleted tenant's turns must not be walked"
+
+
 async def test_a_percentile_the_sample_cannot_support_is_withheld() -> None:
     """`None`, not the maximum wearing a p95's name."""
     tenant = await _tenant()

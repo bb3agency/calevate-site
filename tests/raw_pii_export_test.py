@@ -112,7 +112,16 @@ async def test_an_owner_can_export_and_the_export_is_recorded() -> None:
 
 def test_the_export_permission_is_one_no_staff_role_holds() -> None:
     """Stated as a property of the registry, not of today's role table: if someone later
-    grants `calls:read_raw` to `staff`, this fails here rather than in an incident."""
+    grants `calls:read_raw` to `staff`, this fails here rather than in an incident.
+
+    IT IS ABOUT `staff` AND ONLY `staff` NOW. The line beside this one used to assert the
+    admin realm's normal tier did not hold it either, and the founder's correction to
+    D-457 moved it there on purpose — raw reads are per-tenant support work, gated by a
+    second factor at the impersonation door (D-210) and by an `audit_log` row per read.
+    Deleting that line rather than inverting it is deliberate: this file's subject is who
+    may take a CLIENT's unmasked contact list out of the building, `staff` is the role
+    that must never be able to, and the admin-tier boundary is asserted where it lives
+    (`tests/admin_operators_test.py`, over `SUPERADMIN_ONLY_PERMISSIONS`).
+    """
     assert "calls:read_raw" not in ROLE_PERMISSIONS["staff"]
-    assert "calls:read_raw" not in ROLE_PERMISSIONS["operator"]
     assert "calls:read_raw" in ROLE_PERMISSIONS["owner"]

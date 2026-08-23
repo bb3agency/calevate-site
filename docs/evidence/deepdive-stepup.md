@@ -46,6 +46,12 @@ judgement about sensitivity:
   realm. A `superadmin` in a view-as session reaches it — `superadmin` is the only admin role
   holding `calls:read_raw` (`core/rbac.ROLE_PERMISSIONS`; `operator` does not) — with role +
   audit and, before this change, no freshness check anywhere on the path.
+  - **[SUPERSEDED 23 Aug 2026 — the parenthetical, not the decision.]** The founder's
+    correction to D-457 moved `calls:read_raw` into `ROLE_PERMISSIONS["operator"]`, so
+    BOTH admin tiers now reach that route through a view-as session. The reasoning above
+    is unaffected and strengthened: the gate taken on the mint is the only freshness check
+    on the path, and it now stands in front of every admin who can enter a client's
+    account rather than in front of the one who could also read the transcript.
 
 ### The decision
 

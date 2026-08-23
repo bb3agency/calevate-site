@@ -8,11 +8,14 @@ Role tables (DATA-MODEL §2):
 - client realm `owner` — everything in their own tenant, including raw transcripts
   (role check + audit_log write, hard rule 5) and billing.
 - client realm `staff`  — no billing, no org settings, no raw transcripts.
-- admin realm `operator`   — runs onboarding and support across tenants.
-- admin realm `superadmin` — adds the dangerous switches (big red switch, cap raises),
-  each of which additionally needs step-up confirmation.
+- admin realm `operator`   — runs onboarding and support across tenants, and since the
+  founder's correction to D-457 that includes the per-tenant reads support actually
+  needs: raw transcripts and recordings (role check + audit row, hard rule 5) and the
+  authority to dispatch a campaign.
+- admin realm `superadmin` — the four PLATFORM authorities, each of which additionally
+  needs step-up confirmation. There is one of these accounts.
 
-═══ THE ADMIN REALM IS TWO TIERS, AND THE SPLIT IS STRUCTURAL RATHER THAN WRITTEN OUT ═══
+═══ THE ADMIN REALM IS TWO TIERS, AND THE BOUNDARY IS FOUR PERMISSIONS LONG ═══
 
 `superadmin` holds EVERY permission, and it holds them by DERIVATION (`SUPERADMIN_
 PERMISSIONS = KNOWN_PERMISSIONS`) rather than by a hand-kept list that used to be
@@ -20,10 +23,23 @@ maintained beside `operator`'s. That is the product rule — the person who owns
 platform can do everything on it — expressed once, in the one place it can never drift
 from the `Permission` type.
 
-What it buys is the DEFAULT for everything added later, and the default is DENY. A new
-permission joins the type, is granted to `superadmin` by construction, and reaches a
-normal admin only if somebody adds it to `ROLE_PERMISSIONS["operator"]` on purpose.
-So a route can never be "neither super-admin-only nor normal-admin-allowed":
+THE OTHER TIER IS THE FOUNDER'S SENTENCE, NOT A SENIORITY LADDER: "the other normal
+admins can do literally everything that a super admin can except ops config and other
+things that are vital in that level". So the difference between the two tiers is
+`SUPERADMIN_ONLY_PERMISSIONS` — four names, listed and argued below — and NOTHING ELSE.
+A permission that is not one of those four and is withheld from `operator` is a bug in
+this file, not a policy; `tests/admin_operators_test.py` states that as an equation over
+these constants rather than over a hand-typed list, so a permission added to the
+`Permission` type tomorrow cannot land in the wrong tier unnoticed.
+
+WHAT IS STILL DENY-BY-DEFAULT, AND WHY THE EQUATION DOES NOT WEAKEN IT. `operator`'s set
+stays HAND-KEPT rather than being computed as `SUPERADMIN_PERMISSIONS -
+SUPERADMIN_ONLY_PERMISSIONS`. Deriving it would read tidier and would invert the default:
+a new permission would reach every admin the moment it joined the type, silently. Written
+out, a new permission reaches `superadmin` by construction and a normal admin only by an
+explicit line — and the equation in the test then FAILS until somebody decides which side
+it belongs on. Deny is the default; the test is what stops the default from being
+accidental. So a route can never be "neither super-admin-only nor normal-admin-allowed":
 
   * a permission no role holds fails `assert_policy_registry_complete` (a lock with no
     key — the route would 403 the entire population);
@@ -128,6 +144,42 @@ KNOWN_PERMISSIONS: frozenset[str] = frozenset(get_args(Permission))
 #: which is precisely the hand-kept list this replaces.
 SUPERADMIN_PERMISSIONS: frozenset[Permission] = cast("frozenset[Permission]", KNOWN_PERMISSIONS)
 
+#: THE ENTIRE DIFFERENCE BETWEEN THE TWO ADMIN TIERS, named once so it can be asserted.
+#:
+#: The founder was asked to draw the line and drew it here: "only super admin has access
+#: to ops config panel ... the other normal admins can do literally everything that a
+#: super admin can except ops config and other things that are vital in that level."
+#: Four permissions, and each is on this list because losing it costs the PLATFORM rather
+#: than one client:
+#:
+#:   `platform:secrets` + `platform:config` — the ops config panel, where every vendor
+#:     credential and every platform-wide setting is installed. PLATFORM-CONFIG §10's
+#:     risk acceptance rests verbatim on `platform:secrets` being "held by fewer people
+#:     than any other on this list"; §7 argues `platform:config`'s own blast radius
+#:     ("change what every client's platform does at the same instant").
+#:   `admin:operators` — the role table itself. It is the load-bearing one: a normal
+#:     admin who could edit it could grant themselves the other three in one request, and
+#:     every other line here would be decoration.
+#:   `ops:manage` — the global kill switches (big red switch, load-shed, DLQ replay,
+#:     audit-chain verify, `/healthz/ready` detail). Two routes ALSO read it as the
+#:     superadmin marker rather than declaring it — tenant erasure
+#:     (`compliance/tenant_erasure_routes.py`) and raising or removing a client's spend
+#:     ceiling (`admin/routes.py::record_commercial_terms`) — so those two acts ride this
+#:     entry and are superadmin-only as a consequence of it.
+#:
+#: IT IS NOT ENFORCEMENT AND MUST NEVER BECOME IT. `role_has` is the enforcement and
+#: reads `ROLE_PERMISSIONS`; this constant is the STATEMENT of the boundary that the
+#: test compares that dict against. Two dicts either of which could grant a permission
+#: would be exactly the drift `SUPERADMIN_PERMISSIONS` was derived to remove.
+SUPERADMIN_ONLY_PERMISSIONS: frozenset[Permission] = frozenset(
+    {
+        "admin:operators",
+        "ops:manage",
+        "platform:config",
+        "platform:secrets",
+    }
+)
+
 #: The two roles `ck_admin_users_role_enum` admits, in one place because three modules
 #: name them — this one, `tenancy/models` (which renders the CHECK constraint) and
 #: `authn/bootstrap` (which validates `--role`) — and a fourth spelling is how a role
@@ -172,30 +224,42 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     # default (module docstring). Adding a line here is the whole act of widening the
     # normal tier, and it is reviewable as one line.
     #
-    # WHAT IS DELIBERATELY ABSENT, because these are the four the founder's question
-    # ("admins who are NOT super admins ... the ops config panel where I put in all the
-    # API keys") turns on:
+    # WHAT IS DELIBERATELY ABSENT IS EXACTLY `SUPERADMIN_ONLY_PERMISSIONS` AND NOTHING
+    # ELSE — asserted as an equation in `tests/admin_operators_test.py`, so this comment
+    # cannot come to describe a set the dict no longer has.
     #
-    #   `platform:secrets` — PLATFORM-CONFIG §10 accepts "one compromised admin session
-    #     is enough to steal every vendor credential" ONLY because this permission is
-    #     "held by fewer people than any other on this list". Granting it to every
-    #     operator deletes the mitigation the documented risk acceptance rests on, so it
-    #     is a decision-log change and not a lane's judgement call. It also covers the
-    #     masked READ (`GET /v1/ops/secrets`), because an inventory of which vendor
-    #     credentials are installed and which are missing is a targeting oracle — the
-    #     same argument D-128 uses to gate `/healthz/ready`'s detail behind `ops:manage`.
-    #   `platform:config` — "change what every client's platform does at the same
-    #     instant"; the comment on the permission itself argues it.
-    #   `ops:manage`     — the incident surface (big red switch, DLQ replay).
-    #   `admin:operators`— the role table itself. See the permission's own comment: a
-    #     normal admin who could edit it could grant themselves the other three.
+    # `calls:read_raw` AND `leads:dispatch` LIVE HERE, AND D-457 HAD THEM ON THE OTHER
+    # SIDE. The founder corrected that: "the other normal admins can do literally
+    # everything that a super admin can except ops config and other things that are vital
+    # in that level", and neither of these is vital at that level — both are PER-TENANT
+    # support work with their own controls already in front of them:
+    #
+    #   `calls:read_raw` — every route that declares it is client-realm, so a normal
+    #     admin reaches it only through a D-22 view-as session, which needs an
+    #     impersonation grant minted behind a second factor (D-210) and writes an
+    #     `audit_log` row of its own on every raw read (hard rule 5). This IS a real
+    #     widening and is worth naming rather than burying: an operator in a view-as
+    #     session can now read an unredacted transcript, play a recording, take the
+    #     unmasked CSV export, produce a data-subject export and open a delivered webhook
+    #     payload — six routes, each audited, none of them reachable before. The tests
+    #     that pinned the old boundary were rewritten to pin the new one rather than
+    #     deleted (`tests/impersonation_audit_test.py`), so the day this stops being
+    #     audited, something goes red.
+    #   `leads:dispatch` — it is in `MUTATING_PERMISSIONS`, so D-22 refuses it to an
+    #     impersonating admin, and `current_any` resolves the admin realm ONLY when the
+    #     impersonation header is present. Every route declaring it is client-realm.
+    #     So this grant opens no request that can be sent today; what it does is put the
+    #     tier boundary where the founder drew it, so a future ADMIN-realm dispatch
+    #     surface does not have to re-litigate it.
     NORMAL_ADMIN_ROLE: frozenset(
         {
             "agents:read",
             "agents:write",
             "calls:read",
+            "calls:read_raw",
             "leads:read",
             "leads:write",
+            "leads:dispatch",
             "billing:read",
             "org:read",
             "org:manage",
@@ -480,6 +544,7 @@ __all__ = [
     "PUBLIC_PREFIXES",
     "REALM_ATTR",
     "ROLE_PERMISSIONS",
+    "SUPERADMIN_ONLY_PERMISSIONS",
     "SUPERADMIN_PERMISSIONS",
     "SUPERADMIN_ROLE",
     "MissingPolicyError",
