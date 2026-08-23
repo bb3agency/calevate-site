@@ -1,17 +1,25 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { MarketingAccountNav } from "@/components/authn/marketingAccountNav";
 import {
   ArrowRight,
+  ArrowUpRight,
   BadgeCheck,
   Building2,
+  Check,
   Clock,
   Database,
   FileAudio,
+  Globe,
   GraduationCap,
   Languages,
+  ListChecks,
+  Lock,
   Megaphone,
+  PhoneCall,
   PhoneIncoming,
+  Rows3,
   ShieldCheck,
   Stethoscope,
   Table2,
@@ -32,7 +40,7 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  * ## Every line here is a promise, so every line is one the product already keeps
  *
  * This rule predates the redesign and survives it unchanged: name a behaviour that is
- * enforced in code today, or leave it out. The page got longer and more animated; it did
+ * enforced in code today, or leave it out. The page got bolder and more animated; it did
  * not get a single new claim. What is still deliberately ABSENT, because the absences are
  * the load-bearing part and a rewrite is exactly when they get quietly reinstated:
  *
@@ -49,74 +57,40 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  * - **No turnaround promise.** Nothing in the product or in ops measures one.
  * - **No integration logos.** The outbound webhook and Sheets sync are real (D-23); a wall
  *   of CRM logos would imply certified integrations that do not exist.
- * - **No data-residency, storage-location or certification claim.** This one was NOT
- *   absent and had to be removed: the data section used to say "It stays in India —
- *   calls, transcripts and recordings are processed and stored in Indian regions", and
- *   nothing in this repository supports it. DEPLOYMENT §0 puts the whole site stack,
- *   including the Postgres holding every transcript and phone number, on a
- *   general-purpose VPS with **India co-location explicitly NOT required**; §1 puts
- *   object storage on Cloudflare R2 with `AWS_REGION=auto`; SECURITY-COMPLIANCE §4
- *   records Bolna call recordings observed on S3 `us-east-1` and marks the residency
- *   posture as something to be pinned in a CONTRACT that does not exist yet; Clerk,
- *   Resend and Sentry were all outside India (Clerk has since gone, D-177); and no deploy has ever run.
- *   The hosting region has since been decided (D-180, an Indian VPS) and is STILL not a
- *   claim this page makes: one Indian leg out of five does not make the data plane
- *   India-resident, and the founder's decision is a fact for the sub-processor register,
- *   not a differentiator for a card. What survived was one narrow claim about MODEL
- *   ENDPOINTS, and D-449 has now WITHDRAWN even that: on 22 August 2026 the declared
- *   model region moved from Azure OpenAI in South India to Azure OpenAI in East US 2, so
- *   there is no India claim left to make about model inference and the card says the
- *   model is American in the same sentence that says the speech is Indian. What
- *   `scripts/check_model_residency.py` still proves is unchanged in shape and weaker
- *   than it once was (D-410): a single endpoint builder that can emit only the declared
- *   region and no setting able to carry one — but an Azure OpenAI hostname names no
- *   region, so where the resource actually SITS is attested by a person in the console
- *   (OPERATIONS gates 20 and 20c) and not by the build. The section below says exactly
- *   that and no more. A softer verb over the wider implication ("your data lives in
- *   India"), or a firmer one over the narrow claim ("a check guarantees it"), are the
- *   same misrepresentation, so `publicLanding.test.tsx` bans both shapes rather than
- *   trusting the next writer to remember why. Certifications (SOC 2, ISO 27001, HIPAA)
- *   are likewise absent because the company holds none.
+ * - **No data-residency, storage-location or certification claim.** The data section names
+ *   which leg is Indian and which is not (Azure OpenAI in East US 2 since D-449) and says
+ *   the region is confirmed by a person, not proved by a build. A softer verb over the
+ *   wider implication, or a firmer one over the narrow claim, are the same
+ *   misrepresentation, so `publicLanding.test.tsx` bans both shapes. Certifications
+ *   (SOC 2, ISO 27001, HIPAA) are absent because the company holds none.
  *
- * ## What the redesign added, and why each section is defensible
+ * ## The redesign, section by section — each reads from a shipped surface
  *
- * Every capability below maps to a shipped surface, and the compliance section is the one
- * that is genuinely differentiating rather than decorative — each of its four lines is an
- * invariant enforced on the dispatch path (hard rule 5), not a policy page. The recording
- * and key-moments card is D-153/D-156, both shipped. The retention line is the TRAI
- * 90-day floor, enforced by a database CHECK rather than by intent.
- *
- * ## The sections added after the redesign, and what each one is reading from
- *
- * - **Verticals.** The field lists are COPIED from `scripts/seed.py`'s
- *   `VERTICAL_TEMPLATES`, label for label, so the page shows the columns a new agent
- *   really starts with rather than a plausible-looking set. Which two have a scenario
- *   suite behind them is stated rather than implied: `tests/fixtures/
- *   golden_transcripts.json` carries `cl_*` and `re_*` cases and nothing for the other
- *   two, and BRD §3 calls insurance and education fast-follow.
- * - **Languages.** Three, because three is what the product offers — `Language` in
- *   `apps/api/agents/voices.py` and `CreateOrgIn.language` in `apps/api/admin/routes.py`
- *   are `te-IN | hi-IN | en-IN` — and Telugu leads because `agents.language_primary`
- *   server-defaults to it. No comprehension or naturalness figure: D-36 records Telugu
- *   extraction quality as UNMEASURED, and TRD §5 records Bulbul's wider language count
- *   without a list, which is why the page names three and not eleven.
- * - **Quality.** D-15's client-facing report, which is a shipped screen
- *   (`/c/<slug>/quality`, `GET /v1/quality/reports`). The section says what the report
- *   REFUSES to print, because that is the differentiating part and it is enforced in
- *   `lib/api/quality.ts` rather than promised here.
- * - **FAQ** — see `components/marketing/faq.tsx`, which carries its own answer-by-answer
- *   backing, including why the cost answer names a structure and no number.
- * - **A closing invitation** rather than a closing claim. It repeats the doors' honesty
- *   about how an account is actually opened instead of introducing a new promise.
+ * Structure: hero (+ the one animated call→row figure), a proof strip, "how it works"
+ * (three steps), capabilities, verticals, languages, the compliance band (the genuinely
+ * differentiating part — four invariants enforced on the dispatch path, hard rule 5, not
+ * a policy page), the data section (residency, told straight), the quality report, the
+ * FAQ, the two doors, and a closing invitation. Verticals' field lists are COPIED from
+ * `scripts/seed.py`'s `VERTICAL_TEMPLATES` label-for-label; which two have a scenario
+ * suite is stated, not implied (`tests/fixtures/golden_transcripts.json` carries `cl_*`
+ * and `re_*` only). Languages names three because three is what the product offers
+ * (`te-IN | hi-IN | en-IN`), Telugu leading because `agents.language_primary`
+ * server-defaults to it. Quality is D-15's shipped screen and says what the report
+ * REFUSES to print. The FAQ carries its own answer-by-answer backing.
  *
  * ## Motion
  *
  * `SmoothScroll` installs Lenis and the shared GSAP ticker (D-161). All of it is an
  * enhancement: content renders visible and is animated FROM a displaced state, so a
  * failed bundle or a reader who asked for reduced motion gets the same page, immediately.
- * `data-marketing-root` is what lets `globals.css` hand the document back its scrollbar
- * without the rule being able to reach the fixed app shells under /c and /admin.
+ * The decorative CSS layer (`.mk-*` in globals.css) is frozen for that reader by the
+ * marketing-scoped `prefers-reduced-motion` reset. `data-marketing-root` is what lets
+ * `globals.css` hand the document its scrollbar back and paint the marketing-only visual
+ * tokens without either rule reaching the fixed app shells under /c and /admin.
  */
+
+/** The section container, one place so every band lines up on the same rhythm. */
+const SHELL = "mx-auto w-full max-w-6xl px-6";
 
 /** A capability, stated as the behaviour a caller or a client would observe. */
 const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[] = [
@@ -183,30 +157,21 @@ const COMPLIANCE: { icon: typeof Clock; title: string; body: string }[] = [
   {
     icon: BadgeCheck,
     /*
-     * NARROWED TO WHAT IS ACTUALLY UNSWITCHABLE (D-163), and the old wording is the
-     * second instance of the residency defect's shape on this page: a claim that was
-     * true when it was written and was inverted underneath by a later decision.
-     *
-     * It said "Every call says it is an AI … There is no configuration that turns it
-     * off". D-163 made the OPENING ANNOUNCEMENT a per-agent toggle — the client's own
-     * agents screen ships the switch, labelled "Say it is an AI assistant", with the
-     * off-note "Callers are not told at the start of the call". So the page was
-     * promising a buyer the exact thing the product hands their staff a switch for.
-     *
-     * What survives is stronger for being narrower and is enforced rather than
-     * documented: `agents.ai_disclosure_line` is NOT NULL and non-blank, the dial gate
-     * refuses an agent without one, and `compose_engine_prompt` appends the truthful
-     * answer above the client's script on every publish and every drift sweep — no
-     * column, config row or client-authored script can withdraw it (hard rule 5). The
-     * wording follows `compliance/disclosure.TRUTHFUL_ANSWER_PROMISE`, which is the
-     * sentence the API serves to the client's own screen, so the marketing page and the
-     * console cannot drift into promising different things.
+     * NARROWED TO WHAT IS ACTUALLY UNSWITCHABLE (D-163). The old wording ("Every call
+     * says it is an AI … There is no configuration that turns it off") was inverted by a
+     * later decision: D-163 made the OPENING ANNOUNCEMENT a per-agent toggle, so the page
+     * was promising a buyer the exact thing the product hands their staff a switch for.
+     * What survives is stronger for being narrower and is enforced rather than documented:
+     * `agents.ai_disclosure_line` is NOT NULL and non-blank, the dial gate refuses an
+     * agent without one, and `compose_engine_prompt` appends the truthful answer above the
+     * client's script on every publish and every drift sweep (hard rule 5). The wording
+     * follows `compliance/disclosure.TRUTHFUL_ANSWER_PROMISE`.
      */
     title: "It never denies being an AI",
     body:
       "Every agent has an AI disclosure line and cannot go live without one. Whether " +
       "it volunteers that line at the start of a call is your setting; that it answers " +
-      "honestly when a caller asks — \u201cI am an AI assistant\u201d — is not, and no " +
+      "honestly when a caller asks — “I am an AI assistant” — is not, and no " +
       "script can override it.",
   },
   {
@@ -225,8 +190,7 @@ const COMPLIANCE: { icon: typeof Clock; title: string; body: string }[] = [
  * paraphrased on purpose: this grid's whole value to a buyer is that it is the actual
  * first screen of their agent, and a prettier label here would be a small lie that only
  * shows up on the day they log in. `suite` marks the two the golden-transcript fixtures
- * cover today (`cl_*`, `re_*`) — stated on the card rather than left to be assumed of
- * all four.
+ * cover today (`cl_*`, `re_*`).
  */
 const VERTICALS: {
   icon: typeof Stethoscope;
@@ -283,15 +247,72 @@ const QUALITY: { term: string; detail: string }[] = [
   },
 ];
 
+/** The three steps, kept exact — the AI-by-default nuance in step 02 is D-163. */
+const STEPS: { icon: typeof PhoneCall; step: string; title: string; body: string }[] = [
+  {
+    icon: ListChecks,
+    step: "01",
+    title: "You say what matters",
+    body:
+      "Tell the agent about your business and list what it has to find out from each " +
+      "caller. That list becomes your columns.",
+  },
+  {
+    icon: PhoneCall,
+    step: "02",
+    title: "It takes the call",
+    // "by default" is not hedging — it is D-163. Whether the agent VOLUNTEERS the AI line
+    // at the start is a per-agent toggle that ships ON (`ai_disclosure_enabled` DEFAULT
+    // true), so this describes what a new agent does rather than a guarantee. The
+    // guarantee is in the compliance band below and is about the ANSWER, not the opening.
+    body:
+      "Someone rings, or the agent works through a list you uploaded. It opens by saying " +
+      "it is an AI by default, and answers from what you approved.",
+  },
+  {
+    icon: Rows3,
+    step: "03",
+    title: "You get a row, not a recording to wade through",
+    body:
+      "The enquiry lands filled in, with the audio attached and the key moments " +
+      "timestamped if you want to hear it yourself.",
+  },
+];
+
+/** The small editorial label above each band: an index, a hairline, a word. */
+function Eyebrow({ index, children }: { index: string; children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-strong uppercase dark:text-brand-bright">
+      <span className="font-mono text-ink-faint">{index}</span>
+      <span aria-hidden className="h-px w-6 bg-brand/50" />
+      {children}
+    </p>
+  );
+}
+
+const CTA_PRIMARY =
+  "group inline-flex items-center gap-2 rounded-full bg-brand-strong px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+
+const CTA_SECONDARY =
+  "inline-flex items-center gap-2 rounded-full border border-line bg-surface px-6 py-3 text-sm font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+
 export default function Home() {
   const devSlug = process.env.NEXT_PUBLIC_DEV_ORG_SLUG;
 
   return (
     <SmoothScroll>
-      <div data-marketing-root className="bg-app">
-        <header className="sticky top-0 z-20 border-b border-line bg-surface/85 backdrop-blur">
-          <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
-            <span className="text-base font-semibold tracking-tight text-ink">Calevate</span>
+      <div data-marketing-root className="bg-app text-ink">
+        <header className="sticky top-0 z-30 border-b border-line bg-surface/80 backdrop-blur-md">
+          <div className={`${SHELL} flex items-center justify-between gap-4 py-3.5`}>
+            <span className="flex items-center gap-2.5">
+              <span
+                aria-hidden
+                className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-strong text-white shadow-sm"
+              >
+                <PhoneCall className="h-4 w-4" />
+              </span>
+              <span className="text-base font-semibold tracking-tight text-ink">Calevate</span>
+            </span>
             {/* A client island in a server page: the session cookie is `HttpOnly`, so
                 whether this visitor is already signed in can only be answered by asking
                 the API. It renders the signed-out header until that lands, and never the
@@ -304,123 +325,144 @@ export default function Home() {
 
         <main>
           {/* --- Hero ------------------------------------------------------------- */}
-          <section className="mx-auto w-full max-w-5xl px-6 pt-16 pb-8 sm:pt-24">
-            <HeroStagger>
-              <p
-                data-hero-item
-                className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-ink-muted"
-              >
-                <Languages aria-hidden className="h-3.5 w-3.5" />
-                Telugu, Hindi and English
-              </p>
-              <h1
-                data-hero-item
-                className="mt-5 max-w-3xl text-4xl font-semibold tracking-tight text-balance text-ink sm:text-5xl"
-              >
-                Never lose a customer to a call you couldn&apos;t take.
-              </h1>
-              <p data-hero-item className="mt-5 max-w-2xl text-lg text-ink-muted">
-                Calevate is an AI receptionist that picks up when you can&apos;t. It answers
-                your callers, follows up on the enquiries you already have, and writes down
-                what each person wanted — in Telugu, Hindi or English.
-              </p>
-              <div data-hero-item className="mt-8 flex flex-wrap items-center gap-3">
-                <Link
-                  href="/signup"
-                  className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
-                >
-                  {SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
-                  <ArrowRight aria-hidden className="h-4 w-4" />
-                </Link>
-                <Link
-                  href="#how"
-                  className="inline-flex items-center gap-2 rounded-md border border-line px-5 py-2.5 text-sm font-semibold text-ink hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  See how it works
-                </Link>
-              </div>
-              {/* Honest positioning, not a metric: who this was built for. No count, no
-                  logo wall — those are the fabrications `publicLanding.test.tsx` bans. The
-                  Telugu-first, AP/Telangana focus is the same one the languages section
-                  states outright, said here as a warm line rather than a claim. */}
-              <p data-hero-item className="mt-6 max-w-2xl text-sm text-ink-faint">
-                Built Telugu-first for clinics, property offices and coaching centres across
-                Andhra Pradesh and Telangana.
-              </p>
-            </HeroStagger>
+          <section className="relative overflow-hidden">
+            {/* Decorative background: a masked dotted grid and two soft brand blobs.
+                All aria-hidden, all pointer-events-none, all frozen under reduced motion. */}
+            <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+              <div className="mk-grid-dots absolute inset-0" />
+              <div className="mk-blob mk-blob--a mk-float absolute -top-24 -left-24 h-80 w-80" />
+              <div className="mk-blob mk-blob--b mk-float--slow absolute -top-16 right-[-6rem] h-96 w-96" />
+            </div>
 
-            <CallDemo />
+            <div className={`${SHELL} pt-16 pb-10 sm:pt-24`}>
+              <HeroStagger>
+                <p
+                  data-hero-item
+                  className="inline-flex items-center gap-2 rounded-full border border-line bg-surface/80 px-3.5 py-1.5 text-xs font-medium text-ink-muted shadow-sm backdrop-blur"
+                >
+                  <Languages aria-hidden className="h-3.5 w-3.5 text-brand-strong dark:text-brand-bright" />
+                  Telugu-first — also Hindi and English
+                </p>
+                <h1
+                  data-hero-item
+                  className="mt-6 max-w-4xl text-5xl leading-[1.02] font-semibold tracking-tight text-balance text-ink sm:text-6xl lg:text-7xl"
+                >
+                  Never lose a{" "}
+                  <span className="relative inline-block">
+                    <span className="relative z-10">customer</span>
+                    <span
+                      aria-hidden
+                      className="absolute inset-x-[-0.12em] bottom-[0.06em] z-0 h-[0.42em] -rotate-1 rounded-sm bg-brand-soft dark:bg-brand-strong/45"
+                    />
+                  </span>{" "}
+                  to a call you couldn&apos;t take.
+                </h1>
+                <p data-hero-item className="mt-6 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl">
+                  Calevate is an AI receptionist that picks up when you can&apos;t. It answers
+                  your callers, follows up on the enquiries you already have, and writes down
+                  what each person wanted — in Telugu, Hindi or English.
+                </p>
+                <div data-hero-item className="mt-9 flex flex-wrap items-center gap-3">
+                  <Link href="/signup" className={CTA_PRIMARY}>
+                    {SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
+                    <ArrowRight
+                      aria-hidden
+                      className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                    />
+                  </Link>
+                  <Link href="#how" className={CTA_SECONDARY}>
+                    See how it works
+                  </Link>
+                </div>
+                {/* Honest positioning, not a metric: who this was built for, and three
+                    behaviours each mapped to a shipped feature — no count, no logo wall. */}
+                <ul data-hero-item className="mt-9 flex flex-wrap gap-x-6 gap-y-3">
+                  {[
+                    "Picks up when you can't",
+                    "Follows up on your list",
+                    "Writes down every enquiry",
+                  ].map((claim) => (
+                    <li key={claim} className="flex items-center gap-2 text-sm font-medium text-ink-muted">
+                      <span
+                        aria-hidden
+                        className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+                      >
+                        <Check className="h-3 w-3" />
+                      </span>
+                      {claim}
+                    </li>
+                  ))}
+                </ul>
+                <p data-hero-item className="mt-6 max-w-2xl text-sm text-ink-faint">
+                  Built Telugu-first for clinics, property offices and coaching centres across
+                  Andhra Pradesh and Telangana.
+                </p>
+              </HeroStagger>
+
+              <div className="relative mt-16">
+                {/* A glow tucked behind the figure so it reads as lifted off the page. */}
+                <div
+                  aria-hidden
+                  className="mk-blob mk-blob--a pointer-events-none absolute inset-x-10 -top-6 -z-10 h-40"
+                />
+                <CallDemo />
+              </div>
+            </div>
           </section>
 
           {/* --- How it works ------------------------------------------------------ */}
-          <section id="how" className="mx-auto w-full max-w-5xl scroll-mt-20 px-6 py-20">
-            <Reveal>
-              <h2 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                Three things happen, and you only set up the first one
-              </h2>
-            </Reveal>
-            <ol className="mt-10 grid gap-6 sm:grid-cols-3">
-              {[
-                {
-                  step: "01",
-                  title: "You say what matters",
-                  body:
-                    "Tell the agent about your business and list what it has to find out " +
-                    "from each caller. That list becomes your columns.",
-                },
-                {
-                  step: "02",
-                  title: "It takes the call",
-                  // "by default" is not hedging — it is D-163. Whether the agent
-                  // VOLUNTEERS the AI line at the start is a per-agent toggle that ships
-                  // ON (`ai_disclosure_enabled` DEFAULT true), so this describes what a
-                  // new agent does rather than a guarantee. The guarantee is in the
-                  // compliance section below and is about the ANSWER, not the opening.
-                  body:
-                    "Someone rings, or the agent works through a list you uploaded. It " +
-                    "opens by saying it is an AI by default, and answers from what you " +
-                    "approved.",
-                },
-                {
-                  step: "03",
-                  title: "You get a row, not a recording to wade through",
-                  body:
-                    "The enquiry lands filled in, with the audio attached and the key " +
-                    "moments timestamped if you want to hear it yourself.",
-                },
-              ].map(({ step, title, body }, index) => (
-                <Reveal as="li" key={step} delay={index * 0.08}>
-                  <span className="font-mono text-xs text-brand-strong dark:text-brand-bright">
-                    {step}
-                  </span>
-                  <h3 className="mt-2 text-lg font-semibold text-ink">{title}</h3>
-                  <p className="mt-1.5 text-sm text-ink-muted">{body}</p>
-                </Reveal>
-              ))}
-            </ol>
+          <section id="how" className="scroll-mt-20 border-t border-line bg-surface/40">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <Reveal>
+                <Eyebrow index="01">How it works</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  Three things happen, and you only set up the first one
+                </h2>
+              </Reveal>
+              <ol className="mt-12 grid gap-6 sm:grid-cols-3">
+                {STEPS.map(({ icon: Icon, step, title, body }, index) => (
+                  <Reveal
+                    as="li"
+                    key={step}
+                    delay={index * 0.08}
+                    className="relative rounded-2xl border border-line bg-surface p-6"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
+                        <Icon aria-hidden className="h-5 w-5" />
+                      </span>
+                      <span className="font-mono text-sm font-semibold text-ink-faint">{step}</span>
+                    </div>
+                    <h3 className="mt-5 text-lg font-semibold text-ink">{title}</h3>
+                    <p className="mt-2 text-sm text-ink-muted">{body}</p>
+                  </Reveal>
+                ))}
+              </ol>
+            </div>
           </section>
 
           {/* --- Capabilities ------------------------------------------------------ */}
-          <section className="border-y border-line bg-surface/50">
-            <div className="mx-auto w-full max-w-5xl px-6 py-20">
+          <section className="border-t border-line">
+            <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <h2 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                  What it does, once it&apos;s answering your calls
+                <Eyebrow index="02">What it does</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  Everything that happens once it&apos;s answering your calls
                 </h2>
               </Reveal>
-              <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {CAPABILITIES.map(({ icon: Icon, title, body }, index) => (
                   <Reveal
                     as="section"
                     key={title}
                     delay={(index % 3) * 0.06}
-                    className="rounded-card border border-line bg-surface p-5"
+                    className="group rounded-2xl border border-line bg-surface p-6 transition-colors hover:border-brand/40"
                   >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong transition-transform group-hover:scale-105">
                       <Icon aria-hidden className="h-5 w-5" />
                     </span>
-                    <h3 className="mt-3 text-[17px] font-semibold text-ink">{title}</h3>
-                    <p className="mt-1 text-sm text-ink-muted">{body}</p>
+                    <h3 className="mt-5 text-[17px] font-semibold text-ink">{title}</h3>
+                    <p className="mt-1.5 text-sm text-ink-muted">{body}</p>
                   </Reveal>
                 ))}
               </div>
@@ -428,215 +470,208 @@ export default function Home() {
           </section>
 
           {/* --- Verticals --------------------------------------------------------- */}
-          <section id="verticals" className="mx-auto w-full max-w-5xl scroll-mt-20 px-6 py-20">
-            <Reveal>
-              <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                It starts with the questions your line of work actually asks
-              </h2>
-              <p className="mt-4 max-w-2xl text-base text-ink-muted">
-                A clinic needs to know what hurts and how soon. A property office needs a
-                budget and an area. These are the field lists a new agent starts from —
-                and then you change them, because the columns are yours rather than ours.
-              </p>
-            </Reveal>
-            <div className="mt-10 grid gap-4 sm:grid-cols-2">
-              {VERTICALS.map(({ icon: Icon, name, fields, suite }, index) => (
-                <Reveal
-                  as="section"
-                  key={name}
-                  delay={(index % 2) * 0.06}
-                  className="rounded-card border border-line bg-surface p-5"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
-                      <Icon aria-hidden className="h-5 w-5" />
-                    </span>
-                    <h3 className="text-[17px] font-semibold text-ink">{name}</h3>
-                  </div>
-                  <ul className="mt-4 flex flex-wrap gap-2">
-                    {fields.map((field) => (
-                      <li
-                        key={field}
-                        className="rounded-full border border-line px-2.5 py-1 text-xs text-ink-muted"
-                      >
-                        {field}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-4 text-xs text-ink-faint">
-                    {suite
-                      ? "Built against first, with its own suite of test calls behind it."
-                      : "The field list ships; the test calls for it are still being written."}
-                  </p>
-                </Reveal>
-              ))}
+          <section id="verticals" className="scroll-mt-20 border-t border-line bg-surface/40">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <Reveal>
+                <Eyebrow index="03">Made for your line of work</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  It starts with the questions your line of work actually asks
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                  A clinic needs to know what hurts and how soon. A property office needs a
+                  budget and an area. These are the field lists a new agent starts from —
+                  and then you change them, because the columns are yours rather than ours.
+                </p>
+              </Reveal>
+              <div className="mt-12 grid gap-4 sm:grid-cols-2">
+                {VERTICALS.map(({ icon: Icon, name, fields, suite }, index) => (
+                  <Reveal
+                    as="section"
+                    key={name}
+                    delay={(index % 2) * 0.06}
+                    className="rounded-2xl border border-line bg-surface p-6"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
+                        <Icon aria-hidden className="h-5 w-5" />
+                      </span>
+                      <h3 className="text-lg font-semibold text-ink">{name}</h3>
+                    </div>
+                    <ul className="mt-5 flex flex-wrap gap-2">
+                      {fields.map((field) => (
+                        <li
+                          key={field}
+                          className="rounded-full border border-line bg-app/60 px-3 py-1 text-xs font-medium text-ink-muted"
+                        >
+                          {field}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-5 flex items-start gap-2 text-xs text-ink-faint">
+                      <span
+                        aria-hidden
+                        className={
+                          "mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full " +
+                          (suite ? "bg-brand-bright" : "bg-ink-faint")
+                        }
+                      />
+                      {suite
+                        ? "Built against first, with its own suite of test calls behind it."
+                        : "The field list ships; the test calls for it are still being written."}
+                    </p>
+                  </Reveal>
+                ))}
+              </div>
+              <Reveal delay={0.12}>
+                <p className="mt-8 max-w-2xl text-sm text-ink-faint">
+                  Nothing is locked to a line of work. If yours is not one of these, you
+                  write the list of things the agent has to find out, and that is the whole
+                  setup — the same as it is for the four above.
+                </p>
+              </Reveal>
             </div>
-            <Reveal delay={0.12}>
-              <p className="mt-8 max-w-2xl text-sm text-ink-faint">
-                Nothing is locked to a line of work. If yours is not one of these, you
-                write the list of things the agent has to find out, and that is the whole
-                setup — the same as it is for the four above.
-              </p>
-            </Reveal>
           </section>
 
           {/* --- Languages --------------------------------------------------------- */}
-          <section className="border-y border-line bg-surface/50">
-            <div className="mx-auto w-full max-w-5xl px-6 py-20">
-              <Reveal>
-                <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                  Telugu first, and not as a setting somebody remembered at the end
-                </h2>
-                <p className="mt-4 max-w-2xl text-base text-ink-muted">
-                  Your callers do not switch to English for your convenience, and a
-                  receptionist who makes them is one they hang up on. This was built for
-                  Andhra Pradesh and Telangana before it was built for anywhere else.
-                </p>
-              </Reveal>
-              <dl className="mt-10 grid gap-8 sm:grid-cols-3">
-                {[
-                  {
-                    term: "Telugu is where an agent starts",
-                    detail:
-                      "A newly created agent is a Telugu agent until somebody changes it. " +
-                      "That is the default in the database, not a suggestion in a guide.",
-                  },
-                  {
-                    term: "Hindi and English are the other two",
-                    detail:
-                      "Three languages are offered, and only three, because those are the " +
-                      "ones we are willing to put a client's callers in front of.",
-                  },
-                  {
-                    term: "The whole agent moves with the language",
-                    detail:
-                      "The opening line that says it is an AI, the script and the material " +
-                      "it answers from are all in the language it speaks.",
-                  },
-                ].map(({ term, detail }, index) => (
-                  <Reveal key={term} delay={index * 0.08}>
-                    <dt className="text-[17px] font-semibold text-ink">{term}</dt>
-                    <dd className="mt-1.5 text-sm text-ink-muted">{detail}</dd>
-                  </Reveal>
-                ))}
-              </dl>
-              <Reveal delay={0.2}>
-                <p className="mt-10 max-w-2xl text-sm text-ink-faint">
-                  We publish no score for how well it understands any of them, because a
-                  number we cannot show you the working for is worth nothing. What we do
-                  publish, for your own agent, is the report below.
-                </p>
-              </Reveal>
+          <section className="border-t border-line">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+                <Reveal>
+                  <Eyebrow index="04">Telugu-first</Eyebrow>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                    Telugu first, and not as a setting somebody remembered at the end
+                  </h2>
+                  <p className="mt-4 max-w-xl text-base text-pretty text-ink-muted">
+                    Your callers do not switch to English for your convenience, and a
+                    receptionist who makes them is one they hang up on. This was built for
+                    Andhra Pradesh and Telangana before it was built for anywhere else.
+                  </p>
+                  {/* Authentic Telugu, warm rather than decorative-only: the language the
+                      agent greets a caller in. `lang` so a screen reader announces it right. */}
+                  <p
+                    lang="te"
+                    className="mt-8 text-4xl font-semibold text-brand-strong dark:text-brand-bright"
+                  >
+                    నమస్కారం
+                    <span className="ml-3 align-middle text-base font-normal text-ink-faint">
+                      — how a call opens
+                    </span>
+                  </p>
+                </Reveal>
+                <Reveal delay={0.08} as="section">
+                  <dl className="grid gap-4 sm:grid-cols-1">
+                    {[
+                      {
+                        term: "Telugu is where an agent starts",
+                        detail:
+                          "A newly created agent is a Telugu agent until somebody changes " +
+                          "it. That is the default in the database, not a suggestion in a guide.",
+                      },
+                      {
+                        term: "Hindi and English are the other two",
+                        detail:
+                          "Three languages are offered, and only three, because those are " +
+                          "the ones we are willing to put a client's callers in front of.",
+                      },
+                      {
+                        term: "The whole agent moves with the language",
+                        detail:
+                          "The opening line that says it is an AI, the script and the " +
+                          "material it answers from are all in the language it speaks.",
+                      },
+                    ].map(({ term, detail }) => (
+                      <div
+                        key={term}
+                        className="rounded-2xl border border-line bg-surface p-5"
+                      >
+                        <dt className="text-[17px] font-semibold text-ink">{term}</dt>
+                        <dd className="mt-1.5 text-sm text-ink-muted">{detail}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="mt-6 max-w-xl text-sm text-ink-faint">
+                    We publish no score for how well it understands any of them, because a
+                    number we cannot show you the working for is worth nothing. What we do
+                    publish, for your own agent, is the report further down.
+                  </p>
+                </Reveal>
+              </div>
             </div>
           </section>
 
           {/* --- Compliance -------------------------------------------------------- */}
-          <section className="mx-auto w-full max-w-5xl px-6 py-20">
-            <Reveal>
-              <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                Built around the Indian rules, in the code rather than in a policy page
-              </h2>
-              <p className="mt-4 max-w-2xl text-base text-ink-muted">
-                An automated call is regulated here, and the agent speaks on your
-                registration. These are not settings with sensible defaults — they are
-                limits the product enforces on every dial.
-              </p>
-            </Reveal>
-            <div className="mt-10 grid gap-4 sm:grid-cols-2">
-              {COMPLIANCE.map(({ icon: Icon, title, body }, index) => (
-                <Reveal
-                  as="section"
-                  key={title}
-                  delay={(index % 2) * 0.06}
-                  className="rounded-card border border-line bg-surface p-5"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
-                    <Icon aria-hidden className="h-5 w-5" />
-                  </span>
-                  <h3 className="mt-3 text-[17px] font-semibold text-ink">{title}</h3>
-                  <p className="mt-1 text-sm text-ink-muted">{body}</p>
-                </Reveal>
-              ))}
+          {/*
+           * The differentiator, rendered as a deliberately dark brand band so it reads as
+           * a spotlight rather than another card grid. It commits to one look in both
+           * themes (brand-deep ground, white text) — a considered single-look section, not
+           * a token gap: white on `--brand-deep` (#0c5932) clears WCAG AA comfortably, and
+           * the four cards below are the four dispatch-path invariants (hard rule 5).
+           */}
+          <section className="border-t border-line bg-brand-deep text-white">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <Reveal>
+                <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-bright uppercase">
+                  <span className="font-mono text-white/70">05</span>
+                  <span aria-hidden className="h-px w-6 bg-white/40" />
+                  Built for the Indian rules
+                </p>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-white sm:text-4xl">
+                  The rules live in the code, not in a policy page
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-pretty text-white/80">
+                  An automated call is regulated here, and the agent speaks on your
+                  registration. These are not settings with sensible defaults — they are
+                  limits the product enforces on every dial.
+                </p>
+              </Reveal>
+              <div className="mt-12 grid gap-4 sm:grid-cols-2">
+                {COMPLIANCE.map(({ icon: Icon, title, body }, index) => (
+                  <Reveal
+                    as="section"
+                    key={title}
+                    delay={(index % 2) * 0.06}
+                    className="rounded-2xl border border-white/15 bg-white/5 p-6 backdrop-blur-sm"
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-brand-bright">
+                      <Icon aria-hidden className="h-5 w-5" />
+                    </span>
+                    <h3 className="mt-5 text-[17px] font-semibold text-white">{title}</h3>
+                    <p className="mt-1.5 text-sm text-white/80">{body}</p>
+                  </Reveal>
+                ))}
+              </div>
             </div>
           </section>
 
           {/* --- Data ------------------------------------------------------------- */}
-          <section className="border-y border-line bg-surface/50">
-            <div className="mx-auto w-full max-w-5xl px-6 py-20">
+          <section className="border-t border-line">
+            <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <h2 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                  Your customers&apos; data
+                <Eyebrow index="06">Your customers&apos; data</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  Where it runs, and who can see what
                 </h2>
               </Reveal>
-              <dl className="mt-10 grid gap-8 sm:grid-cols-3">
+              <div className="mt-12 grid gap-4 lg:grid-cols-3">
                 {[
                   {
+                    icon: Globe,
                     /*
-                     * NARROWED TWICE. The sentence this replaced ("It stays in India")
-                     * was not true at all — see the residency note in this file's
-                     * header. What replaced it was true under Vertex and is NOT true
-                     * under Azure (D-410), and the difference is the whole reason this
-                     * comment is long:
+                     * The residency card, narrowed FOUR times and now WITHDRAWN as an India
+                     * claim (D-449, 22 Aug 2026): the declared model region is Azure OpenAI
+                     * `eastus2`, still Regional and not Global, speech and first extraction
+                     * untouched and still Sarvam. The card names the American half in the
+                     * same breath as the Indian half, says the region is confirmed by a
+                     * person rather than proved by a build, and points at the sub-processor
+                     * page. `publicLanding.test.tsx` pins the exact sentences in BOTH
+                     * directions — it must say the Indian half is Indian AND that the model
+                     * is not, and it must not claim a build proves residency.
                      *
-                     * It said the endpoint was "pinned to MUMBAI by a check that fails
-                     * our build if a line of code ever points somewhere else". Both
-                     * halves have to go. Mumbai was `asia-south1`, Vertex's region;
-                     * Azure OpenAI runs in SOUTH INDIA, which is a different place. And
-                     * Vertex put its region in the hostname AND the path, so
-                     * `scripts/check_model_residency.py` could prove residency from the
-                     * source. Azure's host carries the RESOURCE name and NO region — the
-                     * region is a property of that resource — so the same guard now proves
-                     * something strictly weaker: one spelling of the region, no
-                     * `Settings` field able to carry one, no endpoint constructible
-                     * outside `azure_openai_base_url()`, and a builder that can emit
-                     * only the declared region. That the resource IS in that region, and
-                     * that its deployment is Regional rather than Azure's
-                     * worldwide-by-default Global kind, are attested by a person in the
-                     * provider's console (OPERATIONS §2 gates 20 and 20c).
-                     *
-                     * So this says what the build does — nothing in our code or our
-                     * settings can move it — and says the region itself is checked by
-                     * hand. A marketing page claiming a build PROVES where processing
-                     * happens is the same misrepresentation as the sentence it replaced,
-                     * one degree quieter, and the DPA had to drop the identical claim.
-                     *
-                     * NARROWED A THIRD TIME, 22 Aug 2026. Everything above was true and
-                     * still left a prospect with the wrong impression: a card headed
-                     * "the AI runs on Indian endpoints", in a section about their
-                     * customers' data, reads as "the call is handled in India" — which
-                     * is what the ORCHESTRATOR does not do (Bolna is US by default, and
-                     * our BYOK posture forecloses their India routing, D-415). A
-                     * residency claim on a marketing page is a promise to a prospect and
-                     * a consumer-law exposure if it is untrue, and the fix is one clause
-                     * rather than a paragraph: name the half that is Indian and the half
-                     * that is not, and point at the page that carries the detail. Where
-                     * the database and the object store sit is no longer undecided for
-                     * the database (D-180 — an Indian VPS) and remains outside an
-                     * India-only jurisdiction for R2; neither is claimed here, because a
-                     * card is the wrong place to qualify one.
-                     *
-                     * AND THEN WITHDRAWN, 22 Aug 2026 (D-449). The declared posture moved
-                     * to `us-azure-openai` and the region to East US 2 — same vendor,
-                     * still Regional and not Global, and the speech legs and the first
-                     * post-call extraction are untouched and still Sarvam. So there is
-                     * no India claim left to narrow: a fourth narrowing would be the
-                     * dishonest move here, because "runs on Indian endpoints" cannot be
-                     * qualified into "runs in the United States". The card names the
-                     * American half in the same breath as the Indian half. What did NOT
-                     * change is the mechanism — one declared region, one builder, no
-                     * setting able to carry a region, and a build that refuses the
-                     * declaration until the tree agrees — so the promise keeps its shape
-                     * and changes only which region it names. `residencyWarrantyMirror`
-                     * pins that mechanism on the DPA side.
-                     *
-                     * AND DO NOT SPELL THE AZURE HOSTNAME IN THIS COMMENT. `check_model_
-                     * residency` has no AST for TypeScript, so it line-scans, and a `//`
-                     * comment naming the watched host is indistinguishable from an
-                     * endpoint built by hand — its docstring accepts that false positive
-                     * deliberately ("a tripwire, not a workhorse"). The first draft of
-                     * this paragraph wrote the host out and turned the guardrail red.
-                     * Describing it ("Azure's host carries the resource name") says the
-                     * same thing to a reader and nothing to the scanner.
+                     * DO NOT SPELL THE AZURE HOSTNAME IN THIS FILE. `check_model_residency`
+                     * line-scans (no TS AST) and a comment naming the watched host reads as
+                     * an endpoint built by hand — its docstring accepts that false positive
+                     * deliberately. Describing it says the same to a reader and nothing to
+                     * the scanner.
                      */
                     term: "Which part runs where, including the part that is not Indian",
                     detail:
@@ -655,26 +690,36 @@ export default function Home() {
                       "before you sign.",
                   },
                   {
+                    icon: Lock,
                     term: "One business cannot see another",
                     detail:
                       "Separation is enforced by the database on every query, not by " +
                       "application code remembering to filter.",
                   },
                   {
+                    icon: ShieldCheck,
                     term: "Phone numbers are hidden by default",
                     detail:
                       "Transcripts come back redacted. Seeing the raw text takes the " +
                       "right role and writes an audit entry.",
                   },
-                ].map(({ term, detail }, index) => (
-                  <Reveal key={term} delay={index * 0.08}>
-                    <dt className="text-[17px] font-semibold text-ink">{term}</dt>
-                    <dd className="mt-1.5 text-sm text-ink-muted">{detail}</dd>
+                ].map(({ icon: Icon, term, detail }, index) => (
+                  <Reveal
+                    as="section"
+                    key={term}
+                    delay={index * 0.08}
+                    className="rounded-2xl border border-line bg-surface p-6"
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
+                      <Icon aria-hidden className="h-5 w-5" />
+                    </span>
+                    <h3 className="mt-5 text-[17px] font-semibold text-ink">{term}</h3>
+                    <p className="mt-1.5 text-sm text-ink-muted">{detail}</p>
                   </Reveal>
                 ))}
-              </dl>
+              </div>
               <Reveal delay={0.2}>
-                <p className="mt-10 max-w-2xl text-sm text-ink-faint">
+                <p className="mt-8 max-w-2xl text-sm text-ink-faint">
                   If one of your customers asks you to delete what we hold on them, there
                   is a button for it and it produces a certificate saying what was
                   destroyed and when.
@@ -684,33 +729,45 @@ export default function Home() {
           </section>
 
           {/* --- Quality ----------------------------------------------------------- */}
-          <section id="quality" className="mx-auto w-full max-w-5xl scroll-mt-20 px-6 py-20">
-            <Reveal>
-              <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                We test your agent, and you read the same report we do
-              </h2>
-              <p className="mt-4 max-w-2xl text-base text-ink-muted">
-                An agent that sounds good on the demo call and loses a detail on the
-                fortieth one is the ordinary failure of this whole category. So the
-                testing is not a promise we make on this page — it is a screen in your
-                dashboard, and it is allowed to say bad news.
-              </p>
-            </Reveal>
-            <dl className="mt-10 grid gap-8 sm:grid-cols-3">
-              {QUALITY.map(({ term, detail }, index) => (
-                <Reveal key={term} delay={index * 0.08}>
-                  <dt className="text-[17px] font-semibold text-ink">{term}</dt>
-                  <dd className="mt-1.5 text-sm text-ink-muted">{detail}</dd>
-                </Reveal>
-              ))}
-            </dl>
+          <section id="quality" className="scroll-mt-20 border-t border-line bg-surface/40">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <Reveal>
+                <Eyebrow index="07">Held to a report</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  We test your agent, and you read the same report we do
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                  An agent that sounds good on the demo call and loses a detail on the
+                  fortieth one is the ordinary failure of this whole category. So the
+                  testing is not a promise we make on this page — it is a screen in your
+                  dashboard, and it is allowed to say bad news.
+                </p>
+              </Reveal>
+              <div className="mt-12 grid gap-4 sm:grid-cols-3">
+                {QUALITY.map(({ term, detail }, index) => (
+                  <Reveal
+                    as="section"
+                    key={term}
+                    delay={index * 0.08}
+                    className="rounded-2xl border border-line bg-surface p-6"
+                  >
+                    <span className="font-mono text-sm font-semibold text-brand-strong dark:text-brand-bright">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <h3 className="mt-3 text-[17px] font-semibold text-ink">{term}</h3>
+                    <p className="mt-1.5 text-sm text-ink-muted">{detail}</p>
+                  </Reveal>
+                ))}
+              </div>
+            </div>
           </section>
 
           {/* --- Questions --------------------------------------------------------- */}
-          <section id="faq" className="scroll-mt-20 border-y border-line bg-surface/50">
-            <div className="mx-auto w-full max-w-5xl px-6 py-20">
+          <section id="faq" className="scroll-mt-20 border-t border-line">
+            <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <h2 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                <Eyebrow index="08">Questions</Eyebrow>
+                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   Questions people ask us first
                 </h2>
               </Reveal>
@@ -722,120 +779,122 @@ export default function Home() {
             </div>
           </section>
 
-          {/* --- Doors ------------------------------------------------------------- */}
-          <section className="mx-auto w-full max-w-5xl px-6 py-20">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Reveal
-                as="section"
-                className="rounded-card border border-line bg-surface p-6"
-              >
-                <h2 className="text-[17px] font-semibold text-ink">Already a client</h2>
-                <p className="mt-1 text-sm text-ink-muted">
-                  Your workspace is at{" "}
-                  <code className="rounded bg-black/5 px-1 font-mono text-[13px] text-ink dark:bg-white/10">
-                    /c/your-slug
-                  </code>{" "}
-                  — the URL your account manager gave you.
-                </p>
-                <Link
-                  href={CLIENT_SIGN_IN_PATH}
-                  className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+          {/* --- Doors + closing invitation --------------------------------------- */}
+          <section className="border-t border-line bg-surface/40">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Reveal
+                  as="section"
+                  className="rounded-2xl border border-line bg-surface p-6"
                 >
-                  Sign in
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5" />
-                </Link>
-                {/* Local development only: unset in every deployed build, so this renders
-                    nothing rather than offering a stranger a link into somebody's tenant. */}
-                {devSlug && (
+                  <h2 className="text-[17px] font-semibold text-ink">Already a client</h2>
+                  <p className="mt-1.5 text-sm text-ink-muted">
+                    Your workspace is at{" "}
+                    <code className="rounded bg-black/5 px-1 font-mono text-[13px] text-ink dark:bg-white/10">
+                      /c/your-slug
+                    </code>{" "}
+                    — the URL your account manager gave you.
+                  </p>
                   <Link
-                    href={`/c/${devSlug}`}
-                    className="mt-3 inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-strong"
+                    href={CLIENT_SIGN_IN_PATH}
+                    className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:text-brand-bright"
                   >
-                    Open {devSlug}
+                    Sign in
+                    <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+                  </Link>
+                  {/* Local development only: unset in every deployed build, so this renders
+                      nothing rather than offering a stranger a link into somebody's tenant. */}
+                  {devSlug && (
+                    <Link
+                      href={`/c/${devSlug}`}
+                      className="mt-4 ml-4 inline-flex items-center gap-2 rounded-full bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep"
+                    >
+                      Open {devSlug}
+                      <ArrowRight aria-hidden className="h-4 w-4" />
+                    </Link>
+                  )}
+                </Reveal>
+
+                {/*
+                 * The self-serve door (D-34), told the truth about on the page a stranger
+                 * reads FIRST. `self_serve_signup_enabled` defaults OFF (R-11's kill
+                 * switch), so on most deployments the answer is "we open accounts with
+                 * you" — and rendering "Sign up free" over that is a claim the product
+                 * cannot keep, dressed as a button.
+                 */}
+                <Reveal
+                  as="section"
+                  delay={0.06}
+                  className="rounded-2xl border border-line bg-surface p-6"
+                >
+                  <h2 className="text-[17px] font-semibold text-ink">
+                    {SIGNUP_OPEN ? "New here" : "Not a client yet"}
+                  </h2>
+                  <p className="mt-1.5 text-sm text-ink-muted">
+                    {SIGNUP_OPEN
+                      ? "Create your workspace and set up your first agent. Nothing calls anyone until you say so."
+                      : "Calevate does not open accounts online. Every workspace is set up by hand with you."}
+                  </p>
+                  <Link
+                    href="/signup"
+                    className="mt-4 inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                  >
+                    {SIGNUP_OPEN ? "Create a workspace" : "How to get one"}
                     <ArrowRight aria-hidden className="h-4 w-4" />
                   </Link>
-                )}
-              </Reveal>
+                  {/* Only when there is an address to give. An invented one bounces. */}
+                  {!SIGNUP_OPEN && SIGNUP_CONTACT_EMAIL && (
+                    <p className="mt-3 text-sm text-ink-muted">
+                      Or write to{" "}
+                      <a
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                        href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
+                      >
+                        {SIGNUP_CONTACT_EMAIL}
+                      </a>
+                      .
+                    </p>
+                  )}
+                </Reveal>
+              </div>
 
               {/*
-               * The self-serve door (D-34), told the truth about on the page a stranger
-               * reads FIRST. `self_serve_signup_enabled` defaults OFF (R-11's kill
-               * switch), so on most deployments the answer is "we open accounts with
-               * you" — and rendering "Sign up free" over that is a claim the product
-               * cannot keep, dressed as a button.
+               * A last panel that ASKS rather than claims. The temptation at the bottom of
+               * a landing page is one more superlative; there is nothing left to say that
+               * is both true and new, so this repeats the offer in the buyer's own terms
+               * and hands over the same door as above. The signup flag is read here for the
+               * same reason the doors read it.
                */}
               <Reveal
                 as="section"
-                delay={0.06}
-                className="rounded-card border border-line bg-surface p-6"
+                delay={0.08}
+                className="relative mt-4 overflow-hidden rounded-2xl border border-line bg-surface p-8 sm:p-12"
               >
-                <h2 className="text-[17px] font-semibold text-ink">
-                  {SIGNUP_OPEN ? "New here" : "Not a client yet"}
-                </h2>
-                <p className="mt-1 text-sm text-ink-muted">
-                  {SIGNUP_OPEN
-                    ? "Create your workspace and set up your first agent. Nothing calls anyone until you say so."
-                    : "Calevate does not open accounts online. Every workspace is set up by hand with you."}
-                </p>
-                <Link
-                  href="/signup"
-                  className="mt-3 inline-flex items-center gap-2 rounded-md border border-line px-3 py-1.5 text-sm font-semibold text-ink hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  {SIGNUP_OPEN ? "Create a workspace" : "How to get one"}
-                  <ArrowRight aria-hidden className="h-4 w-4" />
-                </Link>
-                {/* Only when there is an address to give. An invented one bounces. */}
-                {!SIGNUP_OPEN && SIGNUP_CONTACT_EMAIL && (
-                  <p className="mt-3 text-sm text-ink-muted">
-                    Or write to{" "}
-                    <a
-                      className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                      href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
-                    >
-                      {SIGNUP_CONTACT_EMAIL}
-                    </a>
-                    .
-                  </p>
-                )}
-              </Reveal>
-            </div>
-          </section>
-
-          {/* --- Closing invitation ------------------------------------------------ */}
-          {/*
-           * A last section that ASKS rather than claims. The temptation at the bottom of
-           * a landing page is one more superlative; there is nothing left to say that is
-           * both true and new, so this repeats the offer in the buyer's own terms and
-           * hands over the same two doors as above. The signup flag is read here for the
-           * same reason the doors read it: a button whose label the deployment cannot
-           * honour is the exact defect this page is written against.
-           */}
-          <section className="border-y border-line bg-surface/50">
-            <div className="mx-auto w-full max-w-5xl px-6 py-20">
-              <Reveal>
-                <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                <div
+                  aria-hidden
+                  className="mk-blob mk-blob--b pointer-events-none absolute -top-16 right-0 h-56 w-56"
+                />
+                <h2 className="max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   The calls you missed today are not on any report
                 </h2>
-                <p className="mt-4 max-w-2xl text-base text-ink-muted">
+                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
                   Tell us what your callers ring about and what you need written down
                   about each one. We build the agent with you, in your language, on your
                   own price list and timings — and nothing dials anybody until you say so.
                 </p>
                 <div className="mt-8 flex flex-wrap items-center gap-3">
-                  <Link
-                    href="/signup"
-                    className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
-                  >
+                  <Link href="/signup" className={CTA_PRIMARY}>
                     {SIGNUP_OPEN ? "Create a workspace" : "Start a conversation"}
-                    <ArrowRight aria-hidden className="h-4 w-4" />
+                    <ArrowRight
+                      aria-hidden
+                      className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                    />
                   </Link>
                   {/* Only when there is an address to give — an invented one bounces. */}
                   {SIGNUP_CONTACT_EMAIL && (
-                    <a
-                      href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
-                      className="inline-flex items-center gap-2 rounded-md border border-line px-5 py-2.5 text-sm font-semibold text-ink hover:bg-black/5 dark:hover:bg-white/5"
-                    >
+                    <a href={`mailto:${SIGNUP_CONTACT_EMAIL}`} className={CTA_SECONDARY}>
                       Write to us
+                      <ArrowUpRight aria-hidden className="h-4 w-4" />
                     </a>
                   )}
                 </div>
@@ -852,8 +911,17 @@ export default function Home() {
           the surface a data principal is told to look at. `slug` is documented as stable
           for exactly this reason, so iterating is safe as well as shorter.
         */}
-        <footer className="border-t border-line px-6 py-8">
-          <div className="mx-auto flex max-w-5xl flex-col gap-4">
+        <footer className="border-t border-line px-6 py-10">
+          <div className="mx-auto flex max-w-6xl flex-col gap-5">
+            <div className="flex items-center gap-2.5">
+              <span
+                aria-hidden
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-strong text-white"
+              >
+                <PhoneCall className="h-3.5 w-3.5" />
+              </span>
+              <span className="text-sm font-semibold tracking-tight text-ink">Calevate</span>
+            </div>
             <nav aria-label="Legal">
               <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
                 {LEGAL_DOCUMENTS.map((doc) => (
