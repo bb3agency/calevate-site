@@ -545,6 +545,27 @@ def test_the_reader_excludes_erased_callers_in_sql() -> None:
 
 # --- the reader, against real rows ---------------------------------------------------
 
+#: How far back `_agent_with_calls` dates the calls it seeds. Named once because the sweep
+#: tests must fire a week AFTER these calls, not a week after "now" — see
+#: `_sweep_fired_after_calls_week`.
+_CALLS_ENDED_DAYS_AGO = 2
+
+
+def _sweep_fired_after_calls_week() -> datetime:
+    """The instant to fire `_sweep` at so the week it summarises is the one holding the
+    calls `_agent_with_calls` seeds (`now - _CALLS_ENDED_DAYS_AGO` days).
+
+    `_sweep` summarises the IST week that CLOSED before its firing instant (`closed_week`),
+    so it must fire a week after the CALLS, not a week after `now`. Firing at `now + 7d`
+    puts the window a fixed nine days past the calls, and nine days is more than a week:
+    whenever the suite runs within two days of a Monday-00:00-IST boundary, `now + 7d`'s
+    closed week is the one AFTER the calls' week and the calls fall outside it, so the sweep
+    distils nothing and mails no one. That made these end-to-end tests fail on IST Monday
+    and Tuesday and pass the rest of the week. Anchoring the firing instant to the calls'
+    own age keeps the window on the calls' week for every weekday and time of day.
+    """
+    return datetime.now(UTC) - timedelta(days=_CALLS_ENDED_DAYS_AGO) + timedelta(days=7)
+
 
 async def _agent_with_calls(
     *,
@@ -605,7 +626,7 @@ async def _agent_with_calls(
             text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid"),
             {"sid": schema_id, "aid": agent_id},
         )
-        ended = datetime.now(UTC) - timedelta(days=2)
+        ended = datetime.now(UTC) - timedelta(days=_CALLS_ENDED_DAYS_AGO)
         for index, spec in enumerate(outcomes):
             call_id = uuid7()
             await session.execute(
@@ -1153,7 +1174,7 @@ async def test_the_sweep_mails_one_digest_per_agent_and_it_carries_no_call_conte
     recorder = _RecordingTransport()
     monkeypatch.setattr(kb_aggregation, "get_transport", lambda: recorder)
     _sweep_only(monkeypatch, tenant_id)
-    await kb_aggregation._sweep(datetime.now(UTC) + timedelta(days=7))
+    await kb_aggregation._sweep(_sweep_fired_after_calls_week())
 
     mine = [sent for sent in recorder.sent if sent[0] == "owner@example.test"]
     assert mine, "the agent's owner received no digest"
@@ -1236,7 +1257,7 @@ async def test_one_agents_send_blowing_up_never_re_mails_the_clients_already_rea
     transport = _FlakyTransport(explodes_for=bad)
     monkeypatch.setattr(kb_aggregation, "get_transport", lambda: transport)
     _sweep_only(monkeypatch, good_tenant, bad_tenant)
-    summary = await kb_aggregation._sweep(datetime.now(UTC) + timedelta(days=7))
+    summary = await kb_aggregation._sweep(_sweep_fired_after_calls_week())
 
     assert transport.sent.count(good) == 1, (
         "the reachable client was mailed a number of times other than once — a send that "
@@ -1359,7 +1380,7 @@ async def test_a_route_row_pointing_at_the_wrong_tenant_mails_nobody(
     recorder = _RecordingTransport()
     monkeypatch.setattr(kb_aggregation, "get_transport", lambda: recorder)
     _sweep_only(monkeypatch, stranger_tenant)
-    await kb_aggregation._sweep(datetime.now(UTC) + timedelta(days=7))
+    await kb_aggregation._sweep(_sweep_fired_after_calls_week())
 
     assert not [sent for sent in recorder.sent if sent[0] == stranger_address], (
         "a route row naming the wrong tenant mailed one client's aggregate to another"
