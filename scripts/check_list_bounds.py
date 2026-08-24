@@ -152,6 +152,19 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "PUT /v1/admin/organizations/{org_id}/llm-defaults": BoundedByConstruction(
         by="the same `available`, read back after the write — same closed set."
     ),
+    # The agent's extraction VARIABLES (D-460). `fields` is a curated CONFIG list — the
+    # schema an operator or a client owner hand-writes for one agent, the same class as the
+    # console field registry above, not a caller's data feed that grows with call volume.
+    # Bounded by how many variables a human chose to capture, never by a row count.
+    "GET /v1/agents/{agent_id}/extraction-schema": BoundedByConstruction(
+        by="`fields` is one agent's hand-curated variable list, a config surface not a data feed."
+    ),
+    "PUT /v1/agents/{agent_id}/extraction-schema": BoundedByConstruction(
+        by="the same `fields`, read back after the write — one agent's curated variable list."
+    ),
+    "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": BoundedByConstruction(
+        by="the admin view of the same `fields` — one agent's curated variable list."
+    ),
     "GET /v1/ops/secrets": BoundedByConstruction(
         by="the vendor-credential registry in `ops/secrets.py` — one row per known key."
     ),
