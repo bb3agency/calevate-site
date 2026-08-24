@@ -43,37 +43,37 @@ from calevate_shared.extraction import (
 # --- The schema the fixtures use, so the assertions are about the real product -----
 
 NAME = ExtractionField(
-    key="name", label="Caller name", type="text", description="the caller's own name if they say it"
+    key="name", label="Caller name", type="text", reason="the caller's own name if they say it"
 )
 INTENT = ExtractionField(
     key="intent",
     label="Intent",
     type="enum",
     enum_values=["book", "reschedule", "cancel", "enquiry", "complaint"],
-    description="what the caller wants to do",
+    reason="what the caller wants to do",
 )
 PARTY_SIZE = ExtractionField(
-    key="party_size", label="People", type="number", description="how many people"
+    key="party_size", label="People", type="number", reason="how many people"
 )
 WANTS_CALLBACK = ExtractionField(
     key="wants_callback",
     label="Callback requested",
     type="bool",
-    description="true only if the caller asked to be called back",
+    reason="true only if the caller asked to be called back",
 )
 CALLBACK_NUMBER = ExtractionField(
     key="callback_number",
     label="Callback number",
     type="text",
-    description="the 10-digit number the caller asked to be reached on, digits only",
+    reason="the 10-digit number the caller asked to be reached on, digits only",
 )
 CALLBACK_TIME = ExtractionField(
     key="callback_time",
     label="Callback time",
     type="text",
-    description="when the caller asked to be called back, in the caller's own words",
+    reason="when the caller asked to be called back, in the caller's own words",
 )
-WHEN = ExtractionField(key="visit_date", label="Visit date", type="date", description="when")
+WHEN = ExtractionField(key="visit_date", label="Visit date", type="date", reason="when")
 
 SPEC = ExtractionSchemaSpec(
     fields=[NAME, INTENT, PARTY_SIZE, WANTS_CALLBACK, CALLBACK_NUMBER, CALLBACK_TIME, WHEN]

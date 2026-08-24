@@ -82,17 +82,17 @@ def test_the_real_estate_template_declares_the_fields_a_property_call_produces()
     assert set(fields) == RE_FIELD_KEYS
 
 
-def test_the_budget_field_names_its_unit_in_the_key_the_label_and_the_description() -> None:
+def test_the_budget_field_names_its_unit_in_the_key_the_label_and_the_reason() -> None:
     """Hard rule 7: money is NUMERIC INR. "50" in a column headed *Budget* is fifty
     rupees to one reader and fifty lakhs to the next, and the CRM keeps neither the
     call nor the caller's tone of voice — only the number. The unit therefore has to
     survive into the leads table (label), the CSV export (key) and the extraction
-    prompt (description, which TRD §7 makes the model's instruction verbatim)."""
+    prompt (reason, which TRD §7 makes the model's instruction verbatim)."""
     budget = next(f for f in VERTICAL_TEMPLATES["real_estate"] if f["key"] == "budget_lakhs")
     assert budget["type"] == "number"
     assert "lakh" in budget["key"].lower()
     assert "lakh" in budget["label"].lower()
-    assert "lakh" in budget["description"].lower()
+    assert "lakh" in budget["reason"].lower()
 
 
 def test_the_golden_suite_scores_the_template_we_actually_ship() -> None:
@@ -107,7 +107,7 @@ def test_the_golden_suite_scores_the_template_we_actually_ship() -> None:
     fixture = {f["key"]: f for f in _fixtures()["schema"] if f["key"] in RE_FIELD_KEYS}
     assert set(fixture) == RE_FIELD_KEYS, "the suite does not cover every template field"
     for key, field in fixture.items():
-        for attribute in ("label", "type", "enum_values", "description"):
+        for attribute in ("label", "type", "enum_values", "reason"):
             assert field.get(attribute) == shipped[key].get(attribute), (
                 f"{key}.{attribute} has drifted from scripts/seed.py"
             )

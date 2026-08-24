@@ -5219,11 +5219,6 @@
       "ExtractionField": {
         "additionalProperties": false,
         "properties": {
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
           "enum_values": {
             "anyOf": [
               {
@@ -5245,6 +5240,11 @@
           },
           "label": {
             "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
             "type": "string"
           },
           "required": {
@@ -5270,6 +5270,52 @@
           "type"
         ],
         "title": "ExtractionField",
+        "type": "object"
+      },
+      "ExtractionSchemaIn": {
+        "additionalProperties": false,
+        "description": "The whole new ordered field list. `extra=\"forbid\"` on every field\n(`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently\ndropped edit.",
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "ExtractionSchemaIn",
+        "type": "object"
+      },
+      "ExtractionSchemaOut": {
+        "additionalProperties": false,
+        "description": "The stored list after the write, and the version it became.\n\n`changed` is here for the same reason `llm-defaults` carries it: a PUT is idempotent, so\nre-sending the list already on file is a request somebody made and a change nobody made,\nand the screen (and an auditor) needs to tell \"saved, new version\" from \"nothing moved\".",
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fields",
+          "version",
+          "changed"
+        ],
+        "title": "ExtractionSchemaOut",
         "type": "object"
       },
       "Faq": {
@@ -17225,6 +17271,67 @@
         "x-calevate-permission": "agents:write"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {
+      "put": {
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "operationId": "admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionSchemaIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionSchemaOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the variables one client's agent captures",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
       "get": {
         "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.",
@@ -20026,6 +20133,96 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/extraction-schema": {
+      "get": {
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "operationId": "get_extraction_schema_v1_agents__agent_id__extraction_schema_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionSchemaOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The variables this agent captures",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "operationId": "set_extraction_schema_v1_agents__agent_id__extraction_schema_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionSchemaIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionSchemaOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the variables this agent captures",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/pending": {

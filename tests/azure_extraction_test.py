@@ -84,7 +84,7 @@ SPEC = ExtractionSchemaSpec(
             label="Intent",
             type="enum",
             enum_values=["book", "cancel", "enquiry"],
-            description="What the caller rang about",
+            reason="What the caller rang about",
         ),
         ExtractionField(key="party_size", label="Party size", type="number"),
         ExtractionField(key="site_visit_interest", label="Site visit interest", type="bool"),

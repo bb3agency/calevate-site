@@ -59,7 +59,7 @@
       "key": "name",
       "label": "Caller name",
       "type": "text",
-      "description": "the caller's own name if they say it"
+      "reason": "the caller's own name if they say it"
     },
     {
       "key": "intent",
@@ -72,7 +72,7 @@
         "enquiry",
         "complaint"
       ],
-      "description": "what the caller wants to do"
+      "reason": "what the caller wants to do"
     },
     {
       "key": "urgency",
@@ -83,31 +83,31 @@
         "urgent",
         "emergency"
       ],
-      "description": "how soon they need it"
+      "reason": "how soon they need it"
     },
     {
       "key": "party_size",
       "label": "People",
       "type": "number",
-      "description": "how many people the booking is for"
+      "reason": "how many people the booking is for"
     },
     {
       "key": "wants_callback",
       "label": "Callback requested",
       "type": "bool",
-      "description": "true only if the caller asked to be called back"
+      "reason": "true only if the caller asked to be called back"
     },
     {
       "key": "callback_number",
       "label": "Callback number",
       "type": "text",
-      "description": "the 10-digit number the caller asked to be reached on, digits only, no +91"
+      "reason": "the 10-digit number the caller asked to be reached on, digits only, no +91"
     },
     {
       "key": "callback_time",
       "label": "Callback time",
       "type": "text",
-      "description": "when the caller asked to be called back, in the caller's own words"
+      "reason": "when the caller asked to be called back, in the caller's own words"
     },
     {
       "key": "number_belongs_to",
@@ -118,20 +118,20 @@
         "relative",
         "third_party"
       ],
-      "description": "whose phone the callback number is — only if the caller said so"
+      "reason": "whose phone the callback number is — only if the caller said so"
     },
     {
       "key": "budget_lakhs",
       "label": "Budget (lakhs)",
       "type": "number",
-      "description": "Budget in LAKHS of rupees: '50 lakhs' is 50, '1.2 crore' is 120. Never rupees, never a range — take the upper figure the caller states, and leave it empty if they state none.",
+      "reason": "Budget in LAKHS of rupees: '50 lakhs' is 50, '1.2 crore' is 120. Never rupees, never a range — take the upper figure the caller states, and leave it empty if they state none.",
       "required": false
     },
     {
       "key": "preferred_location",
       "label": "Location",
       "type": "text",
-      "description": "Area/locality the CALLER wants, in their own words (Kondapur, Gachibowli). Never a locality only the agent named.",
+      "reason": "Area/locality the CALLER wants, in their own words (Kondapur, Gachibowli). Never a locality only the agent named.",
       "required": false
     },
     {
@@ -144,21 +144,21 @@
         "3BHK",
         "4BHK+"
       ],
-      "description": "Flat size the caller asked for. Not one the agent offered, and not one they rejected.",
+      "reason": "Flat size the caller asked for. Not one the agent offered, and not one they rejected.",
       "required": false
     },
     {
       "key": "timeline",
       "label": "Timeline",
       "type": "text",
-      "description": "When they intend to buy or need possession, in the caller's own words ('aaru nelalo', 'next year') — never resolved to a date.",
+      "reason": "When they intend to buy or need possession, in the caller's own words ('aaru nelalo', 'next year') — never resolved to a date.",
       "required": false
     },
     {
       "key": "site_visit_interest",
       "label": "Site visit",
       "type": "bool",
-      "description": "true ONLY if the caller agreed to a site visit. A refusal ('vaddu', 'avasaram ledu') is not a yes, and neither is the agent offering one.",
+      "reason": "true ONLY if the caller agreed to a site visit. A refusal ('vaddu', 'avasaram ledu') is not a yes, and neither is the agent offering one.",
       "required": false
     }
   ],

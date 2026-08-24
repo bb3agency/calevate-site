@@ -79,9 +79,11 @@ In scope v1:
    (b) "AI callback" on needs-follow-up calls — one click re-dispatches the agent with
    context from the flagged call, via the engine's context-injection webhook (Outpero's
    equivalent button only tells the human to call; ours closes the loop with AI).
-   Boundaries that stay managed-service: extraction schemas remain admin-edited
-   (clients request changes through us); lead statuses stay the fixed enum in v1
-   (custom tags/statuses only if pulled by a client).
+   Boundaries: extraction schemas (the per-agent variables the AI extracts) are now
+   self-serve — the client (owner role) CAN add/edit/delete their agents' variables, and
+   admins/superadmin can too (D-460 supersedes D-21's admin-only clause; each field carries
+   an optional free-text `reason` hint, edits go live on save as a new schema version). Lead
+   statuses stay the fixed enum in v1 (custom tags/statuses only if pulled by a client).
 
 Out of scope v1 (explicit): white-label/reseller tiers; ~~self-serve signup~~ (**pulled
 back IN by D-34/D-39** — the second motion; `POST /v1/auth/signup` ships behind an

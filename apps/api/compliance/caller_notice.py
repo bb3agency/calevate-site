@@ -213,7 +213,7 @@ def _collected(agents: list[dict[str, Any]]) -> list[CollectedItem]:
                 continue
             seen.add(parsed.key)
             items.append(
-                CollectedItem(what=parsed.label, why=parsed.description.strip() or parsed.label)
+                CollectedItem(what=parsed.label, why=parsed.reason.strip() or parsed.label)
             )
     return items
 

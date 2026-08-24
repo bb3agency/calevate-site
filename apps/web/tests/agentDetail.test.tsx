@@ -5,7 +5,7 @@ import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import type { Agent } from "@/lib/api/agents";
 import type { PendingState } from "@/lib/api/publishing";
 
-import { expectTextCount, problem, renderClientPage } from "./harness";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * ONE agent's screen — where a client checks what their phone line is saying, changes what
@@ -526,58 +526,287 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
   });
 });
 
-describe("what the extraction list promises about a call", () => {
-  it("does not tell a client every required field is asked aloud", async () => {
-    // `required` means the post-call extraction must produce the field
-    // (packages/shared/.../extraction.py) — a call that ends without it still becomes a
-    // lead. A badge saying "Always asked" would promise an interrogation the product
-    // deliberately does not do, two lines above the sentence saying it never reads a form
-    // aloud.
-    const { container } = await renderClientPage(
+describe("editing what an agent captures (the extraction variables)", () => {
+  /** One extraction field on the wire, with `reason` (the renamed per-field hint). */
+  function field(over: Partial<Agent["extraction_fields"][number]> = {}): Agent["extraction_fields"][number] {
+    return {
+      key: "visit_reason",
+      label: "Reason for visit",
+      type: "text",
+      required: false,
+      reason: "",
+      enum_values: null,
+      ...over,
+    };
+  }
+
+  /** The whole-list PUT's answer — a new version and the stored fields. */
+  function schemaOut(fields: Agent["extraction_fields"], version = 2) {
+    return { fields, version, changed: true };
+  }
+
+  const captures = "What it captures";
+
+  it("renders the agent's current variables in editable inputs, keys read-only", async () => {
+    await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1": agent({
           extraction_fields: [
-            {
-              key: "visit_reason",
-              label: "Reason for visit",
-              type: "text",
-              required: true,
-              description: "",
-              enum_values: null,
-            },
+            field({ key: "visit_reason", label: "Reason for visit", type: "text", required: true }),
+            field({ key: "budget", label: "Budget", type: "number" }),
           ],
         }),
       }),
     );
 
-    await screen.findByText("Reason for visit");
-    expect(container.textContent).not.toContain("Always asked");
-    expect(container.textContent).toContain("with that column left empty");
-    expectTextCount(container, "Required", 2); // the badge, and the sentence explaining it
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    // The labels are the current values, sitting in inputs — not a static list any more.
+    expect(within(panel).getByDisplayValue("Reason for visit")).toBeTruthy();
+    expect(within(panel).getByDisplayValue("Budget")).toBeTruthy();
+    // The old account-manager disclaimer is gone; the self-serve promise replaces it.
+    expect(panel.textContent).not.toContain("test run against real calls");
+    expect(panel.textContent).toContain("take effect on the next call");
+    // An existing variable's key is shown but not editable — changing it orphans history.
+    expect(within(panel).queryByDisplayValue("visit_reason")).toBeNull();
+    expect(panel.textContent).toContain("visit_reason");
   });
 
-  it("says nothing about required fields on an agent that has none", async () => {
-    const { container } = await renderClientPage(
+  it("adds a blank variable when Add variable is pressed", async () => {
+    await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1": agent({
-          extraction_fields: [
-            {
-              key: "budget",
-              label: "Budget",
-              type: "number",
-              required: false,
-              description: "",
-              enum_values: null,
-            },
-          ],
+          extraction_fields: [field({ key: "budget", label: "Budget", type: "number" })],
         }),
       }),
     );
 
-    await screen.findByText("Budget");
-    expectTextCount(container, "Required", 0);
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    expect(within(panel).getAllByLabelText("Name")).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Add variable/));
+    });
+    expect(within(panel).getAllByLabelText("Name")).toHaveLength(2);
+  });
+
+  it("saves the WHOLE list on an edited label and reason", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit" })],
+        }),
+        "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
+          field({ key: "visit_reason", label: "Why they called", reason: "route urgent cases first" }),
+        ]),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    // The inputs are disabled until write access resolves off `/v1/me`; gate on that first,
+    // or an edit fired at first paint lands on a dead control (see `pressable`).
+    await pressable(panel, /Add variable/);
+    await act(async () => {
+      fireEvent.change(within(panel).getByLabelText("Name"), {
+        target: { value: "Why they called" },
+      });
+      fireEvent.change(within(panel).getByLabelText(/^Reason/), {
+        target: { value: "route urgent cases first" },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save variables/));
+    });
+
+    const put = calls.find((call) => call.method === "PUT");
+    expect(put?.path).toBe("/v1/agents/agent-1/extraction-schema");
+    // The whole ordered list, not a per-field patch — the edited label and reason ride the
+    // existing key.
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      fields: [
+        {
+          key: "visit_reason",
+          label: "Why they called",
+          type: "text",
+          required: false,
+          reason: "route urgent cases first",
+          enum_values: null,
+        },
+      ],
+    });
+  });
+
+  it("saves a reason left blank as an empty string, not omitted", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          extraction_fields: [field({ key: "budget", label: "Budget", type: "number" })],
+        }),
+        "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
+          field({ key: "budget", label: "Monthly budget", type: "number" }),
+        ]),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    await pressable(panel, /Add variable/); // wait for write access before editing
+    await act(async () => {
+      fireEvent.change(within(panel).getByLabelText("Name"), { target: { value: "Monthly budget" } });
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save variables/));
+    });
+
+    const put = calls.find((call) => call.method === "PUT");
+    const sent = JSON.parse(put?.body ?? "{}").fields[0];
+    expect(sent.reason).toBe("");
+    expect("reason" in sent).toBe(true);
+  });
+
+  it("toggles required and sends it on the whole list", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit", required: false })],
+        }),
+        "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
+          field({ key: "visit_reason", label: "Reason for visit", required: true }),
+        ]),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    await pressable(panel, /Add variable/); // wait for write access before toggling
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole("switch"));
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save variables/));
+    });
+
+    const put = calls.find((call) => call.method === "PUT");
+    expect(JSON.parse(put?.body ?? "{}").fields[0].required).toBe(true);
+  });
+
+  it("deletes a variable and saves the remaining list", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          extraction_fields: [
+            field({ key: "visit_reason", label: "Reason for visit" }),
+            field({ key: "budget", label: "Budget", type: "number" }),
+          ],
+        }),
+        "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
+          field({ key: "budget", label: "Budget", type: "number" }),
+        ]),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    // pressable waits for the delete control to be live (write access resolves off `/v1/me`).
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Delete Reason for visit/));
+    });
+    // The row is gone before we save — proves the delete registered, and that removing a
+    // row is itself the change that lights the Save button.
+    await waitFor(() => expect(within(panel).queryByDisplayValue("Reason for visit")).toBeNull());
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save variables/));
+    });
+
+    const put = calls.find((call) => call.method === "PUT");
+    const fields = JSON.parse(put?.body ?? "{}").fields;
+    expect(fields).toHaveLength(1);
+    expect(fields[0].key).toBe("budget");
+  });
+
+  it("surfaces a reserved-key / duplicate-key 422 field by field", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit" })],
+        }),
+        "PUT /v1/agents/agent-1/extraction-schema": problem(422, {
+          type: "urn:calevate:validation/extraction_field_reserved_key",
+          title: "That id is reserved",
+          detail: "One of the variable ids collides with a built-in Leads column.",
+          remediation: "Pick a different id for the highlighted variable.",
+          fields: [{ field: "status", rule: "reserved", message: "“status” is a built-in column." }],
+        }),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    await pressable(panel, /Add variable/); // wait for write access before editing
+    // Make something change so Save lights, then save into the refusal.
+    await act(async () => {
+      fireEvent.change(within(panel).getByLabelText("Name"), { target: { value: "Status" } });
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save variables/));
+    });
+
+    const alert = await within(panel).findByRole("alert");
+    expect(alert.textContent).toContain("built-in Leads column");
+    expect(alert.textContent).toContain("Pick a different id");
+    // The specific offending field is named, not just the headline.
+    expect(alert.textContent).toContain("“status” is a built-in column.");
+    // The whole-list PUT was still what was attempted.
+    expect(calls.some((call) => call.method === "PUT")).toBe(true);
+  });
+
+  it("adds a variable, derives a key from its name, and saves the pair", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit" })],
+        }),
+        "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
+          field({ key: "visit_reason", label: "Reason for visit" }),
+          field({ key: "call_back_time", label: "Call back time", type: "text" }),
+        ]),
+      }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card(captures);
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Add variable/));
+    });
+    const names = within(panel).getAllByLabelText("Name");
+    await act(async () => {
+      fireEvent.change(names[names.length - 1], { target: { value: "Call back time" } });
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save variables/));
+    });
+
+    const put = calls.find((call) => call.method === "PUT");
+    const fields = JSON.parse(put?.body ?? "{}").fields;
+    expect(fields).toHaveLength(2);
+    // The new row's key was slugified from its name.
+    expect(fields[1]).toEqual({
+      key: "call_back_time",
+      label: "Call back time",
+      type: "text",
+      required: false,
+      reason: "",
+      enum_values: null,
+    });
   });
 });
 

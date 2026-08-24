@@ -144,18 +144,24 @@ phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard
   -- and gate 27 asks whether GET /phone-numbers/all exposes any verification status at all.
 ```
 
-`extraction_schemas.fields` shape (validated by Pydantic on write):
+`extraction_schemas.fields` shape (validated by Pydantic on write). `reason` is the
+optional per-field free-text AI hint ("why this variable is needed"): it is fed to the
+extractor to fill the field more accurately, and when empty the field name/label alone is
+used.
 ```json
 [
- {"key":"budget","label":"Budget","type":"number","description":"Property budget in lakhs","required":true},
- {"key":"preferred_location","label":"Location","type":"text","description":"Area/locality the caller wants","required":true},
+ {"key":"budget","label":"Budget","type":"number","reason":"Property budget in lakhs","required":true},
+ {"key":"preferred_location","label":"Location","type":"text","reason":"Area/locality the caller wants","required":true},
  {"key":"bhk_size","label":"BHK","type":"enum","enum_values":["1BHK","2BHK","3BHK","4BHK+"],"required":false},
- {"key":"timeline","label":"Timeline","type":"text","description":"When they intend to buy","required":false}
+ {"key":"timeline","label":"Timeline","type":"text","reason":"When they intend to buy","required":false}
 ]
 ```
 Vertical templates = seed rows (clinic: symptom, preferred_doctor, insurance, urgency,
-preferred_slot; real_estate: above; insurance; education). Changing a schema creates a new
-version; Leads render columns by the version active at extraction time (no data loss).
+preferred_slot; real_estate: above; insurance; education). The field list is editable by
+the client (owner role, self-serve) AND by Calevate admins/superadmin (D-460, superseding
+D-21's admin-only clause). Each save is live: it creates a new schema version used on the
+next call; Leads render columns by the version active at extraction time (no data loss),
+so history is preserved.
 
 ## 4. Calls & Transcripts
 

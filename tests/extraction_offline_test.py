@@ -21,15 +21,15 @@ def _spec(*fields: ExtractionField) -> ExtractionSchemaSpec:
     return ExtractionSchemaSpec(fields=list(fields))
 
 
-NAME = ExtractionField(key="name", label="Name", type="text", description="caller's name")
+NAME = ExtractionField(key="name", label="Name", type="text", reason="caller's name")
 CALLBACK = ExtractionField(
-    key="wants_callback", label="Callback wanted", type="bool", description="wants a callback"
+    key="wants_callback", label="Callback wanted", type="bool", reason="wants a callback"
 )
 INTENT = ExtractionField(
     key="intent",
     label="Intent",
     type="enum",
-    description="why they called",
+    reason="why they called",
     enum_values=["book", "cancel", "reschedule", "other"],
 )
 
@@ -147,7 +147,7 @@ async def test_the_speaker_label_itself_is_never_evidence() -> None:
         key="reported_by",
         label="Reported by",
         type="enum",
-        description="who reported it",
+        reason="who reported it",
         enum_values=["caller", "agent", "third_party"],
     )
     transcript = "agent: Namaskaram.\ncaller: Naaku oka doubt undi."

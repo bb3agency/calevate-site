@@ -30,20 +30,20 @@ from sqlalchemy import text
 pytestmark = [pytest.mark.smoke]
 
 CLINIC_SCHEMA: list[dict[str, Any]] = [
-    {"key": "name", "label": "Caller name", "type": "text", "description": "who is calling"},
+    {"key": "name", "label": "Caller name", "type": "text", "reason": "who is calling"},
     {
         "key": "intent",
         "label": "Intent",
         "type": "enum",
         "enum_values": ["book", "reschedule", "enquiry"],
-        "description": "what they want",
+        "reason": "what they want",
     },
     {
         "key": "urgency",
         "label": "Urgency",
         "type": "enum",
         "enum_values": ["routine", "urgent", "emergency"],
-        "description": "how soon they need it",
+        "reason": "how soon they need it",
     },
 ]
 

@@ -39,14 +39,14 @@ FIELDS = [
         "key": "symptom",
         "label": "What is wrong",
         "type": "text",
-        "description": "the reason you are calling the clinic",
+        "reason": "the reason you are calling the clinic",
         "required": True,
     },
     {
         "key": "preferred_time",
         "label": "Preferred appointment time",
         "type": "text",
-        "description": "when you would like to come in",
+        "reason": "when you would like to come in",
         "required": False,
     },
 ]
@@ -213,7 +213,7 @@ async def test_a_draft_ignores_another_tenants_configuration() -> None:
                 "key": "policy_number",
                 "label": "Your insurance policy number",
                 "type": "text",
-                "description": "the policy you are calling about",
+                "reason": "the policy you are calling about",
                 "required": True,
             }
         ],
@@ -408,7 +408,7 @@ def test_the_same_field_asked_for_by_two_agents_is_listed_once() -> None:
     twice reads as two different collections of the same thing."""
     from apps.api.compliance.caller_notice import _collected
 
-    restated = dict(FIELDS[1], label="When suits you", description="a different sentence")
+    restated = dict(FIELDS[1], label="When suits you", reason="a different sentence")
     items = _collected(
         [
             {"id": uuid.uuid4(), "fields": [FIELDS[1]]},

@@ -37,7 +37,8 @@ Tenant health board (the core admin screen — industry-standard for voice agenc
 Engine & config management
 - Per-client engine refs (agents, numbers, KB attachments), BYOK key status,
   staging→live promote (maps to engine draft/publish), prompt version history +
-  rollback, extraction schema editor (admin-only, D-21).
+  rollback, extraction schema editor (editable by client owners AND admins, D-460
+  superseding D-21's admin-only clause).
 - Secrets: references only, never values (SEC-COMP §5); key rotation reminders.
 - Per-tenant feature flags (config rows, TRD conventions) — enable beta features or
   debug modes per client without deploys.
@@ -49,7 +50,8 @@ Commercials
 ## 2. Client CRM (app.calevate.tech/c/<slug>) — inventory for the build-time discussion
 
 Floor: everything in the Outpero teardown (BRD §5). Already decided: schema-driven
-Leads table (D-09), fixed status enum + admin-only schemas (D-21), "Call this lead"
+Leads table (D-09), fixed status enum + client/admin-editable schemas (D-460 supersedes
+D-21's admin-only clause), "Call this lead"
 with context note (M1), AI callback on needs-follow-up (M2), outbound sync (D-23),
 staff/owner role split (SEC-COMP §5).
 

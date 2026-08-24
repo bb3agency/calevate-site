@@ -83,9 +83,15 @@ class ExtractionField(BaseModel):
     label: str
     type: FieldType
     enum_values: list[str] | None = None
-    # "What to listen for" — this text IS the instruction the model gets, so it is
-    # product copy, not a comment.
-    description: str = ""
+    # WHY THIS VARIABLE IS NEEDED — optional free-text the operator/client writes to help
+    # the model extract it better. This text IS an instruction the model gets (folded into
+    # the prompt and the Azure JSON-schema property below), so it is product copy, not a
+    # comment. OPTIONAL BY DESIGN: when empty, the field's key/label alone is used — the
+    # founder's rule ("if no reason is given, the name of the variable alone is used").
+    # Renamed from `description` when the field list became client-editable: a client
+    # writing one is answering "why do you want this?", which extracts better than a bare
+    # restatement of the label.
+    reason: str = ""
     required: bool = False
 
     @field_validator("enum_values")
@@ -144,8 +150,8 @@ class ValidationOutcome(BaseModel):
 
 def _is_phone_field(field: ExtractionField) -> bool:
     """Does this field ASK for a phone number? Read from the schema the client wrote —
-    key, label and the description that already doubles as the model's instruction."""
-    haystack = f"{field.key} {field.label} {field.description}".lower()
+    key, label and the reason that also serves as the model's instruction."""
+    haystack = f"{field.key} {field.label} {field.reason}".lower()
     return any(hint in haystack for hint in _PHONE_FIELD_HINTS)
 
 
@@ -274,7 +280,10 @@ def build_extraction_prompt(spec: ExtractionSchemaSpec, transcript: str) -> str:
         elif field.type == "number":
             constraint = " (a number only)"
         requirement = "REQUIRED" if field.required else "optional"
-        hint = f" — {field.description}" if field.description else ""
+        # The optional reason, folded in as the model's hint. When absent, the line carries
+        # only the key/label/constraint — the founder's rule that a variable with no reason
+        # is processed from its name alone.
+        hint = f" — {field.reason}" if field.reason else ""
         lines.append(f'- "{field.key}": {field.label}{constraint} [{requirement}]{hint}')
 
     return f"""You are extracting structured data from a phone call transcript.
