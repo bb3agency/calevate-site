@@ -56,6 +56,9 @@ const ENDPOINTS: Endpoint[] = [
     events: ["lead.created"],
     active: true,
     secret_fingerprint: "abc12345",
+    include_recording_url: false,
+    include_transcript: false,
+    include_raw_transcript: false,
     created_at: "2026-08-01T10:00:00Z",
   },
 ];

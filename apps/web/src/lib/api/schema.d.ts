@@ -5991,6 +5991,21 @@ export interface components {
             /** Events */
             events: ("lead.created" | "lead.updated" | "call.completed" | "campaign.completed")[];
             /**
+             * Include Raw Transcript
+             * @default false
+             */
+            include_raw_transcript: boolean;
+            /**
+             * Include Recording Url
+             * @default false
+             */
+            include_recording_url: boolean;
+            /**
+             * Include Transcript
+             * @default false
+             */
+            include_transcript: boolean;
+            /**
              * Url
              * Format: uri
              */
@@ -6005,6 +6020,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Include Raw Transcript */
+            include_raw_transcript: boolean;
+            /** Include Recording Url */
+            include_recording_url: boolean;
+            /** Include Transcript */
+            include_transcript: boolean;
             /** Secret */
             secret: string;
             /** Url */
@@ -6597,6 +6618,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Include Raw Transcript */
+            include_raw_transcript: boolean;
+            /** Include Recording Url */
+            include_recording_url: boolean;
+            /** Include Transcript */
+            include_transcript: boolean;
             /** Kind */
             kind: string;
             /** Secret Fingerprint */

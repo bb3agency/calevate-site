@@ -44,7 +44,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import permission_meta
+from apps.api.core.rbac import permission_meta, role_has
 from apps.api.db.base import uuid7
 from apps.api.integrations import service
 from apps.api.integrations.egress_guard import assert_public_http_url
@@ -67,6 +67,55 @@ EventName = Literal["lead.created", "lead.updated", "call.completed", "campaign.
 # which is one string away from a ledger that records an action nothing searches for.
 ENDPOINT_CREATED = "integration_endpoint.created"
 ENDPOINT_DISABLED = "integration_endpoint.disabled"
+
+
+def assert_may_opt_into_raw_transcript(
+    payload: CreateEndpointIn, principal: Principal
+) -> None:
+    """Refuse a raw-transcript opt-in the caller may not make. Raises, or returns.
+
+    THE RAW OPT-IN IS GATED THE SAME WAY A RAW READ IS (hard rule 5), and the check is a
+    function so it is testable without a live request — the two branches are contract, not
+    coincidence. Both are about the request BODY, which is why they cannot live on the
+    route dependency:
+
+     * `include_raw_transcript` must be layered on `include_transcript` — "raw" widens a
+       transcript the client already asked for, so a lone raw switch is refused and the
+       second opt-in is always a deliberate escalation of the first;
+     * the caller must hold `calls:read_raw`. `org:manage` (the route dependency) is what
+       an `owner` uses to point events anywhere; arranging for the UNREDACTED transcript
+       to be POSTed to a third party is the same class of act as reading it on the
+       dashboard, which `crm.routes.get_raw_transcript` puts behind `calls:read_raw`. The
+       two client roles that reach this route today both settle it — `owner` holds
+       `calls:read_raw` and `staff` lacks `org:manage` so never arrives — but the check is
+       explicit rather than inferred from that table, so a future role that holds
+       `org:manage` without `calls:read_raw` cannot silently arrange a raw egress.
+    """
+    if not payload.include_raw_transcript:
+        return
+    if not payload.include_transcript:
+        raise ProblemError(
+            kind="validation",
+            code="raw_transcript_requires_transcript",
+            title="Raw transcript needs the transcript opt-in too",
+            detail=(
+                "The unredacted transcript is a widening of the transcript delivery, "
+                "so `include_transcript` must be on for `include_raw_transcript`."
+            ),
+            remediation="Turn on the redacted transcript as well, or turn off the raw one.",
+            fields=[
+                {
+                    "field": "include_raw_transcript",
+                    "rule": "requires",
+                    "message": "include_transcript must be true",
+                }
+            ],
+        )
+    if principal.role is None or not role_has(principal.role, "calls:read_raw"):
+        raise ProblemError.forbidden(
+            "Sending the unredacted transcript to an endpoint needs the same "
+            "permission as reading a raw transcript."
+        )
 
 
 class Strict(BaseModel):
@@ -127,12 +176,29 @@ class CreateEndpointIn(Strict):
     # time, where there is no request body to validate.
     url: HttpUrl
     events: list[EventName] = Field(min_length=1)
+    # `call.completed` opt-ins (docs/WEBHOOKS.md §1.2). All default OFF, so a request that
+    # names none behaves exactly as before. Independent booleans rather than one enum
+    # because a client can want the redacted transcript without the recording, or either
+    # without the raw text — and because `include_raw_transcript` is gated harder than the
+    # other two (`calls:read_raw` + audit) and an enum would hide that step behind a value.
+    include_recording_url: bool = False
+    include_transcript: bool = False
+    # The SECOND opt-in: the unredacted transcript. Requires `include_transcript` as well
+    # (validated in the handler) so "raw" is always a deliberate widening of a transcript
+    # the client already asked for, never a lone switch — and the handler additionally
+    # refuses it to a caller who does not hold `calls:read_raw`.
+    include_raw_transcript: bool = False
 
 
 class CreateEndpointOut(Strict):
     id: UUID
     url: str
     events: list[str]
+    # Echoed so the client (and the console form) can confirm what this endpoint will
+    # receive. Not secrets — just the three opt-ins as stored.
+    include_recording_url: bool
+    include_transcript: bool
+    include_raw_transcript: bool
     # Shown once, never again.
     secret: str
 
@@ -184,6 +250,12 @@ class EndpointOut(Strict):
     # answers exactly one question — is a credential attached yet — and the reference
     # itself never leaves the database.
     secret_fingerprint: str | None
+    # The `call.completed` opt-ins as stored, so the console can show what each endpoint
+    # is set to receive and pre-fill the form. False on every endpoint created before the
+    # opt-ins existed (the column default), and on every sheets endpoint.
+    include_recording_url: bool
+    include_transcript: bool
+    include_raw_transcript: bool
     created_at: datetime
 
 
@@ -284,7 +356,8 @@ async def list_endpoints(
     rows = (
         await session.execute(
             text(
-                "SELECT id, url, events, active, secret_ref, created_at, kind "
+                "SELECT id, url, events, active, secret_ref, created_at, kind, "
+                "include_recording_url, include_transcript, include_raw_transcript "
                 "FROM outbound_webhooks ORDER BY created_at DESC LIMIT :limit"
             ),
             {"limit": limit},
@@ -298,6 +371,9 @@ async def list_endpoints(
             events=list(r[2] or []),
             active=bool(r[3]),
             secret_fingerprint=service.secret_fingerprint(r[4]) if r[4] else None,
+            include_recording_url=bool(r[7]),
+            include_transcript=bool(r[8]),
+            include_raw_transcript=bool(r[9]),
             created_at=r[5],
         )
         for r in rows
@@ -337,14 +413,18 @@ async def create_endpoint(
     (hard rule 6). The host is the fact an investigator needs — where the leads went.
     """
     assert principal.tenant_id is not None
+    assert_may_opt_into_raw_transcript(payload, principal)
     destination = await assert_public_http_url(str(payload.url))
+
     endpoint_id = uuid7()
     secret = secrets.token_urlsafe(32)
     await session.execute(
         text(
             "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
+            "include_recording_url, include_transcript, include_raw_transcript, "
             "active, created_at, updated_at) VALUES (:id, :tid, 'webhook', :url, :secret, "
-            ":events, true, now(), now())"
+            ":events, :inc_recording, :inc_transcript, :inc_raw_transcript, "
+            "true, now(), now())"
         ),
         {
             "id": endpoint_id,
@@ -352,6 +432,9 @@ async def create_endpoint(
             "url": str(payload.url),
             "secret": secret,
             "events": list(payload.events),
+            "inc_recording": payload.include_recording_url,
+            "inc_transcript": payload.include_transcript,
+            "inc_raw_transcript": payload.include_raw_transcript,
         },
     )
     # AFTER the INSERT, deliberately: `write_audit` takes the chain's advisory lock and
@@ -375,10 +458,22 @@ async def create_endpoint(
             # the question this row exists to answer, and half of "where" is which events
             # start flowing. Sorted so two identical registrations record identically.
             "events": ",".join(sorted(payload.events)),
+            # What this endpoint will be sent beyond the base body — part of "who pointed
+            # our leads outward, and what did they arrange to send". The raw-transcript
+            # switch especially, since it is the one this route gates on `calls:read_raw`.
+            "include_recording_url": payload.include_recording_url,
+            "include_transcript": payload.include_transcript,
+            "include_raw_transcript": payload.include_raw_transcript,
         },
     )
     return CreateEndpointOut(
-        id=endpoint_id, url=str(payload.url), events=list(payload.events), secret=secret
+        id=endpoint_id,
+        url=str(payload.url),
+        events=list(payload.events),
+        include_recording_url=payload.include_recording_url,
+        include_transcript=payload.include_transcript,
+        include_raw_transcript=payload.include_raw_transcript,
+        secret=secret,
     )
 
 

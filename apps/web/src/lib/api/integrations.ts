@@ -19,6 +19,8 @@ type Schemas = components["schemas"];
 
 export type Endpoint = Schemas["EndpointOut"];
 export type NewEndpointResult = Schemas["CreateEndpointOut"];
+/** The webhook create body, opt-ins included — the shape `useCreateEndpoint` sends. */
+export type NewEndpoint = Schemas["CreateEndpointIn"];
 export type Delivery = Schemas["DeliveryOut"];
 export type DeliveryPayload = Schemas["DeliveryPayloadOut"];
 /** A Google Sheets endpoint, as the create route reports it back (D-23's second kind). */
@@ -193,7 +195,10 @@ export function useDeliveryPayload(session: Session) {
 export function useCreateEndpoint(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { url: string; events: OutboundEvent[] }) =>
+    // `NewEndpoint`, the generated body type, so the three `call.completed` opt-ins are
+    // typed and optional exactly as the API declares them — a hand-written shape here is
+    // where `include_raw_transcript` would silently stop being sent.
+    mutationFn: (payload: NewEndpoint) =>
       apiRequest<NewEndpointResult>(session, "/v1/integrations/endpoints", {
         method: "POST",
         body: payload,

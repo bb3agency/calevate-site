@@ -3407,6 +3407,21 @@
             "title": "Events",
             "type": "array"
           },
+          "include_raw_transcript": {
+            "default": false,
+            "title": "Include Raw Transcript",
+            "type": "boolean"
+          },
+          "include_recording_url": {
+            "default": false,
+            "title": "Include Recording Url",
+            "type": "boolean"
+          },
+          "include_transcript": {
+            "default": false,
+            "title": "Include Transcript",
+            "type": "boolean"
+          },
           "url": {
             "format": "uri",
             "maxLength": 2083,
@@ -3437,6 +3452,18 @@
             "title": "Id",
             "type": "string"
           },
+          "include_raw_transcript": {
+            "title": "Include Raw Transcript",
+            "type": "boolean"
+          },
+          "include_recording_url": {
+            "title": "Include Recording Url",
+            "type": "boolean"
+          },
+          "include_transcript": {
+            "title": "Include Transcript",
+            "type": "boolean"
+          },
           "secret": {
             "title": "Secret",
             "type": "string"
@@ -3450,6 +3477,9 @@
           "id",
           "url",
           "events",
+          "include_recording_url",
+          "include_transcript",
+          "include_raw_transcript",
           "secret"
         ],
         "title": "CreateEndpointOut",
@@ -4645,6 +4675,18 @@
             "title": "Id",
             "type": "string"
           },
+          "include_raw_transcript": {
+            "title": "Include Raw Transcript",
+            "type": "boolean"
+          },
+          "include_recording_url": {
+            "title": "Include Recording Url",
+            "type": "boolean"
+          },
+          "include_transcript": {
+            "title": "Include Transcript",
+            "type": "boolean"
+          },
           "kind": {
             "title": "Kind",
             "type": "string"
@@ -4679,6 +4721,9 @@
           "events",
           "active",
           "secret_fingerprint",
+          "include_recording_url",
+          "include_transcript",
+          "include_raw_transcript",
           "created_at"
         ],
         "title": "EndpointOut",

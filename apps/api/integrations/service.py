@@ -92,6 +92,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_mapping
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -111,6 +112,16 @@ EVENT_TYPES: tuple[str, ...] = (
     "call.completed",
     "campaign.completed",
 )
+
+#: The one event the recording/transcript opt-ins augment. Named rather than spelled at
+#: the branch so the fan-out and the builder cannot disagree about which event is
+#: call-shaped.
+CALL_COMPLETED_EVENT = "call.completed"
+
+#: The audit action written when an unredacted transcript is placed on a webhook body.
+#: Read by `scripts/check_redaction_exposure.py`'s sibling audit checks the same way
+#: `webhook_delivery.read_payload` is — a raw-PII egress that must leave a trail.
+RAW_TRANSCRIPT_INCLUDED_ACTION = "webhook.raw_transcript_included"
 
 # The endpoint kinds in `outbound_webhooks.kind`.
 WEBHOOK_KIND = "webhook"
@@ -339,20 +350,43 @@ async def enqueue_events(
     # Google Sheets subscribed to the same events and gets the same fan-out. The kind
     # is NOT copied into the payload — the worker reads it off the endpoint row, which
     # is the only place it can change.
+    #
+    # The three `call.completed` opt-ins ride here too, for the same reason the raw-phone
+    # opt-in does: the fan-out is the last point that still knows WHICH endpoint a payload
+    # is for, so a recording link or a transcript can only be added — or withheld — per
+    # endpoint here.
     endpoints = (
         await session.execute(
             text(
-                "SELECT w.id, w.mapping FROM outbound_webhooks w WHERE "
+                "SELECT w.id, w.mapping, w.include_recording_url, w.include_transcript, "
+                "w.include_raw_transcript FROM outbound_webhooks w WHERE "
                 + subscribed_endpoint_sql("w")
             ),
             {"event": event, "kinds": list(DELIVERABLE_KINDS)},
         )
     ).all()
 
+    is_call_completed = event == CALL_COMPLETED_EVENT
+
     written = 0
-    for endpoint_id, mapping in endpoints:
+    for endpoint_id, mapping, inc_recording, inc_transcript, inc_raw_transcript in endpoints:
         opted_in = bool((mapping or {}).get("include_raw_phone"))
         for data in rows:
+            payload_data = lead_payload(data, include_raw_phone=opted_in)
+            if is_call_completed and (inc_recording or inc_transcript or inc_raw_transcript):
+                # Only opted-in endpoints pay for the extra reads and the audit write.
+                # Not folded into `lead_payload` because it is call-shaped and needs the
+                # session (transcript reads, recording presign) and the tenant (the raw
+                # audit row) — none of which a pure masking pass over a lead row has.
+                payload_data = await call_completed_payload(
+                    session,
+                    base=payload_data,
+                    tenant_id=tenant_id,
+                    endpoint_id=endpoint_id,
+                    include_recording_url=bool(inc_recording),
+                    include_transcript=bool(inc_transcript),
+                    include_raw_transcript=bool(inc_raw_transcript),
+                )
             await enqueue_outbox(
                 session,
                 job=OUTBOUND_WEBHOOK_JOB,
@@ -360,7 +394,7 @@ async def enqueue_events(
                     "tenant_id": str(tenant_id),
                     "endpoint_id": str(endpoint_id),
                     "event": event,
-                    "data": lead_payload(data, include_raw_phone=opted_in),
+                    "data": payload_data,
                     # Minted HERE, not in the worker: ARQ replays the same payload on
                     # retry, so a worker-side id would mint a new one per attempt and the
                     # "one forensic row per delivery" claim would be false — and a
@@ -711,6 +745,132 @@ def lead_payload(row: dict[str, Any], *, include_raw_phone: bool) -> dict[str, A
     return payload
 
 
+# --- call.completed recording + transcript opt-ins (docs/WEBHOOKS.md §1.2) ------
+#
+# The base `call.completed` body is summary-and-outcome only — "the summary — never the
+# transcript — is what leaves on a webhook". These three per-endpoint opt-ins widen that,
+# each one recorded in the config row and applied HERE at fan-out, the one place that
+# still knows which endpoint a body is for. All default off:
+#
+#   * `include_recording_url`  → a signed, SHORT-TTL link to OUR copy of the recording
+#     (never the audio bytes; expires on `storage.PRESIGN_TTL_S`). Omitted, not nulled,
+#     when the call has no recording — a copy that aged out, was erased, or was never
+#     made — for the reason `apply_mapping` never invents a null.
+#   * `include_transcript`     → the REDACTED transcript (`transcript_turns.text_redacted`),
+#     the same text a `calls:read` holder sees.
+#   * `include_raw_transcript` → the UNREDACTED transcript. Gated at the registration
+#     route with the same role control as a raw read (`calls:read_raw`) AND audited on
+#     every delivery here (hard rule 5), because this is the most sensitive artefact we
+#     hold leaving to a system whose access control is not ours.
+
+
+async def _transcript_turns(
+    session: AsyncSession, call_id: UUID, *, raw: bool
+) -> list[dict[str, Any]]:
+    """One call's transcript as an ordered list of turns, redacted or raw.
+
+    Mirrors `crm.service.get_call`'s read exactly (same `COALESCE({column}, '')`, same
+    `ORDER BY idx`) so the webhook and the dashboard cannot disagree about what a turn
+    says. `text` is the raw column, `text_redacted` the masked one — the single switch
+    hard rule 5 is built around.
+    """
+    column = "text" if raw else "text_redacted"
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT speaker, COALESCE({column}, ''), lang, start_ms "
+                "FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
+            ),
+            {"cid": call_id},
+        )
+    ).all()
+    return [{"speaker": r[0], "text": r[1], "lang": r[2], "start_ms": r[3]} for r in rows]
+
+
+async def _recording_url(session: AsyncSession, call_id: UUID) -> str | None:
+    """A presigned, short-TTL read URL for OUR copy of the recording, or None.
+
+    `calls.recording_url` holds OUR object key (the pipeline overwrites the vendor's link
+    with it), so this presigns the key — it never hands out the audio and never the key
+    itself. None when the call has no recording key at all (never recorded, erased, or
+    aged out) OR when the presigner could not sign right now; both are "no link this
+    time", and a webhook body that simply omits the field is the honest report of either.
+
+    `presigned_url` and `PRESIGN_TTL_S` are imported lazily for the reason
+    `crm.routes.get_recording` gives: boto3 lives in the workers package and pulling it
+    into every `apps.api` import would slow cold starts for a leg most callers never take.
+    """
+    row = (
+        await session.execute(
+            text("SELECT recording_url FROM calls WHERE id = :cid"),
+            {"cid": call_id},
+        )
+    ).first()
+    if row is None or not row[0]:
+        return None
+    from apps.workers.storage import PRESIGN_TTL_S, presigned_url
+
+    return presigned_url(str(row[0]), ttl_s=PRESIGN_TTL_S)
+
+
+async def call_completed_payload(
+    session: AsyncSession,
+    *,
+    base: dict[str, Any],
+    tenant_id: UUID,
+    endpoint_id: UUID,
+    include_recording_url: bool,
+    include_transcript: bool,
+    include_raw_transcript: bool,
+) -> dict[str, Any]:
+    """`base` widened by whatever this endpoint opted into. Never mutates `base`.
+
+    The fields are ADDED, never blanked: an endpoint that did not opt in gets exactly the
+    payload it always got, and one that did gets the extra keys only when there is
+    something to put in them (a recording that exists, turns that were transcribed).
+
+    `include_raw_transcript` writes an `audit_log` row with `actor_type='system'` — there
+    is no user principal on the post-call pipeline, and the config-time opt-in already
+    passed the `calls:read_raw` gate at registration, so the per-delivery record is what
+    hard rule 5's audit half asks for: unredacted PII left our boundary for THIS call to
+    THIS endpoint, on the record. Written in the caller's transaction (the pipeline's own
+    `tenant_session`), so the audit row and the outbox row that carries the raw text
+    commit together or not at all.
+    """
+    call_id_value = base.get("call_id")
+    if not call_id_value:
+        # Every real `call.completed` carries a `call_id` (pipeline step 8); a body that
+        # somehow lacks one has nothing to fetch a transcript or a recording FOR, so it is
+        # returned unwidened rather than raising on a defensive arm.
+        return base
+    call_id = UUID(str(call_id_value))
+
+    payload = dict(base)
+    if include_recording_url:
+        url = await _recording_url(session, call_id)
+        if url is not None:
+            payload["recording_url"] = url
+    if include_transcript:
+        payload["transcript"] = await _transcript_turns(session, call_id, raw=False)
+    if include_raw_transcript:
+        payload["raw_transcript"] = await _transcript_turns(session, call_id, raw=True)
+        await write_audit(
+            session,
+            action=RAW_TRANSCRIPT_INCLUDED_ACTION,
+            actor=None,
+            actor_type="system",
+            tenant_id=tenant_id,
+            object_type="call",
+            object_id=str(call_id),
+            # WHERE the raw transcript went is the fact this row exists to record. The
+            # endpoint's URL is deliberately NOT here — it is tenant free text that can
+            # carry a credential (hard rule 6, same call `create_endpoint`'s audit makes);
+            # the endpoint id names the destination and joins to the row that holds the URL.
+            summary={"endpoint_id": str(endpoint_id)},
+        )
+    return payload
+
+
 # --- google sheets -------------------------------------------------------------
 # The config row is the SAME row a webhook uses (DATA-MODEL §6): `url` names the
 # spreadsheet, `secret_ref` is the secrets-manager reference to the service account,
@@ -878,6 +1038,7 @@ def _disarm(rendered: str) -> str:
 
 __all__ = [
     "BODY_SUBJECT_FIELDS",
+    "CALL_COMPLETED_EVENT",
     "DEFAULT_SHEET_COLUMNS",
     "DEFAULT_WORKSHEET",
     "DELIVERABLE_KINDS",
@@ -886,6 +1047,7 @@ __all__ = [
     "EVENT_TYPES",
     "INBOUND_REFUSAL_ALERTS",
     "MAX_ATTEMPTS",
+    "RAW_TRANSCRIPT_INCLUDED_ACTION",
     "SHEET_DELIVERY_HEADER",
     "SHEET_KIND",
     "SIGNATURE_HEADER",
@@ -895,6 +1057,7 @@ __all__ = [
     "apply_mapping",
     "body_subject",
     "build_envelope",
+    "call_completed_payload",
     "deactivate_endpoint",
     "deliver",
     "delivery_body_ref",
