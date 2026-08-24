@@ -34,7 +34,13 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 #
 # D-34 runs BOTH motions on ONE product: a self-serve org is the same `organizations` row as
 # a managed one, distinguished by that column, so nothing forks.
-CREDIT_REASONS = ("topup", "usage", "adjustment", "refund")
+# `bonus` (added for credit packs) is credit we FUND, not money that arrived: a volume
+# bonus granted on a prepaid pack (`billing/credit_packs.py`). It is a distinct reason
+# rather than a second `topup` because `service.PAYMENT_REF_SQL`/reconciliation treats every
+# `topup` row as part of a bank transfer, and a promotional grant is not one — folding it
+# into `topup` would make the wallet claim a bank moved more than it did. It carries the
+# payment id it was earned on as its `ref` (idempotent, `ux_credit_ledger_bonus_ref`).
+CREDIT_REASONS = ("topup", "usage", "adjustment", "refund", "bonus")
 
 # The DASHBOARD-AI units (D-127 G-3, migration e1a7c93d5b02). Their own unit types
 # rather than a second meaning for the call-leg ones, and the reason is arithmetic

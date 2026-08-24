@@ -45,16 +45,24 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from apps.api.admin.service import tenant_exists
+from apps.api.billing.credit_packs import (
+    PACK_CATALOGUE,
+    CreditPack,
+    pack_by_id,
+    pack_effective_rate_inr_per_min,
+    pack_talk_time_minutes,
+)
 from apps.api.billing.payments import (
     CREDIT_EVENTS,
+    NOTES_PACK_KEY,
     NOTES_TENANT_KEY,
     PAYMENT_FAILED_EVENT,
     PROVIDER,
@@ -80,7 +88,7 @@ from apps.api.billing.payments import (
     verify_checkout_signature,
     verify_signature,
 )
-from apps.api.billing.rates import PREPAID_TIERS
+from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
@@ -149,9 +157,18 @@ class Strict(BaseModel):
 
 
 class TopUpIntentIn(Strict):
+    # A top-up is EITHER a pack (`pack_id`, amount derived from the catalogue) OR a
+    # free-form amount, never both and never neither — the model validator below enforces
+    # exactly one. `amount_inr` is optional so a pack request need not restate a price it
+    # does not set; a pack amount the client sent could disagree with the catalogue, and the
+    # catalogue is the authority.
+    #
     # max_digits/decimal_places mirror the column: MONEY is NUMERIC(12,4), and anything
     # finer than a paisa is a typo.
-    amount_inr: Decimal = Field(max_digits=10, decimal_places=2)
+    amount_inr: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+    #: A catalogue pack id (`billing/credit_packs.PACK_CATALOGUE`). When set, the amount and
+    #: the volume bonus come from the catalogue and the client's own amount is ignored.
+    pack_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @field_validator("amount_inr", mode="before")
     @classmethod
@@ -163,6 +180,15 @@ class TopUpIntentIn(Strict):
                 'money crosses the wire as a string ("2500.00"), never as a JSON float'
             )
         return value
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> TopUpIntentIn:
+        """A top-up is priced by a pack or by an amount, and confusing the two is a client
+        error worth a 422 rather than a silent pick: sending both invites "which won", and
+        sending neither is a request with no price at all."""
+        if (self.pack_id is None) == (self.amount_inr is None):
+            raise ValueError("send exactly one of pack_id or amount_inr")
+        return self
 
 
 class TopUpIntentOut(Strict):
@@ -191,6 +217,11 @@ class TopUpIntentOut(Strict):
     # condition — it is `not capability.creates_orders`, and the capability is the one
     # place that knows whether the adapter AND the credential are both present.
     provider_order_pending: bool
+    # The pack this intent priced, or null for a free-form top-up. NO default, for the
+    # reason `provider_order_id` carries one: `null` (not a pack) must be distinguishable
+    # from "the server did not say" in the generated types. Echoed so the checkout carries
+    # the pack through to the order notes, which is what the receiver reads to grant the bonus.
+    pack_id: str | None
 
 
 class TopUpCapabilityOut(Strict):
@@ -211,6 +242,45 @@ class TopUpCapabilityOut(Strict):
 
     online_payments_available: bool
     provider_orders_available: bool
+
+
+class CreditPackOut(Strict):
+    """One purchasable pack, priced for display. Every rupee value is an exact decimal
+    STRING (hard rule 7) and stays one to the DOM — nothing here is a JSON number a browser
+    would parse back through a float.
+
+    The EFFECTIVE RATE and TALK TIME are derived server-side from the live list rate and the
+    catalogue, so the table a client sees and the credits the receiver grants come from one
+    source and cannot drift.
+    """
+
+    pack_id: str
+    #: What the client pays (2dp), equal to the paid credits granted (1 credit = ₹1).
+    amount_inr: Decimal
+    paid_credits: Decimal
+    #: The volume bonus in credits (₹1 each) — the "free" column.
+    bonus_credits: Decimal
+    total_credits: Decimal
+    #: The volume bonus as a percent, e.g. "8".
+    bonus_pct: Decimal
+    #: The price the client actually pays per minute on this pack, at rate precision (4dp,
+    #: NUMERIC(12,4)) — a RATE, not a rupee amount, so it is not rounded to paise (the
+    #: distinction `billing.service.rate_to_display` makes).
+    effective_rate_inr_per_min: Decimal
+    #: Whole minutes of calling the pack's credits buy at the list rate, floored (you do not
+    #: get a partial minute). A display estimate, not a billed figure.
+    talk_time_minutes: int
+    #: The single "best value" badge.
+    best_value: bool
+
+
+class CreditPacksOut(Strict):
+    """The pack rate card. `list_rate_inr_per_min` is published beside the packs so the
+    screen can show what a minute lists at (and, on the 0%-bonus pack, that the effective
+    rate equals it) without a second source of the number."""
+
+    list_rate_inr_per_min: Decimal
+    packs: list[CreditPackOut]
 
 
 class WebhookAck(Strict):
@@ -284,6 +354,55 @@ async def read_topup_capability(_principal: TopUpRead) -> TopUpCapabilityOut:
     )
 
 
+def _pack_out(pack: CreditPack, *, list_rate: Decimal) -> CreditPackOut:
+    """Price one pack for the table, from the live list rate. The effective rate and talk
+    time are derived here — never in the browser — so the money arithmetic lives in the one
+    language with an exact decimal type."""
+    return CreditPackOut(
+        pack_id=pack.pack_id,
+        amount_inr=to_paise(pack.amount_inr),
+        paid_credits=to_paise(pack.paid_credits),
+        bonus_credits=to_paise(pack.bonus_credits),
+        total_credits=to_paise(pack.total_credits),
+        bonus_pct=pack.bonus_pct,
+        # A rate, kept at NUMERIC(12,4): rounding it to paise would break the client's only
+        # arithmetic on it (rate x minutes), the reason `rate_to_display` exists.
+        effective_rate_inr_per_min=pack_effective_rate_inr_per_min(
+            pack, list_rate=list_rate
+        ).quantize(MONEY_Q, rounding=ROUNDING),
+        # Floored to whole minutes: a client does not buy a fraction of a minute, and
+        # rounding UP would advertise talk time the credits do not cover.
+        talk_time_minutes=int(
+            pack_talk_time_minutes(pack, list_rate=list_rate).quantize(
+                Decimal("1"), rounding=ROUND_DOWN
+            )
+        ),
+        best_value=pack.best_value,
+    )
+
+
+@router.get(
+    "/packs",
+    response_model=CreditPacksOut,
+    openapi_extra=permission_meta("billing:read"),
+    summary="The prepaid credit-pack rate card, priced at the live list rate",
+    description=(
+        "The static pack catalogue (`billing/credit_packs.py`), each pack priced for "
+        "display: paid + bonus credits, the effective per-minute rate, and the talk time "
+        "the credits buy. Selecting a pack starts a top-up intent with its `pack_id`."
+    ),
+)
+async def read_credit_packs(_principal: TopUpRead) -> CreditPacksOut:
+    """The rate card, priced at whatever `self_serve_inr_per_min` currently is — the same
+    value calls are billed at, so the effective rates shown are the ones a client will
+    actually get. No tenant state is read; the catalogue is the same for everyone."""
+    list_rate = get_settings().self_serve_inr_per_min
+    return CreditPacksOut(
+        list_rate_inr_per_min=to_paise(list_rate),
+        packs=[_pack_out(pack, list_rate=list_rate) for pack in PACK_CATALOGUE],
+    )
+
+
 @router.post(
     "/intent",
     response_model=TopUpIntentOut,
@@ -306,7 +425,24 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
     """
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
-    amount = to_paise(payload.amount_inr)
+
+    # A pack prices itself from the catalogue; a free-form top-up prices from the body. The
+    # model validator has already guaranteed exactly one is set, so this is the ONE place the
+    # amount is resolved and the pack id is bound to the payment.
+    if payload.pack_id is not None:
+        pack = pack_by_id(payload.pack_id)
+        if pack is None:
+            raise ProblemError.business_rule(
+                "unknown_credit_pack",
+                "That credit pack is not one we offer.",
+                remediation="Pick a pack from the list, or add a free-form amount instead.",
+            )
+        amount = to_paise(pack.amount_inr)
+        pack_id: str | None = pack.pack_id
+    else:
+        assert payload.amount_inr is not None, "the model validator proved one source is set"
+        amount = to_paise(payload.amount_inr)
+        pack_id = None
 
     if amount < MIN_TOPUP_INR or amount > MAX_TOPUP_INR:
         raise ProblemError.business_rule(
@@ -342,6 +478,11 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
     amount_paise = inr_to_paise(amount)
     receipt = topup_receipt(tenant_id=tenant_id, amount_inr=amount, at=datetime.now(UTC))
     notes = {NOTES_TENANT_KEY: str(tenant_id)}
+    if pack_id is not None:
+        # Into the order by construction, so the receiver grants the bonus from the payment
+        # itself and never from a frontend it has to trust (the argument `NOTES_TENANT_KEY`
+        # carries for the tenant, applied to the pack).
+        notes[NOTES_PACK_KEY] = pack_id
 
     def _intent(order_id: str | None) -> TopUpIntentOut:
         return TopUpIntentOut(
@@ -354,6 +495,7 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
             key_id=key_id,
             provider_order_id=order_id,
             provider_order_pending=order_id is None,
+            pack_id=pack_id,
         )
 
     if not capability.creates_orders:
@@ -840,6 +982,8 @@ __all__ = [
     "MAX_TOPUP_INR",
     "MIN_TOPUP_INR",
     "CheckoutCallbackOut",
+    "CreditPackOut",
+    "CreditPacksOut",
     "RefundOut",
     "TopUpCapabilityOut",
     "TopUpIntentOut",

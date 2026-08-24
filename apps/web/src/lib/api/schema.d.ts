@@ -2517,6 +2517,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/topups/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The prepaid credit-pack rate card, priced at the live list rate
+         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: paid + bonus credits, the effective per-minute rate, and the talk time the credits buy. Selecting a pack starts a top-up intent with its `pack_id`.
+         */
+        get: operations["read_credit_packs_v1_billing_topups_packs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls": {
         parameters: {
             query?: never;
@@ -6057,6 +6077,48 @@ export interface components {
             spreadsheet: string;
             /** Worksheet */
             worksheet?: string | null;
+        };
+        /**
+         * CreditPackOut
+         * @description One purchasable pack, priced for display. Every rupee value is an exact decimal
+         *     STRING (hard rule 7) and stays one to the DOM — nothing here is a JSON number a browser
+         *     would parse back through a float.
+         *
+         *     The EFFECTIVE RATE and TALK TIME are derived server-side from the live list rate and the
+         *     catalogue, so the table a client sees and the credits the receiver grants come from one
+         *     source and cannot drift.
+         */
+        CreditPackOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Best Value */
+            best_value: boolean;
+            /** Bonus Credits */
+            bonus_credits: string;
+            /** Bonus Pct */
+            bonus_pct: string;
+            /** Effective Rate Inr Per Min */
+            effective_rate_inr_per_min: string;
+            /** Pack Id */
+            pack_id: string;
+            /** Paid Credits */
+            paid_credits: string;
+            /** Talk Time Minutes */
+            talk_time_minutes: number;
+            /** Total Credits */
+            total_credits: string;
+        };
+        /**
+         * CreditPacksOut
+         * @description The pack rate card. `list_rate_inr_per_min` is published beside the packs so the
+         *     screen can show what a minute lists at (and, on the 0%-bonus pack, that the effective
+         *     rate equals it) without a second source of the number.
+         */
+        CreditPacksOut: {
+            /** List Rate Inr Per Min */
+            list_rate_inr_per_min: string;
+            /** Packs */
+            packs: components["schemas"]["CreditPackOut"][];
         };
         /** CreditsOut */
         CreditsOut: {
@@ -10991,7 +11053,9 @@ export interface components {
         /** TopUpIntentIn */
         TopUpIntentIn: {
             /** Amount Inr */
-            amount_inr: number | string;
+            amount_inr?: number | string | null;
+            /** Pack Id */
+            pack_id?: string | null;
         };
         /** TopUpIntentOut */
         TopUpIntentOut: {
@@ -11010,6 +11074,8 @@ export interface components {
             notes: {
                 [key: string]: string;
             };
+            /** Pack Id */
+            pack_id: string | null;
             /** Provider Order Id */
             provider_order_id: string | null;
             /** Provider Order Pending */
@@ -15552,6 +15618,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopUpIntentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_credit_packs_v1_billing_topups_packs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditPacksOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

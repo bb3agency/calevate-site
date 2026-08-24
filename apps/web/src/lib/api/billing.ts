@@ -44,6 +44,8 @@ type Schemas = components["schemas"];
  */
 export type TopUpIntent = Schemas["TopUpIntentOut"];
 export type TopUpCapability = Schemas["TopUpCapabilityOut"];
+export type CreditPack = Schemas["CreditPackOut"];
+export type CreditPacks = Schemas["CreditPacksOut"];
 
 /**
  * The bounds the server enforces (`MIN_TOPUP_INR` / `MAX_TOPUP_INR`), mirrored here
@@ -67,17 +69,41 @@ export function isPrepaid(planTier: string | undefined): boolean {
 }
 
 /**
- * Money crosses the wire as a STRING (hard rule 7). The API's `amount_inr` accepts a
- * JSON number too, but sending one would put a rupee amount through a binary float on
- * the way out — the exact thing the string form exists to prevent.
+ * A top-up is priced EITHER by a pack (`packId`, amount from the catalogue) or by a
+ * free-form amount — the server refuses both or neither with a 422, so this input is a
+ * discriminated union rather than two optional fields.
+ *
+ * Money crosses the wire as a STRING (hard rule 7). The API's `amount_inr` accepts a JSON
+ * number too, but sending one would put a rupee amount through a binary float on the way
+ * out — the exact thing the string form exists to prevent. A pack sends no amount at all;
+ * the catalogue is the authority on its price.
  */
+export type TopUpRequest = { packId: string } | { amountInr: string };
+
 export function useTopUpIntent(session: Session) {
   return useMutation({
-    mutationFn: (amountInr: string) =>
+    mutationFn: (request: TopUpRequest) =>
       apiRequest<TopUpIntent>(session, "/v1/billing/topups/intent", {
         method: "POST",
-        body: { amount_inr: amountInr },
+        body:
+          "packId" in request
+            ? { pack_id: request.packId }
+            : { amount_inr: request.amountInr },
       }),
+  });
+}
+
+/**
+ * The prepaid credit-pack rate card, priced at the live list rate server-side. A read that
+ * changes only when the catalogue or the list rate does, so it is cached for the session.
+ * The effective rate and talk time are computed by the server (hard rule 7 reaches the
+ * browser: no decimal arithmetic on money here) and rendered as sent.
+ */
+export function useCreditPacks(session: Session) {
+  return useQuery({
+    queryKey: ["billing", "credit-packs"],
+    queryFn: () => apiRequest<CreditPacks>(session, "/v1/billing/topups/packs"),
+    staleTime: Infinity,
   });
 }
 

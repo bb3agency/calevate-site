@@ -68,7 +68,7 @@ from apps.api.db.base import uuid7
 
 log = get_logger(__name__)
 
-CreditReason = Literal["topup", "usage", "adjustment", "refund"]
+CreditReason = Literal["topup", "usage", "adjustment", "refund", "bonus"]
 
 # Below this the wallet is "low" — surfaced in the UI, not enforced. Enforcement is
 # `balance > 0`; a warning band exists so a client is told before calls start failing.
