@@ -704,22 +704,27 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     if refusal is not None:
         log.error(
             "agent_llm_model_not_offerable",
-            # The MODEL and the LEG, never a client's own values: both are platform
-            # configuration and together they are the whole of what an operator has to act
-            # on.
-            extra={"llm_model": model, "llm_provider": leg.provider},
+            # The MODEL, the LEG and the operator GROUND — never a client's own values: all
+            # three are platform configuration and together they are the whole of what an
+            # operator has to act on. The ground lives HERE, in the operator's log, and NOT
+            # in the message below, because publish is a client action: the person who sees
+            # the refusal cannot install a key, create a deployment or attest a price, so
+            # the client-facing message names only what they can do (CLAUDE.md: a user-safe
+            # message on the path they reach, an operator-actionable line on the one they do
+            # not). This path is defensive — `validate_llm_model` already refuses the
+            # selection — so it is only reached when config changed under a live choice.
+            extra={"llm_model": model, "llm_provider": leg.provider, "ground": refusal},
         )
         raise ProblemError(
             kind="business_rule",
             code="llm_model_not_deployed",
-            title="This agent's language model is not switched on for this platform",
+            title="This agent's language model isn't available right now",
             detail=(
-                f"The agent is set to run {model}, and {refusal}. Publishing it anyway "
-                "would put a client's calls on a model this platform cannot price or "
-                "authenticate — and bill them for it."
+                f"This agent is set to run {model}, and that model isn't switched on for "
+                "this account yet — publishing it would put calls on a model we cannot run."
             ),
             remediation=(
-                "Choose a model this platform runs, or ask support to switch this one on."
+                "Choose an available model, or ask your Calevate team to switch this one on."
             ),
         )
 

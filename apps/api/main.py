@@ -61,6 +61,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.operator_routes import router as operator_router
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.experiment_routes import router as experiment_router
+    from apps.api.agents.extraction_routes import admin_router as extraction_admin_router
+    from apps.api.agents.extraction_routes import router as extraction_router
     from apps.api.agents.llm_routes import admin_router as llm_defaults_admin_router
     from apps.api.agents.llm_routes import router as llm_defaults_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
@@ -172,6 +174,13 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/agents/`.
     application.include_router(llm_defaults_router)
     application.include_router(llm_defaults_admin_router)
+    # Editing an agent's extraction VARIABLES (D-460). The client router's
+    # `/v1/agents/{agent_id}/extraction-schema` carries a fourth segment, so it never
+    # collides with `/v1/agents/{agent_id}` on `agents_router`; the admin router names its
+    # tenant in the path like `prompt_admin_router` and collides with nothing under
+    # `/v1/admin/tenants/{tenant_id}`.
+    application.include_router(extraction_router)
+    application.include_router(extraction_admin_router)
     application.include_router(campaigns_router)
     # `/v1/numbers/purchase` — its own prefix, so nothing above can swallow it. It lives
     # in the campaigns package because that module owns `phone_numbers`.

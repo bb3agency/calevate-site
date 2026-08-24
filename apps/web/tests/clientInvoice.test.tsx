@@ -120,7 +120,7 @@ describe("the client's own invoice", () => {
           state_code: null,
           state_name: null,
           supply_type: "undetermined",
-          basis: "No GST registration is configured for this deployment.",
+          basis: "No GST registration is configured for Calevate.",
         },
         tax_components: [{ label: "GST", rate_pct: "18", amount_inr: "1826.11" }],
       }),

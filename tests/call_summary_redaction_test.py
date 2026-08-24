@@ -110,7 +110,7 @@ async def test_the_offline_extractors_summary_is_a_transcript_line_verbatim() ->
     same column when it masks foreign numbers out of it.
     """
     spec = ExtractionSchemaSpec(
-        fields=[ExtractionField(key="name", label="Name", type="text", description="caller name")]
+        fields=[ExtractionField(key="name", label="Name", type="text", reason="caller name")]
     )
 
     result = await OfflineExtractor().run(spec, TRANSCRIPT)

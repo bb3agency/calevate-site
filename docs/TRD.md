@@ -871,8 +871,13 @@ entry with the scorecard committed to the repo.
 ## 7. Schema-Driven Extraction (the product core)
 
 Per-agent `extraction_schema`: ordered list of {key, label, type(text|number|bool|enum|
-date), enum_values?, description("what to listen for"), required}. Admin UI edits it;
-vertical templates (clinic, real_estate, insurance, education) pre-fill it.
+date), enum_values?, reason(optional AI hint — "why this variable is needed"; fed to the
+extractor, name/label alone used when empty), required}. Editable by the client (owner
+role, self-serve) AND by Calevate admins/superadmin (D-460, superseding D-21's admin-only
+clause); vertical templates (clinic, real_estate, insurance, education) pre-fill it. Each
+save is live: it inserts a new schema version pointed at the agent in one transaction and
+the next call uses it immediately — no draft/publish gate. Old versions stay for history
+(Leads render by the version active at extraction time), so nothing is lost.
 One schema drives, with zero code: (a) the post-call extraction prompt (generated),
 (b) Pydantic validation of the LLM's structured output (retry on schema failure),
 (c) Leads table columns, (d) filters, (e) CSV export, (f) hot-lead rules.

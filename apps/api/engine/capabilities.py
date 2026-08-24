@@ -176,7 +176,7 @@ def engine_not_configured(reason: str | None) -> ProblemError:
         kind="dependency",
         code="engine_not_configured",
         title="The voice platform is unavailable",
-        detail="This deployment cannot reach its voice platform right now.",
+        detail="Calevate cannot reach its voice platform right now.",
         remediation="Contact us — this is a configuration problem on our side, not yours.",
     )
 

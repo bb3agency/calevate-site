@@ -126,6 +126,23 @@ LlmModelSource = Literal["agent", "organization", "platform"]
 #: (D-104). Read by the tests that enumerate the levels.
 LLM_MODEL_SOURCES: Final[tuple[LlmModelSource, ...]] = get_args(LlmModelSource)
 
+#: WHO a "why this model cannot be chosen" sentence is written for.
+#:
+#: The two audiences need DIFFERENT language for the SAME unavailable model, and that is a
+#: correction of a prior design that gave them one sentence. An OPERATOR (admin console, ops
+#: console) needs the actionable ground — a missing key, an un-created deployment, an
+#: unattested price — because fixing it is theirs and the three fixes are three different
+#: five-minute jobs. A CLIENT has no ops console, no vendor portal and no keys; the ground is
+#: not a thing they can act on, and printing it ("install the provider's key in the ops
+#: console") tells them to do something impossible. So a client is told the one true thing
+#: they CAN act on: the model is not on their account yet, and their Calevate team enables it.
+#:
+#: The split is chosen at the ROUTE by realm, not inferred from a role: the client realm's
+#: reader asks for `"client"` and the admin realm's for `"operator"`, so an operator viewing
+#: a client's own screen under impersonation (read-only, D-22) sees exactly what the client
+#: sees, which is the point of that view.
+LlmReasonAudience = Literal["operator", "client"]
+
 #: The call length the per-minute figure on the selection screen is struck at.
 #:
 #: A REFERENCE LENGTH IS REQUIRED AND CANNOT BE OMITTED, because the in-call LLM cost is
@@ -371,9 +388,20 @@ NO_ATTESTED_PRICE_REASON: Final = (
 #: Kept under its old name because two guards and a doc quote it; it is the Azure ground.
 UNAVAILABLE_REASON: Final = NO_DEPLOYMENT_REASON
 
+#: THE ONE SENTENCE A CLIENT SEES for any unavailable model, whichever of the three grounds
+#: failed. The grounds are collapsed on purpose: a client cannot install a key, create a
+#: deployment or attest a price, so the distinction that is load-bearing for an operator is
+#: noise to them — the only true action they have is to ask us. Phrased with no leading dash
+#: and no internal em-dash so it completes both "Cannot be chosen — {…}" on the picker and
+#: "…is a model this platform supports, but {…}. Until it is, …" in the validator refusal.
+CLIENT_UNAVAILABLE_REASON: Final = (
+    "it isn't switched on for your account yet; ask your Calevate team to enable it"
+)
 
-def unofferable_reason(model: str) -> str | None:
-    """Why `model` cannot be offered here, or `None` when it can.
+
+def _operator_unofferable_reason(model: str) -> str | None:
+    """The OPERATOR ground — which of the three conditions failed, named so an operator can
+    act on it. `unofferable_reason` is the audience-aware wrapper; this is its truth.
 
     **THE ONE PLACE THE THREE CONDITIONS ARE ORDERED**, and the order is by whose problem it
     is rather than by cost: a leg with no key cannot be fixed by attesting a price, so the
@@ -398,6 +426,25 @@ def unofferable_reason(model: str) -> str | None:
     if not llm_price_is_billable(model):
         return NO_ATTESTED_PRICE_REASON
     return None
+
+
+def unofferable_reason(model: str, *, audience: LlmReasonAudience = "operator") -> str | None:
+    """Why `model` cannot be offered here, or `None` when it can — in the AUDIENCE's language.
+
+    `None` MEANS THE SAME THING FOR BOTH AUDIENCES: offerability is one fact, so this returns
+    `None` for exactly the offerable models whichever audience asks. Only the SENTENCE for an
+    unavailable model differs — the operator gets the ground they can fix, the client gets the
+    one action they have (`CLIENT_UNAVAILABLE_REASON`; see `LlmReasonAudience`). Keeping the
+    None-ness audience-independent is what lets `available_models` derive `is_available` from
+    the reason without the flag and the sentence ever disagreeing.
+
+    Default `"operator"` so every existing caller — the guards, the publish path, `offerable_
+    models`, the tests — keeps its current behaviour unchanged; the client realm opts in.
+    """
+    reason = _operator_unofferable_reason(model)
+    if reason is None or audience == "operator":
+        return reason
+    return CLIENT_UNAVAILABLE_REASON
 
 
 def offerable_models() -> frozenset[str]:
@@ -487,8 +534,15 @@ def quoted_inr_per_minute(model: str) -> Decimal:
     return llm_cost_inr_per_minute(QUOTED_CALL_MINUTES, model=model)
 
 
-def available_models() -> tuple[SelectableModel, ...]:
+def available_models(*, audience: LlmReasonAudience = "operator") -> tuple[SelectableModel, ...]:
     """The picker's rows, derived from the allow-list and the rate card and nothing else.
+
+    `audience` decides ONLY the wording of `unavailable_reason` on a blocked row — the
+    operator's actionable ground or the client's one-action sentence (see `unofferable_
+    reason`). `is_available` is the same for both because it is `reason is None` and
+    offerability is one fact; the client realm must pass `"client"` so a client never reads
+    the operator ground. Default `"operator"` keeps the ops console and every existing
+    caller unchanged.
 
     Raises through `quoted_inr_per_minute` if a model in the allow-list has no price. That
     is deliberate and is the reason there is no `try` here: a picker that silently dropped
@@ -517,13 +571,23 @@ def available_models() -> tuple[SelectableModel, ...]:
             is_available=reason is None,
             unavailable_reason=reason,
         )
-        for model, reason in ((model, unofferable_reason(model)) for model in selectable_models())
+        for model, reason in (
+            (model, unofferable_reason(model, audience=audience)) for model in selectable_models()
+        )
     )
 
 
-def validate_llm_model(value: str | None, *, field: str) -> str | None:
+def validate_llm_model(
+    value: str | None, *, field: str, audience: LlmReasonAudience = "operator"
+) -> str | None:
     """`value` if this deployment can actually run it, `None` if it is `None` — else a
     refusal.
+
+    `audience` decides only the WORDING of the `llm_model_not_deployed` refusal's ground —
+    the client realm passes `"client"` so a client submitting a blocked model (the picker
+    disables it, but a hand-built request can still reach here) is told to ask their Calevate
+    team rather than to edit a deployments setting. Default `"operator"` for the admin realm
+    and every existing caller.
 
     **IT CHECKS ADDRESSABILITY, NOT ALLOW-LIST MEMBERSHIP**, and that is the whole point:
     a model this platform has no Azure deployment for would be quoted and metered at its
@@ -570,8 +634,8 @@ def validate_llm_model(value: str | None, *, field: str) -> str | None:
             title="That language model is not switched on for this platform yet",
             detail=(
                 f"{value!r} is a model this platform supports, but "
-                f"{unofferable_reason(value)}. Until it is, the models you can choose "
-                f"are: {permitted}."
+                f"{unofferable_reason(value, audience=audience)}. Until it is, the models "
+                f"you can choose are: {permitted}."
             ),
             remediation=(
                 f"Choose one of {permitted} for now, or ask support to switch "
@@ -595,6 +659,7 @@ def validate_llm_model(value: str | None, *, field: str) -> str | None:
 
 
 __all__ = [
+    "CLIENT_UNAVAILABLE_REASON",
     "LLM_MODEL_SOURCES",
     "NO_ATTESTED_PRICE_REASON",
     "NO_CREDENTIAL_REASON",
@@ -603,6 +668,7 @@ __all__ = [
     "UNAVAILABLE_REASON",
     "LlmCredentialReader",
     "LlmModelSource",
+    "LlmReasonAudience",
     "ResolvedLlmModel",
     "SelectableModel",
     "available_models",

@@ -698,6 +698,7 @@ def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together
 
 def test_a_model_this_platform_has_no_deployment_for_is_refused_not_substituted(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """THE SUBSTITUTION THAT USED TO HAPPEN HERE, now a refusal (D-454).
 
@@ -716,16 +717,28 @@ def test_a_model_this_platform_has_no_deployment_for_is_refused_not_substituted(
     is why this arm is reached by calling the decision point directly: the state it guards is
     an operator removing a deployment under an account that already chose.
     """
+    import logging
+
     from apps.api.agents import service
     from apps.api.core.errors import ProblemError
+    from apps.api.core.logging import JsonFormatter
 
     _configure(monkeypatch)
     undeployed = ALTERNATE_AZURE_MODEL
-    with pytest.raises(ProblemError) as raised:
+    formatter = JsonFormatter()
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         service.in_call_llm(undeployed)
     assert raised.value.code == "llm_model_not_deployed"
     assert undeployed in raised.value.detail
-    assert "deployment" in raised.value.detail
+    # THE AUDIENCE SPLIT (regression guard). Publish is a client action, so the message a
+    # client reaches names only what THEY can do and NOT the operator ground — a client
+    # cannot create a deployment, install a key or attest a price. The ground is not lost:
+    # it goes to the operator's log line, which is the path an operator does reach.
+    assert "deployment" not in raised.value.detail.lower()
+    assert "your Calevate team" in (raised.value.remediation or "")
+    rendered = "\n".join(formatter.format(record) for record in caplog.records)
+    assert "agent_llm_model_not_offerable" in rendered, "the operator ground is logged"
+    assert "deployment" in rendered, "the ground the client message dropped is in the log"
 
 
 def test_in_call_llm_routes_an_openai_model_to_the_openai_endpoint(

@@ -40,7 +40,7 @@ LIST = "/v1/leads"
 EXPORT = "/v1/leads/export.csv"
 SEARCH = "/v1/leads/search"
 
-SCHEMA = [{"key": "intent", "label": "Intent", "type": "text", "description": "what they want"}]
+SCHEMA = [{"key": "intent", "label": "Intent", "type": "text", "reason": "what they want"}]
 
 
 class Org:

@@ -333,8 +333,11 @@ def _azure_property(field: ExtractionField) -> dict[str, Any]:
     prop: dict[str, Any] = {"type": [_AZURE_TYPES[field.type], "null"]}
     if field.type == "enum" and field.enum_values:
         prop["enum"] = [*field.enum_values, None]
-    if field.description:
-        prop["description"] = field.description
+    # `description` here is Azure's OWN JSON-schema property key (their wire contract); the
+    # VALUE is our field's optional `reason`. When there is no reason, the property carries
+    # no description and the model works from the key/label alone.
+    if field.reason:
+        prop["description"] = field.reason
     return prop
 
 

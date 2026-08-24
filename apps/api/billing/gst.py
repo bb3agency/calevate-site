@@ -278,7 +278,7 @@ def resolve_place_of_supply(
             state_code=None,
             state_name=None,
             supply_type="undetermined",
-            basis="No GST registration is configured for this deployment.",
+            basis="No GST registration is configured for Calevate.",
         )
     if recipient_gstin is not None:
         return PlaceOfSupply(

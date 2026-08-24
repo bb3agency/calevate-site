@@ -40,6 +40,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle, llm_models, prompts
 from apps.api.agents.llm_models import (
+    CLIENT_UNAVAILABLE_REASON,
     LLM_MODEL_SOURCES,
     available_models,
     deployment_for,
@@ -47,6 +48,7 @@ from apps.api.agents.llm_models import (
     offerable_models,
     resolve_llm_model,
     selectable_models,
+    unofferable_reason,
     validate_llm_model,
 )
 from apps.api.agents.llm_routes import admin_router as llm_admin_router
@@ -268,6 +270,64 @@ def test_an_unavailable_model_is_shown_with_a_reason_rather_than_hidden(
         reason = rows[other_leg].unavailable_reason
         assert reason is not None and "API key" in reason, other_leg
         assert reason != blocked.unavailable_reason, other_leg
+
+
+def test_the_client_audience_hides_the_operator_ground_but_not_availability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE AUDIENCE SPLIT. A client has no ops console, no keys and no vendor portal, so the
+    three operator grounds (a deployment, a key, a price) collapse to the ONE action a client
+    has — ask their Calevate team. What must NOT change between audiences is WHICH models are
+    available: only the wording of a blocked row's reason forks, never the flag."""
+    _azure(monkeypatch)
+
+    operator = {o.model: o for o in available_models(audience="operator")}
+    client = {o.model: o for o in available_models(audience="client")}
+
+    # Availability is one fact for both audiences — the set of blocked models is identical.
+    assert {m for m, o in client.items() if not o.is_available} == {
+        m for m, o in operator.items() if not o.is_available
+    }
+
+    # Every blocked row a client sees carries the SAME client sentence, and it never leaks an
+    # operator ground — no "ops console", no "API key", no "deployment", no "attest".
+    forbidden = ("ops console", "api key", "deployment", "attest", "credential", "authenticate")
+    for model, option in client.items():
+        if option.is_available:
+            assert option.unavailable_reason is None
+            continue
+        assert option.unavailable_reason == CLIENT_UNAVAILABLE_REASON
+        assert not any(term in option.unavailable_reason.lower() for term in forbidden), model
+        # …while the operator sees the actionable ground for the very same model.
+        assert operator[model].unavailable_reason is not None
+        assert operator[model].unavailable_reason != option.unavailable_reason
+
+    # `None` (offerable) is audience-independent at the predicate too.
+    for model in selectable_models():
+        both_none = (
+            unofferable_reason(model, audience="operator") is None
+            and unofferable_reason(model, audience="client") is None
+        )
+        assert both_none == (unofferable_reason(model) is None), model
+
+
+def test_the_client_validator_refusal_names_no_operator_ground(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A client submitting a blocked model (the picker disables it, but a hand-built request
+    can still reach the validator) is told to ask their Calevate team — never to edit a
+    deployments setting or install a key."""
+    _azure(monkeypatch)
+    with pytest.raises(ProblemError) as refused:
+        validate_llm_model(ALTERNATE_MODEL, field="default_llm_model", audience="client")
+    assert refused.value.code == "llm_model_not_deployed"
+    assert CLIENT_UNAVAILABLE_REASON in refused.value.detail
+    for term in ("ops console", "deployment", "API key", "attest"):
+        assert term not in refused.value.detail
+    # The operator audience still gets the ground on the identical selection.
+    with pytest.raises(ProblemError) as operator:
+        validate_llm_model(ALTERNATE_MODEL, field="default_llm_model", audience="operator")
+    assert "deployment" in operator.value.detail
 
 
 def test_the_two_refusals_are_different_codes(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -138,15 +138,9 @@ export default function AlertsPage() {
                 >
                   <p className="mt-1">
                     This is on our side, not yours: the WhatsApp business connection is not
-                    live yet
-                    {current.delivery_unavailable_reason && (
-                      <>
-                        {" "}
-                        (<MonoValue>{current.delivery_unavailable_reason}</MonoValue>)
-                      </>
-                    )}
-                    . Agreeing now would record your consent for something we cannot do, so
-                    the control is held back until it works. Email alerts are unaffected.
+                    live yet. Agreeing now would record your consent for something we cannot
+                    do, so the control is held back until it works. Email alerts are
+                    unaffected.
                   </p>
                 </NoticeBox>
               )}

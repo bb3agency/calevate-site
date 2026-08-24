@@ -209,18 +209,55 @@ export function MonoValue({ children, className }: { children: ReactNode; classN
  *
  * Plain-language guidance (GOV.UK) allows an unavoidable technical term when it is
  * glossed where it is used — this is that mechanism, and the ONLY sanctioned way to put a
- * compliance term (DLT, PE, TM, DND, DPDP, the 140/160 number series) on screen. The gloss
- * is exposed as the accessible name too, because a `title` tooltip is invisible to a touch
- * user and to some screen readers.
+ * compliance term (DLT, PE, TM, DND, DPDP, the 140/160 number series) on screen.
+ *
+ * ## Why the gloss is a styled box, not the native `title`
+ *
+ * The term shows its meaning in a small box on HOVER, on keyboard FOCUS, and on TAP — the
+ * three input modes a `title` tooltip fails: `title` is mouse-only, delayed, unstyled, and
+ * shows nothing on a touch screen. The box is a pure-CSS `::after` pseudo-element, so it
+ * needs no positioning JS; the `<abbr>` is `tabIndex={0}` so a keyboard user reaches it and
+ * a touch user taps it into focus.
+ *
+ * ## Why the gloss lives in `data-gloss`, NOT as a child text node
+ *
+ * The box is drawn by `::after { content: attr(data-gloss) }`, so the gloss is a CSS
+ * pseudo-element — NOT a DOM text node. That is deliberate and load-bearing: a hidden child
+ * `<span>{children}</span>` would still be in the DOM, and because tests run under jsdom
+ * (which applies no Tailwind CSS, so `hidden` does not hide) every `getByText`/`textContent`
+ * assertion on a screen that uses a term would suddenly also see the gloss. Keeping the gloss
+ * in an attribute means the rendered TEXT is exactly the term, on screen and in tests.
+ *
+ * The gloss is ALSO the accessible name (`aria-label`) so a screen reader announces it, and a
+ * `::after` pseudo-element is not part of the accessibility tree — so the meaning is not read
+ * twice. No native `title`: it would double the visible tooltip under the styled one.
  *
  *   <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>
  */
 export function TermGloss({ term, children }: { term: string; children: string }) {
+  // tabIndex on a non-interactive <abbr> so the box reveals on keyboard FOCUS and on TAP,
+  // not mouse-hover alone (the WAI-ARIA tooltip pattern needs a focusable trigger). <abbr>
+  // is kept rather than <button> because TermGloss renders inside <label>/<legend>, where a
+  // nested interactive control would hijack the label.
   return (
     <abbr
-      title={children}
       aria-label={`${term}: ${children}`}
-      className="cursor-help underline decoration-dotted underline-offset-2"
+      data-gloss={children}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+      tabIndex={0}
+      className={clsx(
+        "relative cursor-help rounded-sm underline decoration-dotted underline-offset-2",
+        "outline-none focus-visible:ring-2 focus-visible:ring-brand-strong",
+        // The gloss box, drawn from `data-gloss` (see docstring). `normal-case`/`font-normal`
+        // so it reads plainly even when the term sits inside an uppercase or bold label;
+        // `whitespace-normal` + a max width so a long gloss wraps instead of running off-screen.
+        "after:pointer-events-none after:absolute after:bottom-full after:left-0 after:z-50 after:mb-1",
+        "after:hidden after:w-max after:max-w-[16rem] after:whitespace-normal after:rounded-md",
+        "after:border after:border-line after:bg-surface after:px-2 after:py-1 after:text-left",
+        "after:text-xs after:font-normal after:normal-case after:not-italic after:leading-snug",
+        "after:text-ink after:shadow-lg after:[content:attr(data-gloss)]",
+        "hover:after:block focus:after:block",
+      )}
     >
       {term}
     </abbr>

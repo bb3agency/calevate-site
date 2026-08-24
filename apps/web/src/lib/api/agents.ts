@@ -53,6 +53,10 @@ export type DisclosureOut = components["schemas"]["DisclosureOut"];
  */
 export type AgentExtractionField = Agent["extraction_fields"][number];
 
+/** The whole ordered list a PUT replaces, and the answer a PUT gives back. */
+export type ExtractionSchemaIn = components["schemas"]["ExtractionSchemaIn"];
+export type ExtractionSchemaOut = components["schemas"]["ExtractionSchemaOut"];
+
 export const agentKeys = {
   all: (org: string) => ["agents", org] as const,
   /** The archive is a DIFFERENT list from a different request — see `useArchivedAgents`. */
@@ -113,6 +117,40 @@ export function useSetDisclosure(
     mutationFn: (payload: DisclosureIn) =>
       apiRequest<DisclosureOut>(session, `/v1/agents/${agentId}/disclosure`, {
         method: "PATCH",
+        body: payload,
+      }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
+      ]),
+  });
+}
+
+/**
+ * Replace this agent's extraction variables — the whole ordered list at once (D-21 is
+ * superseded here: the owner edits their own agents' capture columns self-serve).
+ *
+ * A whole-list PUT rather than per-field POST/PATCH/DELETE, mirroring the server's one
+ * write path: the body is the entire list and each save mints a new schema version the
+ * next call uses. `org:manage` is the owner's own permission — the same one the disclosure
+ * and lifecycle controls gate on — so this is genuinely the client's to change and no
+ * impersonating session holds it against a tenant (D-22).
+ *
+ * The awaited invalidation (rather than `void`) matches `useSetDisclosure`: the agent row
+ * carries `extraction_fields`, so the screen must repaint from the server's stored answer
+ * — including any normalisation the validator applied — rather than from the draft that was
+ * sent.
+ */
+export function useSetExtractionSchema(
+  session: Session,
+  agentId: string,
+): UseMutationResult<ExtractionSchemaOut, Error, ExtractionSchemaIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ExtractionSchemaIn) =>
+      apiRequest<ExtractionSchemaOut>(session, `/v1/agents/${agentId}/extraction-schema`, {
+        method: "PUT",
         body: payload,
       }),
     onSuccess: () =>

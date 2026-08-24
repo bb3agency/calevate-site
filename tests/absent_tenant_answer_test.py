@@ -94,6 +94,11 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {"body": PROMPT_BODY},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {"version": 1},
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {"voice_id": "bulbul:v2"},
+    # An EMPTY variable list is a valid body (a schema may capture nothing extra), so the
+    # route validates and reaches the tenant lookup — which 404s for a tenant that names
+    # nothing. A non-empty body would work too; empty is the minimal one that gets past
+    # `_validate_fields` to the 404 this census is about.
+    "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {"fields": []},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft": {},
     "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {

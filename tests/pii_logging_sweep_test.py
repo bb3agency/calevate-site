@@ -70,13 +70,13 @@ UNMASKED_EMAIL = "priya.sharma@sunriseclinic.example"
 TRANSCRIPT_FRAGMENTS = tuple(text_ for _speaker, text_ in SAMPLE_TURNS)
 
 CLINIC_SCHEMA: list[dict[str, Any]] = [
-    {"key": "name", "label": "Caller name", "type": "text", "description": "who is calling"},
+    {"key": "name", "label": "Caller name", "type": "text", "reason": "who is calling"},
     {
         "key": "intent",
         "label": "Intent",
         "type": "enum",
         "enum_values": ["book", "reschedule", "enquiry"],
-        "description": "what they want",
+        "reason": "what they want",
     },
 ]
 

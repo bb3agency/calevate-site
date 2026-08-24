@@ -16,9 +16,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-CLINIC_SCHEMA = [
-    {"key": "intent", "label": "Intent", "type": "text", "description": "what they want"}
-]
+CLINIC_SCHEMA = [{"key": "intent", "label": "Intent", "type": "text", "reason": "what they want"}]
 
 
 async def _make_tenant(role: str = "owner") -> tuple[uuid.UUID, str, str]:

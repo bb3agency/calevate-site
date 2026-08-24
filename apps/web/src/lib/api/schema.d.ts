@@ -613,6 +613,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the variables one client's agent captures
+         * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
+         *
+         *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         */
+        put: operations["admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
         parameters: {
             query?: never;
@@ -1646,6 +1668,34 @@ export interface paths {
          */
         get: operations["experiment_v1_agents__agent_id__experiment_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/extraction-schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The variables this agent captures
+         * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
+         *
+         *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         */
+        get: operations["get_extraction_schema_v1_agents__agent_id__extraction_schema_get"];
+        /**
+         * Set the variables this agent captures
+         * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
+         *
+         *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         */
+        put: operations["set_extraction_schema_v1_agents__agent_id__extraction_schema_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -6653,17 +6703,17 @@ export interface components {
         };
         /** ExtractionField */
         ExtractionField: {
-            /**
-             * Description
-             * @default
-             */
-            description: string;
             /** Enum Values */
             enum_values?: string[] | null;
             /** Key */
             key: string;
             /** Label */
             label: string;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
             /**
              * Required
              * @default false
@@ -6674,6 +6724,32 @@ export interface components {
              * @enum {string}
              */
             type: "text" | "number" | "bool" | "enum" | "date";
+        };
+        /**
+         * ExtractionSchemaIn
+         * @description The whole new ordered field list. `extra="forbid"` on every field
+         *     (`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently
+         *     dropped edit.
+         */
+        ExtractionSchemaIn: {
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
+        };
+        /**
+         * ExtractionSchemaOut
+         * @description The stored list after the write, and the version it became.
+         *
+         *     `changed` is here for the same reason `llm-defaults` carries it: a PUT is idempotent, so
+         *     re-sending the list already on file is a request somebody made and a change nobody made,
+         *     and the screen (and an auditor) needs to tell "saved, new version" from "nothing moved".
+         */
+        ExtractionSchemaOut: {
+            /** Changed */
+            changed: boolean;
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
+            /** Version */
+            version: number;
         };
         /** Faq */
         Faq: {
@@ -12105,6 +12181,42 @@ export interface operations {
             };
         };
     };
+    admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractionSchemaIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionSchemaOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get: {
         parameters: {
             query?: never;
@@ -13877,6 +13989,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExperimentStateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_extraction_schema_v1_agents__agent_id__extraction_schema_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionSchemaOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_extraction_schema_v1_agents__agent_id__extraction_schema_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractionSchemaIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionSchemaOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -159,7 +159,7 @@ def derive_moments(
 
     `field_labels` maps an extraction key to the label the client chose for it, so a
     marker reads "Appointment slot captured" and not "appointment_slot captured" — the
-    schema is the client's product copy (`ExtractionField.description` is explicitly
+    schema is the client's product copy (`ExtractionField.reason` is explicitly
     that), and their words belong on their screen.
 
     Sorted by time, because the panel is a table of contents and a table of contents in

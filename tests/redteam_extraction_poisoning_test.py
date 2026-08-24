@@ -151,7 +151,7 @@ async def _exported_rows(payload: str) -> list[list[str]]:
             {
                 "a": org.agents[0],
                 "f": json.dumps(
-                    [{"key": "intent", "label": payload, "type": "text", "description": "what"}]
+                    [{"key": "intent", "label": payload, "type": "text", "reason": "what"}]
                 ),
             },
         )
@@ -310,10 +310,10 @@ def test_an_absurd_magnitude_is_accepted_because_no_range_is_declared() -> None:
     decision-log question, not a test's to make.
     """
     budget = ExtractionField(
-        key="budget_lakhs", label="Budget (lakhs)", type="number", description="in lakhs"
+        key="budget_lakhs", label="Budget (lakhs)", type="number", reason="in lakhs"
     )
     assert coerce_value(budget, "999900") == (999900, None)
-    party = ExtractionField(key="party_size", label="People", type="number", description="how many")
+    party = ExtractionField(key="party_size", label="People", type="number", reason="how many")
     assert coerce_value(party, "90000") == (90000, None)
 
 

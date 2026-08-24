@@ -106,14 +106,14 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "symptom",
             "label": "Symptom / reason",
             "type": "text",
-            "description": "What the caller says is wrong",
+            "reason": "What the caller says is wrong",
             "required": True,
         },
         {
             "key": "preferred_doctor",
             "label": "Preferred doctor",
             "type": "text",
-            "description": "Named doctor if the caller asks for one",
+            "reason": "Named doctor if the caller asks for one",
             "required": False,
         },
         {
@@ -127,14 +127,14 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "preferred_slot",
             "label": "Preferred slot",
             "type": "text",
-            "description": "Day/time the caller wants",
+            "reason": "Day/time the caller wants",
             "required": False,
         },
         {
             "key": "insurance",
             "label": "Insurance",
             "type": "text",
-            "description": "Insurer or cash payment",
+            "reason": "Insurer or cash payment",
             "required": False,
         },
     ],
@@ -149,13 +149,13 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             # `budget_lakhs`, not `budget`: hard rule 7 money is NUMERIC INR, and a
             # bare "50" in a column called Budget is fifty rupees to one reader and
             # fifty lakhs to the next. The unit belongs in the key, the label AND
-            # the description, because the description is the instruction the
+            # the reason, because the reason is the instruction the
             # extraction model is given (TRD §7) and the label is the CRM column
             # header the client reads.
             "key": "budget_lakhs",
             "label": "Budget (lakhs)",
             "type": "number",
-            "description": (
+            "reason": (
                 "Budget in LAKHS of rupees: '50 lakhs' is 50, '1.2 crore' is 120. "
                 "Never rupees, never a range — take the upper figure the caller "
                 "states, and leave it empty if they state none."
@@ -166,7 +166,7 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "preferred_location",
             "label": "Location",
             "type": "text",
-            "description": (
+            "reason": (
                 "Area/locality the CALLER wants, in their own words (Kondapur, "
                 "Gachibowli). Never a locality only the agent named."
             ),
@@ -177,7 +177,7 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "label": "BHK",
             "type": "enum",
             "enum_values": ["1BHK", "2BHK", "3BHK", "4BHK+"],
-            "description": (
+            "reason": (
                 "Flat size the caller asked for. Not one the agent offered, and not "
                 "one they rejected."
             ),
@@ -187,7 +187,7 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "timeline",
             "label": "Timeline",
             "type": "text",
-            "description": (
+            "reason": (
                 "When they intend to buy or need possession, in the caller's own "
                 "words ('aaru nelalo', 'next year') — never resolved to a date."
             ),
@@ -197,7 +197,7 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "site_visit_interest",
             "label": "Site visit",
             "type": "bool",
-            "description": (
+            "reason": (
                 "true ONLY if the caller agreed to a site visit. A refusal "
                 "('vaddu', 'avasaram ledu') is not a yes, and neither is the agent "
                 "offering one."
@@ -217,14 +217,14 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "sum_assured",
             "label": "Sum assured",
             "type": "number",
-            "description": "Cover amount in lakhs",
+            "reason": "Cover amount in lakhs",
             "required": False,
         },
         {
             "key": "renewal_due",
             "label": "Renewal due",
             "type": "date",
-            "description": "Existing policy renewal date if mentioned",
+            "reason": "Existing policy renewal date if mentioned",
             "required": False,
         },
         {"key": "existing_insurer", "label": "Existing insurer", "type": "text", "required": False},
@@ -234,7 +234,7 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "course_interest",
             "label": "Course",
             "type": "text",
-            "description": "Course or stream the caller asked about",
+            "reason": "Course or stream the caller asked about",
             "required": True,
         },
         {"key": "student_class", "label": "Class / year", "type": "text", "required": False},
@@ -242,7 +242,7 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "key": "fee_concern",
             "label": "Fee concern",
             "type": "bool",
-            "description": "Whether cost was raised as a blocker",
+            "reason": "Whether cost was raised as a blocker",
             "required": False,
         },
         {"key": "demo_booked", "label": "Demo booked", "type": "bool", "required": False},

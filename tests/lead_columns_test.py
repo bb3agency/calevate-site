@@ -56,9 +56,9 @@ SCHEMA = [
         "label": "Budget band",
         "type": "enum",
         "enum_values": ["under_20l", "20l_50l", "over_50l"],
-        "description": "what they can spend",
+        "reason": "what they can spend",
     },
-    {"key": "locality", "label": "Locality", "type": "text", "description": "where"},
+    {"key": "locality", "label": "Locality", "type": "text", "reason": "where"},
 ]
 
 
@@ -283,9 +283,7 @@ async def test_every_selectable_column_is_disarmed(column: str) -> None:
 async def test_a_hostile_extraction_value_and_label_survive_the_chooser() -> None:
     """The extraction half of the same claim — value AND header, since a label is
     authored by an admin and read by the client's staff."""
-    t = await _tenant(
-        schema=[{"key": "note", "label": HOSTILE, "type": "text", "description": "x"}]
-    )
+    t = await _tenant(schema=[{"key": "note", "label": HOSTILE, "type": "text", "reason": "x"}])
     await _lead(t, data={"note": HOSTILE})
     async with _client() as http:
         response = await http.get(
@@ -484,7 +482,7 @@ async def test_a_client_with_more_enum_fields_than_the_cap_is_told_how_many_are_
             "label": f"Enum {n}",
             "type": "enum",
             "enum_values": ["a", "b"],
-            "description": "x",
+            "reason": "x",
         }
         for n in range(extra)
     ]

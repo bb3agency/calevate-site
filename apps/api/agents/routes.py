@@ -670,8 +670,9 @@ async def update_agent_route(
     assert principal.tenant_id is not None
     # BEFORE the write, so an unavailable model costs a 422 and no republish. The
     # validator is the same one the account-level routes call — one allow-list, one
-    # refusal, one wording.
-    llm_model = validate_llm_model(payload.llm_model, field="llm_model")
+    # refusal; the WORDING is the client's, because this is the client realm and the
+    # person editing their own agent cannot act on an operator ground.
+    llm_model = validate_llm_model(payload.llm_model, field="llm_model", audience="client")
     await lifecycle.update_agent(
         session,
         tenant_id=principal.tenant_id,
