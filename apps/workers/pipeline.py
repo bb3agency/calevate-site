@@ -92,6 +92,8 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.insights import detection as gap_detection
+from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
 from apps.api.integrations.service import subscribed_endpoint_sql
 from apps.api.reliability.service import (
@@ -1038,6 +1040,28 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
                 schema_version=schema_version,
                 moments=moments,
             )
+
+    # STEP 3c — knowledge gaps: the questions this agent could not answer (D-Knowledge-Gaps).
+    # An inline string-match stage like STEP 2b/3b — no model call, no round trip — over the
+    # REDACTED turns, so the caller-facing quotes it stores can never carry raw PII (hard
+    # rule 6). It reads `redact(turn.text).text`, the same redaction STEP 2 wrote to
+    # `transcript_turns.text_redacted`, and never `turn.text`. Exactly-once per call:
+    # `record_call_gaps` replaces this call's occurrence rows and recomputes the aggregate,
+    # so a re-drive cannot double-count (`apps/api/insights/service.py`). Guarded on a
+    # transcript existing — a call with none implies no gaps.
+    if snapshot.transcript:
+        redacted_turns = [
+            gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
+            for turn in snapshot.transcript
+        ]
+        with span("pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+            gap_count = await gap_service.record_call_gaps(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                call_id=call_id,
+                turns=redacted_turns,
+            )
+            set_span_attributes(stage, gap_count=gap_count)
 
     # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
     with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:

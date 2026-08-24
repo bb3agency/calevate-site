@@ -10,6 +10,7 @@ import { useAgent, type Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { KnowledgeGaps } from "../../KnowledgeGaps";
 import { liveState } from "../AgentBadge";
 import { AgentIdentity } from "../AgentIdentity";
 import { AgentLifecycle } from "../AgentLifecycle";
@@ -189,6 +190,10 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
           }
         />
       </Card>
+
+      {/* The same urgent surface as the dashboard home, scoped to THIS agent — the
+          questions it could not answer on real calls, teachable in place. */}
+      <KnowledgeGaps agentId={agent.id} />
 
       <TrainingPanel agent={agent} />
     </div>

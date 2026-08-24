@@ -3419,6 +3419,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/knowledge-gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Questions the agents could not answer — urgent first, across all agents */
+        get: operations["list_knowledge_gaps_v1_knowledge_gaps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/knowledge-gaps/{gap_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss a knowledge gap — it leaves the urgent list, occurrences stay */
+        post: operations["dismiss_knowledge_gap_v1_knowledge_gaps__gap_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/knowledge-gaps/{gap_id}/teach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Teach the missing answer — records it and seeds a KB draft for review */
+        post: operations["teach_knowledge_gap_v1_knowledge_gaps__gap_id__teach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lead-sources": {
         parameters: {
             query?: never;
@@ -6965,6 +7016,28 @@ export interface components {
             /** Tenant Id */
             tenant_id: string;
         };
+        /**
+         * GapDismissIn
+         * @description Dismiss a gap. An optional note the client leaves for their own audit trail.
+         */
+        GapDismissIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * GapTeachIn
+         * @description Teach the answer to a gap. `answer` is the fact the agent was missing; when
+         *     `create_kb_draft` is set the service seeds a KB draft from it (see `service.teach_gap`).
+         */
+        GapTeachIn: {
+            /** Answer */
+            answer: string;
+            /**
+             * Create Kb Draft
+             * @default true
+             */
+            create_kb_draft: boolean;
+        };
         /** GlobalEntryOut */
         GlobalEntryOut: {
             /**
@@ -7611,6 +7684,79 @@ export interface components {
             pending: number;
             /** Versions */
             versions: number;
+        };
+        /**
+         * KnowledgeGapListOut
+         * @description The urgent surface. `open_count` is what the nav badge and "N things need
+         *     attention" sentence read; `items` is the page, open gaps first (see
+         *     `service.list_gaps` for the ordering).
+         */
+        KnowledgeGapListOut: {
+            /** Items */
+            items: components["schemas"]["KnowledgeGapOut"][];
+            /** Open Count */
+            open_count: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * KnowledgeGapOut
+         * @description One rolled-up gap for the card. `occurrence_count`/`call_count` are the "Nx on M
+         *     calls"; `signal` drives the "DIDN'T KNOW THIS"-style badge wording.
+         */
+        KnowledgeGapOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name?: string | null;
+            /** Call Count */
+            call_count: number;
+            /** Example Answer */
+            example_answer: string;
+            /** Example Question */
+            example_question: string;
+            /**
+             * First Seen At
+             * Format: date-time
+             */
+            first_seen_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kb Source Id */
+            kb_source_id?: string | null;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Occurrence Count */
+            occurrence_count: number;
+            /** Resolution */
+            resolution?: string | null;
+            /** Resolved At */
+            resolved_at?: string | null;
+            /** Resolved By */
+            resolved_by?: string | null;
+            /**
+             * Signal
+             * @enum {string}
+             */
+            signal: "dont_know" | "deferred_channel" | "unanswered_question";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "taught" | "dismissed";
+            /** Topic Key */
+            topic_key: string;
+            /** Topic Label */
+            topic_label: string;
         };
         /**
          * KycRecordIn
@@ -16819,6 +16965,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChunkOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_knowledge_gaps_v1_knowledge_gaps_get: {
+        parameters: {
+            query?: {
+                agent_id?: string | null;
+                /** @description open (default, the urgent set) · taught · dismissed · all */
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeGapListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_knowledge_gap_v1_knowledge_gaps__gap_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gap_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GapDismissIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeGapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    teach_knowledge_gap_v1_knowledge_gaps__gap_id__teach_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gap_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GapTeachIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeGapOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
