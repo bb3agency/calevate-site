@@ -141,8 +141,14 @@ from uuid import UUID
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.credit_packs import (
+    PACK_BONUS_META_KIND,
+    CreditPack,
+    pack_by_id,
+)
 from apps.api.billing.service import (
     Balance,
+    find_entry_by_ref,
     find_topup,
     get_balance,
     lock_tenant_credits,
@@ -170,6 +176,11 @@ CAPTURED_EVENT: Final = "payment.captured"
 # The key our checkout attaches to the order's `notes`, carrying the tenant through
 # the provider and back. It is prefixed because `notes` is a shared free-form map.
 NOTES_TENANT_KEY: Final = "calevate_tenant_id"
+
+# The key carrying which prepaid PACK a payment was for, so the receiver can grant the
+# volume bonus (`billing/credit_packs.py`) attributable to a captured payment and nothing
+# else. Optional: a plain top-up (no pack) carries no such note and grants no bonus.
+NOTES_PACK_KEY: Final = "calevate_pack_id"
 
 # The ledger is INR (hard rule 7). A payment in any other currency is refused rather
 # than converted: an fx rate applied at credit time is a number nobody can reproduce.
@@ -374,6 +385,10 @@ class CapturedPayment:
     tenant_id: UUID
     amount_inr: Decimal
     currency: str
+    # Which prepaid pack this payment bought, if any (`notes.calevate_pack_id`). None for a
+    # plain top-up. Carried as the raw id and resolved against the catalogue at credit time,
+    # so a pack this build no longer offers resolves to "no bonus" rather than crashing.
+    pack_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +397,11 @@ class TopUpResult:
     balance: Balance
     # False = this payment id was already on the ledger and nothing moved.
     recorded: bool
+    # The bonus ledger entry granted for a pack, when this payment bought one and was a
+    # fresh credit. None on a plain top-up or a replay. `balance` already reflects the
+    # bonus — it is read after both entries land.
+    bonus_entry_id: UUID | None = None
+    bonus_inr: Decimal | None = None
 
 
 def verify_signature(*, secret: str, body: bytes, signature: str | None) -> bool:
@@ -770,11 +790,18 @@ def extract_captured_payment(envelope: Any) -> CapturedPayment:
             ),
         ) from exc
 
+    # The pack id is OPTIONAL and never fatal: a plain top-up carries none, and a value we
+    # cannot read (or one this build no longer offers) simply grants no bonus — it must not
+    # refuse a real payment. Only the tenant is load-bearing enough to refuse on.
+    raw_pack = notes.get(NOTES_PACK_KEY) if isinstance(notes, dict) else None
+    pack_id = raw_pack.strip() if isinstance(raw_pack, str) and raw_pack.strip() else None
+
     return CapturedPayment(
         payment_id=payment_id.strip(),
         tenant_id=tenant_id,
         amount_inr=amount_inr,
         currency=SUPPORTED_CURRENCY,
+        pack_id=pack_id,
     )
 
 
@@ -819,13 +846,18 @@ async def credit_captured_payment(
             recorded=False,
         )
 
+    paid_meta: dict[str, Any] = {"source": PROVIDER, "currency": payment.currency}
+    if payment.pack_id is not None:
+        # Stamped on the PAID row too, so the pack a payment bought is recoverable even from
+        # the topup entry alone — the ledger stamp survives the catalogue changing later.
+        paid_meta["pack_id"] = payment.pack_id
     balance = await record_entry(
         session,
         tenant_id=payment.tenant_id,
         delta=payment.amount_inr,
         reason="topup",
         ref=payment.payment_id,
-        meta={"source": PROVIDER, "currency": payment.currency},
+        meta=paid_meta,
     )
     written = await find_topup(session, tenant_id=payment.tenant_id, ref=payment.payment_id)
     assert written is not None, "the row was inserted in this transaction"
@@ -851,7 +883,117 @@ async def credit_captured_payment(
         "razorpay_topup_recorded",
         extra={"tenant_id": str(payment.tenant_id), "entry_id": str(written.entry_id)},
     )
-    return TopUpResult(entry_id=written.entry_id, balance=balance, recorded=True)
+
+    # The volume bonus, in the SAME transaction as the paid credit, so a wallet can never
+    # hold the paid credits of a pack without its bonus (or vice versa). Idempotent on the
+    # payment id under `reason='bonus'` (`ux_credit_ledger_bonus_ref`); a payment carrying no
+    # pack, or a pack this build no longer offers, grants nothing and leaves `balance` as the
+    # paid-only figure above.
+    pack = pack_by_id(payment.pack_id) if payment.pack_id is not None else None
+    if pack is None:
+        return TopUpResult(entry_id=written.entry_id, balance=balance, recorded=True)
+    return await _grant_pack_bonus(
+        session, payment=payment, pack=pack, paid_entry_id=written.entry_id, ip=ip
+    )
+
+
+async def _grant_pack_bonus(
+    session: AsyncSession,
+    *,
+    payment: CapturedPayment,
+    pack: CreditPack,
+    paid_entry_id: UUID,
+    ip: str | None,
+) -> TopUpResult:
+    """Append the pack's bonus credits as one `bonus` ledger entry, exactly once.
+
+    Keyed on the payment id under `reason='bonus'`, a namespace distinct from the paid
+    `topup` row (which is keyed on the same id under `reason='topup'`), so the two never
+    collide and each is independently idempotent. The `find_entry_by_ref` guard makes a
+    re-run a no-op rather than an IntegrityError against the unique index — the same
+    check-then-write-under-lock discipline `credit_captured_payment` uses for the paid leg.
+
+    A zero bonus (the 0%-bonus starter pack) writes nothing: `record_entry` returns early on
+    a zero delta anyway, and a ₹0 ledger row is noise, so the paid-only balance is returned.
+    """
+    bonus_inr = pack.bonus_credits
+    if bonus_inr <= 0:
+        return TopUpResult(
+            entry_id=paid_entry_id,
+            balance=await get_balance(session, tenant_id=payment.tenant_id),
+            recorded=True,
+        )
+
+    existing_bonus = await find_entry_by_ref(
+        session, tenant_id=payment.tenant_id, reason="bonus", ref=payment.payment_id
+    )
+    if existing_bonus is not None:
+        log.info(
+            "razorpay_pack_bonus_replay",
+            extra={"tenant_id": str(payment.tenant_id), "entry_id": str(existing_bonus.entry_id)},
+        )
+        return TopUpResult(
+            entry_id=paid_entry_id,
+            balance=await get_balance(session, tenant_id=payment.tenant_id),
+            recorded=True,
+            bonus_entry_id=existing_bonus.entry_id,
+            bonus_inr=existing_bonus.amount_inr,
+        )
+
+    balance = await record_entry(
+        session,
+        tenant_id=payment.tenant_id,
+        delta=bonus_inr,
+        reason="bonus",
+        ref=payment.payment_id,
+        meta={
+            "kind": PACK_BONUS_META_KIND,
+            "source": PROVIDER,
+            "pack_id": pack.pack_id,
+            # The paid row this bonus was earned on, so an auditor can pair the two without
+            # string surgery. A digit STRING (hard rule 7): a bonus that goes into JSON as a
+            # number comes back a float in some reader.
+            "paid_entry_id": str(paid_entry_id),
+            "amount_inr": str(bonus_inr),
+        },
+    )
+    written_bonus = await find_entry_by_ref(
+        session, tenant_id=payment.tenant_id, reason="bonus", ref=payment.payment_id
+    )
+    assert written_bonus is not None, "the bonus row was inserted in this transaction"
+
+    await write_audit(
+        session,
+        action="credit.pack_bonus",
+        actor_type="system",
+        tenant_id=payment.tenant_id,
+        object_type="credit_ledger",
+        object_id=str(written_bonus.entry_id),
+        ip=ip,
+        summary={
+            "source": PROVIDER,
+            "pack_id": pack.pack_id,
+            "payment_ref": payment.payment_id,
+            "paid_entry_id": str(paid_entry_id),
+            "bonus_inr": str(bonus_inr),
+            "balance_after_inr": str(balance.amount_inr),
+        },
+    )
+    log.info(
+        "razorpay_pack_bonus_recorded",
+        extra={
+            "tenant_id": str(payment.tenant_id),
+            "entry_id": str(written_bonus.entry_id),
+            "pack_id": pack.pack_id,
+        },
+    )
+    return TopUpResult(
+        entry_id=paid_entry_id,
+        balance=balance,
+        recorded=True,
+        bonus_entry_id=written_bonus.entry_id,
+        bonus_inr=bonus_inr,
+    )
 
 
 __all__ = [
@@ -859,6 +1001,7 @@ __all__ = [
     "BASE_URL",
     "CAPTURED_EVENT",
     "INTENT_REPLAY_WINDOW",
+    "NOTES_PACK_KEY",
     "NOTES_TENANT_KEY",
     "NO_API_SECRET_REASON",
     "NO_KEY_REASON",

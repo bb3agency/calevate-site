@@ -3584,6 +3584,91 @@
         "title": "CreateSheetEndpointIn",
         "type": "object"
       },
+      "CreditPackOut": {
+        "additionalProperties": false,
+        "description": "One purchasable pack, priced for display. Every rupee value is an exact decimal\nSTRING (hard rule 7) and stays one to the DOM \u2014 nothing here is a JSON number a browser\nwould parse back through a float.\n\nThe EFFECTIVE RATE and TALK TIME are derived server-side from the live list rate and the\ncatalogue, so the table a client sees and the credits the receiver grants come from one\nsource and cannot drift.",
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "best_value": {
+            "title": "Best Value",
+            "type": "boolean"
+          },
+          "bonus_credits": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Bonus Credits",
+            "type": "string"
+          },
+          "bonus_pct": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Bonus Pct",
+            "type": "string"
+          },
+          "effective_rate_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Effective Rate Inr Per Min",
+            "type": "string"
+          },
+          "pack_id": {
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "paid_credits": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid Credits",
+            "type": "string"
+          },
+          "talk_time_minutes": {
+            "title": "Talk Time Minutes",
+            "type": "integer"
+          },
+          "total_credits": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Credits",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_id",
+          "amount_inr",
+          "paid_credits",
+          "bonus_credits",
+          "total_credits",
+          "bonus_pct",
+          "effective_rate_inr_per_min",
+          "talk_time_minutes",
+          "best_value"
+        ],
+        "title": "CreditPackOut",
+        "type": "object"
+      },
+      "CreditPacksOut": {
+        "additionalProperties": false,
+        "description": "The pack rate card. `list_rate_inr_per_min` is published beside the packs so the\nscreen can show what a minute lists at (and, on the 0%-bonus pack, that the effective\nrate equals it) without a second source of the number.",
+        "properties": {
+          "list_rate_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "List Rate Inr Per Min",
+            "type": "string"
+          },
+          "packs": {
+            "items": {
+              "$ref": "#/components/schemas/CreditPackOut"
+            },
+            "title": "Packs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "list_rate_inr_per_min",
+          "packs"
+        ],
+        "title": "CreditPacksOut",
+        "type": "object"
+      },
       "CreditsOut": {
         "additionalProperties": false,
         "properties": {
@@ -14740,14 +14825,27 @@
               {
                 "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
                 "type": "string"
+              },
+              {
+                "type": "null"
               }
             ],
             "title": "Amount Inr"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Id"
           }
         },
-        "required": [
-          "amount_inr"
-        ],
         "title": "TopUpIntentIn",
         "type": "object"
       },
@@ -14778,6 +14876,17 @@
             },
             "title": "Notes",
             "type": "object"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Id"
           },
           "provider_order_id": {
             "anyOf": [
@@ -14813,7 +14922,8 @@
           "notes",
           "key_id",
           "provider_order_id",
-          "provider_order_pending"
+          "provider_order_pending",
+          "pack_id"
         ],
         "title": "TopUpIntentOut",
         "type": "object"
@@ -21498,6 +21608,35 @@
           "billing"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/billing/topups/packs": {
+      "get": {
+        "description": "The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: paid + bonus credits, the effective per-minute rate, and the talk time the credits buy. Selecting a pack starts a top-up intent with its `pack_id`.",
+        "operationId": "read_credit_packs_v1_billing_topups_packs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditPacksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The prepaid credit-pack rate card, priced at the live list rate",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
       }
     },
     "/v1/calls": {

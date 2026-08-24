@@ -648,6 +648,29 @@ def billable_tier(voice_id: str | None) -> tuple[TtsTier, TierSource]:
     return tier, "agent_config"
 
 
+#: THE BLENDED ALL-IN COST OF ONE SELF-SERVE CALL-MINUTE, used to MODEL MARGIN — never to
+#: bill. This is the per-minute figure the prepaid credit-pack margin guard
+#: (`billing/credit_packs.py`, `tests/credit_packs_test.py`) checks every pack's effective
+#: rate against, so that no volume bonus can be set deep enough to sell minutes below a 20%
+#: gross margin.
+#:
+#: ⚠ **EVIDENCE CLASS: ESTIMATE (pilot gate 12), founder-approved for margin modelling.**
+#: It is TRD §10.3's launch blend (platform + STT + TTS + LLM + telephony ≈ ₹3.26-3.76/min),
+#: taken at ₹3.70 — the founder-approved cost floor for the credit-pack rate card (Aug 2026).
+#: The platform and telephony legs inside that blend are UNVERIFIED estimates and no check
+#: can say otherwise (TRD §10, `scripts/check_docs_drift.py`), so this is deliberately a
+#: single documented constant rather than a sum assembled from those unverified legs dressed
+#: as if measured. It is NOT `unit_cost_paid` and reaches no bill (hard rule 7 is about the
+#: billed figure): a pilot measurement or a real invoice is what would replace it.
+#:
+#: ⚠ **SENSITIVITY.** At the TOP of the launch band (₹3.76) the two deepest packs dip just
+#: under 20% (≈19.4% and ≈18.8%); the ₹3.70 floor is the founder's approved basis and is
+#: what the deepest bonus (8%) was capped against. If the measured cost lands above ₹3.70 the
+#: guard will fail and the ₹24,999/₹50,000 bonuses must come down — which is the guard
+#: working, not a bug.
+SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = Decimal("3.70")
+
+
 #: The plan tiers whose every minute is charged at a published list price, with no
 #: included allowance in front of it. Spelled once because three places branch on it —
 #: the meter's `charge_for_call`, the runway framing and `billing.service
@@ -883,6 +906,7 @@ __all__ = [
     "PRICED_LLM_MODELS",
     "REFERENCE_CALL",
     "ROUNDING",
+    "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "TTS_INR_PER_10K_CHARS",
     "UNPROVEN_TIER",
     "LlmPriceAttestation",

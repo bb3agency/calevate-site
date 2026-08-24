@@ -10,6 +10,7 @@ import {
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   StatTile,
   formatCount,
@@ -20,8 +21,10 @@ import {
   MAX_TOPUP_INR,
   MIN_TOPUP_INR,
   isPrepaid,
+  useCreditPacks,
   useTopUpCapability,
   useTopUpIntent,
+  type CreditPack,
 } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
@@ -521,6 +524,10 @@ function TopUp({ session }: { session: Session }) {
   const [amount, setAmount] = useState("");
   const capability = useTopUpCapability(session);
   const intent = useTopUpIntent(session);
+  const packs = useCreditPacks(session);
+  // Which control the in-flight intent belongs to, so only the pack the client clicked
+  // (or the custom row) shows its spinner — never every button at once.
+  const [pending, setPending] = useState<string | null>(null);
   // `org:manage` is what the endpoint requires — staff should see the balance and not a
   // form that will 403 them, and an operator in "view as client" cannot spend a client's
   // money from a client screen (D-22).
@@ -553,19 +560,41 @@ function TopUp({ session }: { session: Session }) {
   }
 
   return (
-    <div className="mt-4 space-y-3 border-t border-line pt-4">
+    <div className="mt-4 space-y-4 border-t border-line pt-4">
       <RestrictionNote reason={write.reason} />
       {intent.error && <ProblemNotice error={intent.error} />}
 
+      {/* The pack rate card — the productized way to add credit. A bigger pack buys
+          proportionally more calling because it grants bonus credits; the effective rate
+          and talk time are the server's own figures, priced at the live list rate. */}
+      {packs.isLoading && <Skeleton rows={4} />}
+      {packs.error && (
+        <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />
+      )}
+      {packs.data && (
+        <PacksTable
+          packs={packs.data.packs}
+          disabled={!write.allowed || intent.isPending}
+          pendingPackId={intent.isPending ? pending : null}
+          onSelect={(packId) => {
+            setPending(packId);
+            intent.mutate({ packId });
+          }}
+        />
+      )}
+
+      {/* An "other amount" for a client who wants a figure that is not a pack. Same route,
+          no bonus — packs are where the volume bonus lives. */}
       <form
         className="flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          intent.mutate(amount);
+          setPending("__custom__");
+          intent.mutate({ amountInr: amount });
         }}
       >
         <label htmlFor="topup-amount" className="text-sm text-ink-muted">
-          Add credit
+          Other amount
         </label>
         <span className="text-sm text-ink-faint">₹</span>
         <input
@@ -580,9 +609,9 @@ function TopUp({ session }: { session: Session }) {
         <button
           type="submit"
           disabled={!write.allowed || !amount.trim() || intent.isPending}
-          className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md border border-line px-3 py-1.5 text-sm font-semibold text-ink hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {intent.isPending ? "Working…" : "Get payment details"}
+          {intent.isPending && pending === "__custom__" ? "Working…" : "Get payment details"}
         </button>
         <span className="text-xs text-ink-faint">
           ₹{MIN_TOPUP_INR.toLocaleString("en-IN")} to ₹{MAX_TOPUP_INR.toLocaleString("en-IN")}
@@ -633,6 +662,112 @@ function TopUp({ session }: { session: Session }) {
       )}
     </div>
   );
+}
+
+/**
+ * The credit-pack rate card, Outpero-style: You pay / Credits / Free / Effective rate /
+ * Talk time / Select. Every figure is the SERVER's — priced at the live list rate — and
+ * rendered as sent (hard rule 7 reaches the browser: no decimal arithmetic on money here).
+ *
+ * Scrolls inside its own container on narrow screens rather than forcing the page body to
+ * scroll sideways. The "best value" pack is badged and row-highlighted.
+ */
+function PacksTable({
+  packs,
+  disabled,
+  pendingPackId,
+  onSelect,
+}: {
+  packs: CreditPack[];
+  disabled: boolean;
+  pendingPackId: string | null;
+  onSelect: (packId: string) => void;
+}) {
+  return (
+    <ScrollRegion label="Prepaid credit packs">
+      <table className="w-full min-w-[36rem] border-collapse text-sm">
+        <caption className="sr-only">Prepaid credit packs</caption>
+        <thead>
+          <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
+            <th scope="col" className="py-2 pr-3 font-medium">
+              You pay
+            </th>
+            <th scope="col" className="py-2 pr-3 font-medium">
+              Credits
+            </th>
+            <th scope="col" className="py-2 pr-3 font-medium">
+              Free
+            </th>
+            <th scope="col" className="py-2 pr-3 font-medium">
+              Effective rate
+            </th>
+            <th scope="col" className="py-2 pr-3 font-medium">
+              Talk time
+            </th>
+            <th scope="col" className="py-2 font-medium">
+              <span className="sr-only">Select</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {packs.map((pack) => (
+            <tr
+              key={pack.pack_id}
+              className={`border-b border-line/60 ${pack.best_value ? "bg-brand-soft" : ""}`}
+            >
+              <td className="py-3 pr-3 font-semibold tabular-nums text-ink">
+                {formatINR(pack.amount_inr)}
+                {pack.best_value && (
+                  <span className="ml-2 rounded-full bg-brand-strong px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                    Best value
+                  </span>
+                )}
+              </td>
+              <td className="py-3 pr-3 tabular-nums text-ink-muted">
+                {formatCredits(pack.total_credits)}
+              </td>
+              <td className="py-3 pr-3 tabular-nums text-ink-muted">
+                {hasNonZeroDigit(pack.bonus_pct) ? (
+                  <span className="font-medium text-brand">
+                    +{formatCredits(pack.bonus_credits)} ({pack.bonus_pct}%)
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="py-3 pr-3 tabular-nums text-ink-muted">
+                {formatRupeeRate(pack.effective_rate_inr_per_min)}/min
+              </td>
+              <td className="py-3 pr-3 tabular-nums text-ink-muted">
+                ~{formatCount(pack.talk_time_minutes)} min
+              </td>
+              <td className="py-3">
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onSelect(pack.pack_id)}
+                  className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {pendingPackId === pack.pack_id ? "Working…" : "Select"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ScrollRegion>
+  );
+}
+
+/**
+ * A credit COUNT (1 credit = ₹1) formatted with grouping. Only the integer part is shown —
+ * credits are whole rupees to a client — and it is parsed off the STRING (never the whole
+ * decimal through `Number`), so no money value is put through a binary float. The integer
+ * part of a NUMERIC(12,4) string is a safe `parseInt`; the fraction is dropped on purpose.
+ */
+function formatCredits(value: string): string {
+  const whole = value.split(".")[0];
+  return parseInt(whole, 10).toLocaleString("en-IN");
 }
 
 function Row({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
