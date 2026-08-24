@@ -296,39 +296,61 @@ class AppliesRule:
 #: the audit found the console lying.
 FIELD_APPLIES: dict[str, AppliesRule] = {
     # ---- env_only: the store cannot deliver these, and a restart does not help -----
+    # The database connection pool is sized when the app first opens a connection, which
+    # is BEFORE the console's store can be read (reading the store needs a connection from
+    # this very pool). It is built from a bare `Settings()` in db/session.py, which reads
+    # the environment only, so a value stored here has no path into it at all.
     "db_pool_size": AppliesRule(
         ENV_ONLY,
-        "the SQLAlchemy engine is built from a bare `Settings()` (db/session.py), which "
-        "reads the environment only — and it is built BEFORE the store can be read, "
-        "because reading the store needs a connection from it. A value stored here can "
-        "never apply, restart or not: set DB_POOL_SIZE in the deployment's environment.",
+        "this is set from the deployment's environment when the app starts up, before "
+        "the console's settings can even be read — so a value saved here never takes "
+        "effect, restart or not. Set DB_POOL_SIZE in the deployment's environment "
+        "instead.",
     ),
     # ---- on_restart: consumed once, at process start -------------------------------
+    # Tracing is initialised once at boot (`init_tracing` returns early when a provider
+    # already exists — a second provider would double every span), so the endpoint is read
+    # once and held for the life of each process.
     "otel_exporter_otlp_endpoint": AppliesRule(
         ON_RESTART,
-        "tracing is initialised once at boot (`init_tracing` returns early when a "
-        "provider already exists) — a second provider would double every span",
+        "the tracing exporter is configured once when the app starts and held for the "
+        "life of each server process, so a change here does not take effect until every "
+        "server process is restarted.",
     ),
+    # The trace sampler is fixed when the tracer provider is built at boot, for the same
+    # reason as the endpoint above.
     "otel_traces_sample_ratio": AppliesRule(
         ON_RESTART,
-        "the sampler is fixed when the tracer provider is built, for the same reason",
+        "the trace sampling rate is fixed when the app starts and held for the life of "
+        "each server process, so a change here does not take effect until every server "
+        "process is restarted.",
     ),
+    # Stamped into the OTel resource, handed to `sentry_sdk.init`, and written to the
+    # `service_start` log line at boot; nothing reads it again afterwards.
     "release_version": AppliesRule(
         ON_RESTART,
-        "it is stamped into the OTel resource and handed to `sentry_sdk.init` at boot, "
-        "and into the `service_start` log line — nothing reads it again afterwards",
+        "this is recorded once when the app starts (into traces, error reports and the "
+        "startup log line) and held for the life of each server process, so a change "
+        "here does not take effect until every server process is restarted.",
     ),
+    # The Bolna adapter captures the rate as `self._fx_rate` when `get_engine()` builds it,
+    # and that instance is cached for the life of the process — so the value that converts
+    # USD engine cost to the INR stamped into `usage_events` is read once at construction,
+    # not per call.
     "usd_inr_rate": AppliesRule(
         ON_RESTART,
-        "the Bolna adapter captures it as `_fx_rate` when `get_engine()` builds it, and "
-        "that instance is cached for the life of the process — so a new rate does NOT "
-        "reach the cost conversion stamped into usage_events until every process "
-        "restarts. Until then, minutes are still costed at the old rate.",
+        "the USD→INR conversion rate is read once when the app starts and held for the "
+        "life of each server process, so a new rate does not reach the cost calculation "
+        "until every server process is restarted. Until then, minutes are still costed "
+        "at the old rate.",
     ),
+    # The Cartesia adapter captures this at construction and `get_engine()` caches the
+    # adapter for the life of the process.
     "cartesia_from_number_id": AppliesRule(
         ON_RESTART,
-        "the Cartesia adapter captures it at construction and `get_engine()` caches the "
-        "adapter for the life of the process",
+        "this is read once when the app starts and held for the life of each server "
+        "process, so a change here does not take effect until every server process is "
+        "restarted.",
     ),
     # ---- needs_republish: live for new work, stale on what already exists ----------
     "webhook_base_url": AppliesRule(
@@ -337,14 +359,16 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "carries the OLD URL in its engine-side config — they must be re-published or "
         "their webhooks keep going to the previous address",
     ),
+    # `get_engine()` switches the active adapter immediately, but every live agent was
+    # created on the previous vendor: its `engine_agent_ref` means nothing to the new
+    # engine and its webhook URL still ends in the old engine's name. Switching BACK
+    # returns the adapter instance cached earlier in this process, with the credentials
+    # and FX rate it was built with.
     "engine": AppliesRule(
         NEEDS_REPUBLISH,
-        "`get_engine()` switches immediately, but every LIVE agent was created on the "
-        "previous vendor and its `engine_agent_ref` means nothing to the new one — and "
-        "its webhook URL still ends in the old engine's name. Every agent must be "
-        "re-published before the switch is real. Switching BACK also returns the "
-        "adapter instance cached earlier in this process, with the credentials and FX "
-        "rate it was built with.",
+        "the platform starts using the new engine at once, but every agent that is "
+        "already live was built on the previous engine and does not exist on the new "
+        "one — each agent must be re-published before the switch is real for it.",
     ),
     # ---- live: read through get_settings() at the point of use ---------------------
     "object_store_endpoint": AppliesRule(LIVE),  # workers/storage._client(), per call
@@ -415,12 +439,16 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # calling the resource it was published against however many times the console is
     # edited. Reporting either `live` would be the outage this file's header describes,
     # on the leg that carries a client's caller's voice.
+    # The wrong-region hazard is a data-residency change that no code here can detect:
+    # `<resource>.openai.azure.com` names no region (the region is a property of the
+    # resource in the Azure portal), so unlike the old Vertex hostname there is nothing in
+    # `calevate_shared.engine.AZURE_LOCATION` or the AST for a guard to check against.
     "azure_openai_resource": AppliesRule(
         NEEDS_REPUBLISH,
-        "it becomes each agent's LLM endpoint at publish time, so agents already live "
-        "keep calling the old resource until they are re-published — and a resource in "
-        "the wrong region is a residency change no code here can detect (see "
-        "calevate_shared.engine.AZURE_LOCATION)",
+        "this becomes each agent's LLM endpoint when the agent is published, so agents "
+        "already live keep calling the old resource until they are re-published — and "
+        "pointing it at a resource in a different region silently moves where calls are "
+        "processed, which no automated check here can catch.",
     ),
     "azure_openai_deployment": AppliesRule(
         NEEDS_REPUBLISH,
@@ -464,19 +492,28 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # which sends an operator to the vendor's dashboard rather than to a restart. They
     # are classified here, in the SAME table, because there is one question and it should
     # not have two answers in two places.
+    # The Bolna adapter captures the key when `get_engine()` builds it, and that instance
+    # is cached for the life of the process.
     "bolna_api_key": AppliesRule(
         ON_RESTART,
-        "the Bolna adapter captures it when `get_engine()` builds it, and that instance "
-        "is cached for the life of the process — a rotation here does NOT reach the "
-        "adapter placing calls until every process restarts",
+        "the engine adapter that places calls captures this key when the app starts and "
+        "holds it for the life of each server process, so rotating it here does not reach "
+        "the running adapter until every server process is restarted.",
     ),
+    # Captured at construction by the Cartesia adapter, which `get_engine()` caches for the
+    # life of the process, exactly as `bolna_api_key` above.
     "cartesia_api_key": AppliesRule(
-        ON_RESTART, "captured at construction by the cached Cartesia adapter, as above"
+        ON_RESTART,
+        "the Cartesia engine adapter captures this key when the app starts and holds it "
+        "for the life of each server process, so rotating it here does not reach the "
+        "running adapter until every server process is restarted.",
     ),
+    # `sentry_sdk.init` runs once at boot (from `init_observability`) with this DSN;
+    # nothing reconfigures it afterwards.
     "sentry_dsn": AppliesRule(
         ON_RESTART,
-        "`sentry_sdk.init` runs once at boot (`init_observability`); a new DSN does not "
-        "redirect errors until the process restarts",
+        "error reporting is configured once when the app starts, so a new DSN does not "
+        "redirect errors until every server process is restarted.",
     ),
     # Read at the point of use, per call or per request.
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
@@ -499,15 +536,19 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # The Azure OpenAI key (D-410), and the classification is the CONSERVATIVE of the two
     # answers its two surfaces give. The dashboard-AI path reads it through
     # `get_settings()` per request, which is `live`; the in-call leg's copy does not live
-    # in this process at all — it is installed into the ENGINE's credential store, so a
-    # rotation here reaches a live phone call only once that install has happened.
+    # in this process at all — it is installed into the ENGINE's credential store (by
+    # `VoiceEngine.set_llm_credential`), so a rotation here reaches a live phone call only
+    # once that install has happened. Publishing an agent does NOT run that install — the
+    # platform can only PUSH the credential separately — so republish is not the fix.
     # `live` is the answer that costs an outage (see this file's header), so the row
     # states the weaker of the two truths rather than the flattering one.
     "azure_openai_api_key": AppliesRule(
         NEEDS_REPUBLISH,
-        "the dashboard AI picks it up on the next request, but the in-call leg's copy is "
-        "held by the engine — a rotation does not reach a live call until the credential "
-        "is re-installed on the engine (VoiceEngine.set_llm_credential)",
+        "the dashboard AI picks up the new key on its next request, but the in-call phone "
+        "leg does not: the engine keeps its own copy, so a rotation here does not reach a "
+        "live call until the new key is re-installed on the engine's credential store. "
+        "Re-publishing an agent does not do that — an operator must re-install the "
+        "credential.",
     ),
     "audit_chain_secret": AppliesRule(LIVE),  # compliance/audit._active_key(), per write
     "audit_chain_secret_retired": AppliesRule(LIVE),
