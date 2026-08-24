@@ -92,6 +92,18 @@ async def _agent_or_404(session: AsyncSession, agent_id: UUID) -> Any:
     return row
 
 
+async def assert_agent_visible(session: AsyncSession, agent_id: UUID) -> None:
+    """404 unless `agent_id` names an agent visible to the session's tenant (RLS).
+
+    The ownership check the builder's read/write/preview paths get for free from
+    `_agent_or_404`, exposed for the one route that acts on an agent WITHOUT first loading
+    its script — the AI assist, which spends money and writes an audit row and so must
+    refuse a neighbour's id before either happens (hard rule 1). One predicate, so all the
+    `{agent_id}` script routes answer a stranger's id the same way.
+    """
+    await _agent_or_404(session, agent_id)
+
+
 def _posture(row: Any) -> DisclosurePosture:
     return DisclosurePosture(
         ai_disclosure_line=str(row.ai_disclosure_line),
@@ -215,6 +227,7 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
 __all__ = [
     "LoadedScript",
     "SavedScript",
+    "assert_agent_visible",
     "compiled_preview",
     "load_agent_script",
     "save_agent_script",

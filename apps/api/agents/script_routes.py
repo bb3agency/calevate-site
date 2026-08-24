@@ -224,6 +224,12 @@ async def assist_script(
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
     tenant_id = principal.tenant_id
 
+    # OWNERSHIP — the agent must be visible to this tenant (RLS) before a rupee is spent or
+    # an audit row is written against its id. Unlike the load/save/preview routes this one
+    # never loads the agent's script, so without this a neighbour's agent id would bill and
+    # audit under it (hard rule 1). 404 for a stranger's id, indistinguishable from missing.
+    await script_builder.assert_agent_visible(session, agent_id)
+
     # GATE — raises `ai_quota_exceeded` / `ai_paused_platform_wide` before any spend.
     quota = await require_ai_assist(session, tenant_id=tenant_id)
 
