@@ -114,7 +114,10 @@ def _refuse_unmanageable(key: str) -> None:
             kind="business_rule",
             code="secret_key_bootstrap",
             title="This key can only come from the environment",
-            detail=f"{key!r} must be in place before Calevate starts, so it can only come from the environment.",
+            detail=(
+                f"{key!r} must be in place before Calevate starts, so it can "
+                "only come from the environment."
+            ),
             remediation=(
                 f"Set {env_var_for(key)} in the deployment's environment. PLATFORM_KEK in "
                 "particular can never live here: it is the key that opens this store."

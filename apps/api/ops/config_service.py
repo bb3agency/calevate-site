@@ -207,7 +207,10 @@ def _refuse_unmanaged(key: str) -> None:
             kind="business_rule",
             code="config_key_unclassified",
             title="This build cannot say when a change here would take effect",
-            detail=f"{key!r} has not been classified yet, so Calevate cannot say when a change to it would take effect.",
+            detail=(
+                f"{key!r} has not been classified yet, so Calevate cannot say "
+                "when a change to it would take effect."
+            ),
             remediation=(
                 "Classify it (live / on_restart / needs_republish / env_only) with the "
                 "reason, and ship that with the field. Until then the console will not "
