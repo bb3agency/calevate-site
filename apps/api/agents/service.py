@@ -1114,6 +1114,21 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             remediation="Restore the agent first, then try again.",
         )
     config = _to_config(tenant_id, agent)
+    # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
+    # renders, so publish is where a tool change reaches live calls (the "Apply to live
+    # calls" action, same mechanism as a voice or cap change). Empty tuple when the master
+    # switch is off or no during-call tool is enabled, in which case the adapter emits no
+    # `api_tools` at all. Imported here rather than at module top to keep the actions
+    # package off the agents-service import path except where publish actually needs it.
+    from apps.api.actions import service as actions_service
+
+    config = config.model_copy(
+        update={
+            "action_tools": await actions_service.declare(
+                session, agent_id=agent_id, engine=engine.name, direction=agent["direction"]
+            )
+        }
+    )
 
     existing_ref = agent["engine_agent_ref"]
     created = not (isinstance(existing_ref, str) and existing_ref)

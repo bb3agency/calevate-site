@@ -319,6 +319,13 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/healthz",
     "/hooks",
     "/v1/auth/",
+    # The engine-called in-call ACTION execution endpoint. Unauthenticated by nature — Bolna
+    # holds no Calevate session — and gated exactly like the webhook receiver: source-IP
+    # allowlist, then the tenant is resolved from the injected agent ref through
+    # `engine_agent_routes` and the tool is loaded under that tenant's RLS
+    # (`apps/api/actions/routes.invoke_action`). The trailing slash keeps this to the invoke
+    # path; the client-realm `/v1/actions/calendar/**` routes declare `org:manage` normally.
+    "/v1/actions/invoke/",
 )
 
 #: Path prefixes whose every route must enforce `realm="admin"`.

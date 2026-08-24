@@ -164,6 +164,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/actions/calendar/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Google Calendar OAuth — stores the refresh token as a credential
+         * @description Exchange the authorization code and save the refresh token as a `google_calendar`
+         *     credential. Bound to the authenticated `org:manage` tenant, so a code cannot be
+         *     redeemed onto another tenant's account.
+         */
+        post: operations["calendar_callback_v1_actions_calendar_callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/actions/calendar/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Begin Google Calendar OAuth — returns the consent URL
+         * @description Start the OAuth flow. `state` carries the tenant so the callback can attribute the
+         *     refresh token; it is signed context, not a bearer — the callback re-checks it.
+         *
+         *     ⚠ The state here is the tenant id; a production hardening is to sign it (HMAC) to stop a
+         *     forged callback attaching a token to another tenant. Left as a NAMED follow-up because
+         *     the callback also requires an authenticated `org:manage` session, which already binds
+         *     the acting tenant — see `calendar_callback`.
+         */
+        get: operations["calendar_connect_v1_actions_calendar_connect_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/actions/invoke/{engine}/{tool_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Engine-called: run one in-call action and return its result to the LLM
+         * @description Bolna calls this for a during-call tool. Verifies the source, resolves the tenant
+         *     from the injected agent ref, loads the tool under that tenant's RLS, and executes.
+         *
+         *     The response body IS the tool result the LLM reads back. Failures are returned as a
+         *     structured payload (not a 5xx) so the agent can relay them to the caller rather than the
+         *     call hearing dead air.
+         */
+        post: operations["invoke_action_v1_actions_invoke__engine___tool_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/client-health": {
         parameters: {
             query?: never;
@@ -1541,6 +1614,98 @@ export interface paths {
          *     An archived agent is refused: restore it first.
          */
         patch: operations["update_agent_route_v1_agents__agent_id__patch"];
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The Actions tab: master switch + configured tools */
+        get: operations["list_agent_actions_v1_agents__agent_id__actions_get"];
+        put?: never;
+        /** Add an in-call action to an agent */
+        post: operations["create_action_v1_agents__agent_id__actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** The master 'Enable API actions' switch — applies to live calls at next publish */
+        put: operations["set_master_switch_v1_agents__agent_id__actions_enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/{tool_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Edit an in-call action */
+        put: operations["update_action_v1_agents__agent_id__actions__tool_id__put"];
+        post?: never;
+        /** Remove an in-call action */
+        delete: operations["delete_action_v1_agents__agent_id__actions__tool_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/{tool_id}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Enable or disable one action */
+        put: operations["set_action_enabled_v1_agents__agent_id__actions__tool_id__enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/{tool_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an action with sample values before it goes live (no audit as in-call)
+         * @description The 'Test API' tab. Executes the real external call with the operator's sample
+         *     values so a misconfiguration is caught before a caller ever triggers it. Audited as a
+         *     test invocation (`source="test"`) so a live WhatsApp send in testing is still on file.
+         */
+        post: operations["test_action_v1_agents__agent_id__actions__tool_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/agents/{agent_id}/activate": {
@@ -3209,6 +3374,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Saved integration credentials — fingerprints only, never the secret */
+        get: operations["list_credentials_v1_integrations_credentials_get"];
+        put?: never;
+        /** Save a reusable integration credential (envelope-encrypted) */
+        post: operations["create_credential_v1_integrations_credentials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/credentials/{credential_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved credential (tools using it become visibly broken) */
+        delete: operations["delete_credential_v1_integrations_credentials__credential_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/credentials/{credential_id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate a credential in place — every tool using it picks up the new value */
+        post: operations["rotate_credential_v1_integrations_credentials__credential_id__rotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/deliveries": {
         parameters: {
             query?: never;
@@ -4468,6 +4685,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActionsSettingsOut
+         * @description The agent's master switch and its tools, for the Actions tab in one read.
+         */
+        ActionsSettingsOut: {
+            /** Api Actions Enabled */
+            api_actions_enabled: boolean;
+            /** Calendar Available */
+            calendar_available: boolean;
+            /** Tools */
+            tools: components["schemas"]["ToolOut"][];
+        };
         /** AddContactsIn */
         AddContactsIn: {
             /** Contacts */
@@ -5034,6 +5263,21 @@ export interface components {
             address: string;
             /** Label */
             label: string;
+        };
+        /** CalendarCallbackIn */
+        CalendarCallbackIn: {
+            /** Code */
+            code: string;
+            /**
+             * Label
+             * @default Google Calendar
+             */
+            label: string;
+        };
+        /** CalendarConnectOut */
+        CalendarConnectOut: {
+            /** Authorize Url */
+            authorize_url: string;
         };
         /**
          * CallAssistOut
@@ -5833,6 +6077,22 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** CreateCredentialIn */
+        CreateCredentialIn: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "aisensy" | "meta_cloud" | "interakt" | "custom_api" | "google_calendar";
+            /** Label */
+            label: string;
+            /** Non Secret */
+            non_secret?: {
+                [key: string]: unknown;
+            } | null;
+            /** Secret */
+            secret: string;
+        };
         /** CreateEndpointIn */
         CreateEndpointIn: {
             /** Events */
@@ -5924,6 +6184,30 @@ export interface components {
             spreadsheet: string;
             /** Worksheet */
             worksheet?: string | null;
+        };
+        /** CredentialOut */
+        CredentialOut: {
+            /** Created At */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Last Four */
+            last_four: string;
+            /** Non Secret */
+            non_secret: {
+                [key: string]: unknown;
+            } | null;
+            /** Updated At */
+            updated_at: string;
+            /** Version */
+            version: number;
         };
         /** CreditsOut */
         CreditsOut: {
@@ -6358,6 +6642,11 @@ export interface components {
             scope: string;
             /** Source */
             source: string | null;
+        };
+        /** EnableIn */
+        EnableIn: {
+            /** Enabled */
+            enabled: boolean;
         };
         /**
          * EndpointOptionsOut
@@ -8325,6 +8614,11 @@ export interface components {
             revenue_inr: string;
             tiers: components["schemas"]["TierSplitOut"];
         };
+        /** MasterSwitchIn */
+        MasterSwitchIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** MeOut */
         MeOut: {
             /** Impersonating */
@@ -8761,6 +9055,36 @@ export interface components {
              * @constant
              */
             purpose: "email_verify";
+        };
+        /** ParamIn */
+        ParamIn: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Lead Var */
+            lead_var?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "static" | "lead_var" | "ai";
+            /**
+             * Type
+             * @default string
+             * @enum {string}
+             */
+            type: "string" | "integer" | "number" | "boolean";
+            /** Value */
+            value?: string | null;
         };
         /**
          * PaymentOut
@@ -9532,6 +9856,13 @@ export interface components {
             new_version: number;
             /** To Version */
             to_version: number;
+        };
+        /** RotateCredentialIn */
+        RotateCredentialIn: {
+            /** Expected Version */
+            expected_version: number;
+            /** Secret */
+            secret: string;
         };
         /** RotateSecretIn */
         RotateSecretIn: {
@@ -10614,6 +10945,27 @@ export interface components {
             /** Vertical Template */
             vertical_template: string | null;
         };
+        /**
+         * TestActionIn
+         * @description Sample values for the AI/lead-var params, to run the action before saving it live.
+         */
+        TestActionIn: {
+            /** Values */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** TestActionOut */
+        TestActionOut: {
+            /** Ok */
+            ok: boolean;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Status */
+            status: string;
+        };
         /** TestWebhookIn */
         TestWebhookIn: {
             /** Payload */
@@ -10689,6 +11041,73 @@ export interface components {
             tm_id: string | null;
             /** Verified At */
             verified_at: string | null;
+        };
+        /** ToolIn */
+        ToolIn: {
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Credential Id */
+            credential_id?: string | null;
+            /** Description */
+            description: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "custom_api" | "whatsapp" | "calendar";
+            /** Name */
+            name: string;
+            /** Params */
+            params?: components["schemas"]["ParamIn"][];
+            /** Pre Call Message */
+            pre_call_message?: string | null;
+            /** Provider */
+            provider?: string | null;
+            /**
+             * Trigger
+             * @default during_call
+             * @enum {string}
+             */
+            trigger: "during_call" | "after_call";
+        };
+        /** ToolOut */
+        ToolOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Credential Id */
+            credential_id: string | null;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            }[];
+            /** Pre Call Message */
+            pre_call_message: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Trigger */
+            trigger: string;
         };
         /**
          * TopUpCapabilityOut
@@ -11406,6 +11825,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookAck"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    calendar_callback_v1_actions_calendar_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarCallbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    calendar_connect_v1_actions_calendar_connect_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarConnectOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    invoke_action_v1_actions_invoke__engine___tool_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -13799,6 +14314,245 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_agent_actions_v1_agents__agent_id__actions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionsSettingsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_action_v1_agents__agent_id__actions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_master_switch_v1_agents__agent_id__actions_enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterSwitchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionsSettingsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    update_action_v1_agents__agent_id__actions__tool_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_action_v1_agents__agent_id__actions__tool_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_action_enabled_v1_agents__agent_id__actions__tool_id__enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnableIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    test_action_v1_agents__agent_id__actions__tool_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestActionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestActionOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -16412,6 +17166,132 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_credentials_v1_integrations_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_credential_v1_integrations_credentials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCredentialIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_credential_v1_integrations_credentials__credential_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rotate_credential_v1_integrations_credentials__credential_id__rotate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateCredentialIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

@@ -293,6 +293,18 @@ class Settings(BaseSettings):
         default="http://localhost:8100", max_length=255, pattern=r"^https?://[^\s]+$"
     )
 
+    # Where Bolna reaches OUR in-call ACTION execution endpoint (the ACTIONS feature). It
+    # is apps/api, NOT voice-runtime: a data-returning action makes a synchronous external
+    # call plus a credential decrypt, which hard rule 3 forbids on the latency-critical
+    # webhook service — so the tool's `value.url` points here and the monolith (which
+    # already holds httpx, the ORM and the engine adapter) runs it. Defaults to the local
+    # apps/api origin; in production this is the public app-API origin Bolna's egress can
+    # reach (e.g. https://app.calevate.tech). Distinct from `webhook_base_url`, which is
+    # the voice-runtime receiver.
+    actions_callback_base_url: str = Field(
+        default="http://localhost:8000", max_length=255, pattern=r"^https?://[^\s]+$"
+    )
+
     # `host:port` of the ORIGIN that terminates TLS for our public hostnames — the nginx
     # on the deployment host, reached from inside a container through the gateway
     # `compose.prod.yml` already wires as `host.docker.internal`.
@@ -510,6 +522,18 @@ class Settings(BaseSettings):
     # value an operator cannot work around; 512 is far above any key and far below the
     # megabyte a jsonb-replicated string could otherwise carry.
     azure_openai_api_key: str | None = Field(default=None, max_length=512)
+
+    # --- Google OAuth (Calendar actions) -------------------------------------------
+    # The PLATFORM's Google Cloud OAuth client — the founder holds one Google project and
+    # all client calendar connections authorize against it. `..._client_secret` is picked
+    # up as a `platform_secrets` value by the "secret" name fragment; the id and redirect
+    # are plain config. All three are None until a Google project exists — an EXTERNAL
+    # blocker (a vendor account), which is why Calendar actions refuse cleanly rather than
+    # half-working when they are unset.
+    google_oauth_client_id: str | None = Field(default=None, max_length=256)
+    google_oauth_client_secret: str | None = Field(default=None, max_length=512)
+    google_oauth_redirect_uri: str | None = Field(default=None, max_length=512)
+
     # The DEPLOYMENT id — what the API actually addresses, and NOT the model name.
     #
     # ITS OWN FIELD BECAUSE AZURE MAKES IT ONE. Elsewhere `model` names a model; on Azure
