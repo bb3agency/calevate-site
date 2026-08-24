@@ -75,8 +75,8 @@ export default function CallerNoticePage() {
         <p className="max-w-3xl text-sm text-ink-muted">
           Indian data-protection law requires you to tell your callers, item by
           item, what you collect from them and how long you keep it. This is a
-          draft built from your agents&rsquo; extraction fields, your retention
-          settings and your announcement settings.
+          draft, built from the details your agents collect, how long you keep
+          each kind of record, and what your agents announce at the start of a call.
         </p>
       </header>
 
@@ -116,7 +116,7 @@ function NoticeBody({ notice }: { notice: CallerNotice }) {
         {notice.collected.length === 0 ? (
           <EmptyState
             title="Nothing itemised yet"
-            hint="Once an agent is published with an extraction schema, every field it captures appears here."
+            hint="Once an agent is live and set up to collect details from calls, every detail it captures appears here."
           />
         ) : (
           <ul className="divide-y divide-line">
@@ -136,8 +136,8 @@ function NoticeBody({ notice }: { notice: CallerNotice }) {
       <Card title="How long you keep it">
         {notice.retention.length === 0 ? (
           <EmptyState
-            title="No retention rows"
-            hint="Retention windows are set per record type when your account is configured."
+            title="Nothing set yet"
+            hint="How long each kind of record is kept is set up with you when your account is created."
           />
         ) : (
           <ul className="divide-y divide-line">

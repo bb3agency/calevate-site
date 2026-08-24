@@ -4,15 +4,12 @@ import { useRef, useState } from "react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
-import { lookup } from "@/lib/lookup";
 import {
   CheckCircle2,
-  CircleAlert,
   CircleHelp,
   KeyRound,
   Lock,
   RefreshCw,
-  ShieldAlert,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
@@ -30,8 +27,14 @@ import {
   Skeleton,
   formatCount,
   formatIST,
-  type NoticeTone,
 } from "@/components/ui";
+import {
+  KeyField,
+  MonoValue,
+  TestOutcome,
+  TypeToConfirm,
+  confirmMatches,
+} from "@/app/admin/ops/opsLanguage";
 import {
   useKekState,
   useRewrapKeks,
@@ -40,8 +43,6 @@ import {
   useTestSecret,
   type KekState,
   type PlatformSecret,
-  type ProbeOutcome,
-  type SecretTest,
   type SecretsList,
 } from "@/lib/api/opsSecrets";
 
@@ -150,9 +151,10 @@ export function SecretsPanel({
     <Card title="Vendor credentials">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          Installed keys, by their last four characters. This console can install and test
-          a credential; it can never show you one. If you need the value, you already have
-          it — you are the person who set it.
+          The vendor keys this platform holds, shown only by their last four characters. You
+          can install a key here and test it with the vendor, but this screen can never show
+          you a stored key. If you need the value itself, get it from your vendor&apos;s
+          dashboard — it is never kept anywhere you can read it back.
         </p>
 
         {query.error && <ProblemNotice error={query.error} onRetry={() => query.refetch()} />}
@@ -186,48 +188,24 @@ export function SecretsPanel({
   );
 }
 
-const OUTCOME_TONE: Record<ProbeOutcome, NoticeTone> = {
-  accepted: "ok",
-  rejected: "stop",
-  unreachable: "warn",
-  no_probe: "neutral",
-};
-
-const OUTCOME_TITLE: Record<ProbeOutcome, string> = {
-  accepted: "The vendor accepted this credential",
-  rejected: "The vendor REFUSED this credential",
-  unreachable: "We could not reach the vendor",
-  no_probe: "This build cannot test this credential",
-};
-
 /**
- * What the caveat is called when it reaches the title, rather than the footnote.
+ * A plain name for a credential, shown above its machine key.
  *
- * OPERATIONS §2 and PLATFORM-CONFIG's own probe module: `verified` is false for every
- * probe this build has, because the STATUS a given vendor returns for a bad credential
- * has not been observed against the live vendor from this build. That does not weaken
- * the probe — accepted and rejected are still different answers — but it does change
- * what the screen may claim, and a green tick claims confirmation.
+ * The key IS fairly self-describing (`bolna_api_key`), but a person reads "Bolna API key"
+ * faster than the snake_case, and the machine key is always printed beneath it so nothing
+ * is hidden. This only reshapes the key's own words — it makes no claim about the vendor —
+ * so a new credential the console has never seen still gets a readable title.
  */
-const UNCONFIRMED_SUFFIX = " — indicative, not confirmed";
-
-/**
- * `no_probe` is excluded on purpose: its title already says the check did not happen, and
- * appending "not confirmed" to "this build cannot test this credential" would be the
- * caveat arguing with itself.
- */
-export function verdictTitle(test: SecretTest): string {
-  const base =
-    lookup(OUTCOME_TITLE, test.outcome) ??
-    "The check returned an outcome this build has no words for";
-  return test.verified || test.outcome === "no_probe" ? base : base + UNCONFIRMED_SUFFIX;
-}
-
-/** Green is reserved for a confirmed acceptance. An unconfirmed one is not a failure
- *  either, so it renders neutral rather than borrowing the refusal's red. */
-export function verdictTone(test: SecretTest): NoticeTone {
-  const base = lookup(OUTCOME_TONE, test.outcome) ?? "neutral";
-  return base === "ok" && !test.verified ? "neutral" : base;
+function credentialLabel(key: string): string {
+  return key
+    .split("_")
+    .map((word) => {
+      if (word === "api") return "API";
+      if (word === "url") return "URL";
+      if (word === "id") return "ID";
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
 }
 
 function SecretRow({
@@ -246,35 +224,38 @@ function SecretRow({
     <div className="rounded-card border border-line bg-surface p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          {/* `break-all`, like the value line below: these keys are unbroken snake_case
-              identifiers (`self_serve_inr_per_min`, `object_store_bucket`) with no space
-              for a browser to wrap at, so at 320px they painted 15px outside the card. */}
-          <p className="break-all font-mono text-sm text-ink">{secret.key}</p>
+          {/* The plain vendor name first, then the machine key. `break-all` on the key:
+              these are unbroken snake_case identifiers with no space for a browser to wrap
+              at, so at 320px they painted 15px outside the card. */}
+          <p className="text-sm font-semibold text-ink">{credentialLabel(secret.key)}</p>
+          <p className="mt-0.5 break-all text-xs text-ink-faint">
+            <MonoValue>{secret.key}</MonoValue>
+          </p>
           {secret.installed ? (
-            <p className="mt-0.5 text-sm text-ink">
-              <span className="font-mono font-semibold">…{secret.last_four}</span>{" "}
+            <p className="mt-1 text-sm text-ink">
+              Ends <MonoValue className="font-semibold">…{secret.last_four}</MonoValue>{" "}
               <span className="text-ink-faint">
-                v{secret.version}
-                {secret.versions > 1 && ` of ${formatCount(secret.versions)}`} ·{" "}
-                {secret.created_by ?? "unknown"} · {formatIST(secret.created_at)}
+                (version <MonoValue>{secret.version}</MonoValue>
+                {secret.versions > 1 && <> of {formatCount(secret.versions)}</>}) ·{" "}
+                set by {secret.created_by ?? "unknown"} · {formatIST(secret.created_at)}
               </span>
             </p>
           ) : (
             // NOT an empty row: "nothing is installed" is a fact an operator acts on.
-            <p className="mt-0.5 text-sm text-ink-muted">
+            <p className="mt-1 text-sm text-ink-muted">
               Not installed — this deployment has never stored one here.
             </p>
           )}
           {secret.shadowed_by_env && (
-            // The §4 escape hatch, and the one thing that would otherwise make a
-            // rotation on this screen silently do nothing.
+            // The escape hatch that would otherwise make a rotation on this screen silently
+            // do nothing: the same key is set on the server itself, and that always wins.
             <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-700">
               <TriangleAlert aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
               <span>
-                <span className="font-mono">{secret.env_var}</span> is also set in this
-                deployment&apos;s environment, and the environment always wins — so
-                anything stored here is INERT until that variable is removed. Rotating it
-                on this screen would change nothing.
+                This key is also set on the server itself (as{" "}
+                <MonoValue>{secret.env_var}</MonoValue>), and the server&apos;s own setting
+                always wins — so anything you store here does nothing until it is removed
+                there. Rotating it on this screen would change nothing.
               </span>
             </p>
           )}
@@ -325,16 +306,16 @@ function StoredReceipt({ stored }: { stored: PlatformSecret }) {
       <p role="status" className="flex items-start gap-2 text-sm text-ink">
         <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
         <span>
-          Stored. <span className="font-mono">{stored.key}</span> now ends{" "}
-          <span className="font-mono font-semibold">…{stored.last_four}</span> at version{" "}
-          <span className="font-mono">{stored.version}</span>
+          Stored. <MonoValue>{stored.key}</MonoValue> now ends{" "}
+          <MonoValue className="font-semibold">…{stored.last_four}</MonoValue> at version{" "}
+          <MonoValue>{stored.version}</MonoValue>
           {stored.versions > 1 && <> of {formatCount(stored.versions)} kept</>}.
           {stored.shadowed_by_env && (
             <>
               {" "}
               <span className="font-semibold">
-                It is not in force: {stored.env_var} is set in this deployment&apos;s
-                environment and the environment wins.
+                It is not in force: the same key is set on the server itself (as{" "}
+                {stored.env_var}), and the server&apos;s own setting wins.
               </span>
             </>
           )}
@@ -368,7 +349,7 @@ function SecretForm({
   const save = useSetSecret();
 
   const word = secret.key.toUpperCase();
-  const ready = value.length > 0 && reason.trim().length >= 3 && confirm === word;
+  const ready = value.length > 0 && reason.trim().length >= 3 && confirmMatches(confirm, word);
 
   return (
     <form
@@ -394,63 +375,34 @@ function SecretForm({
       {save.error && <WriteFailure error={save.error} />}
       {test.error && <ProblemNotice error={test.error} />}
 
-      {/* THE VERDICT, before the value is stored. Rendered as itself rather than as
-          a pass/fail: only `rejected` means "find a different key". */}
+      {/* THE TEST RESULT, before the key is stored. `TestOutcome` renders the four honest
+          outcomes and keeps the "unconfirmed acceptance is not a green tick" guarantee:
+          every probe in this build reports `verified: false`, so an accepted result shows
+          as "looks right" (neutral) rather than a confirmed pass. Only a rejection means
+          "find a different key". */}
       {test.data && (
-        <NoticeBox
-          tone={verdictTone(test.data)}
-          icon={
-            // The tick is spent only on a CONFIRMED acceptance. Every probe in this build
-            // reports `verified: false`, so this branch is the live one today — and a
-            // green shield over an unconfirmed result is the screen claiming more than
-            // the server said.
-            test.data.outcome === "accepted" && test.data.verified ? (
-              <ShieldCheck aria-hidden className="h-5 w-5" />
-            ) : test.data.outcome === "rejected" ? (
-              <ShieldAlert aria-hidden className="h-5 w-5" />
-            ) : (
-              <CircleAlert aria-hidden className="h-5 w-5" />
-            )
-          }
-          title={verdictTitle(test.data)}
-        >
-          <p className="mt-1">{test.data.detail}</p>
-          <p className="mt-2 text-xs">
-            Tested <span className="font-mono">…{test.data.candidate_last_four}</span>
-            {test.data.status !== null && ` · vendor answered ${test.data.status}`}
-          </p>
-          {/* OPERATIONS §2: an unverified vendor behaviour is a MARKED assumption,
-              never a silent premise. The operator sees which this is. */}
-          {!test.data.verified && test.data.outcome !== "no_probe" && (
-            <p className="mt-2 text-xs">
-              This check has not been confirmed against the live vendor from this build, so
-              treat it as indicative rather than authoritative.
-            </p>
-          )}
-        </NoticeBox>
+        <TestOutcome
+          outcome={test.data.outcome}
+          verified={test.data.verified}
+          lastFour={test.data.candidate_last_four}
+        />
       )}
 
-      <label className="block">
-        <span className={FIELD_LABEL}>{secret.installed ? "New value" : "Value"}</span>
-        <input
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            // THE VERDICT DIES WITH ITS CANDIDATE. A result is about the exact string that
-            // was sent; one keystroke later it is about a string nobody checked, and a
-            // stale green box beside a changed value is this panel's version of the lie
-            // §52 is named for.
-            test.reset();
-          }}
-          className={`${FIELD} font-mono`}
-        />
-        <span className={FIELD_HINT}>
-          Stored encrypted. It is never shown again — only its last four characters.
-        </span>
-      </label>
+      <KeyField
+        id={`secret-value-${secret.key}`}
+        label={secret.installed ? "New key" : "Key"}
+        value={value}
+        onChange={(next) => {
+          setValue(next);
+          // THE RESULT DIES WITH ITS CANDIDATE. A result is about the exact string that
+          // was sent; one keystroke later it is about a string nobody checked, and a stale
+          // result box beside a changed value is this panel's version of the lie §52 is
+          // named for.
+          test.reset();
+        }}
+        placeholder="Paste the key from your vendor's dashboard"
+        hint="This is stored securely and never shown again — only its last four characters. If you need it later, get it from your vendor's dashboard."
+      />
 
       <label className="block">
         <span className={FIELD_LABEL}>Reason</span>
@@ -465,37 +417,32 @@ function SecretForm({
         />
       </label>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>
-          Type <span className="font-mono">{word}</span> to confirm
-        </span>
-        <input
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          placeholder={word}
-          className={`${FIELD} font-mono`}
-        />
-      </label>
+      <TypeToConfirm
+        id={`secret-confirm-${secret.key}`}
+        word={word}
+        value={confirm}
+        onChange={setConfirm}
+      />
 
-      {/* THE CONTROL THAT PREVENTS THE OUTAGE, said where the decision is made. §7 calls
-          `/test` "the feature that makes this safe to use": a wrong key stored here is
-          silent until a call drops. It does NOT block the install — `no_probe` and
-          `unreachable` are real answers an operator must be able to store past — so the
-          pressure is a sentence rather than a disabled button. */}
+      {/* THE CONTROL THAT PREVENTS THE OUTAGE, said where the decision is made. A wrong key
+          stored here is silent until a call drops, so the test is the thing that catches it
+          at the screen. It does NOT block installing — "we couldn't reach the vendor" and
+          "we can't test this one" are real answers you must be able to store past — so the
+          nudge is a sentence, not a disabled button. */}
       {value.length > 0 && !test.data && !test.isPending && (
         <p className="flex items-start gap-1.5 text-xs text-amber-700">
           <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          This value has not been checked with the vendor. Test it first — a wrong
-          credential stored here is not refused, it is discovered when a call drops.
+          This key has not been checked with the vendor. Test it first — a wrong key stored
+          here is not refused; it is discovered when a call drops.
         </p>
       )}
       {!secret.testable && (
         // Was a `title` on the button: invisible to a keyboard and to a screen reader,
         // which is where this panel's operators most need it.
         <p className="text-xs text-ink-muted">
-          This build has no probe for this vendor, so the test will answer
-          &ldquo;not checked&rdquo; rather than a verdict. Storing it is still safe — it
-          simply will not be verified until the first real use.
+          There is no automatic check for this vendor, so the test will say it wasn&apos;t
+          checked rather than pass or fail. It is still safe to store — it just won&apos;t be
+          verified until the platform first uses it.
         </p>
       )}
 
@@ -576,7 +523,7 @@ export function KeyManagementPanel({
           forbiddenReason(query.error) ??
           "The API refused this read: your admin account may not see key-management state."
         }
-        subject="This panel would show which key-encryption key is active and how many stored versions are still wrapped under an older one."
+        subject="This panel would show which master key is active and how many stored keys are still locked with an older one."
       />
     );
   }
@@ -585,10 +532,11 @@ export function KeyManagementPanel({
     <Card title="Key management">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          Every stored credential is encrypted with its own key, and those keys are
-          wrapped with this deployment&apos;s <span className="font-mono">PLATFORM_KEK</span>
-          , which lives in the environment and never in the database. Rotating it re-wraps
-          the keys — the credentials themselves are never decrypted.
+          Each stored key is encrypted with its own key, and those keys are locked by this
+          platform&apos;s master key — the one key that locks all the others. The master key
+          lives on the server (as <MonoValue>PLATFORM_KEK</MonoValue>), never in the
+          database. Re-locking updates every stored key to the current master key; your
+          vendor keys are never unlocked or read to do it.
         </p>
 
         {query.error && <ProblemNotice error={query.error} onRetry={() => query.refetch()} />}
@@ -606,11 +554,11 @@ export function KeyManagementPanel({
           >
             <p className="mt-1">
               This panel will not tell you a rotation is complete when it could not find
-              out. In particular it does NOT know how many stored versions are still
-              wrapped under an older key, so do not remove{" "}
-              <span className="font-mono">PLATFORM_KEK_RETIRED</span> from the environment
-              on the strength of this screen. The rewrap below is still offered — it is the
-              recovery action, and it reports its own counts.
+              out. In particular it does NOT know how many stored keys are still locked with
+              a previous master key, so do not remove the previous master key (
+              <MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) from the server on the strength of
+              this screen. The re-lock below is still available — it is the recovery step,
+              and it reports its own counts.
             </p>
           </NoticeBox>
         )}
@@ -619,17 +567,19 @@ export function KeyManagementPanel({
           <>
             <dl className="grid gap-3 sm:grid-cols-3">
               <div>
-                {/* A FINGERPRINT, not a counter (D-96). Rendered as one, because
-                    "#1633907231" invites an operator to read it as a generation number
-                    and conclude a rotation went badly wrong. */}
+                {/* A key ID (a short code identifying the key without revealing it), NOT a
+                    counter (D-96). Shown as an ID, because "#1633907231" invites an operator
+                    to read it as a version number and conclude a rotation went badly wrong. */}
                 <dt className="text-xs uppercase tracking-wide text-ink-faint">
-                  Active key fingerprint
+                  Active master key ID
                 </dt>
-                <dd className="mt-0.5 font-mono text-sm text-ink">{kek.active_kek_id}</dd>
+                <dd className="mt-0.5 text-sm text-ink">
+                  <MonoValue>{kek.active_kek_id}</MonoValue>
+                </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-wide text-ink-faint">
-                  Wrapped under it
+                  Locked with it
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink">
                   {formatCount(kek.current)} of {formatCount(kek.versions)}
@@ -637,7 +587,7 @@ export function KeyManagementPanel({
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-wide text-ink-faint">
-                  Retired key configured
+                  Previous master key set
                 </dt>
                 <dd className="mt-0.5 text-sm text-ink">
                   {kek.has_retired_kek ? "yes" : "no"}
@@ -649,27 +599,28 @@ export function KeyManagementPanel({
               <NoticeBox
                 tone="warn"
                 icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
-                title={`${formatCount(kek.pending)} stored versions are still wrapped under another key`}
+                title={`${formatCount(kek.pending)} stored keys are still locked with a previous master key`}
               >
                 <p className="mt-1">
                   <span className="font-semibold">
-                    Do not remove PLATFORM_KEK_RETIRED from the environment yet.
+                    Do not remove the previous master key (
+                    <MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) from the server yet.
                   </span>{" "}
-                  Those versions can only be opened with it, so removing it would make
-                  them permanently unreadable. Run the rewrap below, then check this
-                  number again.
+                  These keys can only be unlocked with it, so removing it would make them
+                  permanently unreadable. Run the re-lock below, then check this number
+                  again.
                 </p>
               </NoticeBox>
             ) : (
               <NoticeBox
                 tone="ok"
                 icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
-                title="Every stored key is wrapped under the current KEK"
+                title="Every stored key is locked with the current master key"
               >
                 <p className="mt-1">
-                  A rotation is complete, so{" "}
-                  <span className="font-mono">PLATFORM_KEK_RETIRED</span> can be removed
-                  from the environment at the next deploy.
+                  A rotation is complete, so the previous master key (
+                  <MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) can be removed from the server
+                  at the next deploy.
                 </p>
               </NoticeBox>
             )}
@@ -681,32 +632,33 @@ export function KeyManagementPanel({
           <NoticeBox
             tone={rewrap.data.unreadable.length > 0 ? "stop" : "ok"}
             icon={<RefreshCw aria-hidden className="h-5 w-5" />}
-            title={`${formatCount(rewrap.data.rewrapped)} of ${formatCount(rewrap.data.examined)} versions re-wrapped`}
+            title={`${formatCount(rewrap.data.rewrapped)} of ${formatCount(rewrap.data.examined)} stored keys re-locked`}
           >
             {rewrap.data.unreadable.length > 0 ? (
               <>
                 <p className="mt-1 font-semibold">
-                  {formatCount(rewrap.data.unreadable.length)} could NOT be opened by any
-                  configured key.
+                  {formatCount(rewrap.data.unreadable.length)} could NOT be unlocked by any
+                  master key the server has.
                 </p>
                 <p className="mt-1">
-                  These will be lost if the retired key is removed. They were written
-                  under a key this deployment no longer has — find it and set it as{" "}
-                  <span className="font-mono">PLATFORM_KEK_RETIRED</span> before doing
-                  anything else.
+                  These will be lost if the previous master key is removed. They were locked
+                  with a master key this server no longer has — find it and set it as the
+                  previous master key (<MonoValue>PLATFORM_KEK_RETIRED</MonoValue>) before
+                  doing anything else.
                 </p>
-                <ul className="mt-2 space-y-0.5 font-mono text-xs">
+                <ul className="mt-2 space-y-0.5 text-xs">
                   {rewrap.data.unreadable.map((entry) => (
-                    <li key={entry}>{entry}</li>
+                    <li key={entry}>
+                      <MonoValue>{entry}</MonoValue>
+                    </li>
                   ))}
                 </ul>
               </>
             ) : (
               <p className="mt-1">
-                Every version this deployment can open is now wrapped under the key with
-                fingerprint{" "}
-                <span className="font-mono">{rewrap.data.active_kek_id}</span>. No
-                credential was decrypted to do it.
+                Every stored key the server can unlock is now locked with the master key
+                whose ID is <MonoValue>{rewrap.data.active_kek_id}</MonoValue>. No vendor key
+                was unlocked to do it.
               </p>
             )}
           </NoticeBox>
@@ -736,9 +688,14 @@ export function KeyManagementPanel({
             });
           }}
         >
+          {/* A custom confirm field rather than the shared TypeToConfirm, because this one
+              must DISABLE while a re-lock is running or the session cannot run it — a state
+              the shared control does not expose. The typed word (REWRAP) is unchanged: it
+              is a local gate, and NOT the API's confirmation string (`rewrap_platform_keks`,
+              in opsSecrets.ts). */}
           <label className="block">
             <span className={FIELD_LABEL}>
-              Type <span className="font-mono">{REWRAP_WORD}</span> to confirm
+              Type <MonoValue>{REWRAP_WORD}</MonoValue> to confirm
             </span>
             <input
               value={confirm}
@@ -748,8 +705,8 @@ export function KeyManagementPanel({
               className={`${FIELD} font-mono`}
             />
             <span className={FIELD_HINT}>
-              Re-wraps every stored version, including historical ones. It reads no
-              credential and changes no value — only which key protects them.
+              Re-locks every stored key, including old versions. It never unlocks or reads a
+              vendor key — it only changes which master key protects them.
             </span>
           </label>
           <button
@@ -759,7 +716,7 @@ export function KeyManagementPanel({
             className={DANGER_BUTTON}
           >
             <RefreshCw aria-hidden className="h-4 w-4" />
-            {rewrap.isPending ? "Re-wrapping…" : "Re-wrap every key"}
+            {rewrap.isPending ? "Re-locking…" : "Re-lock every key"}
           </button>
           {!access.allowed && access.reason && (
             <p className="flex items-start gap-2 text-xs text-ink-muted">

@@ -3,7 +3,7 @@
 import type { ComponentType } from "react";
 import { PhoneIncoming, PhoneOutgoing, PhoneOff, ShieldAlert, ShieldCheck } from "lucide-react";
 
-import { Card, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
+import { Card, MonoValue, NoticeBox, ProblemNotice, Skeleton, TermGloss, formatIST } from "@/components/ui";
 import {
   DOCUMENT_KINDS,
   KYC_STATUS_COPY,
@@ -99,8 +99,10 @@ export default function VerificationPage() {
       <p className="text-sm text-ink-muted">
         Indian telecom rules require two separate things of a business before it may place
         calls: that the business behind the connection is identified, and that it is
-        registered with the DLT registrar to run campaigns. Both are below. Either one
-        outstanding stops outbound calling; neither one affects the calls coming in.
+        registered with the{" "}
+        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registrar to
+        run campaigns. Both are below. Either one outstanding stops outgoing calls; neither
+        one affects the calls coming in.
       </p>
 
       {/* Two independent reads, two independent sections. Composed rather than nested so
@@ -172,16 +174,21 @@ function SubscriberVerification({ session }: { session: Session }) {
           <li>
             <span className={LEAD_IN}>Verification is ours to do, not yours to declare.</span>{" "}
             There is no control on this page that sets your own status — the rules make
-            identifying a subscriber the provider&apos;s job, so a business marking itself
-            verified would be worth nothing to anyone.
+            confirming who holds the connection our job, not something you can claim about
+            yourself, so a business marking itself verified would be worth nothing to
+            anyone.
           </li>
           <li>
             {/* This bullet used to end "your campaign screen names the DLT ones
                 separately" — true while the DLT state had no page. It is on this one
                 now, so the sentence points down the page instead of away from it. */}
-            <span className={LEAD_IN}>This is separate from your DLT registration.</span> The
-            two overlap in the documents they rest on, but they are held by different
-            people for different purposes, and neither one clears the other. Your DLT
+            <span className={LEAD_IN}>
+              This is separate from your{" "}
+              <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>{" "}
+              registration.
+            </span>{" "}
+            The two overlap in the documents they rest on, but they are held by different
+            people for different purposes, and neither one clears the other. Your campaign
             registration is the next section.
           </li>
         </ul>
@@ -306,8 +313,9 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
     <dl className="mt-4 space-y-3 text-sm">
       <div>
         <dt className="font-semibold text-ink">
-          Your business as a Principal Entity:{" "}
-          {entity?.label ?? registration.status ?? "not filed"}
+          Your business as a{" "}
+          <TermGloss term="Principal Entity">the business the registrar recognises as responsible for these campaigns</TermGloss>
+          : {entity?.label ?? registration.status ?? "not filed"}
         </dt>
         <dd className="text-ink-muted">
           {entity?.next ??
@@ -340,9 +348,9 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
  * value is dropped rather than dashed, the same rule `OnFile` follows above.
  */
 function DltOnFile({ registration }: { registration: PeRegistration }) {
-  const rows: { label: string; value: string | null }[] = [
-    { label: "Registered entity name", value: registration.entity_name },
-    { label: "Principal Entity ID", value: registration.pe_id },
+  const rows: { label: string; value: string | null; mono?: boolean }[] = [
+    { label: "Registered business name", value: registration.entity_name },
+    { label: "Principal Entity ID", value: registration.pe_id, mono: true },
     {
       label: "Registered with the registrar",
       value: registration.registered_at ? formatIST(registration.registered_at) : null,
@@ -363,7 +371,9 @@ function DltOnFile({ registration }: { registration: PeRegistration }) {
           className="flex flex-wrap justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
         >
           <dt className="text-ink-muted">{row.label}</dt>
-          <dd className="font-semibold text-ink">{row.value}</dd>
+          <dd className="font-semibold text-ink">
+            {row.mono ? <MonoValue>{row.value}</MonoValue> : row.value}
+          </dd>
         </div>
       ))}
     </dl>
@@ -620,7 +630,7 @@ function PhoneNumbers({ record }: { record: KycRecord }) {
  * do you hold about me", and a column we hold nothing in is not something we hold.
  */
 function OnFile({ record }: { record: KycRecord }) {
-  const rows: { label: string; value: string | null }[] = [
+  const rows: { label: string; value: string | null; mono?: boolean }[] = [
     /* "Verification status", not "State": in a list of business-registration details a
        reader in India takes "State" for Telangana, not for a workflow step. It is the
        RECORDED label — the verdict box above is where the account stands — and it prints
@@ -635,7 +645,7 @@ function OnFile({ record }: { record: KycRecord }) {
     { label: "Signed for the business by", value: record.signatory_name },
     { label: "Received", value: record.submitted_at ? formatIST(record.submitted_at) : null },
     { label: "Verified", value: record.verified_at ? formatIST(record.verified_at) : null },
-    { label: "Our file reference", value: record.evidence_ref },
+    { label: "Our file reference", value: record.evidence_ref, mono: true },
   ];
   const present = rows.filter((row) => row.value !== null && row.value !== "");
 
@@ -645,7 +655,9 @@ function OnFile({ record }: { record: KycRecord }) {
         {present.map((row) => (
           <div key={row.label} className="flex flex-wrap justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0">
             <dt className="text-ink-muted">{row.label}</dt>
-            <dd className="font-semibold text-ink">{row.value}</dd>
+            <dd className="font-semibold text-ink">
+              {row.mono ? <MonoValue>{row.value}</MonoValue> : row.value}
+            </dd>
           </div>
         ))}
       </dl>

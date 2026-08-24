@@ -134,7 +134,7 @@ function TenantSpendBoard({ data }: { data: TenantSpend }) {
           ? ", no monthly fee"
           : `, plus a ${formatINR(data.retainer_inr)} monthly fee`}
         . <strong className="font-semibold text-ink">{basis.label}</strong> — the client sees
-        the same per-call figures at /c/&lt;slug&gt;/spend.
+        the same per-call figures on their own spend screen.
       </p>
 
       {/* Unconditional, and phrased as what it IS rather than as a warning that only
@@ -150,10 +150,11 @@ function TenantSpendBoard({ data }: { data: TenantSpend }) {
         ) : (
           <>
             <strong className="font-semibold">Cost is scaled by an assumption.</strong> The
-            vendor&rsquo;s payload names no currency, so we treated it as{" "}
-            {data.cost_currency ?? "our configured default"} (OPERATIONS §2 gate 7). Every
-            cost and margin figure on this page carries that assumption; no figure the client
-            sees does, because a client is priced off minutes at their own rate.
+            vendor&rsquo;s data names no currency, so we treated it as{" "}
+            {data.cost_currency ?? "our configured default"} — a figure we chose, not one the
+            vendor stated. Every cost and margin figure on this page carries that assumption;
+            no figure the client sees does, because a client is priced off minutes at their
+            own rate.
           </>
         )}
       </div>
@@ -285,7 +286,7 @@ function AssumedMark({ assumed }: { assumed: boolean }) {
   if (!assumed) return null;
   return (
     <abbr
-      title="At least one cost row here was priced in a currency the vendor's payload did not state."
+      title="At least one cost row here was priced in a currency the vendor's data did not state."
       className="ml-1 cursor-help text-ink-faint no-underline"
     >
       *

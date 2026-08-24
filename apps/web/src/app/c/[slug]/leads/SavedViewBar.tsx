@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Bookmark, Trash2 } from "lucide-react";
 
 import { ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { useToast } from "@/components/interior/toaster";
 import { useClientRealm } from "@/lib/api/session";
 import { useDeleteView, useSaveView, type SavedView, type SavedViewBody } from "@/lib/api/leads";
 
@@ -44,6 +45,11 @@ export function SavedViewBar({
   currentBody: Omit<SavedViewBody, "name">;
 }) {
   const { session } = useClientRealm();
+  // Transient confirmation for save/update/delete, which otherwise leave no on-screen
+  // trace of success — the picker just re-selects. Additive and no-op without a provider;
+  // the mutations, the invalidation and the refused-name-clash `ProblemNotice` are all
+  // unchanged.
+  const { toast } = useToast();
   const saveView = useSaveView(session);
   const deleteView = useDeleteView(session);
   const [naming, setNaming] = useState(false);
@@ -92,6 +98,11 @@ export function SavedViewBar({
                     setNaming(false);
                     setName("");
                     onApply(view);
+                    toast({
+                      tone: "success",
+                      title: "View saved",
+                      description: `Saved “${view.name}”.`,
+                    });
                   },
                 },
               );
@@ -147,7 +158,17 @@ export function SavedViewBar({
               disabled={!canWrite || saveView.isPending}
               title={writeReason ?? undefined}
               onClick={() =>
-                saveView.mutate({ viewId: active.id, body: { ...currentBody, name: active.name } })
+                saveView.mutate(
+                  { viewId: active.id, body: { ...currentBody, name: active.name } },
+                  {
+                    onSuccess: () =>
+                      toast({
+                        tone: "success",
+                        title: "View updated",
+                        description: `Updated “${active.name}”.`,
+                      }),
+                  },
+                )
               }
               className={SECONDARY_BUTTON_SM}
             >
@@ -158,7 +179,16 @@ export function SavedViewBar({
               disabled={!canWrite || deleteView.isPending}
               title={writeReason ?? undefined}
               onClick={() =>
-                deleteView.mutate(active.id, { onSuccess: () => onApply(undefined) })
+                deleteView.mutate(active.id, {
+                  onSuccess: () => {
+                    onApply(undefined);
+                    toast({
+                      tone: "success",
+                      title: "View deleted",
+                      description: `Deleted “${active.name}”.`,
+                    });
+                  },
+                })
               }
               className={SECONDARY_BUTTON_SM}
             >

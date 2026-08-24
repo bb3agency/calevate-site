@@ -199,7 +199,7 @@ describe("the Sheets capability", () => {
     });
 
     await screen.findByText("Send events to a Google Sheet");
-    expect(container.textContent).toContain("Register a webhook endpoint above instead");
+    expect(container.textContent).toContain("Set up a delivery to your own system above instead");
     // The webhook form is the remediation, so it must still be there and still usable.
     // (Its submit is disabled until a URL is typed — that is the form's own rule, not a
     // permission — so the INPUT is what "usable" means here.)

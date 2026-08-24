@@ -204,5 +204,5 @@ export const BASIS_COPY: Record<LatencyGroup["basis"], string | null> = {
   // more calls, or widen the window. Publishing the two thresholds on the report would let
   // this state them; see the lane report.
   insufficient_samples:
-    "Too few timed turns to state a median — the worst turn beside it is a single observation, not an estimate.",
+    "Too few timed replies to give a typical time — the worst reply beside it is a single measurement, not an estimate.",
 };

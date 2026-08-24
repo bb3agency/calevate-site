@@ -86,8 +86,8 @@ function Resolve() {
           <AuthProblemNotice error={me.error} />
           <p className="text-sm text-ink-muted">
             If you belong to more than one Calevate account, open the link for the one you
-            want — this page can only resolve a single account, and there is no list of
-            yours to choose from yet. Otherwise, reload, or{" "}
+            want — this page can only open one account, and there is no list of yours to
+            choose from yet. Otherwise, reload, or{" "}
             <a href={CLIENT_SIGN_IN_PATH} className="underline underline-offset-2">
               sign in again
             </a>

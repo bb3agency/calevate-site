@@ -428,7 +428,7 @@ describe("the voice panel", () => {
         type: "urn:calevate:business_rule/unknown_voice",
         title: "Unknown voice",
         detail: "That voice is not in the catalog, so it cannot be set on an agent.",
-        remediation: "Pick one of: anushka, vidya (GET /v1/agents/voices).",
+        remediation: "Pick one of the available voices: anushka, vidya.",
         kind: "business_rule",
       }),
     });
@@ -437,7 +437,7 @@ describe("the voice panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
 
     await screen.findByText("That voice is not in the catalog, so it cannot be set on an agent.");
-    expect(container.textContent).toContain("Pick one of: anushka, vidya");
+    expect(container.textContent).toContain("Pick one of the available voices: anushka, vidya");
     // Still usable: the operator can pick another entry without reloading.
     expect(screen.getByRole("button", { name: "Set voice" })).toBeTruthy();
   });
@@ -456,7 +456,7 @@ describe("the voice panel", () => {
     expect(select).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Set voice" })).toHaveProperty("disabled", true);
     expect(container.textContent).toContain(
-      "does not have the agents:write permission, so you cannot change this agent's script",
+      "does not have permission to change this agent's script",
     );
   });
 });

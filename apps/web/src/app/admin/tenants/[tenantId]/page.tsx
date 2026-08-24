@@ -30,11 +30,13 @@ import {
   Card,
   EmptyState,
   FIELD_LABEL,
+  MonoValue,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
   StatTile,
+  TermGloss,
   formatCount,
   formatINR,
   formatIST,
@@ -238,7 +240,7 @@ export default function TenantDetailPage({
           <NavLink
             href={`/c/${tenant.slug}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
             icon={<Eye className="h-4 w-4" />}
-            title="Read-only (D-22). Every page view is audit-logged."
+            title="Read-only. Every page view is recorded in the audit log."
           >
             View as client (read-only)
           </NavLink>
@@ -276,7 +278,16 @@ export default function TenantDetailPage({
           <ProblemNotice error={queue.error} onRetry={() => queue.refetch()} />
         ) : queue.isLoading ? (
           <Skeleton rows={3} />
-        ) : queue.data?.length ? (
+        ) : !queue.data ? (
+          /* A paused query (offline) is neither loading nor failed and leaves `data`
+             undefined, so `queue.data?.length` would fall through to "Nothing awaiting
+             approval" — a claim about this client's work made from a read that never
+             arrived. Refuse instead, the way the preview branch below already does. */
+          <ProblemNotice
+            error={new Error("The knowledge queue did not load.")}
+            onRetry={() => queue.refetch()}
+          />
+        ) : queue.data.length ? (
           <ul className="space-y-2">
             {queue.data.map((source) => (
               <li key={source.id} className="rounded-card border border-line p-3">
@@ -533,7 +544,7 @@ function DangerButton({
 /*
  * `min-w-0` because every one of these sits in a `flex flex-wrap` row. A flex item
  * defaults to `min-width: auto` and so refuses to shrink below its own min-content, and a
- * `<select>` s min-content is its LONGEST OPTION — "not_started — no application filed"
+ * `<select>` s min-content is its LONGEST OPTION — "Not started — no application filed"
  * here, which is wider than a 320px phone. Wrapping does not save it: once wrapped the
  * item is alone on its line and still will not shrink. Measured at 320px this row reached
  * x=395 in a 320px viewport, inside the shell s `overflow-hidden`, so the control was
@@ -570,7 +581,7 @@ function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: string[] })
               <span className="font-medium">{copy?.label ?? rule}</span>
               <span className="opacity-80">
                 {copy?.blocks ??
-                  "This console does not recognise this rule; the gate that emitted it does."}
+                  "We do not have a plain description for this hold, but the check that set it does."}
               </span>
               {copy && (
                 <Link href={copy.screen(tenantId)} className="font-medium underline">
@@ -829,8 +840,8 @@ function SpendCapPanel({
           >
             <p className="mt-1 text-xs">
               {data.capped
-                ? "Every outbound dial is refused with rule spend_cap. Inbound calls are unaffected — their receptionist keeps answering."
-                : "Their dialling is not refused on this rule. Any other blocker on this account is listed above."}
+                ? "Every outbound call is refused by the spend cap. Inbound calls are unaffected — their receptionist keeps answering."
+                : "The spend cap is not refusing their calls. Any other blocker on this account is listed above."}
             </p>
             {/* The two flags come from different predicates and CAN disagree; when they
                 do, the reason is almost always a row still stamped with a closed billing
@@ -935,8 +946,8 @@ function SpendCapPanel({
                   touches another client, and never affects inbound calls.
                 </p>
                 <p className="mt-1 text-xs text-ink-faint">
-                  Recorded in the audit log as ops.recompute_spend_cap against your admin
-                  account, and confirmed with a header bound to this client&apos;s id.
+                  Recorded in the audit log against your admin account, and confirmed
+                  against this client only.
                 </p>
               </div>
             </div>
@@ -980,18 +991,18 @@ function CapFact({ label, value, note }: { label: string; value: string; note: s
 }
 
 const PE_STATUSES: { value: PeStatus; label: string }[] = [
-  { value: "not_started", label: "not_started — no application filed" },
-  { value: "submitted", label: "submitted — filed, awaiting the registrar" },
-  { value: "active", label: "active — granted and in force" },
-  { value: "suspended", label: "suspended — registrar action" },
-  { value: "rejected", label: "rejected — refused by the registrar" },
+  { value: "not_started", label: "Not started — no application filed" },
+  { value: "submitted", label: "Submitted — filed, awaiting the registrar" },
+  { value: "active", label: "Active — granted and in force" },
+  { value: "suspended", label: "Suspended — paused by the registrar" },
+  { value: "rejected", label: "Rejected — refused by the registrar" },
 ];
 
 const TM_LINK_STATUSES: { value: TmLinkStatus; label: string }[] = [
-  { value: "not_linked", label: "not_linked — client has not authorised us" },
-  { value: "pending", label: "pending — authorisation requested" },
-  { value: "active", label: "active — we may call on their behalf" },
-  { value: "revoked", label: "revoked — authorisation withdrawn" },
+  { value: "not_linked", label: "Not linked — the client has not authorised us" },
+  { value: "pending", label: "Pending — authorisation requested" },
+  { value: "active", label: "Active — we may call on their behalf" },
+  { value: "revoked", label: "Revoked — authorisation withdrawn" },
 ];
 
 /**
@@ -1023,12 +1034,14 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
   return (
     <div className="min-w-0 space-y-3 lg:col-span-2">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-        DLT entity registration (Principal Entity)
+        Entity registration with the{" "}
+        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> (
+        <TermGloss term="PE">Principal Entity — the client&apos;s own registration</TermGloss>)
       </h3>
       <p className="text-xs text-ink-muted">
         The registrar issues three separate registrations and none implies another: this
-        one is the client&apos;s ENTITY, the number header is its own, the voice template
-        is a third. The launch gate asks for all three by name.
+        one is the client&apos;s own entity, the number header is its own, the voice
+        template is a third. The campaign launch check asks for all three by name.
       </p>
 
       {record.error && <ProblemNotice error={record.error} />}
@@ -1039,14 +1052,17 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
            not read would be worse than showing nothing. */
         <NoticeBox tone="ok" icon={<BookOpenCheck className="h-4 w-4" />}>
           <p className="text-xs">
-            Recorded: entity <span className="font-medium">{record.data.status}</span>, TM link{" "}
-            <span className="font-medium">{record.data.tm_link_status}</span>
+            Recorded: entity registration{" "}
+            <span className="font-medium">{record.data.status.replace(/_/g, " ")}</span>,{" "}
+            <TermGloss term="TM">Telemarketer — that is us, calling on the client&apos;s behalf</TermGloss>{" "}
+            link <span className="font-medium">{record.data.tm_link_status.replace(/_/g, " ")}</span>
             {record.data.pe_id && (
               <>
-                , PE id <span className="font-mono">{record.data.pe_id}</span>
+                , <TermGloss term="PE">Principal Entity</TermGloss> id{" "}
+                <MonoValue>{record.data.pe_id}</MonoValue>
               </>
             )}
-            . The client&apos;s launch check reflects this on its next refresh.
+            . The client&apos;s campaign launch check reflects this on its next refresh.
           </p>
         </NoticeBox>
       )}
@@ -1120,8 +1136,8 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
           />
         </div>
         <p className="text-xs text-ink-muted">
-          Re-recording is normal — this upserts, and it is what happens every time we
-          re-verify with the registrar.
+          Re-recording is normal — it updates what is on file, and it is what happens every
+          time we re-verify with the registrar.
         </p>
         <PrimaryButton type="submit" disabled={record.isPending || !write.allowed}>
           {record.isPending ? "Recording…" : "Record registration"}
@@ -1202,7 +1218,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
                   <span className="rounded bg-brand-soft px-1.5 py-0.5 font-medium text-brand-strong">
                     {number.series}
                   </span>
-                  <span className="text-ink-muted">{number.dlt_status}</span>
+                  <span className="text-ink-muted">{number.dlt_status.replace(/_/g, " ")}</span>
                   {number.dlt_status !== "registered" && (
                     <span className="ml-auto">
                       <SecondaryButton
@@ -1258,7 +1274,10 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
         <div className="min-w-0 space-y-3">
           <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <ScrollText className="h-3.5 w-3.5" />
-            DLT voice templates
+            <span>
+              <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> voice
+              templates
+            </span>
           </h3>
           {register.error && <ProblemNotice error={register.error} />}
           {setStatus.error && <ProblemNotice error={setStatus.error} />}
@@ -1276,7 +1295,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
                     <span className="rounded bg-brand-soft px-1.5 py-0.5 font-medium text-brand-strong">
                       {template.classification}
                     </span>
-                    <span className="text-ink-muted">{template.status}</span>
+                    <span className="text-ink-muted">{template.status.replace(/_/g, " ")}</span>
                     {template.status !== "approved" && (
                       <span className="ml-auto">
                         <PrimaryButton
@@ -1443,13 +1462,13 @@ function WhatsAppAlertsPanel({ tenantId }: { tenantId: string }) {
             <p className="mt-1">
               {current.captured_at
                 ? `Recorded ${formatIST(current.captured_at)} · ${current.channel ?? "unknown channel"}`
-                : "No entry on the opt-in ledger for this owner and this number."}
+                : "Nothing has been recorded for this owner and this number."}
               {!current.delivery_available && (
                 <>
                   {" "}
-                  This deployment cannot deliver WhatsApp yet
+                  We cannot send WhatsApp messages on this account yet
                   {current.delivery_unavailable_reason
-                    ? ` (${current.delivery_unavailable_reason})`
+                    ? ` (${current.delivery_unavailable_reason.replace(/_/g, " ")})`
                     : ""}
                   , so nothing is sent whatever is recorded here.
                 </>

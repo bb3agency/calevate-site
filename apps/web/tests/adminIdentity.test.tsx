@@ -148,7 +148,7 @@ describe("the admin nav, once the console knows who it is", () => {
 
     await waitFor(() => expect(operationsEntry(container)?.tagName).toBe("A"));
     expect(operationsEntry(container)?.getAttribute("href")).toBe("/admin/ops");
-    expect(container.textContent).not.toContain("ops:manage");
+    expect(container.textContent).not.toContain("does not have permission");
   });
 
   it("leaves Operations dead for an operator, and says which permission is missing", async () => {
@@ -166,7 +166,7 @@ describe("the admin nav, once the console knows who it is", () => {
 
     // Dead AND explained, in the DOM rather than only in a `title` a mouse discovers:
     // the permission is what the operator has to go and ask a superadmin for.
-    expect(container.textContent).toContain("ops:manage");
+    expect(container.textContent).toContain("open the operations console");
     expect(container.textContent).toContain("open the operations console");
     expect(container.textContent).toContain("Ask a superadmin");
   });
@@ -232,7 +232,7 @@ describe("the admin nav, once the console knows who it is", () => {
     expect(container.textContent).not.toContain("platform:config");
     // The doctrine still holds for everything else.
     expect(container.textContent).toContain("Operations");
-    expect(container.textContent).toContain("ops:manage");
+    expect(container.textContent).toContain("open the operations console");
   });
 
   it("keeps Platform configuration hidden while the identity read is in flight", async () => {
@@ -259,7 +259,7 @@ describe("the admin nav, once the console knows who it is", () => {
     const container = await renderShellWithIdentityInFlight();
 
     expect(container.querySelector('a[href="/admin/ops"]')).not.toBeNull();
-    expect(container.textContent).not.toContain("ops:manage");
+    expect(container.textContent).not.toContain("does not have permission");
   });
 
   it("keeps Operations reachable when the identity itself cannot be read", async () => {
@@ -277,7 +277,7 @@ describe("the admin nav, once the console knows who it is", () => {
     await waitFor(() => expect(screen.getByText("Admin realm")).toBeDefined());
     expect(container.querySelector('a[href="/admin/ops"]')).not.toBeNull();
     // And no invented refusal: "we could not ask" is not "you may not".
-    expect(container.textContent).not.toContain("does not have the ops:manage permission");
+    expect(container.textContent).not.toContain("does not have permission to");
   });
 
   it("names the role the server reported, and never one it did not", async () => {
@@ -336,7 +336,7 @@ describe("the client directory's create gate", () => {
       [TENANTS_PATH]: [tenant()],
     });
 
-    await screen.findByText(/does not have the admin:tenants permission/);
+    await screen.findByText(/does not have permission to/);
     expect(screen.queryByRole("link", { name: /New client/ })).toBeNull();
     expect(container.textContent).toContain("create clients");
     // The list still renders: reading is not what was refused.
@@ -354,7 +354,7 @@ describe("the client directory's create gate", () => {
     await screen.findByText(/the directory could not be read/);
     expect(screen.queryByRole("link", { name: /New client/ })).toBeNull();
     // …and it must not read as a refusal aimed at the operator.
-    expect(container.textContent).not.toContain("does not have the admin:tenants permission");
+    expect(container.textContent).not.toContain("does not have permission to");
   });
 
   it("offers nothing and explains nothing until an answer is in hand", () => {
@@ -364,7 +364,7 @@ describe("the client directory's create gate", () => {
     });
 
     expect(screen.queryByRole("link", { name: /New client/ })).toBeNull();
-    expect(container.textContent).not.toContain("does not have the admin:tenants permission");
+    expect(container.textContent).not.toContain("does not have permission to");
     expect(container.textContent).not.toContain("could not be read");
   });
 });

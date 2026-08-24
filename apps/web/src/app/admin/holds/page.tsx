@@ -149,7 +149,7 @@ export default function HeldAccountsPage() {
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
                   <th className="px-6 py-3 font-semibold">Client</th>
                   <th className="px-6 py-3 font-semibold">Waiting</th>
-                  <th className="px-6 py-3 font-semibold">Motion</th>
+                  <th className="px-6 py-3 font-semibold">Plan</th>
                   <th className="px-6 py-3 font-semibold">Held on</th>
                   <th className="px-6 py-3 font-semibold">Next step</th>
                 </tr>

@@ -236,9 +236,9 @@ function OperatorsScreen({
         >
           <p className="mt-1">{restriction}</p>
           <p className="mt-2">
-            The controls below stay closed until we know. The API refuses these acts to
-            anyone but a super admin whatever this screen believes, so nothing is being
-            withheld that you would otherwise have been able to do.
+            The controls below stay closed until we know. These actions are only ever
+            allowed for a super admin, whatever this screen shows, so nothing is being
+            withheld that you could otherwise have done.
           </p>
         </NoticeBox>
       )}
@@ -302,7 +302,7 @@ function OperatorsScreen({
         <p className="px-4 pb-3 pt-1 text-xs text-ink-faint">
           Revoked accounts are not listed: their rows survive as the record of what they
           approved, and &ldquo;who was removed and when&rdquo; is a question for the audit
-          log, which answers it tamper-evidently.
+          log, which keeps a record that cannot be quietly changed.
         </p>
       </Card>
     </div>
@@ -507,9 +507,9 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
             className={`${FIELD} font-mono`}
           />
           <span className={FIELD_HINT}>
-            <code>{confirmation}</code> — the same string the API demands as a header, so a
-            request cannot arrive from a screen that did not mean to send it. It names the
-            tier, so it changes when you change the tier.
+            <code>{confirmation}</code> — the exact phrase this action needs, typed by hand
+            so it cannot be sent by accident. It names the tier, so it changes when you
+            change the tier.
           </span>
         </label>
 
@@ -782,9 +782,8 @@ function ConfirmBlock({
           className={`${FIELD} font-mono`}
         />
         <span className={FIELD_HINT}>
-          <code>{confirmation}</code> — the same string the API demands as a header. It
-          names this account, so a confirmation typed for somebody else cannot be used
-          here.
+          <code>{confirmation}</code> — the exact phrase this action needs, typed by hand.
+          It names this account, so a phrase typed for somebody else cannot be used here.
         </span>
       </label>
 
@@ -891,8 +890,8 @@ function RevokePanel({ operator, onClose }: { operator: Operator; onClose: () =>
           {/* The one thing an operator will otherwise ask support about, said here. */}
           <p className="mt-1">
             Their row is kept and their name stays on what they decided — the campaigns
-            they approved, the KYC records they verified, the credentials they installed.
-            Nothing about this is a data erasure.
+            they approved, the identity checks they signed off, the credentials they
+            installed. Nothing about this is a data erasure.
           </p>
         </>
       }

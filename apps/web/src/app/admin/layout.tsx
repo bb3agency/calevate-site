@@ -25,6 +25,7 @@ import {
 
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
+import { ToastProvider } from "@/components/interior/toaster";
 import { NavDrawer } from "@/components/navDrawer";
 import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
@@ -162,10 +163,10 @@ const NAV: NavGroup[] = [
       },
       {
         href: "/admin/qa-sampling",
-        label: "QA sampling",
+        label: "Call quality checks",
         icon: ClipboardCheck,
         permission: "org:read",
-        action: "open the QA sampling queue",
+        action: "open the call quality checks",
       },
     ],
   },
@@ -223,7 +224,7 @@ const NAV: NavGroup[] = [
         // the longest-match title rule below means `/admin/ops/dnc` keeps this name
         // instead of inheriting "Operations".
         href: "/admin/ops/dnc",
-        label: "Global do-not-call",
+        label: "Do-not-call list",
         icon: PhoneOff,
         permission: "ops:manage",
         action: "change the platform-wide do-not-call list",
@@ -236,10 +237,10 @@ const NAV: NavGroup[] = [
         // at a curl until this screen existed. Somebody paging on a slow call is not going
         // to scroll the platform switches to find it.
         href: "/admin/ops/engine-latency",
-        label: "Engine latency",
+        label: "Voice response time",
         icon: Gauge,
         permission: "ops:manage",
-        action: "read the engine's latency report",
+        action: "read the voice response-time report",
       },
       {
         // LAST IN THE PLATFORM GROUP, and it is the only entry in either shell that is
@@ -764,30 +765,39 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               nothing until something asks. */}
           <StepUpPrompt />
           <AdminMfaGate>
-            {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin
-                to. The document scrolls by default; a shell that clips its own content is
-                the only thing that needs the document to stop. */}
-            <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
-              {/* FIRST focusable thing in the shell — WCAG 2.4.1, Level A. Same component,
-                  same target id and same position as the client shell's, because the two
-                  shells are siblings and a reader who learns the control in one must find
-                  it in the other. */}
-              <SkipLink />
-              <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
-                {/* `tabIndex={-1}`: a fragment target that is not focusable scrolls but
-                    does not take focus, which is the classic reason a skip link does
-                    nothing on the next Tab. */}
-                <main
-                  id={MAIN_CONTENT_ID}
-                  tabIndex={-1}
-                  className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
-                >
-                  <div className="mx-auto max-w-[1280px]">{children}</div>
-                </main>
+            {/* `ToastProvider` app-wide for this realm, so `useToast()` works on any admin
+                screen the shell renders. Its notifications region is `fixed` bottom-right,
+                renders AFTER the shell subtree and is `pointer-events-none` with an empty
+                `aria-live` polite region until a toast fires — so it adds no landmark the
+                a11y sweep flags, no focusable element ahead of `SkipLink`, and no DOM the
+                "you are here" / identity nav checks read. Inside `AdminMfaGate` (not above
+                it) so it wraps only the console, never the MFA refusal notice. */}
+            <ToastProvider>
+              {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin
+                  to. The document scrolls by default; a shell that clips its own content is
+                  the only thing that needs the document to stop. */}
+              <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+                {/* FIRST focusable thing in the shell — WCAG 2.4.1, Level A. Same component,
+                    same target id and same position as the client shell's, because the two
+                    shells are siblings and a reader who learns the control in one must find
+                    it in the other. */}
+                <SkipLink />
+                <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
+                  {/* `tabIndex={-1}`: a fragment target that is not focusable scrolls but
+                      does not take focus, which is the classic reason a skip link does
+                      nothing on the next Tab. */}
+                  <main
+                    id={MAIN_CONTENT_ID}
+                    tabIndex={-1}
+                    className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+                  >
+                    <div className="mx-auto max-w-[1280px]">{children}</div>
+                  </main>
+                </div>
               </div>
-            </div>
+            </ToastProvider>
           </AdminMfaGate>
         </Providers>
       </AdminSessionGate>

@@ -255,7 +255,7 @@ async def ingest_lead(
             kind="validation",
             code="ingest_no_phone",
             title="No usable phone number",
-            detail="The payload did not contain a phone number we could dial.",
+            detail="The request did not contain a phone number we could dial.",
             fields=[{"field": "phone", "rule": "required", "message": "missing or malformed"}],
         )
     name = str(mapped.get("name") or "").strip() or None

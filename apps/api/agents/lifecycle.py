@@ -391,7 +391,10 @@ async def update_agent(
             kind="validation",
             code="agent_update_empty",
             title="Nothing to change",
-            detail="Name at least one of name, direction, language_primary or llm_model.",
+            detail=(
+                "Change at least one thing — the name, the direction, the main "
+                "language or the language model."
+            ),
         )
 
     # SELECT FOR UPDATE before the write, not a bare CAS, because two things have to be

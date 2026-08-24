@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -27,6 +27,7 @@ import {
   RestrictionNote,
   Skeleton,
   StatTile,
+  TermGloss,
   formatCount,
   formatIST,
   FIELD,
@@ -148,7 +149,7 @@ const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";
  * they do not have, then call support to be told we were already handling it. Naming
  * the desk turns a dead end into a wait with someone to ask.
  */
-type BlockerNote = { text: string; owner?: "calevate" | "client" };
+type BlockerNote = { text: ReactNode; owner?: "calevate" | "client" };
 
 /**
  * WHY THIS TABLE STILL WINS OVER THE SERVER'S OWN `reason`, and what makes that safe.
@@ -162,8 +163,8 @@ type BlockerNote = { text: string; owner?: "calevate" | "client" };
  * these sentences are not a paraphrase of the server's: they exist BECAUSE the server's
  * are wrong for this audience. `launch_blockers` writes for an operator reading an API
  * response — "The agent must be published first.", "Campaign is running, not draft." —
- * and `PURCHASED_LIST_REASON` cites "(policy, SEC-COMP §3)", a document the client cannot
- * open. The three DLT-entity blockers are the sharpest case: the server says the
+ * sentences that report system state rather than tell this client what to do next. The
+ * three DLT-entity blockers are the sharpest case: the server says the
  * registration is not active, which reads like a to-do, and this table is the only place
  * that says WHOSE desk it is on. Making the server's sentence primary puts every one of
  * those back.
@@ -192,17 +193,35 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
     text: "The agent needs its AI disclosure line — required on every call.",
   },
   dlt_template_missing: {
-    text: "Attach the DLT voice template this campaign speaks under.",
+    text: (
+      <>
+        Attach the{" "}
+        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> voice template
+        this campaign speaks under.
+      </>
+    ),
   },
   dlt_template_not_approved: {
-    text: "The DLT template is still with the registrar.",
+    text: (
+      <>
+        The <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> template is
+        still with the registrar.
+      </>
+    ),
   },
   dlt_template_mismatch: {
     text: "The template's category doesn't match this campaign's.",
   },
   number_missing: { text: "Choose the number these calls will come from." },
   number_series_mismatch: {
-    text: "Promotional calls need a 140 number; service calls need 160.",
+    text: (
+      <>
+        Promotional calls need a{" "}
+        <TermGloss term="140">India&apos;s marketing-call number range</TermGloss> number;
+        service calls need a{" "}
+        <TermGloss term="160">India&apos;s service-call number range</TermGloss> one.
+      </>
+    ),
   },
   no_contacts: { text: "Upload the contact list." },
 
@@ -211,26 +230,38 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
   // the admin console. The copy says the same thing the badge does, because a badge
   // alone is easy to miss and this is the difference between waiting and hunting.
   pe_registration_missing: {
-    text:
-      "Your business isn't registered with DLT yet — that's the government register every " +
-      "business must be on before an automated call can go out in its name. We do this " +
-      "registration for you; ask your account manager where it's up to. Calls coming IN are " +
-      "unaffected and keep working.",
+    text: (
+      <>
+        Your business isn&apos;t registered with{" "}
+        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> yet — that&apos;s
+        the government register every business must be on before an automated call can go out in
+        its name. We do this registration for you; ask your account manager where it&apos;s up
+        to. Calls coming IN are unaffected and keep working.
+      </>
+    ),
     owner: "calevate",
   },
   pe_registration_not_active: {
-    text:
-      "Your business's DLT registration isn't active — it's either still with the registrar " +
-      "or it has lapsed. Only an active registration may place campaign calls. We chase this " +
-      "with the registrar; your account manager can tell you where it stands. Calls coming IN " +
-      "are unaffected.",
+    text: (
+      <>
+        Your business&apos;s{" "}
+        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registration
+        isn&apos;t active — it&apos;s either still with the registrar or it has lapsed. Only an
+        active registration may place campaign calls. We chase this with the registrar; your
+        account manager can tell you where it stands. Calls coming IN are unaffected.
+      </>
+    ),
     owner: "calevate",
   },
   tm_link_not_active: {
-    text:
-      "Your DLT registration hasn't authorised Calevate to call on your behalf yet. It's a " +
-      "one-time link between your business and us on the register, and we set it up — your " +
-      "account manager will confirm when it's live.",
+    text: (
+      <>
+        Your <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registration
+        hasn&apos;t authorised Calevate to call on your behalf yet. It&apos;s a one-time link
+        between your business and us on the register, and we set it up — your account manager
+        will confirm when it&apos;s live.
+      </>
+    ),
     owner: "calevate",
   },
 
@@ -372,11 +403,16 @@ function PlatformOutageNotice({ reason }: { reason: string }) {
           here.
         </p>
         <p className="mt-1 text-ink-muted">
-          Our own telemarketer registration with the DLT registrar is not live
-          at the moment, so no campaign on Calevate can launch — not just yours.
-          This is on us and there is no setting on your side that changes it. We
-          are on it, and this campaign will be launchable again the moment it is
-          restored. Calls coming IN are unaffected and keep being answered.
+          Our own{" "}
+          <TermGloss term="telemarketer (TM)">
+            the company registered to place calls on a business&apos;s behalf
+          </TermGloss>{" "}
+          registration with the{" "}
+          <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registrar is
+          not live at the moment, so no campaign on Calevate can launch — not just yours. This
+          is on us and there is no setting on your side that changes it. We are on it, and this
+          campaign will be launchable again the moment it is restored. Calls coming IN are
+          unaffected and keep being answered.
         </p>
         {/* The server's own sentence, kept but demoted: it is the precise reason support
             and the audit trail will quote, and it should not be the headline a business
@@ -583,22 +619,37 @@ function FireTimeRefusal({
 const CLASSIFICATIONS: {
   value: Classification;
   label: string;
-  hint: string;
+  hint: ReactNode;
 }[] = [
   {
     value: "promotional",
     label: "Promotional",
-    hint: "Offers and marketing — dials from a 140 number",
+    hint: (
+      <>
+        Offers and marketing — dials from a{" "}
+        <TermGloss term="140">India&apos;s marketing-call number range</TermGloss> number
+      </>
+    ),
   },
   {
     value: "service",
     label: "Service",
-    hint: "Updates to existing customers — 160 or standard",
+    hint: (
+      <>
+        Updates to existing customers —{" "}
+        <TermGloss term="160">India&apos;s service-call number range</TermGloss> or standard
+      </>
+    ),
   },
   {
     value: "transactional",
     label: "Transactional",
-    hint: "Order and appointment updates — 160 or standard",
+    hint: (
+      <>
+        Order and appointment updates —{" "}
+        <TermGloss term="160">India&apos;s service-call number range</TermGloss> or standard
+      </>
+    ),
   },
 ];
 
@@ -1106,7 +1157,9 @@ export default function CampaignsPage() {
               </label>
 
               <label className="block">
-                <span className={FIELD_LABEL}>DLT template</span>
+                <span className={FIELD_LABEL}>
+                  <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> template
+                </span>
                 <select
                   value={templateId}
                   onChange={(e) => setTemplateId(e.target.value)}
@@ -1128,8 +1181,10 @@ export default function CampaignsPage() {
                 {!templates.data ? (
                   !templates.isLoading && (
                     <span className={FIELD_HINT}>
-                      Your DLT templates could not be read, so this picker is
-                      empty. That is not &ldquo;you have none&rdquo;.
+                      Your{" "}
+                      <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>{" "}
+                      templates could not be read, so this picker is empty. That is not
+                      &ldquo;you have none&rdquo;.
                     </span>
                   )
                 ) : templates.data.length === 0 ? (

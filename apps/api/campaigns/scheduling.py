@@ -723,7 +723,9 @@ def _parse_instant(raw: object, *, campaign_id: UUID, field: str) -> datetime | 
         alert(
             "WORKER_TERMINAL",
             "campaign_schedule_unparseable",
-            detail=f"schedule.{field} is not an ISO-8601 instant; campaign not started",
+            detail=(
+                f"the schedule's {field} value isn't a valid date and time; campaign not started"
+            ),
             campaign_id=str(campaign_id),
         )
         return None
@@ -731,7 +733,7 @@ def _parse_instant(raw: object, *, campaign_id: UUID, field: str) -> datetime | 
         alert(
             "WORKER_TERMINAL",
             "campaign_schedule_unparseable",
-            detail=f"schedule.{field} carries no offset; campaign not started",
+            detail=f"the schedule's {field} value has no time zone; campaign not started",
             campaign_id=str(campaign_id),
         )
         return None
@@ -761,7 +763,9 @@ def _parse_schedule(raw: object, *, campaign_id: UUID) -> DueSchedule | None:
         alert(
             "WORKER_TERMINAL",
             "campaign_schedule_kind_unknown",
-            detail=f"schedule kind {kind!r} has no reader; campaign not started",
+            detail=(
+                f"this schedule type ({kind!r}) isn't one Calevate can run; campaign not started"
+            ),
             campaign_id=str(campaign_id),
         )
         return None

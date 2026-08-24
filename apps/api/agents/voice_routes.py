@@ -313,7 +313,7 @@ async def set_agent_voice(
             code="unknown_voice",
             title="Unknown voice",
             detail="That voice is not in the catalog, so it cannot be set on an agent.",
-            remediation=("Pick one of: " + ", ".join(voice_ids()) + " (GET /v1/agents/voices)."),
+            remediation=("Pick one of the available voices: " + ", ".join(voice_ids()) + "."),
             fields=[
                 {
                     "field": "voice_id",

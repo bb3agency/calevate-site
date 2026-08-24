@@ -193,6 +193,41 @@ export function StatusBadge({ value, kind = "lead" }: { value: string; kind?: "l
 }
 
 /**
+ * A fixed-width value — a key's last four, an ID, a version, a code, a phone number —
+ * anything a reader takes in character by character. Renders in `font-mono`, which is
+ * JetBrains Mono (globals.css) where 0/O and 1/l/I are distinct, so a value is never
+ * misread because an O looked like a 0 on one screen and not the next. A component rather
+ * than a bare `<span className="font-mono">` so that choice is made in one place across
+ * both realms and the marketing site.
+ */
+export function MonoValue({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={clsx("font-mono", className)}>{children}</span>;
+}
+
+/**
+ * A technical or legal term kept verbatim and explained in place.
+ *
+ * Plain-language guidance (GOV.UK) allows an unavoidable technical term when it is
+ * glossed where it is used — this is that mechanism, and the ONLY sanctioned way to put a
+ * compliance term (DLT, PE, TM, DND, DPDP, the 140/160 number series) on screen. The gloss
+ * is exposed as the accessible name too, because a `title` tooltip is invisible to a touch
+ * user and to some screen readers.
+ *
+ *   <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>
+ */
+export function TermGloss({ term, children }: { term: string; children: string }) {
+  return (
+    <abbr
+      title={children}
+      aria-label={`${term}: ${children}`}
+      className="cursor-help underline decoration-dotted underline-offset-2"
+    >
+      {term}
+    </abbr>
+  );
+}
+
+/**
  * Renders an RFC-9457 problem the way its fields intend.
  *
  * The reason this exists instead of `alert(error.message)`: the API distinguishes a
@@ -241,8 +276,8 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
         </button>
       )}
       {problem?.traceId && (
-        <p className="mt-2 font-mono text-[11px] text-rose-700 dark:text-rose-400">
-          ref {problem.traceId}
+        <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-400">
+          Support reference: <span className="font-mono">{problem.traceId}</span>
         </p>
       )}
     </div>

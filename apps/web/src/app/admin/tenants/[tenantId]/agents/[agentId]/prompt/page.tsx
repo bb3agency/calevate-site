@@ -18,6 +18,8 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
+import { SuccessRipple } from "@/components/successRipple";
 import { useTenant } from "@/lib/api/admin";
 import {
   usePromptHistory,
@@ -172,8 +174,8 @@ export default function AgentPromptPage({
       <Card title="Version history">
         <p className="-mt-2 text-xs text-ink-muted">
           Rolling back creates a NEW version with that content — history is never rewritten
-          — and it applies IMMEDIATELY: FLOWS §7 defines rollback as republishing an earlier
-          version, which is the recovery path, so it does not wait behind Apply.
+          — and it applies IMMEDIATELY, because a rollback is how you recover from a bad
+          change, so it does not wait behind Apply.
         </p>
         <div className="mt-3">
           <RestrictionNote reason={write.reason} />
@@ -460,28 +462,44 @@ function GoLivePanel({
               </p>
             </NoticeBox>
             <div className="flex flex-wrap items-center gap-2">
-              <button
+              {/* The one first-publish CTA, now the shared ActionButton: it carries the
+                  spinner while the mutation is in flight (`loading`) so this panel no longer
+                  spells "Publishing…" itself, and it disables during the request the same way
+                  the old button did (`disabled || loading`). The accessible name is the
+                  children and does NOT change with `loading`, which is what keeps
+                  `agentGoLive.test.tsx`'s `findByRole(button, /Publish to the voice
+                  platform/)` — and a screen reader — pointing at the same control mid-press. */}
+              <ActionButton
                 type="button"
-                disabled={publish.isPending || !write.allowed || hasAScript === false}
+                loading={publish.isPending}
+                disabled={!write.allowed || hasAScript === false}
                 onClick={() => publish.mutate()}
-                className={PRIMARY_BUTTON_SM}
               >
-                {publish.isPending ? "Publishing…" : "Publish to the voice platform"}
-              </button>
+                Publish to the voice platform
+              </ActionButton>
               <span className="text-xs text-ink-muted">
                 {hasAScript === false
                   ? "This agent has no script yet — complete the client's intake, or save a version below, first."
-                  : "FLOWS §1 step 7 asks for a test call and a regression run before this. Both are pilot-gated and neither is automated here, so this button publishes — it does not sign anything off."}
+                  : "A test call and a re-check of the standard scripts are meant to happen before this. Neither is automated here yet, so this button only publishes the agent — it does not sign anything off."}
               </span>
             </div>
           </>
         )}
 
         {publish.data && (
-          <p className="text-xs text-ink-muted">
-            Published — the platform holds this agent as{" "}
-            <span className="font-mono">{publish.data.engine_agent_ref}</span>.
-          </p>
+          <div className="flex items-center gap-3">
+            {/* Decorative — the sentence beside it is the announced confirmation, so the mark
+                is `aria-hidden` to avoid saying "success" twice. Sized down from the
+                component default for an inline panel confirmation. */}
+            <SuccessRipple
+              aria-hidden
+              sizeClassName="h-10 w-10 shrink-0 sm:h-12 sm:w-12"
+            />
+            <p className="text-xs text-ink-muted">
+              Published — the platform holds this agent as{" "}
+              <span className="font-mono">{publish.data.engine_agent_ref}</span>.
+            </p>
+          </div>
         )}
       </div>
     </Card>
@@ -688,8 +706,8 @@ function LiveConfirmation({
            publish panel: an operator who scrolls straight to this card must not read
            "nothing confirmed" as a publish that went wrong. */
         <p className="mt-2 text-xs text-ink-muted">
-          Publishing is unavailable on this deployment&rsquo;s voice platform, so there is
-          nothing for a read-back to confirm.
+          Publishing is not available on this voice platform, so there is nothing to
+          confirm.
         </p>
       )}
 

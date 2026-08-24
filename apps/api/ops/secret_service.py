@@ -106,15 +106,18 @@ def _refuse_unmanageable(key: str) -> None:
             kind="not_found",
             code="secret_key_unknown",
             title="No such credential",
-            detail=f"{key!r} is not a configuration field this build has.",
-            remediation="GET /v1/ops/secrets lists every credential this deployment uses.",
+            detail=f"{key!r} isn't a credential Calevate recognises.",
+            remediation="The Secrets list shows every credential this deployment uses.",
         )
     if key in ENV_ONLY_KEYS:
         raise ProblemError(
             kind="business_rule",
             code="secret_key_bootstrap",
             title="This key can only come from the environment",
-            detail=f"{key!r} is a bootstrap key (PLATFORM-CONFIG §4).",
+            detail=(
+                f"{key!r} must be in place before Calevate starts, so it can "
+                "only come from the environment."
+            ),
             remediation=(
                 f"Set {env_var_for(key)} in the deployment's environment. PLATFORM_KEK in "
                 "particular can never live here: it is the key that opens this store."

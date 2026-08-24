@@ -31,6 +31,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useToast } from "@/components/interior/toaster";
 import { API_BASE } from "@/lib/api/client";
 import { useAgents } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -444,7 +445,7 @@ export default function LeadSourcesPage() {
               <tbody className="divide-y divide-line">
                 {deliveryRowKeys(deliveries).map(([item, rowKey]) => (
                   <tr key={rowKey}>
-                    <td className="px-3 py-2.5 text-ink">{item.source}</td>
+                    <td className="px-3 py-2.5 text-ink">{sourceLabel(item.source)}</td>
                     {/* The sender's own id for this delivery. For a Meta source it is the
                         `leadgen_id` — the string Meta's Ads Manager and Meta support both
                         speak, and the one thing that survives a lead we could not read, so
@@ -598,6 +599,10 @@ function LeadSourcesCard({
   const create = useCreateLeadSource(session);
   const rotate = useRotateLeadSourceSecret(session);
   const setActive = useSetLeadSourceActive(session);
+  // Turning a source off/on has no on-screen trace beyond the row's own state flipping;
+  // a transient cue confirms the write landed. Additive and no-op without a provider —
+  // the mutation, its invalidation and the `setActive.error` `ProblemNotice` are unchanged.
+  const { toast } = useToast();
 
   const [source, setSource] = useState<string>("website_form");
   const [agentId, setAgentId] = useState("");
@@ -700,7 +705,21 @@ function LeadSourcesCard({
                   },
                 )
               }
-              onToggle={() => setActive.mutate({ webhookId: item.id, active: !item.active })}
+              onToggle={() =>
+                setActive.mutate(
+                  { webhookId: item.id, active: !item.active },
+                  {
+                    onSuccess: () =>
+                      toast({
+                        tone: "success",
+                        title: item.active ? "Lead source turned off" : "Lead source turned on",
+                        description: item.active
+                          ? "It will stop accepting deliveries."
+                          : "It will accept deliveries again.",
+                      }),
+                  },
+                )
+              }
             />
           ))}
         </ul>
@@ -1124,7 +1143,7 @@ function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
 
         <SetupRow
           label="Subscribe your Page to"
-          hint="The webhook field to tick on the Page subscription."
+          hint="The field to tick when you subscribe your Page."
         >
           <code className={CODE}>{setup.subscribe_field}</code>
         </SetupRow>

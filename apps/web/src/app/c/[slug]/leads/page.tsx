@@ -24,6 +24,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useToast } from "@/components/interior/toaster";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { type CallLeadResult } from "@/lib/api/client";
@@ -161,6 +162,11 @@ export default function LeadsPage() {
   // screen, and an in-realm link must carry the D-22 operator marker forward or the
   // next page silently falls back to a client token it does not have.
   const { session, href } = useClientRealm();
+  // Transient success cue for the CSV export, which otherwise gives the client no
+  // on-screen confirmation at all — the file simply starts downloading. Additive: the
+  // gating, the audited request and the download in `useExportLeads` are unchanged, and
+  // `useToast` is a no-op wherever no `ToastProvider` is mounted.
+  const { toast } = useToast();
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("list");
@@ -537,7 +543,7 @@ export default function LeadsPage() {
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          Columns follow your agent&apos;s capture list.
+          Columns match what your agent captures on each call.
         </p>
         {/* No count until there IS one: "0 leads" while the first page loads is a
             statement about the business, and it is the wrong one. */}
@@ -626,7 +632,16 @@ export default function LeadsPage() {
         <button
           type="button"
           disabled={exportLeads.isPending || !mayExport}
-          onClick={() => exportLeads.mutate(lens)}
+          onClick={() =>
+            exportLeads.mutate(lens, {
+              onSuccess: () =>
+                toast({
+                  tone: "success",
+                  title: "Export ready",
+                  description: "Your leads CSV has downloaded.",
+                }),
+            })
+          }
           title={
             mayExport
               ? "Downloads the leads and the columns shown here, with full phone numbers."

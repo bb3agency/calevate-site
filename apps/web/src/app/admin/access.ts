@@ -130,7 +130,10 @@ export function adminAccess(
     return {
       allowed: false,
       refused: true,
-      reason: `Your admin account does not have the ${permission} permission, so you cannot ${action}. Ask a superadmin.`,
+      // The plain "why" without the machine permission scope: `action` already says what
+      // the operator can't do, in words, and the raw scope (`admin:tenants`, `ops:manage`,
+      // `platform:secrets`) is engineer vocabulary a non-technical admin cannot act on.
+      reason: `Your admin account does not have permission to ${action}. Ask a superadmin.`,
     };
   }
   return { allowed: true, refused: false, reason: null };

@@ -5,13 +5,14 @@ import { BellOff, BellRing, CircleAlert, Info, Lock, ShieldCheck } from "lucide-
 import {
   Card,
   DANGER_BUTTON,
+  MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
@@ -137,11 +138,11 @@ export default function AlertsPage() {
                 >
                   <p className="mt-1">
                     This is on our side, not yours: the WhatsApp business connection is not
-                    live on this deployment
+                    live yet
                     {current.delivery_unavailable_reason && (
                       <>
                         {" "}
-                        (<span className="font-mono">{current.delivery_unavailable_reason}</span>)
+                        (<MonoValue>{current.delivery_unavailable_reason}</MonoValue>)
                       </>
                     )}
                     . Agreeing now would record your consent for something we cannot do, so
@@ -175,7 +176,7 @@ export default function AlertsPage() {
                     write.reason ??
                     (current.delivery_available
                       ? null
-                      : "We cannot send WhatsApp messages on this deployment yet, so there is nothing to agree to.")
+                      : "We cannot send WhatsApp messages yet, so there is nothing to agree to.")
                   }
                   pending={record.isPending}
                   onGrant={() =>
@@ -212,9 +213,9 @@ export default function AlertsPage() {
             </ul>
             <p className="mt-3 text-xs text-ink-faint">
               Wording in force:{" "}
-              <span className="font-mono">{current.current_notice_version}</span>
+              <MonoValue>{current.current_notice_version}</MonoValue>
               {current.notice_version && current.notice_version !== current.current_notice_version && (
-                <> · you agreed to <span className="font-mono">{current.notice_version}</span></>
+                <> · you agreed to <MonoValue>{current.notice_version}</MonoValue></>
               )}
             </p>
           </Card>
@@ -247,10 +248,14 @@ function GrantControl({
   return (
     <div className="space-y-3">
       <p className="rounded-card border border-line bg-surface p-4 text-sm text-ink">{notice}</p>
-      <button type="button" disabled={!allowed || pending} onClick={onGrant} className={PRIMARY_BUTTON}>
+      {/* Shared ActionButton: the spinner rides `loading` while the opt-in is recorded, and
+          the disabled logic is unchanged (`disabled || loading`). The accessible name stays
+          "I agree…" through the write, so `whatsappAlerts.test.tsx`'s `/I agree/` — and a
+          screen reader — never lose the control. */}
+      <ActionButton type="button" loading={pending} disabled={!allowed} onClick={onGrant}>
         <BellRing aria-hidden className="h-4 w-4" />
-        {pending ? "Saving…" : "I agree — send me WhatsApp alerts"}
-      </button>
+        I agree — send me WhatsApp alerts
+      </ActionButton>
       {!allowed && reason && (
         <p className="flex items-start gap-2 text-xs text-ink-muted">
           <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />

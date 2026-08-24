@@ -276,7 +276,7 @@ describe("the operator's record of a client's opt-in", () => {
       expect(container.textContent).toContain("The owner has WITHDRAWN");
     });
     // …and the channel's own state, which is a different fact from consent.
-    expect(container.textContent).toContain("This deployment cannot deliver WhatsApp yet");
+    expect(container.textContent).toContain("We cannot send WhatsApp messages on this account yet");
   });
 
   it("will not record a grant without the document it rests on", async () => {

@@ -16,6 +16,7 @@ import {
 import {
   Card,
   EmptyState,
+  MonoValue,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
@@ -507,7 +508,7 @@ function EntryRow({
       </span>
       {/* IN FULL (D-436) — a suppression list a client cannot read back is one they
           cannot check against the caller complaining that we rang them again. */}
-      <span className="font-mono tabular-nums text-ink">{entry.phone_e164}</span>
+      <MonoValue className="tabular-nums text-ink">{entry.phone_e164}</MonoValue>
       {global && (
         // Shown, never removable: it is not this account's entry, and hiding it would
         // leave a client wondering why a number they can't find is never dialled.

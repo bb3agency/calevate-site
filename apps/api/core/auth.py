@@ -973,7 +973,7 @@ def requires(
             else await current_any(request)
         )
         if principal.role is None or not role_has(principal.role, permission):
-            raise ProblemError.forbidden(f"This action requires the {permission} permission.")
+            raise ProblemError.forbidden("You do not have permission to do this.")
         if principal.impersonating and permission in MUTATING_PERMISSIONS:
             # D-22 in one line: read-only keeps the audit trail unambiguous.
             raise ProblemError.forbidden(

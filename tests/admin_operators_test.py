@@ -232,7 +232,11 @@ async def test_a_normal_admin_is_refused_at_every_operator_route() -> None:
         }
     for name, response in responses.items():
         assert response.status_code == 403, f"{name}: {response.status_code} {response.text}"
-        assert "admin:operators" in response.json()["detail"], f"{name}: {response.text}"
+        # The refusal is the PERMISSION's, not step-up's — asserted on the stable code so a
+        # 403 for the wrong reason (e.g. a dropped permission dependency leaving only step-up)
+        # cannot leave this green. The permission scope is deliberately NOT named in the
+        # user-facing detail (that is engineer jargon a business owner cannot act on).
+        assert response.json()["type"].endswith("/forbidden"), f"{name}: {response.text}"
 
     # The account it tried to promote itself through is untouched.
     async with untenanted_session() as session:

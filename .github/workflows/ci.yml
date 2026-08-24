@@ -7,6 +7,14 @@
 # Order is deliberate: the cheap checks fail fast (lint, types), then the suite, then
 # the guardrails — which need a MIGRATED database, because `check_rls_coverage` reads
 # `pg_policies` rather than trusting the migration that claims to have created them.
+#
+# EVERY THIRD-PARTY ACTION IS PINNED TO A FULL COMMIT SHA, not a tag (hard rule 9). A tag
+# is mutable: whoever can move `v4` can run their code inside this job with our
+# GITHUB_TOKEN, which is the supply-chain shape this repo pins its base image against too
+# (see Dockerfile). The `# vX.Y.Z` after each SHA is documentation of which release the
+# pin is — resolved from each upstream's git refs, annotated tags peeled to their commit.
+# Do NOT replace a SHA with the tag to "tidy" it; bumps come through `.github/dependabot.yml`
+# (github-actions ecosystem), which raises a reviewable PR that keeps the comment in sync.
 
 name: CI
 
@@ -19,6 +27,15 @@ concurrency:
   # A newer push supersedes an in-flight run on the same branch.
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# Least privilege for GITHUB_TOKEN (hard rule 9). No job here pushes, comments, opens a
+# PR, cuts a release or writes checks — every step reads the tree, runs the suite and the
+# guardrails, and reports via exit status. Declared at the top so a NEW job inherits
+# read-only and has to ELEVATE deliberately (job-level `permissions:`) rather than
+# silently inheriting the repo/org default, which can be read-write. A run that suddenly
+# needs write is then a visible diff to this block, reviewed as one.
+permissions:
+  contents: read
 
 env:
   # The app role is NOSUPERUSER NOBYPASSRLS in every environment including CI —
@@ -53,9 +70,9 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
 
@@ -407,11 +424,11 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0 (@v4 tip)
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -434,8 +451,8 @@ jobs:
     # its cache is not invalidated by the database job.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           enable-cache: true
       # `--group errors` because that is what SHIPS: the Dockerfile and DEPLOYMENT §8
@@ -466,7 +483,7 @@ jobs:
     # (`tests/deploy_rollback_test.py`, `tests/nginx_hooks_vhost_test.py`).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Every shell script parses
         # `bash -n` is a parse, not a run — nothing here executes a deploy.

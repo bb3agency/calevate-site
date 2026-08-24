@@ -144,10 +144,10 @@ def _refuse_unmanaged(key: str) -> None:
             kind="not_found",
             code="config_key_unknown",
             title="No such setting",
-            detail=f"{key!r} is not a configuration field this build has.",
+            detail=f"{key!r} isn't a setting Calevate recognises.",
             remediation=(
-                "Check the key against GET /v1/ops/config, which lists every managed "
-                "field. A field that used to exist may have been renamed."
+                "Check the name against the settings list, which shows every field you "
+                "can manage here. A field that used to exist may have been renamed."
             ),
         )
     if key in ENV_ONLY_KEYS:
@@ -169,10 +169,10 @@ def _refuse_unmanaged(key: str) -> None:
             kind="business_rule",
             code="config_key_is_a_secret",
             title="Credentials are not stored here",
-            detail=f"{key!r} is a credential, and this table holds plaintext.",
+            detail=f"{key!r} is a credential, so it can't be stored here in plain text.",
             remediation=(
-                "Set it under Secrets, which stores it encrypted and shows only its "
-                "last four characters (PLATFORM-CONFIG §1)."
+                "Set it under Secrets instead, which stores it encrypted and shows only "
+                "its last four characters."
             ),
         )
     if key not in managed_fields():  # pragma: no cover - the three above are exhaustive
@@ -194,7 +194,7 @@ def _refuse_unmanaged(key: str) -> None:
             kind="business_rule",
             code="config_key_env_only",
             title="This setting can only take effect from the environment",
-            detail=f"{key!r} is never read from this store. {rule.caveat}",
+            detail=f"{key!r} is never read from here. {rule.caveat}",
             remediation=(
                 f"Set {env_var_for(key)} in the deployment's environment. Storing it "
                 "here would have no effect, now or after a restart."
@@ -207,7 +207,10 @@ def _refuse_unmanaged(key: str) -> None:
             kind="business_rule",
             code="config_key_unclassified",
             title="This build cannot say when a change here would take effect",
-            detail=f"{key!r} has no entry in core/platform_config.FIELD_APPLIES.",
+            detail=(
+                f"{key!r} has not been classified yet, so Calevate cannot say "
+                "when a change to it would take effect."
+            ),
             remediation=(
                 "Classify it (live / on_restart / needs_republish / env_only) with the "
                 "reason, and ship that with the field. Until then the console will not "
@@ -397,9 +400,9 @@ async def _refuse_stale(
             f"written — {now}."
         ),
         remediation=(
-            "Re-read GET /v1/ops/config, decide whether your change still applies to the "
-            "new value, and send it again with the If-Match from that read. Your value "
-            "was NOT stored and the other operator's was NOT overwritten."
+            "Reload the setting to see the new value, decide whether your change still "
+            "applies to it, and save it again with the fresh If-Match token from that "
+            "reload. Your value was NOT stored and the other operator's was NOT overwritten."
         ),
         headers={"ETag": etag_for(current.revision)},
         fields=[

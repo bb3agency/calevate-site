@@ -1,4 +1,6 @@
-import { screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render as rtlRender, screen, within, type RenderResult } from "@testing-library/react";
+import { Suspense } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -6,7 +8,7 @@ import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 import type { Routes } from "./harness";
 
-import { problem } from "./harness";
+import { browserOffline, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -199,6 +201,49 @@ describe("the client detail screen", () => {
     expect(container.textContent).not.toContain("Nothing awaiting approval");
   });
 
+  it("refuses the approval queue while the browser is OFFLINE, rather than reporting it empty", async () => {
+    // The paused-query hole (§52), in the `?.length` spelling the surfaceStates guard
+    // cannot see. With the tenant already in cache the page renders its body and reaches
+    // the queue card, but a queue read TanStack PARKS because the browser is offline
+    // reports isLoading===false, error===null and data===undefined — so the old
+    // `queue.data?.length` fell straight through to "Nothing awaiting approval", a claim
+    // about this client's work made from a read that never arrived. The inner preview
+    // branch already refused on exactly this; the queue did not, until it was fixed to.
+    stubApi(healthy());
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    // Primed so the page gets past its tenant guard and reaches the queue card; the queue
+    // read is what is left to PAUSE, which is the state under test. Everything else on the
+    // page also pauses, but each panel refuses in its own section, so scoping the
+    // assertions to the queue card isolates this one.
+    client.setQueryData(["admin", "tenant", TENANT], tenant());
+    browserOffline();
+
+    let result!: RenderResult;
+    await act(async () => {
+      result = rtlRender(
+        <QueryClientProvider client={client}>
+          <Suspense fallback={null}>
+            <TenantDetailPage params={routeParams({ tenantId: TENANT })} />
+          </Suspense>
+        </QueryClientProvider>,
+      );
+    });
+
+    const card = (
+      await within(result.container).findByRole("heading", { name: "Knowledge awaiting approval" })
+    ).closest("section");
+    expect(card, "the knowledge card should render").not.toBeNull();
+    // A paused read is refused (ProblemNotice carries role="alert"), never reported as an
+    // empty queue.
+    expect(within(card!).queryByText("Nothing awaiting approval")).toBeNull();
+    expect(
+      within(card!).getByRole("alert"),
+      "a paused queue must refuse, not fall silent or claim emptiness",
+    ).toBeTruthy();
+  });
+
   it("does not render silence where a client's agents should be", async () => {
     const { container } = await render({
       [AGENTS_PATH]: problem(500, {
@@ -241,7 +286,7 @@ describe("the client detail screen", () => {
     });
 
     // The gate answers only once `/v1/admin/me` has, so the sentence settles the render.
-    await screen.findAllByText(/does not have the admin:tenants permission/);
+    await screen.findAllByText(/does not have permission to/);
 
     // `findByRole`, not `getByRole`: the identity read no longer waits for the tenant to
     // supply a slug (it needs none), so the refusal can now paint a tick BEFORE the lists
@@ -304,7 +349,7 @@ describe("the client detail screen", () => {
     const { container } = await render({
       [TENANT_PATH]: problem(403, {
         title: "Forbidden",
-        detail: "This action requires the admin:tenants permission.",
+        detail: "You do not have permission to do this.",
         retryable: false,
       }),
     });
@@ -314,6 +359,6 @@ describe("the client detail screen", () => {
     // "Client not found" would send an operator hunting for a deleted tenant that is
     // sitting right there.
     expect(container.textContent).not.toContain("Client not found");
-    expect(container.textContent).toContain("This action requires the admin:tenants permission.");
+    expect(container.textContent).toContain("You do not have permission to do this.");
   });
 });

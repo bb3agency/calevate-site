@@ -141,7 +141,7 @@ async def assert_signup_open() -> None:
             kind="transient",
             code="signup_load_shed",
             title="Temporarily unavailable",
-            detail=f"The platform is in {status.mode} mode and is not creating accounts.",
+            detail="Calevate is not taking new sign-ups right now. Please try again shortly.",
             remediation="Try again shortly.",
             headers={"Retry-After": "120"},
         )

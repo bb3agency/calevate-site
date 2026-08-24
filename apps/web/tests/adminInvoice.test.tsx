@@ -177,7 +177,7 @@ describe("the tenant invoice", () => {
 
   it("will not print what has not loaded", async () => {
     await render(
-      problem(403, { title: "This action requires the billing:read permission.", retryable: false }),
+      problem(403, { detail: "You do not have permission to do this.", retryable: false }),
     );
 
     // A sheet of paper that looks like an invoice and carries no figures is worse than

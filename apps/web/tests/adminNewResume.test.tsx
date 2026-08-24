@@ -194,7 +194,7 @@ describe("saving a draft", () => {
 
     // And it does not overclaim: nothing is compiled, and the count of what is still
     // missing comes from the SERVER's answer.
-    expect(screen.getByText(/Nothing has been compiled into the agent/)).toBeTruthy();
+    expect(screen.getByText(/Nothing has been built into the agent yet/)).toBeTruthy();
     expect(screen.getByText(/1 answer still needed/)).toBeTruthy();
   });
 

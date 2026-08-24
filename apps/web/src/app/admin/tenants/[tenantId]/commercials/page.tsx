@@ -13,7 +13,6 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   ScrollRegion,
@@ -21,6 +20,7 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import {
   loosenedCeilings,
@@ -402,7 +402,7 @@ function RecordForm({
           <Field
             label="AI model surcharge (₹ / minute)"
             id="terms-llm-surcharge"
-            hint="D-455: added to the rate above for the minutes this client's own model choice upgraded. It applies only to a model THEY picked — an account following the platform default is never surcharged. Leave EMPTY unless a number has been decided; an unset surcharge means a model choice moves their bill by nothing, which is what every plan does today."
+            hint="Added to the rate above for the minutes this client's own model choice upgraded. It applies only to a model THEY picked — an account following the platform default is never surcharged. Leave EMPTY unless a number has been decided; an unset surcharge means a model choice moves their bill by nothing, which is what every plan does today."
           >
             <input
               id="terms-llm-surcharge"
@@ -507,13 +507,12 @@ function RecordForm({
           </p>
         )}
 
-        <button
-          type="submit"
-          disabled={save.isPending || !write.allowed}
-          className={PRIMARY_BUTTON}
-        >
-          {save.isPending ? "Recording…" : "Record new terms"}
-        </button>
+        {/* Shared primary CTA: the "Record new terms" label stays mounted (no name
+            flicker to "Recording…"), the spinner rides `loading`, and the disable reason
+            is unchanged. Money handling is untouched — this is the submit chrome only. */}
+        <ActionButton type="submit" loading={save.isPending} disabled={!write.allowed}>
+          Record new terms
+        </ActionButton>
       </form>
     </Card>
   );

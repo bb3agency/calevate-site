@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 
 import { Providers } from "@/app/providers";
+import { ToastProvider } from "@/components/interior/toaster";
 import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { NavDrawer } from "@/components/navDrawer";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
@@ -472,53 +473,62 @@ export default function ClientRealmLayout({
 
   return (
     <Providers>
-      {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin to.
-          The document scrolls by default; a shell that clips its own content is the only
-          thing that needs the document to stop. */}
-      <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
-        {/* FIRST focusable thing in the shell, and outside `ClientRealmProvider` on
-            purpose: the sidebar is 21 links, and a reader must be able to bypass them
-            even while the session is still resolving and the fallback skeleton is what
-            is on screen (WCAG 2.4.1, Level A). */}
-        <SkipLink />
-        <ClientRealmProvider
-          slug={slug}
-          fallback={
-            // A `<main>` here too, carrying the same id: `SkipLink` above is rendered in
-            // EVERY state of this shell, so its target has to exist in every state or the
-            // control is dead exactly when the page is slowest. The gate branches get
-            // theirs from `SessionGate`'s `landmark` prop; this is the Suspense arm, which
-            // no gate reaches. Measured by axe in a real browser — `skip-link`, "the
-            // skip-link target should exist and be focusable".
-            <main
-              id={MAIN_CONTENT_ID}
-              tabIndex={-1}
-              className="flex h-full w-full items-center justify-center"
-            >
-              <div className="w-96">
-                <Skeleton rows={8} />
-              </div>
-            </main>
-          }
-        >
-          <Sidebar slug={slug} isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <ViewAsBanner slug={slug} />
-            <TopHeader slug={slug} onMenuToggle={() => setIsMobileOpen(true)} />
-            {/* `tabIndex={-1}` is what makes `SkipLink` actually skip: following a
-                fragment scrolls to the target but only MOVES FOCUS if the target is
-                focusable, so without it the next Tab resumes inside the navigation the
-                reader just asked to leave. */}
-            <main
-              id={MAIN_CONTENT_ID}
-              tabIndex={-1}
-              className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
-            >
-              <div className="mx-auto max-w-[1280px]">{children}</div>
-            </main>
-          </div>
-        </ClientRealmProvider>
-      </div>
+      {/* `ToastProvider` app-wide for this realm, so `useToast()` works on any screen the
+          shell renders. Its notifications region is `fixed` bottom-right, renders AFTER the
+          shell subtree and is `pointer-events-none` with an empty `aria-live` polite region
+          until a toast is fired — so it adds no landmark the a11y sweep flags, no focusable
+          element ahead of `SkipLink`, and nothing to the DOM the "you are here" checks read.
+          It wraps the shell (rather than sitting inside the scrolling `<main>`) so a toast
+          survives navigation between screens and is not clipped by the shell's overflow. */}
+      <ToastProvider>
+        {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin to.
+            The document scrolls by default; a shell that clips its own content is the only
+            thing that needs the document to stop. */}
+        <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+          {/* FIRST focusable thing in the shell, and outside `ClientRealmProvider` on
+              purpose: the sidebar is 21 links, and a reader must be able to bypass them
+              even while the session is still resolving and the fallback skeleton is what
+              is on screen (WCAG 2.4.1, Level A). */}
+          <SkipLink />
+          <ClientRealmProvider
+            slug={slug}
+            fallback={
+              // A `<main>` here too, carrying the same id: `SkipLink` above is rendered in
+              // EVERY state of this shell, so its target has to exist in every state or the
+              // control is dead exactly when the page is slowest. The gate branches get
+              // theirs from `SessionGate`'s `landmark` prop; this is the Suspense arm, which
+              // no gate reaches. Measured by axe in a real browser — `skip-link`, "the
+              // skip-link target should exist and be focusable".
+              <main
+                id={MAIN_CONTENT_ID}
+                tabIndex={-1}
+                className="flex h-full w-full items-center justify-center"
+              >
+                <div className="w-96">
+                  <Skeleton rows={8} />
+                </div>
+              </main>
+            }
+          >
+            <Sidebar slug={slug} isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <ViewAsBanner slug={slug} />
+              <TopHeader slug={slug} onMenuToggle={() => setIsMobileOpen(true)} />
+              {/* `tabIndex={-1}` is what makes `SkipLink` actually skip: following a
+                  fragment scrolls to the target but only MOVES FOCUS if the target is
+                  focusable, so without it the next Tab resumes inside the navigation the
+                  reader just asked to leave. */}
+              <main
+                id={MAIN_CONTENT_ID}
+                tabIndex={-1}
+                className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+              >
+                <div className="mx-auto max-w-[1280px]">{children}</div>
+              </main>
+            </div>
+          </ClientRealmProvider>
+        </div>
+      </ToastProvider>
     </Providers>
   );
 }

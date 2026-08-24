@@ -6,6 +6,7 @@ import { Coins, Gauge, PhoneCall, Timer, Wallet } from "lucide-react";
 
 import {
   Card,
+  MonoValue,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
@@ -620,10 +621,12 @@ function TopUp({ session }: { session: Session }) {
               change until the payment is confirmed.
             </p>
           )}
-          <p className="mt-2 font-mono text-xs text-ink-faint">ref {intent.data.receipt}</p>
+          <p className="mt-2 text-xs text-ink-faint">
+            ref <MonoValue>{intent.data.receipt}</MonoValue>
+          </p>
           {intent.data.provider_order_id !== null && (
-            <p className="font-mono text-xs text-ink-faint">
-              order {intent.data.provider_order_id}
+            <p className="text-xs text-ink-faint">
+              order <MonoValue>{intent.data.provider_order_id}</MonoValue>
             </p>
           )}
         </div>

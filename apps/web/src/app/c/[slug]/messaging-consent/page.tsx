@@ -14,9 +14,11 @@ import {
 
 import {
   Card,
+  MonoValue,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
+  TermGloss,
   formatIST,
   type NoticeTone,
   PRIMARY_BUTTON_SM,
@@ -487,8 +489,9 @@ export default function MessagingConsentPage() {
               answer a regulator, and that is the sentence they will be answering with. */}
           <Rule icon={<CircleHelp className="h-4 w-4" />} title="This is your evidence, not a DLT record.">
             It is what you would produce if a number is challenged — who agreed, when,
-            and on what. It is not the registrar-recorded consent that Indian telecom
-            rules define separately, and it does not stand in for one.
+            and on what. It is not the consent recorded on{" "}
+            <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>, which
+            Indian telecom rules define separately, and it does not stand in for one.
           </Rule>
         </ul>
       </Card>
@@ -568,7 +571,7 @@ function Verdict({ state }: { state: MessagingConsent }) {
       <p className="font-medium">Not messageable — this record is one we cannot read.</p>
       <p className="mt-1">
         The system will not message this number. Quote{" "}
-        <span className="font-mono text-xs">{state.status}</span> to us and we will
+        <MonoValue className="text-xs">{state.status}</MonoValue> to us and we will
         explain what it means.
       </p>
     </Box>

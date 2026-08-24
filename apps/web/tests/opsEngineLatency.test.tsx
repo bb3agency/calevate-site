@@ -153,13 +153,13 @@ describe("the engine latency report", () => {
     expect(cells).not.toContain("0 ms");
     // The maximum IS printed at any sample size: an observation, not an estimate.
     expect(cells).toContain("288 ms");
-    // The third state of `budget_breached`, said as itself.
-    expect(cells.join(" ")).toContain("not enough turns");
+    // The third state of `budget_breached`, said as itself in plain words.
+    expect(cells.join(" ")).toContain("not enough replies");
     expect(cells.join(" ")).not.toContain("within target");
     // The reason is beside the row, and it names NO threshold: `P50_MIN_TURNS` is a
     // constant in `engine_latency.py` that never reaches the wire, so a figure typed into
     // this console would be a second copy of it going stale in silence.
-    expect(cells.join(" ")).toContain("Too few timed turns");
+    expect(cells.join(" ")).toContain("Too few timed replies");
     expect(cells.join(" ")).not.toMatch(/fewer than (five|5)/i);
   });
 
@@ -170,7 +170,7 @@ describe("the engine latency report", () => {
     );
 
     await screen.findByRole("table");
-    expect(container.textContent).toContain("This describes a subset of the window");
+    expect(container.textContent).toContain("These figures cover only part of the window");
   });
 
   it("asks the API for the window the chips ask for", async () => {
@@ -204,9 +204,9 @@ describe("the engine latency report", () => {
     );
 
     await waitFor(() => expect(container.textContent).toContain("could not be assembled"));
-    // "No timed turns in this window" is a claim about our own instrumentation, and a 503
+    // "No timed replies in this window" is a claim about our own instrumentation, and a 503
     // is not evidence for it. Neither is a skeleton left on screen forever.
-    expect(container.textContent).not.toContain("No timed turns in this window");
+    expect(container.textContent).not.toContain("No timed replies in this window");
     expect(screen.queryByRole("table")).toBeNull();
   });
 
@@ -217,7 +217,7 @@ describe("the engine latency report", () => {
     );
 
     await screen.findByText("Loading the engine's latency report");
-    expect(container.textContent).not.toContain("No timed turns in this window");
+    expect(container.textContent).not.toContain("No timed replies in this window");
     expect(screen.queryByRole("table")).toBeNull();
   });
 
@@ -227,7 +227,7 @@ describe("the engine latency report", () => {
       routes({ [WINDOW_PATH(7)]: report({ groups: [] }) }),
     );
 
-    await waitFor(() => expect(container.textContent).toContain("No timed turns in this window"));
+    await waitFor(() => expect(container.textContent).toContain("No timed replies in this window"));
   });
 
   it("withholds the report from a session the server would refuse, and never paints it as an outage", async () => {
@@ -241,13 +241,13 @@ describe("the engine latency report", () => {
         [WINDOW_PATH(7)]: problem(403, {
           type: "urn:calevate:auth/forbidden",
           title: "Forbidden",
-          detail: "This action requires the ops:manage permission.",
+          detail: "You do not have permission to do this.",
         }),
       }),
     );
 
     await waitFor(() =>
-      expect(container.textContent).toContain("does not have the ops:manage permission"),
+      expect(container.textContent).toContain("does not have permission to"),
     );
     // No red failure box, and therefore no retry button whose only outcome is another 403.
     expect(container.textContent).not.toContain("Forbidden");
@@ -256,7 +256,7 @@ describe("the engine latency report", () => {
     // claim about what the engine measured.
     expect(screen.queryByRole("group", { name: "Choose a window" })).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
-    expect(container.textContent).not.toContain("No timed turns in this window");
+    expect(container.textContent).not.toContain("No timed replies in this window");
   });
 
   /**
@@ -281,7 +281,7 @@ describe("the engine latency report", () => {
     );
 
     await waitFor(() =>
-      expect(container.textContent).toContain("does not have the ops:manage permission"),
+      expect(container.textContent).toContain("does not have permission to"),
     );
     const reads = calls.filter((call) => call.path.startsWith(ENGINE_LATENCY_PATH)).length;
     expect(reads).toBeLessThanOrEqual(1);

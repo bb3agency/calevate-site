@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
@@ -92,9 +92,12 @@ function setup(over: Partial<MetaSetup> = {}): MetaSetup {
  *  (the sender's own id for the delivery) is what shifted this from 2. */
 const RETRIES_COLUMN = 3;
 
-function retriesCell(source: string): string {
-  const row = screen.getByText(source).closest("tr");
-  expect(row, `no row for ${source}`).not.toBeNull();
+/** The Source column now shows the friendly label (`sourceLabel`), which the lead-source
+ *  LIST above the table shows too — so a row is found by its label WITHIN the deliveries
+ *  table, never page-wide, to keep the anchor unambiguous. */
+function retriesCell(sourceLabelText: string): string {
+  const row = within(screen.getByRole("table")).getByText(sourceLabelText).closest("tr");
+  expect(row, `no row for ${sourceLabelText}`).not.toBeNull();
   return row!.querySelectorAll("td")[RETRIES_COLUMN]?.textContent ?? "";
 }
 
@@ -171,7 +174,7 @@ describe("the delivery log", () => {
     await screen.findByText("no dialable phone number");
     expect(container.textContent).toContain("rejected");
     // The dedupe column is the answer to "you got fifteen requests, why one call?".
-    expect(retriesCell("meta_lead_ads")).toBe("15");
+    expect(retriesCell("Meta Lead Ads (Facebook / Instagram)")).toBe("15");
   });
 
   it("renders zero absorbed retries as a dash, not as a zero", async () => {
@@ -179,10 +182,10 @@ describe("the delivery log", () => {
     // nothing needed absorbing, which is what it means.
     await renderPage({ [ACTIVITY_PATH]: { items: [delivery()] } });
 
-    await screen.findByText("website_form");
+    await screen.findByText("lead.created:website_form");
     // The CELL, not the page: a dash somewhere on screen is not evidence about this
     // column, and `formatIST` prints one too.
-    expect(retriesCell("website_form")).toBe("—");
+    expect(retriesCell("Website form")).toBe("—");
   });
 
   /**
@@ -232,7 +235,7 @@ describe("the delivery log", () => {
     // `/v1/lead-sources/activity` is on `org:read` precisely so a read-only support
     // session can still see whether a client's form is reaching us.
     await renderPage({ [ACTIVITY_PATH]: { items: [delivery()] } }, READ_ONLY_ME);
-    await screen.findByText("website_form");
+    await screen.findByText("lead.created:website_form");
   });
 });
 

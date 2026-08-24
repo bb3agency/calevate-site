@@ -258,9 +258,9 @@ describe("submitting the intake", () => {
     expect(submit.disabled).toBe(true);
     // Each blocker names what downstream cannot work without it, in the server's terms —
     // and the one the operator HAS answered is absent from the list.
-    expect(container.textContent).toContain("The after-hours branch (FLOWS §3) reads this");
+    expect(container.textContent).toContain("The agent uses these hours to handle after-hours calls");
     expect(container.textContent).toContain("A transfer during a call has nowhere to go");
-    expect(container.textContent).toContain("The price list is both the knowledge-base seed");
+    expect(container.textContent).toContain("The price list is both what the agent answers from");
     expect(container.textContent).not.toContain("No address.");
 
     fireEvent.click(submit);
@@ -322,7 +322,7 @@ describe("reopening the step", () => {
     // `prose_answers: null` WITH stored evidence — a pre-migration org, not a new agent.
     const { container } = await reachIntake({ [INTAKE]: { ...STORED, prose_answers: null } });
 
-    expect(container.textContent).toContain("Only the compiled block survives");
+    expect(container.textContent).toContain("Only the summary we build for the agent is kept");
     // The block is printed so the operator can retype from it, rather than parsed back
     // into fields this form would then be asserting a price it had itself written.
     expect(container.textContent).toContain("[T0 FACTS]");
@@ -335,7 +335,7 @@ describe("reopening the step", () => {
     // The same `prose_answers: null`, with nothing else stored. A brand-new agent must
     // not be told its answers were lost.
     const { container } = await reachIntake();
-    expect(container.textContent).not.toContain("Only the compiled block survives");
+    expect(container.textContent).not.toContain("Only the summary we build for the agent is kept");
   });
 
   it("keeps the answers when the operator walks to the invite step and back", async () => {
@@ -563,10 +563,10 @@ describe("the permission gate", () => {
     // TWICE, deliberately: once at the head of the form where the first disabled input
     // is, once beside the submit at the foot of it. A dead control with no sentence is a
     // support ticket, and forty controls is too far to carry an explanation.
-    expect(await screen.findAllByText(/does not have the agents:write permission/)).toHaveLength(2);
+    expect(await screen.findAllByText(/does not have permission to/)).toHaveLength(2);
     const submit = screen.getByRole("button", { name: "Submit intake" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
-    expect(submit.title).toContain("agents:write");
+    expect(submit.title).toContain("record this client's intake");
     expect(container.textContent).toContain("Ask a superadmin");
     // The inputs go with it — filling forty boxes that cannot be submitted is waste.
     expect((control("branches.0.label") as HTMLInputElement).disabled).toBe(true);
@@ -586,6 +586,6 @@ describe("the permission gate", () => {
     expect(
       await screen.findAllByText(/We could not check whether you may record this client's intake/),
     ).toHaveLength(2);
-    expect(container.textContent).not.toContain("does not have the agents:write permission");
+    expect(container.textContent).not.toContain("does not have permission to");
   });
 });

@@ -56,15 +56,33 @@ function drawer(container: HTMLElement): HTMLElement {
  *
  * jsdom implements no `matchMedia`, so without this the component's
  * `useSyncExternalStore` snapshot is its "unknown width" answer (never an overlay) and
- * the mobile case cannot be reached at all. The stub evaluates the ONE query the drawer
- * asks — anything else throws rather than quietly answering false, because a query this
- * stub does not understand means the test is no longer testing what it says it is.
+ * the mobile case cannot be reached at all. The stub evaluates the ONE width query the
+ * drawer asks — anything else throws rather than quietly answering false, because a query
+ * this stub does not understand means the test is no longer testing what it says it is.
+ *
+ * The shell also mounts the app-wide `ToastProvider`, whose motion layer reads
+ * `(prefers-reduced-motion)`; that is a legitimate, benign a11y query (the whole component
+ * library asks it, and `tests/setup.ts` answers it globally), so the stub answers it
+ * "not requested" rather than throwing — it does not affect the drawer's tab order.
  */
 function stubViewport(kind: "mobile" | "desktop"): void {
   const listeners = new Set<() => void>();
+  const mediaListEntry = (query: string, matches: boolean) => ({
+    media: query,
+    matches,
+    addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+    addListener: (listener: () => void) => listeners.add(listener),
+    removeListener: (listener: () => void) => listeners.delete(listener),
+    dispatchEvent: () => false,
+    onchange: null,
+  });
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => {
+      if (query.startsWith("(prefers-reduced-motion")) {
+        return mediaListEntry(query, false);
+      }
       if (query !== "(max-width: 1023.98px)") {
         throw new Error(`unexpected media query in the shell: ${query}`);
       }

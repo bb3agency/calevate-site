@@ -7,6 +7,7 @@ import { ArrowLeft, Bot, ShieldCheck, TriangleAlert, User } from "lucide-react";
 import {
   Card,
   EmptyState,
+  MonoValue,
   NoticeBox,
   ProblemNotice,
   Skeleton,
@@ -107,16 +108,16 @@ export default function QaSampleReviewPage({
               {detail.data.sample.week_start}.
             </p>
             <p className="mt-1 text-xs text-ink-faint">
-              Ordered by <code>md5(seed || call_id)</code>, seed{" "}
-              <code>{detail.data.sample.selection_seed}</code> — re-run it and this call comes
-              back in the same place.
+              This call&apos;s place in the draw is fixed by the seed{" "}
+              <MonoValue>{detail.data.sample.selection_seed}</MonoValue> — re-run it and this
+              call comes back in the same place.
             </p>
           </Card>
 
           <NoticeBox tone="neutral" icon={<ShieldCheck className="h-5 w-5" />}>
             Personal details — phone numbers, account numbers, dates of birth — are hidden in
-            this transcript, and there is no unredacted view on this screen. Opening this call
-            was recorded in the audit log against your name.
+            this transcript, and there is no way to see them in full on this screen. Opening
+            this call was recorded in the audit log against your name.
           </NoticeBox>
 
           <Verdicts

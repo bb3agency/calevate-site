@@ -11,12 +11,13 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
+  TermGloss,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { useTenant } from "@/lib/api/admin";
 import {
   REASON_MAX,
@@ -124,9 +125,12 @@ export default function FeatureFlagsPage({
           </li>
           <li>
             <span className="font-medium">Never a compliance control.</span> Nothing here
-            can switch off DNC, calling hours, the disclosure line, the campaign review or
-            KYC for a client. If someone asks for that, the answer is no and the reason is
-            that those gates are the law, not a preference.
+            can switch off the{" "}
+            <TermGloss term="DNC">do-not-call list</TermGloss>, calling hours, the
+            disclosure line, the campaign review or{" "}
+            <TermGloss term="KYC">Know Your Customer — the business identity check</TermGloss>{" "}
+            for a client. If someone asks for that, the answer is no and the reason is that
+            those checks are the law, not a preference.
           </li>
         </ul>
       </NoticeBox>
@@ -153,8 +157,8 @@ export default function FeatureFlagsPage({
         </NoticeBox>
       ) : flags.data.items.length === 0 ? (
         <EmptyState
-          title="This build declares no feature flags"
-          hint="Flags are declared in apps/api/flags/registry.py. Nothing to configure until one is."
+          title="This build has no feature flags"
+          hint="No feature flags are defined yet, so there is nothing to configure here."
         />
       ) : (
         <div className="space-y-4">
@@ -338,8 +342,8 @@ function FlagRow({
           <span className={FIELD_HINT}>
             Goes into the audit entry, and into the row for as long as the override stands.
             Required in both directions — &ldquo;why did we put them back on the
-            default&rdquo; is asked just as often. Hard rule 6: ops prose only, no phone
-            numbers and no transcript text.
+            default&rdquo; is asked just as often. Keep it to notes about the change only:
+            no phone numbers and no transcript text.
           </span>
         </div>
 
@@ -372,13 +376,16 @@ function FlagRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          {/* Shared primary CTA: the "Save this flag" label stays mounted (no name
+              flicker to "Saving…"), the spinner rides `loading`, and the two non-pending
+              disable reasons are unchanged — ActionButton folds `loading` in on top. */}
+          <ActionButton
             type="submit"
-            disabled={set.isPending || blocked !== null || !write.allowed}
-            className={PRIMARY_BUTTON}
+            loading={set.isPending}
+            disabled={blocked !== null || !write.allowed}
           >
-            {set.isPending ? "Saving…" : "Save this flag"}
-          </button>
+            Save this flag
+          </ActionButton>
           {blocked && <span className="text-xs text-amber-700 dark:text-amber-400">{blocked}</span>}
         </div>
       </form>

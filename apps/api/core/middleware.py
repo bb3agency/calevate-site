@@ -327,7 +327,10 @@ class LoadShedMiddleware:
                 code="service_load_shed",
                 title="Temporarily unavailable",
                 # 503 is the ONE status allowed to keep its detailed message (§3).
-                detail=f"The platform is in {status.mode} mode and is not accepting this request.",
+                detail=(
+                    "Calevate is briefly not accepting this request while we manage a spike "
+                    "in load. Please try again shortly."
+                ),
                 status=503,
                 remediation="Retry shortly; the operations team has been notified.",
                 headers={"Retry-After": "30"},

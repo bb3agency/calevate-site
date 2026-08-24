@@ -16,12 +16,14 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  MonoValue,
   NoticeBox,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  TermGloss,
   DANGER_BUTTON,
   formatCount,
   formatIST,
@@ -133,9 +135,13 @@ export default function DataRightsPage() {
     <div className="space-y-5 pb-12">
       <p className="text-sm text-ink-muted">
         Under India&rsquo;s data protection law a person can ask you what you hold about
-        them, and can ask you to erase it. You are the data fiduciary and Calevate holds
-        the records on your behalf, so both requests are answered from here. Every request
-        below is recorded against your account in our audit log.
+        them, and can ask you to erase it. You are the{" "}
+        <TermGloss term="data fiduciary">
+          the business responsible for this data under India&apos;s privacy law
+        </TermGloss>{" "}
+        and Calevate holds the records on your behalf, so both requests are answered from
+        here. Every request below is recorded against your account, so there is a lasting
+        record of who asked and when.
       </p>
 
       <SubjectExportCard session={session} />
@@ -537,11 +543,11 @@ function RegisterRow({
           {/* The two handles a client needs when they come back to this: the request id
               they can quote to us, and the subject hash that tells one row from another
               without naming anybody. */}
-          <p className="mt-1 break-all font-mono text-xs text-ink-faint">
-            {request.request_id}
+          <p className="mt-1 break-all text-xs text-ink-faint">
+            <MonoValue>{request.request_id}</MonoValue>
           </p>
-          <p className="break-all font-mono text-xs text-ink-faint">
-            {request.subject_ref}
+          <p className="break-all text-xs text-ink-faint">
+            <MonoValue>{request.subject_ref}</MonoValue>
           </p>
         </div>
         <button
@@ -735,7 +741,8 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
       </ul>
 
       <p className="mt-3 text-xs text-ink-muted">
-        Engine-side copies: {proof.engine_deletion.replace(/_/g, " ")}.
+        Copies held by the calling system:{" "}
+        <MonoValue>{proof.engine_deletion.replace(/_/g, " ")}</MonoValue>.
       </p>
     </div>
   );

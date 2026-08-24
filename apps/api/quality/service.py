@@ -121,10 +121,10 @@ def _parse(data: object, *, report_id: object) -> QaReport:
             kind="internal",
             code="qa_report_unreadable",
             title="Quality report unreadable",
-            detail="This month's quality report was written in a shape this build "
-            "cannot read, so nothing is shown rather than a partial one.",
-            remediation="Re-run `make qa-report CLIENT=<slug> VERTICAL=<vertical> "
-            "--store` to regenerate it.",
+            detail="This month's quality report could not be opened, so we are not "
+            "showing it rather than showing you incomplete figures.",
+            remediation="Please try again shortly. If it keeps happening, quote the trace "
+            "id on this response to our team and we will regenerate the report for you.",
         ) from exc
 
 

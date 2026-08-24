@@ -231,7 +231,7 @@ describe("the feature-flag screen", () => {
 
   it("disables the controls, with the reason, for a session that may not write", async () => {
     await render({ [ADMIN_ME_PATH]: READ_ONLY });
-    await screen.findByText(/does not have the admin:tenants permission/);
+    await screen.findByText(/does not have permission to/);
     for (const radio of screen.getAllByRole("radio"))
       expect((radio as HTMLInputElement).disabled).toBe(true);
     expect(saveButton().disabled).toBe(true);

@@ -13,10 +13,18 @@ import {
 } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import {
+  CopyButton,
+  DANGER_BUTTON,
+  dncSourceCopy,
+  MonoValue,
+  TermGloss,
+  TypeToConfirm,
+  confirmMatches,
+} from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
   Card,
-  DANGER_BUTTON,
   EmptyState,
   FIELD,
   FIELD_HINT,
@@ -39,7 +47,7 @@ import {
 } from "@/lib/api/opsDnc";
 
 /**
- * The PLATFORM-WIDE do-not-call list — `/v1/ops/dnc/global` given the screen it never had.
+ * The PLATFORM-WIDE do-not-call screen — `/v1/ops/dnc/global` given the screen it never had.
  *
  * ## Why this screen exists
  *
@@ -51,6 +59,14 @@ import {
  * console already closed for the load-shed mode, the dead-letter replay and the audit-chain
  * verification, and it is closed here the same way: every one of them is a control on a
  * screen, and the runbook keeps the curl as the fallback for a console that cannot load.
+ *
+ * ## The plain-language pass (see `../opsLanguage.tsx`)
+ *
+ * This screen is used by ONE non-engineer, so no code symbol, path, status, internal event
+ * name or decision-record code reaches the visible copy — those stay in comments like this
+ * one. The one unavoidable legal term (the national Do Not Disturb register) is kept and
+ * glossed in place with `TermGloss`, and the two suppression sources speak with the ONE
+ * voice `dncSourceCopy` owns so the select, the row and the release block cannot drift.
  *
  * ## What makes this the most dangerous list in the product
  *
@@ -93,19 +109,11 @@ import {
  * renders, so a heading here would print the screen's name twice.
  */
 
-/** What each source means, in the words an operator would use to justify it later. */
-const SOURCE_OPTIONS: { value: GlobalDncSource; label: string; note: string }[] = [
-  {
-    value: "regulator",
-    label: "A regulator, TSP or registrar named this number",
-    note: "An instruction from outside. Put the escalation or ticket reference in the reason — it is what answers 'on whose instruction' a year later.",
-  },
-  {
-    value: "platform_block",
-    label: "Our own decision never to call it again",
-    note: "No outside instruction. The reason is the whole record of why this platform refuses this number, so write it for somebody who was not here.",
-  },
-];
+/**
+ * The two sources a suppression can carry. The wording lives in `dncSourceCopy` (one voice
+ * for the select, the row and the release block); this only fixes the order they appear in.
+ */
+const SOURCE_VALUES: GlobalDncSource[] = ["regulator", "platform_block"];
 
 export default function GlobalDncPage() {
   const entries = useGlobalDncList();
@@ -136,9 +144,10 @@ export default function GlobalDncPage() {
   return (
     <div className="max-w-2xl space-y-5">
       <p className="mt-0.5 text-sm text-ink-muted">
-        Numbers this platform will not dial for anybody. A row here outranks every
-        client&apos;s own list, is checked live before every single call, and no client can
-        add or remove one. Every change is audit-logged against your admin account.
+        These are the numbers Calevate will not dial for anyone. A number here overrides
+        every client&apos;s own do-not-call list, is checked before every single call, and no
+        client can add or remove it. Every change you make is recorded in the audit log
+        under your admin account.
       </p>
 
       <SuppressPanel access={write} mutation={suppress} />
@@ -172,9 +181,9 @@ export default function GlobalDncPage() {
                 print, and an operator who cannot see the list is the one most likely to
                 assume it. */}
             <p className="mt-2 text-sm text-ink-muted">
-              This screen will not tell you what is suppressed and it will not tell you
-              nothing is. The suppressions themselves are unaffected — the gate reads the
-              table directly on every dispatch, not this screen.
+              This screen will not tell you what is suppressed, and it will not tell you
+              nothing is. The suppressions are unaffected — the check runs against them
+              directly before every call, not from this screen.
             </p>
           </div>
         )}
@@ -235,7 +244,10 @@ function SuppressPanel({
   const parsed = parsePastedNumbers(paste);
   const tooMany = parsed.length > MAX_NUMBERS_PER_ADD;
   const ready =
-    parsed.length > 0 && !tooMany && reason.trim().length >= 3 && confirm === "SUPPRESS";
+    parsed.length > 0 &&
+    !tooMany &&
+    reason.trim().length >= 3 &&
+    confirmMatches(confirm, "SUPPRESS");
 
   return (
     <Card title="Suppress a number for every client">
@@ -265,16 +277,19 @@ function SuppressPanel({
               Every client stops dialling these numbers, from the next dispatch decision
             </p>
             <p className="mt-1 text-ink-muted">
-              This is not one client&apos;s list. The entry outranks every tenant&apos;s own
-              suppressions, appears in each of their lists marked{" "}
-              <span className="font-mono">removable: false</span>, and no client can lift
-              it. Inbound calls are unaffected — the do-not-call list governs outbound
-              dialling. It is NOT the national customer preference register: that is a
-              per-campaign scrub, recorded against the campaign it covers.
+              This is not one client&apos;s list. A number here overrides every client&apos;s
+              own do-not-call list, shows on each of their lists as one they cannot lift, and
+              no client can remove it. Inbound calls are unaffected — the do-not-call list
+              only governs outbound dialling. It is{" "}
+              <span className="font-semibold">not</span> the national customer preference
+              register (
+              <TermGloss term="DND">India&apos;s national Do Not Disturb registry</TermGloss>)
+              — that is a separate per-campaign scrub, recorded against the campaign it
+              covers.
             </p>
             <p className="mt-1 text-xs text-ink-faint">
-              Recorded in the audit log against your admin account with the reason you type
-              below, as counts and never as numbers.
+              Recorded in the audit log under your admin account, together with the reason
+              you type below — as counts, never as the numbers themselves.
             </p>
           </div>
         </div>
@@ -293,9 +308,9 @@ function SuppressPanel({
             className={`${FIELD} w-full font-mono`}
           />
           <span className={FIELD_HINT}>
-            One per line, or separated by commas. Ten digits or the full +91 form — the
-            server decides what it can read and counts the rest as malformed rather than
-            suppressing on a guess.
+            One number per line, or separated by commas. Ten digits, or the full +91 form.
+            Anything we can&apos;t read is counted as not a usable number, rather than
+            suppressed on a guess.
           </span>
         </label>
 
@@ -316,15 +331,13 @@ function SuppressPanel({
             disabled={!access.allowed}
             className={FIELD}
           >
-            {SOURCE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+            {SOURCE_VALUES.map((value) => (
+              <option key={value} value={value}>
+                {dncSourceCopy(value).label}
               </option>
             ))}
           </select>
-          <span className={FIELD_HINT}>
-            {SOURCE_OPTIONS.find((option) => option.value === source)?.note}
-          </span>
+          <span className={FIELD_HINT}>{dncSourceCopy(source).help}</span>
         </label>
 
         <label className="block">
@@ -340,22 +353,19 @@ function SuppressPanel({
             className={FIELD}
           />
           <span className={FIELD_HINT}>
-            It is not a column — it travels into the audit log, which is where &ldquo;who
-            blocked this number for the whole platform, and on whose instruction&rdquo; has
-            to be answerable a year later.
+            What you write here goes into the audit log. It is the record of who refused
+            these numbers for the whole platform, and on whose instruction — the answer
+            someone will need a year from now.
           </span>
         </label>
 
-        <label className="block">
-          <span className={FIELD_LABEL}>Type SUPPRESS to confirm</span>
-          <input
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            disabled={!access.allowed}
-            placeholder="SUPPRESS"
-            className={`${FIELD} font-mono`}
-          />
-        </label>
+        <TypeToConfirm
+          id="global-dnc-suppress-confirm"
+          word="SUPPRESS"
+          value={confirm}
+          onChange={setConfirm}
+          hint="This confirms you mean the platform-wide list, not one client's."
+        />
 
         <button
           type="submit"
@@ -391,13 +401,13 @@ function SuppressPanel({
               value={formatCount(mutation.data.added)}
               icon={<PhoneOff className="h-5 w-5" />}
               tone="strong"
-              hint="No tenant will dial these from the next dispatch decision."
+              hint="No client will dial these from the next dispatch decision."
             />
             <StatTile
               label="Already suppressed"
               value={formatCount(mutation.data.already_suppressed)}
               icon={<ShieldCheck className="h-5 w-5" />}
-              hint="Nothing to do — a global entry already covered them."
+              hint="Nothing to do — the platform-wide list already covered them."
             />
             <StatTile
               label="Not a usable number"
@@ -448,19 +458,20 @@ function EntryRow({
         >
           <Globe2 className="h-4 w-4" />
         </span>
-        {/* IN FULL (D-436). An operator releasing a platform-wide suppression has to be
-            able to read the number back to the TSP or regulator who asked for it — and
-            the confirmation below asks them to match it, which dots made impossible. */}
-        <span className="font-mono tabular-nums text-ink">{entry.phone_e164}</span>
-        {/* Fails VISIBLE: a source this build cannot name still gets its row and its raw
-            value, because a suppression an operator cannot see is one they will be asked
-            to explain. */}
+        {/* IN FULL (D-436), and copyable. An operator releasing a platform-wide suppression
+            has to read the number back to the telecom operator or regulator who asked for
+            it — and the confirmation below asks them to match it, which dots made
+            impossible. The copy control is for that quote, never a secret (see
+            `CopyButton`); the number is already on screen, so this adds no disclosure. */}
+        <span className="inline-flex items-center gap-1.5">
+          <MonoValue className="tabular-nums text-ink">{entry.phone_e164}</MonoValue>
+          <CopyButton value={entry.phone_e164} label={entry.phone_e164} />
+        </span>
+        {/* Fails VISIBLE: a source this build cannot name still gets its row and, through
+            `dncSourceCopy`, its raw value read back — a suppression an operator cannot
+            explain is one they will be asked to. */}
         <span className="text-xs text-ink-muted">
-          {entry.source === "regulator"
-            ? "regulator, TSP or registrar"
-            : entry.source === "platform_block"
-              ? "our own decision"
-              : (entry.source ?? "no source recorded")}
+          {entry.source ? dncSourceCopy(entry.source).label : "No source recorded"}
         </span>
         <span className="ml-auto whitespace-nowrap text-xs text-ink-faint">
           {formatIST(entry.added_at)}
@@ -490,48 +501,54 @@ function EntryRow({
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
             <div className="min-w-0">
               <p className="font-semibold text-ink">
-                Releasing {entry.phone_e164} lets every client dial it again
+                Releasing <MonoValue>{entry.phone_e164}</MonoValue> lets every client dial it
+                again
               </p>
               <p className="mt-1 text-ink-muted">
-                From the next dispatch tick, any campaign holding this number may call it.
-                It was suppressed for the whole platform because{" "}
-                {entry.source === "regulator"
-                  ? "a regulator, TSP or registrar named it"
-                  : entry.source === "platform_block"
-                    ? "this platform decided never to call it"
-                    : "of a source this console cannot name"}
-                . Lift it only if that instruction has been withdrawn — a client&apos;s own
-                suppression of the same number, if they have one, still applies.
+                From the next dispatch decision, any campaign holding this number may call it
+                again. Lift it only if the instruction to refuse it has been withdrawn — a
+                client&apos;s own do-not-call entry for the same number, if they have one,
+                still applies.
+              </p>
+              <p className="mt-1 text-ink-muted">
+                Reason on file:{" "}
+                {entry.source ? dncSourceCopy(entry.source).label : "no source was recorded"}.
               </p>
               <p className="mt-1 text-xs text-ink-faint">
-                Recorded in the audit log against your admin account. There is no undo
-                beyond adding the number again.
+                Recorded in the audit log under your admin account. The only way back is to
+                add the number again.
               </p>
             </div>
           </div>
 
-          <label className="block">
-            <span className={FIELD_LABEL}>
-              Type RELEASE to confirm, for {entry.phone_e164}
-            </span>
-            <input
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              aria-label={`Type RELEASE to confirm lifting the suppression on ${entry.phone_e164}`}
-              placeholder="RELEASE"
-              className={`${FIELD} font-mono`}
-            />
-          </label>
+          <TypeToConfirm
+            id={`global-dnc-release-confirm-${entry.id}`}
+            word="RELEASE"
+            value={confirm}
+            onChange={setConfirm}
+            hint={
+              <>
+                This lifts the suppression on{" "}
+                <MonoValue>{entry.phone_e164}</MonoValue>.
+              </>
+            }
+          />
 
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={confirm !== "RELEASE" || releasing}
+              disabled={!confirmMatches(confirm, "RELEASE") || releasing}
               onClick={onRelease}
               className={DANGER_BUTTON}
             >
               <Undo2 aria-hidden className="h-4 w-4" />
-              {releasing ? "Releasing…" : `Release ${entry.phone_e164}`}
+              {releasing ? (
+                "Releasing…"
+              ) : (
+                <>
+                  Release <MonoValue>{entry.phone_e164}</MonoValue>
+                </>
+              )}
             </button>
             <button
               type="button"
