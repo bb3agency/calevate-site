@@ -55,9 +55,10 @@ from apps.api.agents.lifecycle import assert_assignable, hold_agent_for_campaign
 from apps.api.campaigns.models import CONSENT_SOURCES, REFUSED_CONSENT_SOURCES
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
-from apps.api.compliance.registration import pe_registration_blocker
+from apps.api.compliance.registration import outbound_entity_blockers
 from apps.api.compliance.service import (
     DEFAULT_WINDOW,
+    INDIA_E164_PREFIX,
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
     account_stopped_blocker,
@@ -73,7 +74,6 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.ingest.service import normalize_phone
-from apps.api.ops.service import TM_REGISTRATION_MISSING_REASON, read_tm_registration
 
 log = get_logger(__name__)
 
@@ -112,7 +112,7 @@ OTHER_AGENT_NUMBER_REASON = (
 # The two DLT-entity reasons moved to `compliance/registration.py`, next to the read of
 # `dlt_registrations` and the predicate that emits them — this module held a second
 # `SELECT status, tm_link_status` of its own, and one condition with two spellings is the
-# drift `_entity_blockers` below now avoids by asking `pe_registration_blocker`.
+# drift `_entity_blockers` below now avoids by asking `outbound_entity_blockers`.
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,27 +197,16 @@ async def _entity_blockers(
     registration and its TM link, and the provenance of the contact list."""
     blockers: list[LaunchBlocker] = []
 
-    # SEC-COMP §3, first bullet, COMPANY half: "Calevate TM registration exists AND
-    # this client's PE registration + TM-link are active". Ours comes first because it
-    # is not a fact about this client at all — it is one row in `platform_state`, false
-    # for everybody at once, and a campaign dialled while it is not live is not a
-    # client with a paperwork gap, it is US dialling as an unregistered telemarketer.
-    # Reported alongside the client's own blockers rather than short-circuiting them:
-    # a client who fixes their PE registration during our outage should see that
-    # progress, and ops watching a launch preview should see the whole list.
-    if not (await read_tm_registration(session)).is_live:
-        blockers.append(LaunchBlocker("tm_registration_missing", TM_REGISTRATION_MISSING_REASON))
-
-    # SEC-COMP §3, first bullet, CLIENT half: the client's DLT ENTITY registration.
-    # Distinct from the header (`number_not_registered`) and the template
-    # (`dlt_template_*`) checks — the registrar issues three registrations and none
-    # implies another. Asked through `pe_registration_blocker`, exactly as the KYC and
-    # first-campaign conditions below are asked through theirs: the condition is a fact
-    # about the TENANT, so the launch gate, the dispatch tick and the operator console
-    # all read one implementation rather than each carrying its own SQL.
-    blocked_on_pe = await pe_registration_blocker(session, tenant_id=tenant_id)
-    if blocked_on_pe is not None:
-        blockers.append(LaunchBlocker(*blocked_on_pe))
+    # SEC-COMP §3, first bullet: Calevate's TM registration live AND this client's DLT PE
+    # registration + TM link active. Both halves come from `outbound_entity_blockers`,
+    # the ONE implementation the per-dial single-lead/callback gate
+    # (`compliance.service.check_dispatch`) reads too — so the campaign launch gate, the
+    # dispatch tick and the instant-callback path can never explain the same condition
+    # two different ways. The helper returns both (TM first, then PE) rather than
+    # short-circuiting, so a launch preview shows the whole list.
+    blockers.extend(
+        LaunchBlocker(*b) for b in await outbound_entity_blockers(session, tenant_id=tenant_id)
+    )
 
     # SEC-COMP §3, fourth bullet: consent provenance for the list. NULL is "nobody has
     # said", which is what every campaign predating the columns honestly reports —
@@ -684,12 +673,21 @@ async def add_contacts(
             "Contacts can only be added before a campaign is launched.",
         )
 
-    added, malformed, duplicate = 0, 0, 0
+    added, malformed, duplicate, foreign = 0, 0, 0, 0
     seen: set[str] = set()
     for row in contacts:
         phone = normalize_phone(str(row.get("phone") or ""))
         if phone is None:
             malformed += 1
+            continue
+        # The India-only freeze at the bulk boundary (LEGAL-OPS-PLAYBOOK §14/§18). A
+        # non-+91 number is well-formed but out of scope, so it is counted and dropped
+        # rather than stored as a `pending` contact that the dispatcher would claim,
+        # refuse (`destination_not_india`) and never settle — the same "don't admit what
+        # can never be dialled" reasoning the DNC scrub uses. `check_dispatch` is still
+        # the authoritative gate; this keeps the count honest and the pool clean.
+        if not phone.startswith(INDIA_E164_PREFIX):
+            foreign += 1
             continue
         if phone in seen:
             duplicate += 1
@@ -728,7 +726,7 @@ async def add_contacts(
             added += 1
         else:
             duplicate += 1
-    return {"added": added, "malformed": malformed, "duplicate": duplicate}
+    return {"added": added, "malformed": malformed, "duplicate": duplicate, "foreign": foreign}
 
 
 async def declare_consent_provenance(

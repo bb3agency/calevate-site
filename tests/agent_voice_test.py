@@ -2,10 +2,10 @@
 
 Three things are under test and they are not the same thing.
 
-1. **The catalog is data we can stand behind.** D-36 locks a premium/value ladder
-   (Bulbul v3 default, v2 as the value tier), so a catalog missing either rung has
-   drifted from the decision. Every entry must validate against its own lookup —
-   an entry the validator would refuse is a voice the UI offers and the API rejects.
+1. **The catalog is data we can stand behind.** The single-tier voice decision locks ONE
+   voice quality (Sarvam Bulbul v3) — no premium/value ladder — while keeping the persona
+   dimension for future speakers. Every entry must validate against its own lookup — an
+   entry the validator would refuse is a voice the UI offers and the API rejects.
 
 2. **An unknown string never reaches an agent row.** That is the entire point:
    `agents.tts_voice` is free text whose next reader is a vendor API, so "typo stored,
@@ -223,20 +223,15 @@ def test_the_catalog_is_not_empty_and_every_entry_validates() -> None:
         assert voice.languages[0] == "te-IN", "Telugu leads the list a picker renders"
 
 
-def test_both_the_value_and_premium_tiers_are_represented() -> None:
-    """D-36 in one assertion: "Sarvam Bulbul v3 default, v2 as the value tier". A
-    catalog with only the premium rung silently deletes the cost lever D-35 recovered
-    when it corrected D-20's "v2 is discontinued"."""
-    tiers = {voice.tier for voice in CATALOG}
-    assert tiers == {"premium", "value"}, "the D-36 ladder needs both rungs"
-
-    premium = [voice for voice in CATALOG if voice.tier == "premium"]
-    value = [voice for voice in CATALOG if voice.tier == "value"]
-    assert {voice.tts_model for voice in premium} == {"bulbul:v3"}
-    assert {voice.tts_model for voice in value} == {"bulbul:v2"}
-    # The default is v3 per D-36 — a written decision, not a measurement of ours.
+def test_the_catalog_is_one_voice_quality_and_carries_no_tier() -> None:
+    """The single-tier voice decision (superseding D-36/D-35/D-34): one voice quality,
+    Sarvam Bulbul v3, and no `tier` field at all — the premium/value ladder is gone."""
+    assert {voice.tts_model for voice in CATALOG} == {"bulbul:v3"}, "one voice quality"
+    assert not hasattr(default_voice(), "tier"), "the tier dimension was removed"
     assert default_voice().tts_model == "bulbul:v3"
-    assert default_voice().tier == "premium"
+    # v2 is no longer a voice we offer.
+    assert get_voice("bulbul:v2") is None
+    assert not is_supported_voice("bulbul:v2")
 
 
 def test_an_unknown_voice_id_is_not_supported() -> None:
@@ -284,7 +279,8 @@ async def test_a_client_can_read_the_catalog() -> None:
     assert body["note"]
     assert len(body["voices"]) == len(CATALOG)
     assert {entry["id"] for entry in body["voices"]} == set(voice_ids())
-    assert {entry["tier"] for entry in body["voices"]} == {"premium", "value"}
+    assert {entry["tts_model"] for entry in body["voices"]} == {"bulbul:v3"}
+    assert "tier" not in body["voices"][0], "the tier field was removed from the catalog"
 
 
 async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dictates_tts() -> None:
@@ -365,7 +361,7 @@ async def test_a_client_realm_principal_cannot_set_the_voice() -> None:
     async with _client(_app()) as http:
         response = await http.patch(
             f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": "bulbul:v2"},
+            json={"voice_id": "bulbul:v3"},
             headers=headers,
         )
         # The catalogue read D-21 deliberately leaves open to a client, on the same
@@ -394,14 +390,14 @@ async def test_an_admin_can_set_the_voice_and_it_is_persisted_and_audited() -> N
     async with _client(_app()) as http:
         response = await http.patch(
             f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
-            json={"voice_id": "bulbul:v2"},
+            json={"voice_id": "bulbul:v3"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["voice"]["id"] == "bulbul:v2"
-    assert body["voice"]["tier"] == "value"
+    assert body["voice"]["id"] == "bulbul:v3"
+    assert body["voice"]["tts_model"] == "bulbul:v3"
     assert body["engine_synced"] is False, "this endpoint never talks to the engine"
     # A draft agent has no engine_agent_ref, so there is nothing to republish yet.
     assert body["published"] is False
@@ -409,7 +405,7 @@ async def test_an_admin_can_set_the_voice_and_it_is_persisted_and_audited() -> N
 
     # The provider rides along: the adapter sends provider + voice as one object, and
     # a voice with a NULL provider is a half-configured synthesizer.
-    assert await _stored_voice(tenant_id, agent_id) == ("bulbul:v2", "sarvam")
+    assert await _stored_voice(tenant_id, agent_id) == ("bulbul:v3", "sarvam")
 
     async with untenanted_session() as session:
         row = (
@@ -522,14 +518,14 @@ async def test_the_read_returns_the_voice_the_write_just_set() -> None:
     assert state.voice.configured is None, "the onboarding wizard sets no voice"
     assert state.voice.headline == "No voice has been set on this agent."
 
-    await _set_voice(tenant_id, agent_id, "bulbul:v2")
+    await _set_voice(tenant_id, agent_id, "bulbul:v3")
 
     state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
     assert state.voice.configured is not None
-    assert state.voice.configured.voice_id == "bulbul:v2"
+    assert state.voice.configured.voice_id == "bulbul:v3"
     assert state.voice.configured.provider == "sarvam"
     assert state.voice.configured.catalog is not None
-    assert state.voice.configured.catalog.tier == "value", "the picker renders the tier"
+    assert state.voice.configured.catalog.tts_model == "bulbul:v3", "the picker renders the voice"
     assert state.published is False
     assert state.voice.live is None
     assert state.voice.republish_required is False
@@ -556,12 +552,16 @@ async def test_publishing_records_the_voice_the_engine_was_actually_sent() -> No
     assert "Callers hear" in state.voice.headline
 
 
-async def test_a_change_after_a_publish_moves_configured_and_leaves_live_alone() -> None:
-    """THE TEST THIS SLICE EXISTS FOR: the read reports what the write set AND what the
+async def test_configured_diverging_from_live_asks_for_a_republish() -> None:
+    """THE TEST THIS SLICE EXISTS FOR: the read reports the CONFIGURED voice AND what the
     caller is still hearing, at the same time.
 
-    Answering with one value here — either one — is the defect. `tts_voice` alone would
-    tell an operator the new voice is in force on a live phone line that is still
+    There is one voice quality now (the single-tier voice decision), so an operator can no
+    longer change to a DIFFERENT catalog voice — but the configured-vs-live machinery still
+    has to work when the two diverge for any reason (a legacy publish, drift). Divergence is
+    simulated here by writing a stale `live_tts_voice` directly, which is exactly the shape
+    a pre-mirror or drifted agent has. Answering with one value would be the defect:
+    `tts_voice` alone would tell an operator the new voice is in force on a line still
     speaking the old one; `live_tts_voice` alone would hide the change they just made.
     """
     tenant_id, agent_id, _slug, _token = await _tenant()
@@ -569,19 +569,24 @@ async def test_a_change_after_a_publish_moves_configured_and_leaves_live_alone()
     engine = await _publish(tenant_id, agent_id)
     ref = next(iter(engine._agents))
 
-    written = await _set_voice(tenant_id, agent_id, "bulbul:v2")
+    # Simulate the engine holding a stale voice (a legacy/drifted live value), so
+    # configured (bulbul:v3) and live diverge.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET live_tts_voice = 'bulbul:legacy' WHERE id = :a"),
+            {"a": agent_id},
+        )
+
+    written = await _set_voice(tenant_id, agent_id, "bulbul:v3")
     assert written["published"] is True
     assert written["republish_required"] is True
-    assert written["live_voice_id"] == "bulbul:v3", "the write reports what callers hear"
+    assert written["live_voice_id"] == "bulbul:legacy", "the write reports what callers hear"
     assert written["engine_synced"] is False
     assert "publish" in str(written["next_step"]).lower()
 
-    # The engine still holds the old voice — the whole reason the two columns exist.
-    assert engine._agents[ref].models.tts_voice == "bulbul:v3"
-
     state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
-    assert state.voice.configured is not None and state.voice.configured.voice_id == "bulbul:v2"
-    assert state.voice.live is not None and state.voice.live.voice_id == "bulbul:v3"
+    assert state.voice.configured is not None and state.voice.configured.voice_id == "bulbul:v3"
+    assert state.voice.live is not None and state.voice.live.voice_id == "bulbul:legacy"
     assert state.voice.republish_required is True
     assert "Callers still hear" in state.voice.headline
     # The voice is NOT reported through `pending`/Apply: that list is version numbers
@@ -591,9 +596,9 @@ async def test_a_change_after_a_publish_moves_configured_and_leaves_live_alone()
 
     # And a republish closes it, with no other step.
     engine = await _publish(tenant_id, agent_id)
-    assert engine._agents[ref].models.tts_voice == "bulbul:v2"
+    assert engine._agents[ref].models.tts_voice == "bulbul:v3"
     state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
-    assert state.voice.live is not None and state.voice.live.voice_id == "bulbul:v2"
+    assert state.voice.live is not None and state.voice.live.voice_id == "bulbul:v3"
     assert state.voice.republish_required is False
 
 
@@ -629,7 +634,7 @@ async def test_a_published_agent_with_no_recorded_live_voice_still_asks_for_a_re
             {"r": f"fakeagent_legacy_{uuid.uuid4().hex[:8]}", "a": agent_id},
         )
 
-    written = await _set_voice(tenant_id, agent_id, "bulbul:v2")
+    written = await _set_voice(tenant_id, agent_id, "bulbul:v3")
     assert written["live_voice_id"] is None
     assert written["republish_required"] is True
 
@@ -668,14 +673,12 @@ async def test_a_client_can_read_which_voice_their_own_agent_speaks_in() -> None
     information?".
 
     A client is legally the Principal Entity and already reads the catalogue for the
-    reason `list_voices` states — they get to hear what their agent sounds like. D-36's
-    ladder is also a PRICE ladder (premium and value bill at different rates,
-    SURFACES §2b's honest degraded-tier billing), so a client billed by rung must be
-    able to read the rung. What stays admin-only is the WRITE (D-21), which
-    `test_a_client_realm_principal_cannot_set_the_voice` pins.
+    reason `list_voices` states — they get to hear what their agent sounds like. What stays
+    admin-only is the WRITE (D-21), which `test_a_client_realm_principal_cannot_set_the_voice`
+    pins.
     """
     tenant_id, agent_id, slug, token = await _tenant()
-    await _set_voice(tenant_id, agent_id, "bulbul:v2")
+    await _set_voice(tenant_id, agent_id, "bulbul:v3")
 
     async with _client(_app()) as http:
         response = await http.get(
@@ -685,8 +688,8 @@ async def test_a_client_can_read_which_voice_their_own_agent_speaks_in() -> None
 
     assert response.status_code == 200, response.text
     voice = response.json()["voice"]
-    assert voice["configured"]["voice_id"] == "bulbul:v2"
-    assert voice["configured"]["catalog"]["tier"] == "value"
+    assert voice["configured"]["voice_id"] == "bulbul:v3"
+    assert voice["configured"]["catalog"]["tts_model"] == "bulbul:v3"
     assert voice["live"] is None
     assert voice["republish_required"] is False
     assert voice["headline"]

@@ -188,6 +188,14 @@ class ConsentLedgerEntry(PKMixin, Base):
     # mandatory exactly where it is knowable: `purpose = 'messaging'`.
     consent_source: Mapped[str | None] = mapped_column(Text)
     captured_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # An EXPLICIT expiry the capturing record set, and NULLABLE on purpose: absent means the
+    # grant carries no stated end-date, not "expired". The dial gate honours a past
+    # `expires_at` (refusing the call) but imposes NO default window on an absent one — a
+    # default validity window for voice consent is counsel's decision, not code's
+    # (LEGAL-OPS-PLAYBOOK §10.7/§20). Distinct from the messaging leg, whose expiry is a
+    # DERIVED 365-day window in `consent.py`; there the freshness control is the window,
+    # here it is the per-tick DND/DLT re-scrub, so an explicit column is all the gate needs.
+    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
     evidence: Mapped[dict[str, object] | None] = mapped_column(JSONB)  # e.g. transcript span
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 

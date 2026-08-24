@@ -183,9 +183,9 @@ class InvoiceOut(Strict):
     `tests/invoice_gst_test.py` and is the property that makes this feature trustworthy.
     """
 
-    # Deterministic: CAL-{YYYYMM}-{tenant prefix} — one number per tenant-month. NOTE:
-    # this is 19 characters and Rule 46(b) caps a tax-invoice serial at 16; the conflict
-    # with D-46 and why it is reported rather than patched is argued in billing/invoice.py.
+    # Deterministic: CAL{YYMM}{tenant suffix} — one number per tenant-month, exactly
+    # sixteen characters (Rule 46(b)'s length cap, now satisfied). The CONSECUTIVE-series
+    # half of 46(b) is still open and is argued in billing/invoice.py.
     invoice_number: str
     # IST billing month, YYYY-MM.
     month: str
@@ -205,12 +205,24 @@ class InvoiceOut(Strict):
     # line invites a dispute about nothing, so absence states the absence of a charge.
     line_items: list[InvoiceLineItemOut]
     subtotal_inr: str
+    # The rate APPLIED to this document: "18" on a tax invoice, "0" on a bill of supply.
     gst_rate_pct: str
     gst_inr: str
     # `gst_inr` split across the heads the place of supply puts it under; sums to it
-    # exactly, so no consumer has to add these up and risk disagreeing.
+    # exactly, so no consumer has to add these up and risk disagreeing. Empty on a bill of
+    # supply, which charges no tax.
     tax_components: list[InvoiceTaxComponentOut]
     total_inr: str
+    # The words that make an unregistered document a compliant BILL OF SUPPLY — no tax
+    # charged, no input tax credit (CGST s.32, Rule 49). Null on a tax invoice.
+    tax_note: str | None
+    # INTERNAL ESTIMATE, never a collectible amount: what the tax and total WOULD be once
+    # Calevate is GST-registered. Present only on a bill of supply so a screen can preview
+    # the eventual figure without ever presenting it as due; null on a tax invoice, where
+    # `gst_inr`/`total_inr` already carry the real amounts.
+    estimated_gst_rate_pct: str | None
+    estimated_gst_inr: str | None
+    estimated_total_inr: str | None
     usage: InvoiceUsageOut
 
 

@@ -11023,15 +11023,10 @@ export interface components {
              */
             provider: "sarvam";
             /**
-             * Tier
-             * @enum {string}
-             */
-            tier: "premium" | "value";
-            /**
              * Tts Model
-             * @enum {string}
+             * @constant
              */
-            tts_model: "bulbul:v3" | "bulbul:v2";
+            tts_model: "bulbul:v3";
             /**
              * Verified
              * @default false

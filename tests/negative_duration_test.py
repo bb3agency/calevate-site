@@ -51,15 +51,14 @@ from tests.spend_caps_test import _bill, _call_row, _plan, _snapshot, _spend_sta
 
 
 async def _premium_voice(tenant_id: UUID, agent_id: UUID) -> None:
-    """Metering reads the agent's configured voice to pick the rung (`billing/rates.py`),
-    so the fixture pins one rather than leaving the call `unproven`."""
-    from apps.api.agents.voices import CATALOG
+    """One voice quality now (the single-tier voice decision); the meter stamps the base
+    rung on every call, so the fixture just sets the one voice."""
+    from apps.api.agents.voices import default_voice
 
-    premium = next(v.id for v in CATALOG if v.tier == "premium")
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET tts_voice = :v WHERE id = :i"),
-            {"v": premium, "i": agent_id},
+            {"v": default_voice().id, "i": agent_id},
         )
 
 

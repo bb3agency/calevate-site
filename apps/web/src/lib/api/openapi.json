@@ -15423,19 +15423,8 @@
             "title": "Provider",
             "type": "string"
           },
-          "tier": {
-            "enum": [
-              "premium",
-              "value"
-            ],
-            "title": "Tier",
-            "type": "string"
-          },
           "tts_model": {
-            "enum": [
-              "bulbul:v3",
-              "bulbul:v2"
-            ],
+            "const": "bulbul:v3",
             "title": "Tts Model",
             "type": "string"
           },
@@ -15450,7 +15439,6 @@
           "label",
           "provider",
           "tts_model",
-          "tier",
           "languages",
           "note"
         ],

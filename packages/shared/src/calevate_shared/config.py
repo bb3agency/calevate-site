@@ -1065,18 +1065,24 @@ class Settings(BaseSettings):
     # channels) minus inbound_reserve. Values come from engine verification item 8.
     inbound_reserve_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
-    # Self-serve list price per calling minute, INR (D-34). One number for the whole
-    # motion until per-tier pricing ships — it exists in config so the runway framing
-    # ("about N minutes left") and the top-up flow price from the SAME source, and so
-    # a price change is a deploy, not a code edit. Managed clients never see it: their
-    # price lives in their `plans` row.
+    # Self-serve list price per calling minute, INR (the single-tier voice decision,
+    # superseding D-34/D-35/D-36's ₹6). One number for the whole motion — there is one
+    # voice quality now (Sarvam Bulbul v3), so there is one client rate — and it exists
+    # in config so the runway framing ("about N minutes left") and the top-up flow price
+    # from the SAME source, and so a price change is a deploy, not a code edit. Managed
+    # clients never see it: their price lives in their `plans` row.
+    #
+    # ₹5.00 is a founder-accepted ~22-30% gross margin against an all-in cost of roughly
+    # ₹2.89-4.28/call-minute (TRD §10.1); the dominant unmeasured risk is Telugu/Indic
+    # character density on the TTS leg (pilot gate 12), which can push the cost toward the
+    # ceiling. That risk is knowingly carried, not hedged in this number.
     #
     # BOUNDED FOR THE SAME REASON `usd_inr_rate` IS, one surface closer to the client:
     # `0` is type-valid and would price every self-serve minute at nothing, so the
     # runway framing says "unlimited" and the top-up flow charges zero. Exclusive floor.
     # The ceiling is absurd on purpose — nobody sells a minute for ₹10,000 — and its job
     # is to catch a decimal point in the wrong place before it reaches a wallet.
-    self_serve_inr_per_min: Decimal = Field(default=Decimal("6.00"), gt=0, le=10_000)
+    self_serve_inr_per_min: Decimal = Field(default=Decimal("5.00"), gt=0, le=10_000)
 
     # R-11's kill switch. Self-serve signup is the sharp edge of D-34 (anyone can sign
     # up and dial), so the public intake is OFF unless someone turned it on, and

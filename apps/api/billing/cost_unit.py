@@ -11,11 +11,11 @@ INSERT-only (hard rule 4) — a database trigger enforces it and that is not an 
 route around. The rows ARE the evidence of what we believed when we metered them.
 
 So the repair is the one every mistake on an append-only ledger gets here: ONE compensating
-row per affected call, carrying the difference. That is the same instrument
-`billing.service.record_tier_correction` uses for a call metered on the wrong TTS rung,
-deliberately and down to the column values — `unit_type = 'other'`, `qty = 1`,
+row per affected call, carrying the difference — `unit_type = 'other'`, `qty = 1`,
 `unit_cost_paid` = the delta, stamped at the ORIGINAL call's `occurred_at` — because a
 second shape of correction row would mean every reader of this ledger had to learn two.
+(A sibling TTS-tier correction once shared this exact shape; the single-tier voice
+decision removed it, since with one voice quality a call can never be on the wrong rung.)
 
     what moved:  OUR COST, and only our cost.
 
@@ -25,13 +25,6 @@ at the plan's own rate; `unit_cost_paid` is what the engine charged US, and it f
 our margin and our spend caps, never an invoice — and a correction that touched the
 invoice would be inventing a client-facing error that never happened (the D-373 mistake,
 one function over).
-
-WHY IT IS A SEPARATE MODULE FROM `record_tier_correction` RATHER THAN AN ARGUMENT TO IT.
-The two share a shape and share nothing else: a tier correction is priced from OUR rate
-card (`rates.tier_correction_inr`) against a character count a human supplies, and a
-restatement is priced from the ledger's own rows against a divisor the vendor's invoice
-settles. Folding them together would put a `chars`/`divisor` either-or inside a money
-function that four callers already depend on.
 
 Driven by `scripts/correct_cost_unit.py`, which is READ-ONLY by default.
 """
@@ -62,9 +55,9 @@ from apps.api.db.base import uuid7
 log = get_logger("calevate.billing.cost_unit")
 
 #: `meta.kind` on every row this module writes. A CONSTANT because the dedupe below and
-#: any future reader must agree on it exactly, and because it must never collide with
-#: `TIER_CORRECTION_META_KIND` — `_CORRECTED_TIER_SQL` re-attributes a whole call's minutes
-#: when it sees that one, and a restatement asserts nothing about which voice ran.
+#: any future reader must agree on it exactly, and so it stays distinct from every other
+#: correction kind a reader might re-attribute on — a restatement asserts nothing about
+#: which voice ran, only that the currency divisor changed.
 COST_UNIT_CORRECTION_META_KIND = "cost_unit_restatement"
 
 #: WHICH ROWS WERE PRICED BY THE ADAPTER'S DIVISOR. `pipeline._meter` stamps
@@ -88,13 +81,12 @@ class MisMeteredCall:
     metered_inr: Decimal
     #: The instant the original rows carry. The correction is stamped at it, not at now():
     #: a July call metered wrong was wrong in July, and dropping the fix into August would
-    #: leave both months lying (`record_tier_correction` states the same rule).
+    #: leave both months lying.
     occurred_at: datetime
     #: Carried onto the correction so its money lands on the rung the call ran on rather
     #: than in `tier_usage.cost_unattributed_inr`, which an operator reads as "calls we
-    #: could not attribute a voice to".
+    #: could not attribute a voice to". One voice quality now, so this is a single value.
     tts_tier: str | None
-    tts_tier_source: str | None
 
 
 def correction_ref(*, source_currency: str, from_divisor: Decimal, to_divisor: Decimal) -> str:
@@ -150,8 +142,7 @@ async def mis_metered_calls(session: AsyncSession, *, source_currency: str) -> l
                 "SELECT call_id, "
                 f"       SUM({_ROW_COST_SQL}) AS metered_inr, "
                 "       MIN(occurred_at) AS occurred_at, "
-                "       MIN(meta ->> 'tts_tier') AS tts_tier, "
-                "       MIN(meta ->> 'tts_tier_source') AS tts_tier_source "
+                "       MIN(meta ->> 'tts_tier') AS tts_tier "
                 "  FROM usage_events "
                 f" WHERE call_id IS NOT NULL AND meta ->> '{_SOURCE_CURRENCY_KEY}' = :cur "
                 # A stable order for the same reason `retention._due_tenants` has one:
@@ -168,9 +159,8 @@ async def mis_metered_calls(session: AsyncSession, *, source_currency: str) -> l
             metered_inr=Decimal(str(metered)),
             occurred_at=occurred_at,
             tts_tier=tier,
-            tts_tier_source=tier_source,
         )
-        for call_id, metered, occurred_at, tier, tier_source in rows
+        for call_id, metered, occurred_at, tier in rows
     ]
 
 
@@ -225,7 +215,6 @@ async def record_cost_unit_correction(
         "to_minor_units_per_major": str(to_divisor),
         "metered_inr": str(call.metered_inr),
         "tts_tier": call.tts_tier,
-        "tts_tier_source": call.tts_tier_source,
         # The audit question a date on the row cannot answer, because `occurred_at` is
         # deliberately the original call's.
         "issued_at": datetime.now(UTC).isoformat(),

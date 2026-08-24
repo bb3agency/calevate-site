@@ -33,6 +33,13 @@ Checks, in the order that fails cheapest-first:
 4. **DNC** — global + tenant entries, read LIVE. Additions must take effect before the
    next dispatch tick (hard rule 5), so this must never be cached.
 5. **Disclosure line** — an agent without one may not dial at all.
+6. **India-only destination** — a non-`+91` number is out of scope for the freeze
+   (LEGAL-OPS-PLAYBOOK §14/§18) and refused before a line is seized (`destination_not_india`).
+7. **The DLT regulatory layer** — Calevate's TM registration and the client's PE-TM
+   chain (`outbound_entity_blockers`), and the agent's own DLT-registered header
+   (`agent_outbound_number_blocker`). This is the layer the campaign gate always had and
+   the single-lead / instant-callback paths did not until §10.8 made a requested callback
+   regulated outbound. VOICE only — skipped for WhatsApp via `dlt_governed=False`.
 
 Inbound calls never reach this function: the caller initiated them, which is the
 consent-clean property D-38 leads with.
@@ -54,6 +61,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.service import agent_outbound_number_blocker
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.first_campaign import (
@@ -63,6 +71,7 @@ from apps.api.compliance.first_campaign import (
 )
 from apps.api.compliance.kyc import KYC_MISSING_REASON, kyc_not_verified_reason, read_kyc
 from apps.api.compliance.models import CONSENT_STATUSES, DNC_REMOVABLE_SOURCES
+from apps.api.compliance.registration import outbound_entity_blockers
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -104,6 +113,17 @@ DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {
 #: listed is treated as transient and retried, which is the safe direction for a
 #: SETTLEMENT decision (a retried contact is re-gated; a wrongly-settled one is not).
 PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset({"dnc", "no_consent"})
+
+#: The India-only freeze, as a dial predicate. LEGAL-OPS-PLAYBOOK's scope is frozen to
+#: Andhra Pradesh + Telangana / India-only B2B: no foreign clients, and its stop-list is
+#: explicit that no US/EU/UK outbound goes out "just this once" (§18.8, §14). `+91` is the
+#: only country code Calevate dials, so a destination that is not `+91` is refused at the
+#: gate before a line is seized — the authoritative enforcement point for the freeze.
+INDIA_E164_PREFIX = "+91"
+DESTINATION_NOT_INDIA_REASON = (
+    "Calevate places calls to Indian (+91) numbers only. This destination is outside "
+    "India and cannot be dialled."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,10 +360,23 @@ async def check_dispatch(
     tenant_id: UUID,
     agent_id: UUID,
     phone_e164: str,
+    dlt_governed: bool = True,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
-    of silently missing."""
+    of silently missing.
+
+    `dlt_governed` selects the LEGAL REGIME, not a strength. The DLT/TCCCPR world — a
+    live PE-TM chain and a registered 140/160 header — governs VOICE telemarketing and
+    is the default. WhatsApp is a DIFFERENT regime entirely (Meta BSP / WABA, opt-in in
+    `whatsapp_alert_optin_ledger`; LEGAL-OPS-PLAYBOOK §11 is explicit it is "Not
+    DLT/TCCCPR"), so the escalation path passes `dlt_governed=False` to skip the two DLT
+    checks that do not describe it — it has no 140/160 number and no PE-TM chain to have.
+    It is NOT a bypass of hard rule 5: every other rule (halt, account, agent, KYC,
+    money, hours, DNC, consent, and the India-only destination) still runs, and the flag
+    defaults to the stricter voice regime so a forgotten caller gets MORE checks, not
+    fewer. The messaging leg's own consent gate (`resolve_escalation_destination`'s
+    opt-in) runs at its call site, beside this one."""
     platform = await get_platform_status()
     if platform.outbound_halted:
         return DispatchDecision(
@@ -427,6 +460,21 @@ async def check_dispatch(
             reason="Outbound calls are only placed between 9:00 and 21:00 IST.",
         )
 
+    # The India-only freeze, enforced at the destination. A non-+91 number is out of
+    # scope for this product (LEGAL-OPS-PLAYBOOK §14/§18) and must never be dialled, on
+    # any path — the campaign dispatch tick and the single-lead/callback paths all reach
+    # here. Cheap (no query) and per-number, so it sits with the other per-destination
+    # checks. `normalize_phone` deliberately stays country-agnostic — it also normalises
+    # numbers for DNC/consent suppression, where a foreign number is a valid thing to
+    # suppress — so the freeze is enforced HERE, at the dial decision, not in the shared
+    # normaliser.
+    if not phone_e164.startswith(INDIA_E164_PREFIX):
+        return DispatchDecision(
+            allowed=False,
+            rule="destination_not_india",
+            reason=DESTINATION_NOT_INDIA_REASON,
+        )
+
     # LIVE read, never cached: an opt-out captured mid-call must block the very next
     # dispatch. Covers both the tenant's own list and global entries (RLS lets a tenant
     # read global rows precisely so this query can see them).
@@ -465,22 +513,69 @@ async def check_dispatch(
     consent = (
         await session.execute(
             text(
-                "SELECT status FROM consent_ledger "
+                "SELECT status, expires_at FROM consent_ledger "
                 "WHERE tenant_id = :tid AND phone_e164 = :phone AND purpose = 'callback' "
                 "ORDER BY captured_at DESC, id DESC LIMIT 1"
             ),
             {"phone": phone_e164, "tid": tenant_id},
         )
     ).first()
-    if consent is not None and str(consent[0]) in DIAL_REFUSING_CONSENT_STATUSES:
-        return DispatchDecision(
-            allowed=False,
-            rule="no_consent",
-            reason=(
-                "This person has not agreed to be called. The lead was captured without "
-                "an opt-in, or the permission was withdrawn."
-            ),
-        )
+    if consent is not None:
+        status, expires_at = str(consent[0]), consent[1]
+        if status in DIAL_REFUSING_CONSENT_STATUSES:
+            return DispatchDecision(
+                allowed=False,
+                rule="no_consent",
+                reason=(
+                    "This person has not agreed to be called. The lead was captured without "
+                    "an opt-in, or the permission was withdrawn."
+                ),
+            )
+        # RESPECT AN EXPLICIT EXPIRY, INVENT NONE. The messaging leg goes stale on a DERIVED
+        # 365-day window (`consent.py`); this gate deliberately does not, because a default
+        # validity window for VOICE consent is a counsel decision, not code's
+        # (LEGAL-OPS-PLAYBOOK §10.7/§20, hard rule 11). What it does honour is an expiry the
+        # record itself set: a `granted` row whose `expires_at` has already passed no longer
+        # authorises a dial, mirroring `consent.py`'s own expiry check. An ABSENT `expires_at`
+        # is unchanged behaviour — allowed — with the per-tick DND/DLT re-scrub as the
+        # freshness control. Transient, not person-level: a re-grant makes the number
+        # dialable again, so `consent_expired` is intentionally NOT in `PERSON_LEVEL_REFUSALS`
+        # and a batch dialler keeps such a contact on the retry ladder rather than settling it.
+        if expires_at is not None and expires_at <= datetime.now(UTC):
+            return DispatchDecision(
+                allowed=False,
+                rule="consent_expired",
+                reason=(
+                    "This person's permission to be called has expired. Capture a fresh "
+                    "opt-in before dialling this number again."
+                ),
+            )
+
+    # THE DLT REGULATORY LAYER, for the single-lead ("call this lead", D-21) and instant
+    # callback VOICE paths (LEGAL-OPS-PLAYBOOK §10.8: a requested callback is regulated
+    # outbound). The campaign path already enforces the SAME conditions once per tick in
+    # `campaigns.service.dispatch_blockers`, so a running campaign reaches these having
+    # already passed them — the checks are shared, not duplicated: `outbound_entity_blockers`
+    # is the one implementation both gates read, and `agent_outbound_number_blocker` is the
+    # single-lead twin of `_channel_blockers`' number rule (a callback has an agent, not a
+    # campaign `number_id`). Last in the gate because it is the paperwork layer: a client
+    # sees "you have no credit" before "your DLT chain is incomplete", and the enforcement
+    # is identical whichever fails first. Skipped for WhatsApp (`dlt_governed=False`),
+    # which is a Meta-BSP channel with no PE-TM chain and no 140/160 number (§11).
+    if dlt_governed:
+        # WHO may place this call — Calevate's TM registration and the client's PE-TM chain.
+        entity = await outbound_entity_blockers(session, tenant_id=tenant_id)
+        if entity:
+            rule, reason = entity[0]
+            return DispatchDecision(allowed=False, rule=rule, reason=reason)
+
+        # From WHAT header — the agent's own DLT-registered bound number, never the
+        # engine's shared pool (D-420 / playbook §10.8). Refusing here closes the fallback
+        # that `resolve_caller_id` used to call "fine" for a D-21 click.
+        number_block = await agent_outbound_number_blocker(session, agent_id=agent_id)
+        if number_block is not None:
+            rule, reason = number_block
+            return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
     return DispatchDecision(allowed=True)
 
@@ -571,7 +666,9 @@ __all__ = [
     "ACCOUNT_CLOSED_REASON",
     "ACCOUNT_SUSPENDED_REASON",
     "DEFAULT_WINDOW",
+    "DESTINATION_NOT_INDIA_REASON",
     "DIAL_REFUSING_CONSENT_STATUSES",
+    "INDIA_E164_PREFIX",
     "IST",
     "NO_CREDITS_REASON",
     "PERSON_LEVEL_REFUSALS",

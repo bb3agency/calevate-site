@@ -344,15 +344,24 @@ async def test_without_the_identity_config_it_refuses_to_be_a_tax_invoice() -> N
         "sac": None,
     }
     # No supplier registration means no supplier location, so there is nothing to
-    # classify the supply against — and the tax is NOT split into heads it cannot be
-    # attributed to.
+    # classify the supply against.
     assert body["place_of_supply"]["supply_type"] == "undetermined"
-    assert [component["label"] for component in body["tax_components"]] == ["GST"]
-    # The arithmetic is UNCHANGED by the missing config. A forgotten environment variable
-    # must never silently move money (billing/invoice.py argues this at length).
+    # BILL OF SUPPLY: an unregistered supplier may not collect tax (CGST s.32, Rule 49),
+    # so there is NO tax head, the tax is zero, and the total is the subtotal. The document
+    # states the no-tax position in words. This SUPERSEDES the old behaviour, which printed
+    # a collectible 18% GST line on the proforma — exactly the tax s.32 forbids collecting.
+    assert body["tax_components"] == []
     assert body["subtotal_inr"] == "10159.00"
-    assert body["gst_inr"] == "1828.62"
-    assert body["total_inr"] == "11987.62"
+    assert body["gst_inr"] == "0.00"
+    assert body["gst_rate_pct"] == "0"
+    assert body["total_inr"] == "10159.00", "no tax is added to a bill of supply"
+    assert "no tax is charged" in body["tax_note"]
+    assert "input tax credit" in body["tax_note"]
+    # The 18% figure is kept ONLY as a clearly-labelled internal estimate, never as a
+    # collectible amount — so a missing config key still moves no money on the document.
+    assert body["estimated_gst_rate_pct"] == "18"
+    assert body["estimated_gst_inr"] == "1828.62"
+    assert body["estimated_total_inr"] == "11987.62"
 
 
 async def test_a_partial_identity_is_still_a_refusal(gst_registered: Any) -> None:
@@ -423,26 +432,20 @@ async def test_an_unverified_gstin_is_not_printed(gst_registered: Any) -> None:
     assert body["place_of_supply"]["supply_type"] == "intrastate"
 
 
-async def test_the_invoice_serial_is_not_yet_rule_46b_compliant() -> None:
-    """An OPEN FINDING, pinned so it cannot rot into a comment nobody reads — and pinned
-    on BOTH halves, which is the change this test needed.
+async def test_the_invoice_serial_length_is_46b_compliant_but_the_series_is_not() -> None:
+    """The LENGTH half of Rule 46(b) is now fixed; the CONSECUTIVE half is still open, and
+    both are pinned so neither can rot into a comment nobody reads.
 
     Rule 46(b) wants a serial that is (i) at most sixteen characters and (ii) CONSECUTIVE
-    within the financial year. Ours fails both: nineteen characters, and a deterministic
-    per-tenant-month hash rather than a series. `billing/invoice.py` carries the verified
-    text of the clause, why the fix is blocked on the GST registration rather than on
-    engineering, and the design that lands the day the registry decision is taken.
+    within the financial year. This slice fixed (i) — the number is exactly sixteen
+    characters — while (ii) remains a deterministic per-tenant-month hash rather than a
+    series, because a consecutive series needs the stateful issued-invoice registry that is
+    a founder decision blocked on the GST registration. `billing/invoice.py` carries the
+    verified clause text, why the second half is blocked, and the registry design.
 
-    **THE LENGTH ALONE USED TO BE THE ASSERTION, AND THAT WAS THE HOLE.** A change that
-    shortened the serial to sixteen characters while leaving it a hash would have turned
-    this red and been read as "the finding is closed" — and a change that made it
-    consecutive while leaving it nineteen characters would have left it GREEN, recording
-    a defect that no longer existed in the form described. Both halves are asserted
-    separately now, each with the remedy for its own half, so whichever one moves the
-    failure names it.
-
-    Closing this means deleting the test — after both assertions have something to say
-    about the new scheme, not after one of them has been made to pass.
+    Both halves are asserted separately, each with the remedy for its own half, so whichever
+    one moves the failure names it. Closing the CONSECUTIVE half means deleting this test —
+    after the series assertion has something to say about a real registry, not before.
     """
     org = await _tenant_with_usage()
     tenant_id = uuid.UUID(str(org["id"]))
@@ -450,35 +453,35 @@ async def test_the_invoice_serial_is_not_yet_rule_46b_compliant() -> None:
         invoice = await build_invoice(session, tenant_id=tenant_id)
     serial = str(invoice["invoice_number"])
 
-    assert len(serial) > RULE_46B_MAX_SERIAL_CHARS, (
-        f"the invoice serial {serial!r} now fits Rule 46(b)'s sixteen characters. If that "
-        "was deliberate, the OTHER assertion in this test is the one that matters: a "
-        "sixteen-character hash is no more consecutive than a nineteen-character one, and "
-        "shortening it alone would have removed the only executable record of the gap."
+    # THE LENGTH HALF, now fixed: at most sixteen characters, alphanumerics only.
+    assert len(serial) <= RULE_46B_MAX_SERIAL_CHARS, (
+        f"the invoice serial {serial!r} exceeds Rule 46(b)'s sixteen characters again — the "
+        "length regressed. The suffix width or the prefix changed; see "
+        "billing/invoice.py::build_invoice, which asserts sixteen at the build site."
     )
+    assert serial.isalnum(), f"Rule 46(b) allows alphanumerics (and -/); {serial!r} has neither"
 
-    # THE CONSECUTIVE HALF, probed the only way it can be without an issued-invoice
-    # registry to read: two tenants billed in the SAME month get numbers with no ordering
-    # relationship, because there is no series for them to be positions in. A real 46(b)
-    # series would hand these two consecutive integers.
+    # THE CONSECUTIVE HALF, still open, probed the only way it can be without an
+    # issued-invoice registry to read: two tenants billed in the SAME month get numbers with
+    # no ordering relationship, because there is no series for them to be positions in. A
+    # real 46(b) series would hand these two consecutive integers.
     other = await _tenant_with_usage(minutes=0)
     other_id = uuid.UUID(str(other["id"]))
     async with tenant_session(other_id) as session:
         other_invoice = await build_invoice(session, tenant_id=other_id)
     other_serial = str(other_invoice["invoice_number"])
 
-    # The month segment is shared and the tail is the tenant. Nothing about the pair says
-    # which came first, which is exactly what "consecutive" would mean.
-    head, tail = serial.rsplit("-", 1), other_serial.rsplit("-", 1)
-    assert head[0] == tail[0], "the two documents are not even from the same month series"
+    # `CAL` + YYMM (7 chars) is the shared month prefix; the last 9 are the per-tenant hash.
+    head, tail = serial[:7], serial[7:]
+    other_head, other_tail = other_serial[:7], other_serial[7:]
+    assert head == other_head, "the two documents are not even from the same month series"
     assert (
-        not tail[1].isdigit() or not head[1].isdigit() or abs(int(head[1]) - int(tail[1])) != 1
+        not tail.isdigit() or not other_tail.isdigit() or abs(int(tail) - int(other_tail)) != 1
     ), (
         f"the serials {serial!r} and {other_serial!r} now differ by one, so the scheme may "
-        "have become a consecutive series. If it has: check the LENGTH assertion above, "
-        "confirm the counter is allocated under a lock with a unique index behind it and "
-        "resets by financial year rather than by cron (billing/invoice.py has the design), "
-        "and then delete this test."
+        "have become a consecutive series. If it has: confirm the counter is allocated under "
+        "a lock with a unique index behind it and resets by financial year rather than by "
+        "cron (billing/invoice.py has the design), and then delete this test."
     )
 
 
@@ -533,7 +536,9 @@ async def test_the_invoice_number_is_stable_across_regenerations() -> None:
         once = await build_invoice(session, tenant_id=tenant_id)
         twice = await build_invoice(session, tenant_id=tenant_id)
     assert once["invoice_number"] == twice["invoice_number"]
-    assert once["invoice_number"].startswith(f"CAL-{str(once['month']).replace('-', '')}-")
+    month = str(once["month"])  # "YYYY-MM"
+    assert once["invoice_number"].startswith(f"CAL{month[2:4]}{month[5:7]}")
+    assert len(str(once["invoice_number"])) == 16
 
 
 # --------------------------------------------- the split: which head the tax lands under

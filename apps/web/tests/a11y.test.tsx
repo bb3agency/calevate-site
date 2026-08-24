@@ -2227,7 +2227,6 @@ const ADMIN_SCREENS: Screen[] = [
           label: "Anushka",
           provider: "sarvam",
           tts_model: "bulbul:v3",
-          tier: "premium",
           gender: "female",
           languages: ["te-IN", "hi-IN", "en-IN"],
           note: "Warm, unhurried; the default for Telugu receptionists.",

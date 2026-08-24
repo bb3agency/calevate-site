@@ -231,7 +231,7 @@ def _catalogue_note(capability: VoiceSelectionCapability) -> str:
     "/v1/agents/voices",
     response_model=VoiceCatalogueOut,
     openapi_extra=permission_meta("agents:read"),
-    summary="The voices an agent may speak in (client-readable; D-36's premium/value ladder)",
+    summary="The voices an agent may speak in (client-readable; one Bulbul v3 quality)",
 )
 async def list_voices(_: CatalogReader) -> VoiceCatalogueOut:
     """Static data plus one capability read: no DB, no network, no tenant scoping.
@@ -361,7 +361,6 @@ async def set_agent_voice(
         # Catalog ids and a boolean. No prompt text, no client detail (hard rule 6).
         summary={
             "voice_id": voice.id,
-            "tier": voice.tier,
             "tts_model": voice.tts_model,
             "republish_required": republish_required,
         },

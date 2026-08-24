@@ -114,6 +114,12 @@ async def _dialable_tenant() -> tuple[UUID, UUID]:
             ),
             {"id": agent_id, "tid": tenant_id},
         )
+    # Outbound now clears the DLT layer too (LEGAL-OPS-PLAYBOOK §10.8) — PE-TM chain +
+    # a registered number bound to the agent — so a baseline-dialable tenant needs both
+    # before the account-lifecycle rule is what these tests measure.
+    from tests.conftest import arm_agent_for_outbound
+
+    await arm_agent_for_outbound(tenant_id, agent_id)
     return tenant_id, agent_id
 
 

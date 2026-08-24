@@ -1,12 +1,15 @@
-"""`plans.overage_rate_value`: the second rung of D-36's ladder, as a price.
+"""`plans.overage_rate_value`: the second overage-rate slot, as a price.
 
-`billing/rates.py` already resolves every metered call to a `premium` or `value` TTS
-tier and stamps it onto the usage row. Billing could not express it — `plans` quoted one
-`overage_rate` — so the ladder existed on the cost side (D-35: Bulbul v2 is live at half
-the v3 rate) and nowhere on the revenue side.
+This is a PLAN pricing lever, not a voice-quality tier. The single-tier voice decision
+withdrew the second voice quality (Bulbul v2), so `pipeline._meter` now stamps one rung
+(`BASE_OVERAGE_RUNG`) on every call — but the plan's two overage-rate SLOTS
+(`overage_rate` / `overage_rate_value`) and the split machinery that prices them
+(`split_overage`, `overage_rungs`, the invoice lines) survive as a founder pricing lever.
+These tests exercise that machinery directly, writing `meta.tts_tier` themselves rather
+than through the meter, so they still hold.
 
-The column added by migration b1d5c8e73f04 closes that, and the property that makes it
-safe to add to a live schema is the FIRST test here:
+The column added by migration b1d5c8e73f04, and the property that makes it safe on a live
+schema is the FIRST test here:
 
 1. **NULL bills exactly as before.** Every plan row that existed on the day the column
    landed is NULL, so no client's invoice moved by a paisa. Asserted by pricing the same
@@ -14,13 +17,13 @@ safe to add to a live schema is the FIRST test here:
    case to reproduce `overage_minutes * overage_rate` exactly.
 2. **The included allowance is spent on the DEARER rung first**, which leaves the
    cheaper minutes to be charged for. That is the client's favour, and it is the same
-   asymmetry `rates.billable_tier` applies when it bills an unprovable tier as `value`.
+   client-favouring asymmetry the rung reader applies to a call with no stamped rung.
 3. **The two rung figures always add to `overage_minutes`.** The invoice promises that
    its lines sum to the subtotal and that each line multiplies out; a split computed
    independently of the total could miss it by a paisa, which is a support ticket.
-4. **Unattributed minutes are priced at the VALUE rate.** A call we cannot prove got the
-   premium voice is never charged the premium rate (SURFACES §2b) — the honesty rule
-   `rates.py` states, now applied to revenue and not only to cost.
+4. **Unattributed minutes are priced at the cheaper RATE.** A call with no attributable
+   rung is never charged the dearer rate (SURFACES §2b), applied to revenue and not only
+   to cost.
 5. **No price is invented.** The column has no default, and nothing in the codebase
    derives one from TRD §10.1's explicitly unmeasured bands.
 

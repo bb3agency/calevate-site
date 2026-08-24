@@ -207,9 +207,9 @@ async def test_runway_prices_a_self_serve_wallet_at_the_list_rate() -> None:
             session, tenant_id=tenant_id, delta=Decimal("300.00"), reason="topup", ref="rzp_x"
         )
         summary = await billing.usage_summary(session, tenant_id=tenant_id)
-    # ₹300 at the ₹6/min list price (config default) — priced from the SAME number the
+    # ₹300 at the ₹5/min list price (config default) — priced from the SAME number the
     # top-up flow will use, so the two can never disagree.
-    assert summary["minutes_left"] == 50
+    assert summary["minutes_left"] == 60
 
 
 async def test_a_deployment_with_no_list_price_offers_no_runway_rather_than_a_wrong_one(
@@ -251,7 +251,7 @@ async def test_a_deployment_with_no_list_price_offers_no_runway_rather_than_a_wr
     )
     # The same wallet, priced, does answer — so the None above is the PRICE being
     # missing and not the runway calculation having quietly stopped working.
-    assert priced_summary["minutes_left"] == 50
+    assert priced_summary["minutes_left"] == 60
     # The wallet itself is untouched by the question — hard rule 7, exact digits.
     assert str(balance.amount_inr) == "300.0000"
 

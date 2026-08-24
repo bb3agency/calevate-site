@@ -107,17 +107,19 @@ from apps.api.billing.rates import PREPAID_TIERS
 #
 #   _ROW_COST_SQL       what one usage row contributes to our cost (D-370: a zero-`qty`
 #                       row carries its WHOLE leg cost)
-#   _CORRECTED_TIER_SQL which rung a call's money counts on after a correction (D-372)
+#   _ROW_TIER_SQL       which overage rung a call's money counts on (`meta.tts_tier`; the
+#                       cross-rung correction re-attribution was removed with the second
+#                       voice quality — the single-tier voice decision)
 #   _SURCHARGED_MODEL_SQL which model surcharge a row's minutes carry, if any (D-455)
 #   _NOT_AI_UNITS       "...and it is a CALL row" — dashboard-assist rows are ours (D-127 G-3)
 #   _IST_MONTH_WINDOW   the half-open IST month, as a range an index can drive
 #   _month_bounds       the two binds that window reads, so a caller cannot supply half of it
 #   _SECONDS_PER_MINUTE the divisor, as a Decimal, in one place
 from apps.api.billing.service import (
-    _CORRECTED_TIER_SQL,
     _IST_MONTH_WINDOW,
     _NOT_AI_UNITS,
     _ROW_COST_SQL,
+    _ROW_TIER_SQL,
     _SECONDS_PER_MINUTE,
     _SURCHARGED_MODEL_SQL,
     _month_bounds,
@@ -190,7 +192,7 @@ _CALL_ROWS_SQL: Final = f"""
 WITH priced AS (
   SELECT call_id,
          unit_type,
-         {_CORRECTED_TIER_SQL} AS tier,
+         {_ROW_TIER_SQL} AS tier,
          {_SURCHARGED_MODEL_SQL} AS llm_model,
          qty,
          CASE WHEN unit_type = 'telephony_s' THEN qty ELSE 0 END AS secs,

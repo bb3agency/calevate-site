@@ -19,9 +19,12 @@ WHAT EACH GROUP PINS, and what would silently break if it were deleted:
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator
 from decimal import Decimal
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from apps.api.core import platform_config as pc
@@ -31,6 +34,7 @@ from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUp
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
+from apps.api.ops import config_service
 from apps.api.ops.config_routes import (
     ConfigSetIn,
     _field,
@@ -41,6 +45,7 @@ from apps.api.ops.config_routes import (
     set_config,
 )
 from apps.api.ops.config_service import WriteResult
+from calevate_shared.model_lifecycle import ATTESTATION_PATH
 from fastapi import BackgroundTasks, Response
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -623,4 +628,149 @@ async def _read_version() -> int:
             (
                 await session.execute(text("SELECT version FROM platform_config_version WHERE id"))
             ).scalar_one()
+        )
+
+
+# --- FN-2: the attestation gate on azure_openai_resource ----------------------
+#
+# `azure_openai_resource` decides WHERE the language leg's traffic is processed, and its
+# region is a property of the Azure resource that no automated check in this tree can read
+# from the name. So a console write of it is refused unless the repo-committed attestation
+# (`docs/evidence/azure-deployment-attestation.json`, OPERATIONS §2 gate 20) NAMES the
+# resource being set. These pin that gate: refused with no/mismatched attestation, allowed
+# when it matches, and wired into `set_value` before any database work.
+
+_ATTESTED_RESOURCE = "calevate-eastus2"
+
+
+def _write_attestation(root: Path, resource: str) -> None:
+    path = root / ATTESTATION_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "resource": resource,
+                "resource_location": "eastus2",
+                "deployment_model": "gpt-4o-mini",
+                "deployment_type": "standard-regional",
+                "read_on": "2026-08-24",
+                "read_by": "founder",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_the_resource_gate_refuses_when_no_attestation_is_filed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config_service, "_ATTESTATION_ROOT", tmp_path)
+    with pytest.raises(ProblemError) as raised:
+        config_service._assert_resource_attested(_ATTESTED_RESOURCE)
+    assert raised.value.code == "config_resource_unattested"
+    assert "no attestation" in raised.value.detail.lower()
+
+
+def test_the_resource_gate_refuses_a_resource_the_attestation_does_not_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_attestation(tmp_path, _ATTESTED_RESOURCE)
+    monkeypatch.setattr(config_service, "_ATTESTATION_ROOT", tmp_path)
+    with pytest.raises(ProblemError) as raised:
+        config_service._assert_resource_attested("calevate-southindia")
+    assert raised.value.code == "config_resource_unattested"
+    # The refusal names both sides so the operator knows what to file.
+    assert _ATTESTED_RESOURCE in raised.value.detail
+    assert "calevate-southindia" in raised.value.detail
+
+
+def test_the_resource_gate_refuses_a_revert_to_the_unattested_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A revert would put the code default (unset) back in force, which the attestation
+    does not name — so it is refused the same way a set to an unnamed resource is."""
+    _write_attestation(tmp_path, _ATTESTED_RESOURCE)
+    monkeypatch.setattr(config_service, "_ATTESTATION_ROOT", tmp_path)
+    with pytest.raises(ProblemError) as raised:
+        config_service._assert_resource_attested(None)
+    assert raised.value.code == "config_resource_unattested"
+    assert "unset default" in raised.value.detail
+
+
+def test_the_resource_gate_reports_a_malformed_attestation_as_a_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / ATTESTATION_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(config_service, "_ATTESTATION_ROOT", tmp_path)
+    with pytest.raises(ProblemError) as raised:
+        config_service._assert_resource_attested(_ATTESTED_RESOURCE)
+    assert raised.value.code == "config_resource_attestation_unreadable"
+
+
+def test_the_resource_gate_passes_when_the_attestation_names_the_resource(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_attestation(tmp_path, _ATTESTED_RESOURCE)
+    monkeypatch.setattr(config_service, "_ATTESTATION_ROOT", tmp_path)
+    # No raise: the attested resource is exactly the incoming one.
+    config_service._assert_resource_attested(_ATTESTED_RESOURCE)
+
+
+async def test_set_value_refuses_an_unattested_resource_before_touching_the_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate is wired into `set_value` and runs BEFORE the lock and the read: the
+    session is never used on the refusal path, so an unattested write costs no database
+    work and cannot half-happen."""
+    monkeypatch.setattr(config_service, "_ATTESTATION_ROOT", tmp_path)  # empty: no file
+    session = MagicMock()
+    with pytest.raises(ProblemError) as raised:
+        await config_service.set_value(
+            session,
+            key="azure_openai_resource",
+            value=_ATTESTED_RESOURCE,
+            note="pointing at a new resource",
+            actor_id=uuid.uuid4(),
+            expected_revision=0,
+        )
+    assert raised.value.code == "config_resource_unattested"
+    session.execute.assert_not_called()
+
+
+async def test_set_value_allows_an_attested_resource_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The allowed path end to end through `set_value`: with the attestation naming the
+    resource, the write lands. Done inside one transaction and rolled back so the shared
+    `platform_settings` table is left as it was found."""
+    _write_attestation(tmp_path, _ATTESTED_RESOURCE)
+    monkeypatch.setattr(config_service, "_ATTESTATION_ROOT", tmp_path)
+    async with untenanted_session() as session:
+        row = (await session.execute(text("SELECT id FROM admin_users LIMIT 1"))).first()
+        if row is not None:
+            actor = uuid.UUID(str(row[0]))
+        else:
+            actor = uuid.uuid4()
+            await session.execute(
+                text(
+                    "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                    "VALUES (:i, 'Resource Gate Test', 'superadmin', now(), now())"
+                ),
+                {"i": actor},
+            )
+        result = await config_service.set_value(
+            session,
+            key="azure_openai_resource",
+            value=_ATTESTED_RESOURCE,
+            note="attested move",
+            actor_id=actor,
+            expected_revision=0,
+        )
+        assert result.new == _ATTESTED_RESOURCE
+        assert result.recorded is True
+        # Leave the shared table untouched for every other suite on this database.
+        await session.execute(
+            text("DELETE FROM platform_settings WHERE key = 'azure_openai_resource'")
         )

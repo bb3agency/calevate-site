@@ -23,6 +23,7 @@ import pytest
 from apps.api.compliance import breach
 from apps.api.compliance.breach import (
     BOARD_REPORT_HOURS,
+    CERT_IN_HOURS,
     CLIENT_NOTIFICATION_HOURS,
     BreachFacts,
     IncompleteBreachNoticeError,
@@ -92,6 +93,40 @@ def test_the_deadlines_are_computed_from_awareness_and_from_nothing_else() -> No
     assert (
         facts.client_notification_due() - facts.aware_at
     ).total_seconds() == CLIENT_NOTIFICATION_HOURS * 3600
+
+
+def test_the_cert_in_six_hour_clock_is_pinned_the_same_way_the_others_are() -> None:
+    """CERT-In Direction 20(3)/2022 (s.70B IT Act): a notified cyber incident is reported
+    within 6 hours of awareness. It is a SEPARATE, tighter regime from DPDP Rule 7, so the
+    number is pinned in code and carried into the module's timeline exactly as 48/72 are —
+    a breach procedure that omits the tightest clock blows it by default.
+    """
+    assert CERT_IN_HOURS == 6
+    # The tightest of them all, by construction: it must fire before the client 48h clock.
+    assert CERT_IN_HOURS < CLIENT_NOTIFICATION_HOURS < BOARD_REPORT_HOURS
+    facts = _facts()
+    assert (facts.cert_in_report_due() - facts.aware_at).total_seconds() == CERT_IN_HOURS * 3600
+
+
+def test_the_cert_in_clock_is_carried_in_the_incident_timeline() -> None:
+    """It rides `_timeline`, so both the client notification and the Board report state the
+    6-hour clock — and it is marked conditional ('if'/scope) rather than asserted, because
+    whether the incident is in scope is an advocate question, not this module's to settle.
+    """
+    for document in (client_notification(_facts()), board_report(_facts())):
+        assert "CERT-In" in document
+        assert f"{CERT_IN_HOURS} hours" in document
+        assert "advocate question" in document, "the scope caveat is not stated"
+
+
+def test_the_runbook_and_the_code_agree_on_the_six_hour_clock() -> None:
+    """The drift class D-103 exists for, applied to the newest clock: the runbook states
+    the CERT-In window and names it as still-to-be-established, and the code carries the
+    same number."""
+    runbook = RUNBOOK.read_text(encoding="utf-8")
+    assert f"**{CERT_IN_HOURS} hours**" in runbook
+    assert "CERT-In Direction 20(3)/2022" in runbook
+    assert "not yet established" in runbook, "the runbook must say the CERT-In channel is unset"
 
 
 # ------------------------------------------------- 2. the content Rule 7 actually requires

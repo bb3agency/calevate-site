@@ -11,8 +11,9 @@ import { problem, type Routes } from "./harness";
 /**
  * Voice selection on the agent screen — `GET /v1/agents/voices` finally has a consumer.
  *
- * The catalogue was readable over the API and selectable nowhere: D-36's premium/value
- * ladder existed as data, the admin write existed (`PATCH …/agents/{id}/voice`), and no
+ * The catalogue was readable over the API and selectable nowhere: the persona catalogue
+ * (one voice quality, the single-tier voice decision) existed as data, the admin write
+ * existed (`PATCH …/agents/{id}/voice`), and no
  * screen joined them. It lives on this screen because voice is agent CONFIGURATION and the
  * write is admin-realm `agents:write` (D-21: which voice speaks Telugu well is an ear
  * test, so it routes through us) — the same gate every other control here is behind.
@@ -57,7 +58,6 @@ function voice(over: Partial<Voice> = {}): Voice {
     label: "Anushka",
     provider: "sarvam",
     tts_model: "bulbul:v3",
-    tier: "premium",
     gender: "female",
     languages: ["te-IN", "hi-IN", "en-IN"],
     note: "Warm, unhurried; the default for Telugu receptionists.",
@@ -67,16 +67,17 @@ function voice(over: Partial<Voice> = {}): Voice {
   };
 }
 
+// Two PERSONAS on the one voice quality (the single-tier voice decision): same Bulbul v3
+// model, different speakers. There is no price tier to choose any more — only who speaks.
 const VOICES: Voice[] = [
   voice(),
   voice({
     id: "vidya",
     label: "Vidya",
-    tts_model: "bulbul:v2",
-    tier: "value",
+    gender: "female",
     is_default: false,
     verified: true,
-    note: "The value tier — half the TTS cost, a flatter read.",
+    note: "A brisker, more formal read; still Bulbul v3.",
   }),
 ];
 
@@ -201,8 +202,8 @@ describe("the voice panel", () => {
     const options = [...select.querySelectorAll("option")].map((o) => o.textContent);
     expect(options).toEqual([
       "Choose a voice",
-      "Anushka — premium (bulbul:v3) · unverified",
-      "Vidya — value (bulbul:v2)",
+      "Anushka — female (bulbul:v3) · unverified",
+      "Vidya — female (bulbul:v3)",
     ]);
     // The catalogue carries `verified: false` until the pilot confirms the engine accepts
     // the string (OPERATIONS §2 gate 3). Rendered, not hidden.
@@ -263,7 +264,7 @@ describe("the voice panel", () => {
     expect(container.textContent).toContain("Callers hear now");
     expect(container.textContent).toContain("Anushka (bulbul:v3)");
     expect(container.textContent).toContain("Configured");
-    expect(container.textContent).toContain("Vidya (bulbul:v2)");
+    expect(container.textContent).toContain("Vidya (bulbul:v3)");
     // The server's sentence, printed rather than paraphrased.
     expect(container.textContent).toContain(
       "Callers still hear Anushka; Vidya reaches them at the next publish.",
@@ -323,7 +324,7 @@ describe("the voice panel", () => {
     fireEvent.change(await screen.findByLabelText("Voice"), { target: { value: "vidya" } });
 
     await waitFor(() =>
-      expect(container.textContent).toContain("The value tier — half the TTS cost"),
+      expect(container.textContent).toContain("A brisker, more formal read; still Bulbul v3."),
     );
     expect(container.textContent).toContain("te-IN, hi-IN, en-IN");
   });
@@ -338,7 +339,7 @@ describe("the voice panel", () => {
     const { container, calls } = await render({
       [SET_VOICE_PATH]: {
         agent_id: AGENT,
-        voice: voice({ id: "vidya", label: "Vidya", tier: "value", tts_model: "bulbul:v2" }),
+        voice: voice({ id: "vidya", label: "Vidya" }),
         agent_status: "live",
         published: true,
         engine_synced: false,
@@ -369,7 +370,7 @@ describe("the voice panel", () => {
         "Publish the agent to send this voice to the engine",
       ),
     );
-    expect(container.textContent).toContain("Saved — Vidya (value tier, bulbul:v2)");
+    expect(container.textContent).toContain("Saved — Vidya (bulbul:v3)");
 
     // And the read that feeds the "in force" block is refetched, because the write moved
     // `voice.configured` and deliberately left `voice.live` alone. Without this the panel

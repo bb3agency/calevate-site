@@ -97,6 +97,13 @@ async def _tenant(label: str) -> tuple[UUID, UUID, str]:
             ),
             {"id": outbound_agent_id, "tid": tenant_id, "ref": f"{agent_ref}_out"},
         )
+    # The DLT layer every outbound dial now clears AFTER the spend cap (LEGAL-OPS-PLAYBOOK
+    # §10.8): PE-TM chain active + a registered number bound to the agent. The refusal
+    # cases assert `rule == "spend_cap"` and are unaffected (the cap fires first); the
+    # "not capped, must dial" cases only reach ALLOWED once these exist, so supply them.
+    from tests.conftest import arm_agent_for_outbound
+
+    await arm_agent_for_outbound(tenant_id, outbound_agent_id)
     return tenant_id, outbound_agent_id, agent_ref
 
 

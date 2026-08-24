@@ -129,6 +129,7 @@ def test_attestation_with_an_invented_deployment_type_refuses(tmp_path: Path) ->
     path.write_text(
         json.dumps(
             {
+                "resource": "calevate-eastus2",
                 "resource_location": "eastus2",
                 "deployment_model": "gpt-4o-mini",
                 "deployment_type": "Standard-ish",

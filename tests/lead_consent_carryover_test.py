@@ -364,6 +364,107 @@ async def test_every_consent_status_that_is_not_a_grant_refuses_the_dial() -> No
         monkey.undo()
 
 
+async def _insert_callback_consent(
+    tenant_id: uuid.UUID, phone: str, *, expires_at: datetime | None
+) -> None:
+    """A GRANTED `callback` consent for one number, with an optional explicit expiry.
+
+    Granted (not merely present) so the ONLY thing that can refuse the dial is the expiry —
+    a declined/withdrawn row would refuse for `no_consent` and prove nothing about FN-6.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
+                "consent_source, evidence, captured_at, expires_at, created_at) VALUES "
+                "(:id, :tid, :p, 'callback', 'granted', 'web_form_optin', "
+                "CAST(:ev AS jsonb), now(), :exp, now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "p": phone,
+                "ev": '{"form": "opt-in", "answer": "yes"}',
+                "exp": expires_at,
+            },
+        )
+
+
+async def test_a_callback_consent_with_a_past_expiry_is_refused() -> None:
+    """FN-6: the dial gate honours an EXPLICIT expiry the record set. A granted callback
+    whose `expires_at` is already in the past no longer authorises a dial — mirroring the
+    messaging leg's own expiry check, which this gate previously lacked (it refused only on
+    status). Refused as `consent_expired`, a distinct, TRANSIENT rule: a fresh opt-in makes
+    the number dialable again, so it is not a person-level settlement."""
+    tenant_id, agent_id, _webhook_id = await _tenant_with_meta_source()
+    phone = "+919876511111"
+    await _insert_callback_consent(
+        tenant_id, phone, expires_at=datetime.now(UTC) - timedelta(days=1)
+    )
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(  # 11:00 IST: calling-hours is not what this test measures.
+        "apps.api.compliance.service.ist_now",
+        lambda: datetime(2026, 8, 11, 11, 0, tzinfo=UTC),
+    )
+    try:
+        async with tenant_session(tenant_id) as session:
+            decision = await check_dispatch(
+                session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+            )
+    finally:
+        monkey.undo()
+    assert decision.allowed is False
+    assert decision.rule == "consent_expired", (
+        f"a granted callback whose explicit expiry has passed was not refused as expired "
+        f"(rule={decision.rule!r})"
+    )
+
+
+async def test_a_callback_consent_with_a_future_expiry_still_dials() -> None:
+    """The other half: an expiry in the future does not refuse. All else equal to the
+    expired case, so the ONLY difference is which side of `now()` the expiry sits."""
+    tenant_id, agent_id, _webhook_id = await _tenant_with_meta_source()
+    phone = "+919876522222"
+    await _insert_callback_consent(
+        tenant_id, phone, expires_at=datetime.now(UTC) + timedelta(days=30)
+    )
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(
+        "apps.api.compliance.service.ist_now",
+        lambda: datetime(2026, 8, 11, 11, 0, tzinfo=UTC),
+    )
+    try:
+        async with tenant_session(tenant_id) as session:
+            decision = await check_dispatch(
+                session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+            )
+    finally:
+        monkey.undo()
+    assert decision.allowed, f"a consent valid until next month was refused ({decision.rule})"
+
+
+async def test_a_callback_consent_with_no_expiry_dials_unchanged() -> None:
+    """The no-default rule (hard rule 11): an ABSENT `expires_at` imposes no window, so a
+    grant with no stated end-date is dialled exactly as before this change. Inventing a
+    default validity window for voice consent is counsel's decision, not code's."""
+    tenant_id, agent_id, _webhook_id = await _tenant_with_meta_source()
+    phone = "+919876533333"
+    await _insert_callback_consent(tenant_id, phone, expires_at=None)
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(
+        "apps.api.compliance.service.ist_now",
+        lambda: datetime(2026, 8, 11, 11, 0, tzinfo=UTC),
+    )
+    try:
+        async with tenant_session(tenant_id) as session:
+            decision = await check_dispatch(
+                session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+            )
+    finally:
+        monkey.undo()
+    assert decision.allowed, f"a grant with no stated expiry was refused ({decision.rule})"
+
+
 async def _owner_session(tenant_id: uuid.UUID) -> tuple[str, str]:
     """An owner bearer token for a tenant that already exists.
 

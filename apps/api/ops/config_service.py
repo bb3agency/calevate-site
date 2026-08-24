@@ -53,9 +53,11 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from calevate_shared.config import Settings
+from calevate_shared.model_lifecycle import ATTESTATION_PATH, load_attestation
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,6 +80,84 @@ from apps.api.core.platform_config import (
 from apps.api.core.settings import ENV_ONLY_KEYS, env_declares, env_var_for
 
 log = get_logger(__name__)
+
+# The one managed key whose value decides WHERE the language leg's traffic is processed.
+# `azure_openai_resource` becomes each agent's LLM endpoint at publish time, and its region
+# is a property of the Azure resource that no automated check in this tree can read from the
+# name (`platform_config.py`'s own AppliesRule: "no automated check here can catch" a
+# wrong-region resource; `scripts/check_model_residency.py` says the same). So a console
+# write of it is gated on a human attestation filed in the repo — the same attestation
+# `scripts/check_model_lifecycle.py` already consumes (OPERATIONS §2 gate 20) — which must
+# NAME the incoming resource. Without that gate, an operator with console access could point
+# the whole product's caller-transcript traffic at a resource in any region, silently.
+_RESOURCE_KEY = "azure_openai_resource"
+
+# Repo root, so the attestation JSON (`docs/evidence/…`, a committed file) resolves the same
+# way the lifecycle guard resolves it. A module global rather than inlined so a test can aim
+# it at a tmp dir; production reads the deployed tree. `parents[3]` walks
+# ops → api → apps → repo root.
+_ATTESTATION_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _assert_resource_attested(effective: Any) -> None:
+    """Refuse a change to `azure_openai_resource` unless the filed attestation names the
+    resource that would be in force afterwards.
+
+    `effective` is the value the write would leave in force: the incoming resource for a
+    SET, and the code default (unset) for a REVERT. The attestation is a repo-committed
+    reading of the Azure portal (gate 20); requiring it to match means the console alone
+    cannot redirect where a client's caller transcripts are processed — a repo change and a
+    redeploy are needed, which is the point.
+
+    RAISES a business-rule refusal naming the attested resource versus the incoming one, so
+    the operator learns exactly what to file. A malformed attestation is a refusal too, not
+    a 500: it is an operator-facing problem with an operator-facing answer.
+    """
+    try:
+        attested = load_attestation(_ATTESTATION_ROOT)
+    except Exception as exc:  # malformed file: surface it as a refusal, not a traceback
+        raise ProblemError(
+            kind="business_rule",
+            code="config_resource_attestation_unreadable",
+            title="The Azure resource attestation could not be read",
+            detail=f"{ATTESTATION_PATH} exists but could not be parsed: {exc}.",
+            remediation=(
+                f"Fix {ATTESTATION_PATH} so it is valid JSON naming the resource, its "
+                "region, deployment and who read the portal, then try again."
+            ),
+        ) from None
+    if attested is None:
+        raise ProblemError(
+            kind="business_rule",
+            code="config_resource_unattested",
+            title="This change needs a filed Azure resource attestation",
+            detail=(
+                f"{_RESOURCE_KEY!r} decides where the language leg is processed, and no "
+                f"attestation is on file ({ATTESTATION_PATH})."
+            ),
+            remediation=(
+                f"Have someone confirm the resource in the Azure portal and file "
+                f"{ATTESTATION_PATH} naming it (OPERATIONS §2 gate 20). The console cannot "
+                "move where calls are processed without that reading."
+            ),
+        )
+    if attested.resource != effective:
+        incoming = "its unset default" if effective is None else repr(effective)
+        raise ProblemError(
+            kind="business_rule",
+            code="config_resource_unattested",
+            title="This resource is not the attested one",
+            detail=(
+                f"{ATTESTATION_PATH} attests the resource {attested.resource!r} (in "
+                f"{attested.resource_location!r}), but this change would set {_RESOURCE_KEY!r} "
+                f"to {incoming}."
+            ),
+            remediation=(
+                "Point it at the attested resource, or file a new attestation naming the "
+                "one you intend (OPERATIONS §2 gate 20) — the region is a property of the "
+                "resource and no automated check here can see it."
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,6 +573,11 @@ async def set_value(
     _refuse_unmanaged(key)
     _refuse_env_shadowed(key)
     stored = validated_value(key, value)
+    # WHERE THE LANGUAGE LEG RUNS is gated on a filed attestation, before the lock and the
+    # read: the refusal depends only on the incoming value and a repo file, so it fails fast
+    # and never holds the per-key lock. Only this one key carries the gate.
+    if key == _RESOURCE_KEY:
+        _assert_resource_attested(stored)
     # The lock comes FIRST — before the read whose result the precondition is checked
     # against — or the check-then-write is not atomic and the precondition is decoration.
     await _lock_key(session, key)
@@ -555,6 +640,13 @@ async def clear_value(
     await _refuse_stale(session, key, expected=expected_revision, current=current)
     if current.revision == 0:
         return None
+    # A revert of the resource key would put the CODE DEFAULT back in force, which is the
+    # unset value — so it is gated the same way a set is: reverting to a resource the
+    # attestation does not name (here, none at all) silently changes where calls are
+    # processed. Gated after the no-op check so reverting a key that has no row is free.
+    if key == _RESOURCE_KEY:
+        default = Settings.model_fields[_RESOURCE_KEY].get_default(call_default_factory=True)
+        _assert_resource_attested(default)
     await session.execute(text("DELETE FROM platform_settings WHERE key = :k"), {"k": key})
     return WriteResult(
         key=key, old=current.value, new=None, version=await _version(session), revision=0

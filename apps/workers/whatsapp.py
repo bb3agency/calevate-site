@@ -1021,6 +1021,11 @@ async def _send_escalation(
         tenant_id=tenant_id,
         agent_id=escalation.agent_id,
         phone_e164=escalation.phone_e164,
+        # WhatsApp is Meta-BSP, not DLT/TCCCPR (LEGAL-OPS-PLAYBOOK §11): it has no PE-TM
+        # chain and no 140/160 header, so the DLT layer of the gate does not describe it.
+        # Every other rule — the DNC read above all, the India-only destination, the halt,
+        # the cap — still runs; the WABA opt-in is checked just below.
+        dlt_governed=False,
     )
     if not decision.allowed:
         # The RULE, never the client-facing prose and never the number: the reason lands

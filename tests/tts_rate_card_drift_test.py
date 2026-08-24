@@ -25,14 +25,13 @@ Three kinds of test, following `tests/docs_drift_guard_test.py`:
 - **calibration** — the shapes that must report NOTHING, because a check that cries wolf
   is ignored first and deleted second.
 
-EVIDENCE FOR THE RATES THEMSELVES (billing/payments.py's three-rung ladder). **REPORTED,
+EVIDENCE FOR THE RATE ITSELF (billing/payments.py's three-rung ladder). **REPORTED,
 NOT READ**: `sarvam.ai` and `docs.sarvam.ai` are refused by this environment's egress
-proxy and no request has ever been made to them from this repository. ₹30 / ₹15 per
-10,000 chars is TRD §10.1's record of a live read on 11 Aug 2026 (D-35), corroborated
-Aug 2026 by two independent search summaries of that same pricing page ("Text-to-Speech
-costs ₹15-30 per 10,000 characters"; "Bulbul v3 is priced at ₹30 per 10,000 characters").
-This file does not assert what Sarvam charges — it asserts that this repository says one
-thing about it.
+proxy and no request has ever been made to them from this repository. ₹30 per 10,000 chars
+(Bulbul v3) is TRD §10.1's record of a live read on 11 Aug 2026, corroborated Aug 2026 by
+independent search summaries of that same pricing page. The single-tier voice decision
+withdrew the v2 rung, so there is now one rate to keep in step. This file does not assert
+what Sarvam charges — it asserts that this repository says one thing about it.
 """
 
 from __future__ import annotations
@@ -67,10 +66,10 @@ def test_the_check_reads_the_real_rate_card_and_the_real_biller() -> None:
     declared = guard.doc_tts_rates()
     billed = guard.code_tts_rates()
     assert declared, "TRD §10.1's TTS rate card did not parse — section 4b is reading nothing"
-    assert set(declared) == set(billed) == {"premium", "value"}
+    # One voice quality (the single-tier voice decision), one rate, one key.
+    assert set(declared) == set(billed) == {"bulbul-v3"}
     assert declared == billed, f"the doc and the biller already disagree: {declared} vs {billed}"
-    assert billed["premium"] == Decimal("30.0000"), "D-36's default rung, D-35's read"
-    assert billed["value"] == Decimal("15.0000"), "the value rung, live at half (D-35)"
+    assert billed["bulbul-v3"] == Decimal("30.0000"), "the one voice quality's rate"
     assert not guard.tts_rate_card_drift()
 
 
@@ -91,14 +90,7 @@ def test_a_vendor_price_move_recorded_only_in_the_doc_is_named() -> None:
     model, and never touches the biller. The client keeps paying the old rate."""
     offenders = guard.tts_rate_card_drift(_mutated("₹30 / 10,000 chars", "₹36 / 10,000 chars"))
     assert offenders, "a doc-side price move was not detected"
-    assert any("premium" in line and "36" in line for line in offenders), offenders
-
-
-def test_a_price_move_in_the_value_rung_alone_is_named() -> None:
-    """The rung most likely to move without anyone noticing, because it is the one no
-    plan quotes a retail price for yet (`plans.overage_rate_value` is NULL everywhere)."""
-    offenders = guard.tts_rate_card_drift(_mutated("₹15 / 10,000 chars", "₹18 / 10,000 chars"))
-    assert any("value" in line for line in offenders), offenders
+    assert any("bulbul-v3" in line and "36" in line for line in offenders), offenders
 
 
 def test_the_doc_disagreeing_with_its_own_second_table_is_named() -> None:
@@ -108,27 +100,27 @@ def test_the_doc_disagreeing_with_its_own_second_table_is_named() -> None:
     assert any("stated twice, disagreeing" in line for line in offenders), offenders
 
 
-def test_a_rung_deleted_from_the_rate_card_is_named() -> None:
-    """The doc dropping a rung the biller still charges. Not hypothetical: D-20 recorded
-    Bulbul v2 as discontinued and D-35 had to take that back — a row's absence from a
-    table is exactly how that claim got made the first time.
+def test_the_rung_deleted_from_the_rate_card_is_named() -> None:
+    """The doc dropping the one rung the biller still charges. Not hypothetical: D-20
+    recorded Bulbul v2 as discontinued and D-35 had to take that back — a row's absence
+    from a table is exactly how that claim got made the first time.
 
     BOTH spellings have to go, which is the union rule doing its job: while either table
     still prices the rung, the doc has not dropped it (see the calibration test below).
     """
-    dropped = TRD_TEXT.replace("| Text-to-Speech **Bulbul v2** |", "| ~~withdrawn~~ |", 1).replace(
-        "| TTS — Bulbul **v2** |", "| ~~withdrawn~~ |", 1
+    dropped = TRD_TEXT.replace("| Text-to-Speech **Bulbul v3** |", "| ~~withdrawn~~ |", 1).replace(
+        "| TTS — Bulbul **v3** |", "| ~~withdrawn~~ |", 1
     )
     offenders = guard.tts_rate_card_drift(dropped)
-    assert any("does not state it" in line and "value" in line for line in offenders), offenders
+    assert any("does not state it" in line and "bulbul-v3" in line for line in offenders), offenders
 
 
 def test_dropping_only_one_of_the_two_tables_is_not_drift() -> None:
     """The union rule, stated as a test rather than left in a comment. §10.1 may
-    legitimately be edited down to one table; what may not happen is a rung disappearing
+    legitimately be edited down to one table; what may not happen is the rung disappearing
     from BOTH while the biller still charges it. A check satisfied by deleting the table
     it happens to read would be a check anyone could silence with an edit."""
-    one_table_only = TRD_TEXT.replace("| TTS — Bulbul **v2** |", "| ~~moved~~ |", 1)
+    one_table_only = TRD_TEXT.replace("| TTS — Bulbul **v3** |", "| ~~moved~~ |", 1)
     assert guard.doc_tts_rates(one_table_only) == guard.code_tts_rates()
     assert not guard.tts_rate_card_drift(one_table_only)
 
@@ -152,13 +144,12 @@ def test_prose_about_a_rate_is_not_read_as_a_rate() -> None:
     only a table row states one unambiguously."""
     prose = (
         "### 10.1 Stack cost, computed from published rates (Aug 2026)\n\n"
-        "Bulbul v2 was once quoted at ₹60 / 10,000 chars by a secondary source, which "
+        "Bulbul v3 was once quoted at ₹60 / 10,000 chars by a secondary source, which "
         "was wrong. The card below is the first-party read.\n\n"
         "| Sarvam API | Published rate |\n|---|---|\n"
         "| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |\n"
-        "| Text-to-Speech **Bulbul v2** | ₹15 / 10,000 chars |\n"
     )
-    assert guard.doc_tts_rates(prose) == {"premium": Decimal(30), "value": Decimal(15)}
+    assert guard.doc_tts_rates(prose) == {"bulbul-v3": Decimal(30)}
     assert not guard.tts_rate_card_drift(prose)
 
 
@@ -167,13 +158,11 @@ def test_a_thousands_separator_is_not_a_different_price() -> None:
     wrong on a doc an editor merely reformatted, which is how a guardrail earns the
     reputation that gets it deleted."""
     heading = "### 10.1 Stack cost, computed from published rates\n\n"
-    assert guard.doc_tts_rates(
-        heading
-        + "| TTS **Bulbul v3** | ₹30 / 10,000 chars |\n"
-        + "| TTS **Bulbul v2** | ₹15 / 10,000 chars |\n"
-    ) == {"premium": Decimal(30), "value": Decimal(15)}
+    assert guard.doc_tts_rates(heading + "| TTS **Bulbul v3** | ₹30 / 10,000 chars |\n") == {
+        "bulbul-v3": Decimal(30)
+    }
     assert guard.doc_tts_rates(heading + "| TTS **Bulbul v3** | ₹30 / 10000 chars |\n") == {
-        "premium": Decimal(30)
+        "bulbul-v3": Decimal(30)
     }
 
 

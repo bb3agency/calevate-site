@@ -690,6 +690,14 @@ class Attestation:
     read_by: str
     #: Per-SKU `deprecationDate` from the Models API, when the reader captured it.
     deprecation_date: date | None
+    #: The Azure resource NAME the human attested — the `<resource>` in
+    #: `https://<resource>.openai.azure.com`, i.e. the value of `Settings.azure_openai_resource`
+    #: they confirmed in the portal. Added so an automated gate can refuse a console write of
+    #: `azure_openai_resource` that this attestation does not name (the residency-relevant
+    #: change `platform_config.py` says "no code here can detect"). Optional with a default so
+    #: existing readings that predate the field still parse; `load_attestation` REQUIRES it in
+    #: the JSON, so a newly filed attestation cannot omit it.
+    resource: str | None = None
 
 
 def load_attestation(root: Path) -> Attestation | None:
@@ -705,6 +713,7 @@ def load_attestation(root: Path) -> Attestation | None:
         return None
     raw = json.loads(path.read_text(encoding="utf-8"))
     required = (
+        "resource",
         "resource_location",
         "deployment_model",
         "deployment_type",
@@ -721,6 +730,7 @@ def load_attestation(root: Path) -> Attestation | None:
         )
     deprecation = raw.get("deprecation_date")
     return Attestation(
+        resource=str(raw["resource"]),
         resource_location=str(raw["resource_location"]),
         deployment_model=str(raw["deployment_model"]),
         deployment_type=str(raw["deployment_type"]),

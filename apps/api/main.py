@@ -77,6 +77,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import router as credits_admin_router
+    from apps.api.billing.payment_routes import refund_router
     from apps.api.billing.payment_routes import router as topups_router
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
     from apps.api.billing.routes import client_router as billing_invoice_router
@@ -245,6 +246,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(caps_router)
     application.include_router(topups_router)
     application.include_router(razorpay_router)
+    application.include_router(refund_router)
     # The client's own invoice — the same `build_invoice` the admin route serves, in the
     # realm of the persona BRD §51 says pays it. Literal `/v1/billing/invoice`, declared
     # beside the other two `/v1/billing/*` routers for the same reason they are ordered

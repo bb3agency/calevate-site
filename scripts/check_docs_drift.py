@@ -843,17 +843,25 @@ def emitted_rule_names(roots: Iterable[Path] | None = None) -> set[str]:
 
 
 def _pair_returns(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
-    """First elements of the `(rule, reason)` tuples a blocker predicate returns."""
+    """First elements of the `(rule, reason)` tuples a blocker predicate produces.
+
+    Any function whose return annotation MENTIONS `tuple[str, str]` — `... | None` for a
+    single blocker (`kyc_blocker`), `list[tuple[str, str]]` for the composed ones
+    (`outbound_entity_blockers`, which appends its pairs into a list rather than returning
+    each) — so every 2-element string-first tuple LITERAL in the body is collected, not
+    only the ones that are the direct value of a `return`. Without this the shared entity
+    helper's `tm_registration_missing` would vanish from the emitted set the moment the
+    campaign gate stopped constructing a `LaunchBlocker` for it inline.
+    """
     if function.returns is None or "tuple[str, str]" not in ast.unparse(function.returns):
         return set()
     return {
-        str(node.value.elts[0].value)
+        str(node.elts[0].value)
         for node in ast.walk(function)
-        if isinstance(node, ast.Return)
-        and isinstance(node.value, ast.Tuple)
-        and len(node.value.elts) == 2
-        and isinstance(node.value.elts[0], ast.Constant)
-        and isinstance(node.value.elts[0].value, str)
+        if isinstance(node, ast.Tuple)
+        and len(node.elts) == 2
+        and isinstance(node.elts[0], ast.Constant)
+        and isinstance(node.elts[0].value, str)
     }
 
 
@@ -1009,20 +1017,24 @@ TRD = REPO_ROOT / "docs" / "TRD.md"
 TTS_RATE_HEADING = "### 10.1 Stack cost, computed from published rates"
 
 #: `| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |` — the vendor's own unit.
+#: ONLY v3 matches: the single-tier voice decision withdrew the v2 "value" rung, so a
+#: lingering `Bulbul v2` row in the doc is drift the check should NOT accidentally
+#: reconcile against a code rate that no longer exists.
 _DOC_TTS_10K = re.compile(
-    r"\|[^|\n]*Bulbul\s*\*{0,2}(v[23])\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*10,?000\s*chars",
+    r"\|[^|\n]*Bulbul\s*\*{0,2}(v3)\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*10,?000\s*chars",
     re.IGNORECASE,
 )
 #: `| TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | ... |` — the same rate, per 1,000.
 _DOC_TTS_1K = re.compile(
-    r"\|[^|\n]*Bulbul\s*\*{0,2}(v[23])\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*1,?000\s*chars",
+    r"\|[^|\n]*Bulbul\s*\*{0,2}(v3)\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*1,?000\s*chars",
     re.IGNORECASE,
 )
 
-#: Which code tier each doc row is a claim about. The doc names the VENDOR's product and
-#: the code names OUR rung (D-36: v3 is the default, v2 is the value tier), so the mapping
-#: is stated once here rather than assumed by either side.
-TTS_DOC_ROW_TO_TIER: dict[str, str] = {"v3": "premium", "v2": "value"}
+#: Which code key each doc row is a claim about. There is ONE voice quality (the
+#: single-tier voice decision) — the doc names the VENDOR's product (Bulbul v3) and the
+#: code holds one scalar rate — so the mapping is a single entry, stated once here rather
+#: than assumed by either side.
+TTS_DOC_ROW_TO_TIER: dict[str, str] = {"v3": "bulbul-v3"}
 
 
 def _decimal(text: str) -> Decimal:
@@ -1074,10 +1086,13 @@ def code_tts_rates() -> dict[str, Decimal]:
     rather than the comment beside it: the value the code holds at runtime is the thing a
     tenant's bill is computed from, and a source scan could be satisfied by a literal the
     module never uses.
+
+    ONE ENTRY now — the constant is a single scalar since the single-tier voice decision
+    (it was a `Mapping[TtsTier, Decimal]`), keyed to the one doc row it must agree with.
     """
     from apps.api.billing.rates import TTS_INR_PER_10K_CHARS
 
-    return {str(tier): rate for tier, rate in TTS_INR_PER_10K_CHARS.items()}
+    return {"bulbul-v3": TTS_INR_PER_10K_CHARS}
 
 
 def tts_rate_card_drift(text: str | None = None) -> list[str]:
