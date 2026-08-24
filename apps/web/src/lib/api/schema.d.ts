@@ -1319,6 +1319,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refund a captured payment — provider refund + a compensating ledger entry
+         * @description Issues a refund at the provider and records it as a compensating credit_ledger entry (append-only, negative delta). Idempotent on a derived key so a double click issues one refund. Omit amount_inr for a full refund of the payment's top-up, or send a smaller amount for a partial refund.
+         */
+        post: operations["issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/spend": {
         parameters: {
             query?: never;
@@ -1489,7 +1509,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The voices an agent may speak in (client-readable; D-36's premium/value ladder)
+         * The voices an agent may speak in (client-readable; one Bulbul v3 quality)
          * @description Static data plus one capability read: no DB, no network, no tenant scoping.
          *
          *     Client-realm readable on purpose — a client is legally the Principal Entity and
@@ -2431,6 +2451,26 @@ export interface paths {
         get: operations["my_spend_v1_billing_spend_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/topups/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify the Checkout callback signature (order_id|payment_id, key_secret)
+         * @description After a successful Checkout the browser posts back razorpay_order_id, razorpay_payment_id and razorpay_signature. This verifies the signature on the SERVER with the key_secret — a different scheme and a different secret from the webhook — and rejects a mismatch. It does NOT credit the wallet: the callback carries no amount, so the credit follows from the webhook.
+         */
+        post: operations["confirm_topup_callback_v1_billing_topups_callback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4530,6 +4570,11 @@ export interface components {
             added: number;
             /** Duplicate */
             duplicate: number;
+            /**
+             * Foreign
+             * @default 0
+             */
+            foreign: number;
             /** Malformed */
             malformed: number;
         };
@@ -5556,6 +5601,43 @@ export interface components {
             suppressed: boolean;
             /** Valid */
             valid: boolean;
+        };
+        /**
+         * CheckoutCallbackIn
+         * @description The three fields Razorpay Checkout hands back to the browser on success.
+         *
+         *     Named exactly as the provider names them so the frontend forwards them verbatim; the
+         *     server is where they are verified (never in the browser).
+         */
+        CheckoutCallbackIn: {
+            /** Razorpay Order Id */
+            razorpay_order_id: string;
+            /** Razorpay Payment Id */
+            razorpay_payment_id: string;
+            /** Razorpay Signature */
+            razorpay_signature: string;
+        };
+        /**
+         * CheckoutCallbackOut
+         * @description What the confirmation route tells the browser once the signature verifies.
+         *
+         *     `credit_pending` is TRUE deliberately and always: the callback proves authenticity but
+         *     carries no amount and no tenant, so the wallet credit follows from the webhook. The UI
+         *     should show "payment received, balance updating" rather than asserting a new balance it
+         *     has not been told — the same honesty `provider_order_pending` keeps on the intent.
+         */
+        CheckoutCallbackOut: {
+            /** Credit Pending */
+            credit_pending: boolean;
+            /** Order Id */
+            order_id: string;
+            /** Payment Id */
+            payment_id: string;
+            /**
+             * Verified
+             * @constant
+             */
+            verified: true;
         };
         /** ChunkOut */
         ChunkOut: {
@@ -7513,6 +7595,12 @@ export interface components {
             document_blockers: string[];
             /** Document Type */
             document_type: string;
+            /** Estimated Gst Inr */
+            estimated_gst_inr: string | null;
+            /** Estimated Gst Rate Pct */
+            estimated_gst_rate_pct: string | null;
+            /** Estimated Total Inr */
+            estimated_total_inr: string | null;
             /** Generated At */
             generated_at: string;
             /** Gst Inr */
@@ -7532,6 +7620,8 @@ export interface components {
             supplier: components["schemas"]["InvoiceSupplierOut"];
             /** Tax Components */
             tax_components: components["schemas"]["InvoiceTaxComponentOut"][];
+            /** Tax Note */
+            tax_note: string | null;
             /** Total Inr */
             total_inr: string;
             usage: components["schemas"]["InvoiceUsageOut"];
@@ -9560,6 +9650,37 @@ export interface components {
             /** Until */
             until?: string | null;
         };
+        /**
+         * RefundIn
+         * @description An operator issuing a refund against one captured payment.
+         *
+         *     `amount_inr` is optional: absent means "refund the full top-up recorded for this
+         *     payment", present means a partial refund of that much. A float is refused at the
+         *     boundary, identical to the top-up route — money crosses the wire as a string.
+         */
+        RefundIn: {
+            /** Amount Inr */
+            amount_inr?: number | string | null;
+            /** Payment Id */
+            payment_id: string;
+            /** Reason */
+            reason: string;
+        };
+        /** RefundOut */
+        RefundOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Balance Inr */
+            balance_inr: string | null;
+            /** Payment Id */
+            payment_id: string;
+            /** Processing Days */
+            processing_days: number;
+            /** Recorded */
+            recorded: boolean;
+            /** Refund Id */
+            refund_id: string;
+        };
         /** RegisterTemplateIn */
         RegisterTemplateIn: {
             /** Body */
@@ -11249,7 +11370,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "credited" | "duplicate" | "ignored";
+            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored";
         };
         /** WritePromptIn */
         WritePromptIn: {
@@ -13596,6 +13717,41 @@ export interface operations {
             };
         };
     };
+    issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefundIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefundOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     tenant_spend_v1_admin_tenants__tenant_id__spend_get: {
         parameters: {
             query?: {
@@ -15301,6 +15457,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpendOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    confirm_topup_callback_v1_billing_topups_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutCallbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckoutCallbackOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

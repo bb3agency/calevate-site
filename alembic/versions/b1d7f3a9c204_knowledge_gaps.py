@@ -37,7 +37,11 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b1d7f3a9c204"
-down_revision: str | None = "f4b1e9a2c7d0"
+# Re-parented onto d7f2a9c14e6b (was f4b1e9a2c7d0) to linearize the two heads that the
+# consent-expiry (d7f2a9c14e6b) and knowledge-gaps lanes forked from the same parent.
+# The two are independent (a consent_ledger column vs new insights tables), so order is
+# arbitrary and this keeps a single head with no empty merge node.
+down_revision: str | None = "d7f2a9c14e6b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

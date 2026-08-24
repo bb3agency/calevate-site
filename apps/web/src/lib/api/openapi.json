@@ -31,6 +31,11 @@
             "title": "Duplicate",
             "type": "integer"
           },
+          "foreign": {
+            "default": 0,
+            "title": "Foreign",
+            "type": "integer"
+          },
           "malformed": {
             "title": "Malformed",
             "type": "integer"
@@ -2417,6 +2422,68 @@
           "scope"
         ],
         "title": "CheckOut",
+        "type": "object"
+      },
+      "CheckoutCallbackIn": {
+        "additionalProperties": false,
+        "description": "The three fields Razorpay Checkout hands back to the browser on success.\n\nNamed exactly as the provider names them so the frontend forwards them verbatim; the\nserver is where they are verified (never in the browser).",
+        "properties": {
+          "razorpay_order_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Razorpay Order Id",
+            "type": "string"
+          },
+          "razorpay_payment_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Razorpay Payment Id",
+            "type": "string"
+          },
+          "razorpay_signature": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Razorpay Signature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "razorpay_order_id",
+          "razorpay_payment_id",
+          "razorpay_signature"
+        ],
+        "title": "CheckoutCallbackIn",
+        "type": "object"
+      },
+      "CheckoutCallbackOut": {
+        "additionalProperties": false,
+        "description": "What the confirmation route tells the browser once the signature verifies.\n\n`credit_pending` is TRUE deliberately and always: the callback proves authenticity but\ncarries no amount and no tenant, so the wallet credit follows from the webhook. The UI\nshould show \"payment received, balance updating\" rather than asserting a new balance it\nhas not been told \u2014 the same honesty `provider_order_pending` keeps on the intent.",
+        "properties": {
+          "credit_pending": {
+            "title": "Credit Pending",
+            "type": "boolean"
+          },
+          "order_id": {
+            "title": "Order Id",
+            "type": "string"
+          },
+          "payment_id": {
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "verified": {
+            "const": true,
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "verified",
+          "payment_id",
+          "order_id",
+          "credit_pending"
+        ],
+        "title": "CheckoutCallbackOut",
         "type": "object"
       },
       "ChunkOut": {
@@ -6961,6 +7028,39 @@
             "title": "Document Type",
             "type": "string"
           },
+          "estimated_gst_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Gst Inr"
+          },
+          "estimated_gst_rate_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Gst Rate Pct"
+          },
+          "estimated_total_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Total Inr"
+          },
           "generated_at": {
             "title": "Generated At",
             "type": "string"
@@ -7008,6 +7108,17 @@
             "title": "Tax Components",
             "type": "array"
           },
+          "tax_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Note"
+          },
           "total_inr": {
             "title": "Total Inr",
             "type": "string"
@@ -7031,6 +7142,10 @@
           "gst_inr",
           "tax_components",
           "total_inr",
+          "tax_note",
+          "estimated_gst_rate_pct",
+          "estimated_gst_inr",
+          "estimated_total_inr",
           "usage"
         ],
         "title": "InvoiceOut",
@@ -11821,6 +11936,93 @@
         "title": "RecurrenceSetOut",
         "type": "object"
       },
+      "RefundIn": {
+        "additionalProperties": false,
+        "description": "An operator issuing a refund against one captured payment.\n\n`amount_inr` is optional: absent means \"refund the full top-up recorded for this\npayment\", present means a partial refund of that much. A float is refused at the\nboundary, identical to the top-up route \u2014 money crosses the wire as a string.",
+        "properties": {
+          "amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Inr"
+          },
+          "payment_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 280,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_id",
+          "reason"
+        ],
+        "title": "RefundIn",
+        "type": "object"
+      },
+      "RefundOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "balance_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Balance Inr"
+          },
+          "payment_id": {
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "processing_days": {
+            "title": "Processing Days",
+            "type": "integer"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "refund_id": {
+            "title": "Refund Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refund_id",
+          "payment_id",
+          "amount_inr",
+          "recorded",
+          "balance_inr",
+          "processing_days"
+        ],
+        "title": "RefundOut",
+        "type": "object"
+      },
       "RegisterTemplateIn": {
         "additionalProperties": false,
         "properties": {
@@ -15789,7 +15991,9 @@
           "status": {
             "enum": [
               "credited",
+              "refunded",
               "duplicate",
+              "failed",
               "ignored"
             ],
             "title": "Status",
@@ -19550,6 +19754,57 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/refunds": {
+      "post": {
+        "description": "Issues a refund at the provider and records it as a compensating credit_ledger entry (append-only, negative delta). Idempotent on a derived key so a double click issues one refund. Omit amount_inr for a full refund of the payment's top-up, or send a smaller amount for a partial refund.",
+        "operationId": "issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefundIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Refund a captured payment \u2014 provider refund + a compensating ledger entry",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/spend": {
       "get": {
         "description": "Admin realm only, for the reason `tenant_margin` is: `unit_cost_paid` is our\nsupplier pricing.\n\nRuns the reads inside the client's own `tenant_session` because `usage_events`,\n`calls` and `agents` are RLS'd and stay that way \u2014 `app.admin` opens the client\nDIRECTORY, never their data (migration b57e2f9c4a13). The existence check comes first\nfor the reason it does on the margin card: a mistyped id and a client with no usage\nboth aggregate to zero, and a \u20b90 page about a client that does not exist is worse\nthan a 404.\n\nONE ATTRIBUTION, and the margin is folded out of it \u2014 see `TenantSpendOut` for why a\nsecond `margin_for_tenant` read would let this page's header disagree with its own\nlines. It also removes the whole question of the two reads landing either side of a\nmonth boundary, which is what `month=period.month` used to have to defend against.",
@@ -19982,7 +20237,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The voices an agent may speak in (client-readable; D-36's premium/value ladder)",
+        "summary": "The voices an agent may speak in (client-readable; one Bulbul v3 quality)",
         "tags": [
           "agents"
         ],
@@ -21630,6 +21885,45 @@
           "billing"
         ],
         "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/billing/topups/callback": {
+      "post": {
+        "description": "After a successful Checkout the browser posts back razorpay_order_id, razorpay_payment_id and razorpay_signature. This verifies the signature on the SERVER with the key_secret \u2014 a different scheme and a different secret from the webhook \u2014 and rejects a mismatch. It does NOT credit the wallet: the callback carries no amount, so the credit follows from the webhook.",
+        "operationId": "confirm_topup_callback_v1_billing_topups_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Verify the Checkout callback signature (order_id|payment_id, key_secret)",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/billing/topups/capability": {

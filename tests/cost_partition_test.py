@@ -163,4 +163,3 @@ async def test_the_three_rung_costs_are_a_partition_and_not_three_roundings() ->
     # what largest-remainder buys over "put the whole remainder on the first one".
     assert tiers["cost_premium_inr"] in (Decimal("7.51"), Decimal("7.52"))
     assert tiers["cost_value_inr"] in (Decimal("5.01"), Decimal("5.02"))
-
