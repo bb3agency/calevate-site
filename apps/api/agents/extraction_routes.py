@@ -150,14 +150,17 @@ async def _read_current(
     (an agent created without one — the passthrough case)."""
     if schema_id is None:
         return 0, []
+    # `.one()`, not `.first()` with a None guard: `agents.extraction_schema_id` is a FK
+    # (RESTRICT on delete) and nothing in this tree deletes an `extraction_schemas` row, so a
+    # non-null id ALWAYS resolves. A defensive `if row is None` here would be a branch no
+    # test could reach — the FK forbids the state — so it is not written; a genuinely
+    # impossible miss surfaces loudly rather than as a silently empty schema.
     row = (
         await session.execute(
             text("SELECT version, fields FROM extraction_schemas WHERE id = :sid"),
             {"sid": schema_id},
         )
-    ).first()
-    if row is None:
-        return 0, []
+    ).one()
     return int(row[0]), list(row[1] or [])
 
 

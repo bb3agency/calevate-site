@@ -347,3 +347,40 @@ async def test_an_operator_can_edit_a_named_tenants_agent() -> None:
             )
         ).scalar_one_or_none()
     assert action == "admin.agent_extraction_schema_set"
+
+
+async def test_an_agent_with_no_schema_reads_empty_and_first_save_is_version_one() -> None:
+    # A fresh agent minted without a schema (extraction_schema_id NULL) — the passthrough
+    # state. GET reports version 0 / no variables; the first save becomes version 1.
+    from apps.api.agents import lifecycle
+
+    tenant_id, _seeded, token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        bare_agent = await lifecycle.create_agent(
+            session,
+            tenant_id=tenant_id,
+            name="Bare",
+            direction="inbound",
+            language_primary="te-IN",
+        )
+    app = _app()
+    async with _client(app) as http:
+        got = await http.get(f"/v1/agents/{bare_agent}/extraction-schema", headers=_bearer(token))
+        assert got.status_code == 200
+        assert got.json() == {"fields": [], "version": 0, "changed": False}
+        put = await http.put(
+            f"/v1/agents/{bare_agent}/extraction-schema",
+            json={"fields": _TWO_FIELDS},
+            headers=_bearer(token),
+        )
+        assert put.status_code == 200, put.text
+        assert put.json()["version"] == 1
+        assert put.json()["changed"] is True
+
+
+async def test_get_on_an_unknown_agent_is_404() -> None:
+    _tid, _agent, token = await _tenant()
+    app = _app()
+    async with _client(app) as http:
+        r = await http.get(f"/v1/agents/{uuid.uuid4()}/extraction-schema", headers=_bearer(token))
+    assert r.status_code == 404
