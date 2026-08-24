@@ -92,12 +92,19 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
 
 /**
  * The catalogue as a REAL deployment serves it: one model addressable, the other allow-
- * listed with no Azure deployment behind it.
+ * listed but not runnable here yet.
  *
  * This is not an exotic state — it is the shipped one. The API marks such a row
  * `is_available: false` and refuses selecting it with `llm_model_not_deployed`, because
  * the wire addresses a deployment id and a selection we accepted but could not address
  * would quote a client one model's price for calls another model answered.
+ *
+ * THE REASON IS THE CLIENT SENTENCE, because this is the CLIENT endpoint. The server sends
+ * the client realm the audience-appropriate wording (`agents/llm_models.py::unofferable_
+ * reason(audience="client")`), never the operator ground — a client has no ops console, no
+ * keys and no vendor portal, so "install the provider's key" would tell them to do the
+ * impossible. The operator sees the ground on the admin console; the client sees the one
+ * action they have.
  */
 function withAnUndeployedModel(): OrganizationLlmDefaults {
   const base = defaults();
@@ -109,7 +116,7 @@ function withAnUndeployedModel(): OrganizationLlmDefaults {
             ...option,
             is_available: false,
             unavailable_reason:
-              "no Azure deployment is configured for this model on this platform",
+              "it isn't switched on for your account yet; ask your Calevate team to enable it",
           }
         : option,
     ),
@@ -322,8 +329,11 @@ describe("the account's default model", () => {
     await waitFor(() => expect(radio(/^gpt-4o-mini/).disabled).toBe(false));
     expect(radio(/^gpt-4\.1-mini/).disabled).toBe(true);
     // Shown and explained, never hidden: a missing row tells a reader nothing, and the
-    // reason is the one thing anybody can act on.
-    expect(container.textContent).toContain("no Azure deployment is configured");
+    // reason is the one thing a CLIENT can act on — asking their Calevate team. The
+    // operator ground (a deployment, a key, a price) never reaches this screen.
+    expect(container.textContent).toContain("ask your Calevate team to enable it");
+    expect(container.textContent).not.toContain("deployment");
+    expect(container.textContent).not.toContain("ops console");
     // Priced as well as explained: the row states what it WOULD add to their bill, so a
     // client can see whether the model they cannot have is one they would have wanted.
     expect(container.textContent).toContain("+₹1.5000 / min");
@@ -656,7 +666,10 @@ describe("where one agent's model came from", () => {
     // and it is awaited first because the group is disabled until `/v1/me` lands.
     await waitFor(() => expect(radio(/^Follow my organisation/).disabled).toBe(false));
     expect(radio(/^gpt-4\.1-mini/).disabled).toBe(true);
-    expect(container.textContent).toContain("no Azure deployment is configured");
+    // The client sentence, never the operator ground — same audience rule as the settings
+    // screen: a client has no deployment to create and no key to install.
+    expect(container.textContent).toContain("ask your Calevate team to enable it");
+    expect(container.textContent).not.toContain("deployment");
   });
 
   it("keeps an archived agent's model as a fact, with no control to change it", async () => {

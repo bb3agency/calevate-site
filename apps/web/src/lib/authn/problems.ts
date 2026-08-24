@@ -137,7 +137,7 @@ const SIGN_IN_COPY: Record<string, string> = {
     "Too many attempts. Wait a few minutes before trying again.",
   [AUTHN_CODES.rateLimited]: "Too many requests. Wait a moment and try again.",
   [AUTHN_CODES.disabled]:
-    "Sign-in is switched off on this deployment. Contact whoever operates it.",
+    "Sign-in is switched off. Contact whoever operates this service.",
   [AUTHN_CODES.crossSiteRequest]:
     "This request was blocked because it did not come from a Calevate console. Open the console directly rather than through a link or an embedded frame.",
   [AUTHN_CODES.unauthorized]: "You are signed out. Sign in again to continue.",

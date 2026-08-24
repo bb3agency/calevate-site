@@ -131,18 +131,21 @@ export interface ModelChoice {
    * WHY THIS ROW CANNOT BE PICKED, or `null`/absent when it can — the server's own
    * sentence, printed beside a row that is SHOWN AND DISABLED rather than hidden.
    *
-   * `is_available: false` on a catalogue row means this platform has no Azure deployment
-   * behind that model, so `PUT`/`PATCH` refuse it with `llm_model_not_deployed`: the wire
-   * addresses a deployment id, and a selection we accepted but could not address would
-   * quote the client one model's price for calls another model answered. A picker that
-   * offered such a row would hand the person a 422 for a decision the screen had already
-   * shown them the price of.
+   * `is_available: false` means the platform cannot put that model on the wire, so
+   * `PUT`/`PATCH` refuse it with `llm_model_not_deployed`: a selection we accepted but could
+   * not address would quote the client one model's price for calls another model answered. A
+   * picker that offered such a row would hand the person a 422 for a decision the screen had
+   * already shown them the price of.
    *
-   * Shown-and-disabled rather than filtered out for the reason the API route states: a
-   * missing row tells a reader nothing, and a row that says why tells them the one thing
-   * that can be acted on. This is the same rendering the admin console does by hand
-   * (`app/admin/tenants/[tenantId]/llm-model/page.tsx::ModelOption`); it lives on the
-   * shared control so the client screens cannot be the ones that forget.
+   * THE SENTENCE IS AUDIENCE-APPROPRIATE AND THE SERVER CHOOSES IT BY REALM. This control is
+   * realm-agnostic — it prints whatever the caller passes. The client screens feed it the
+   * server's CLIENT reason ("ask your Calevate team to enable it"); the admin console feeds
+   * the OPERATOR ground (a key, a deployment, a price). Same rendering either way, because
+   * the fork lives in the API (`agents/llm_models.py::unofferable_reason`, keyed on the
+   * realm's `audience`) — not here and not duplicated per screen.
+   *
+   * Shown-and-disabled rather than filtered out: a missing row tells a reader nothing, and a
+   * row that says why tells them the one thing they can act on.
    */
   unavailable?: string | null;
 }

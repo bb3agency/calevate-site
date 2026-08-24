@@ -423,20 +423,31 @@ export function providerLabel(provider: string): string {
  * for every row it marks, so this sentence should only ever be reached by an API build
  * that carries `is_available` and not the reason beside it.
  *
- * **PROVIDER-NEUTRAL, and that is the correction (D-456).** It used to say "this platform
- * has no deployment behind it yet" — an Azure-only sentence, because the only leg that was
- * ever selectable took an Azure deployment. With OpenAI and Google models offerable too, a
- * model is now unavailable for one of two reasons that hold across every provider: no
- * credential is installed for it, or no price has been attested for it (hard rule 7 — an
- * unpriced model cannot be quoted). Worded so it reads the same whichever provider the row
- * belongs to, so a client and the operator on the phone to them see one explanation.
+ * **THE OPERATOR FALLBACK.** Names the actionable ground so the admin console
+ * (`app/admin/tenants/[tenantId]/llm-model/page.tsx`) has something useful even on an API
+ * build that carries `is_available` and not the reason beside it. Provider-neutral (D-456):
+ * a model is unavailable for one of the grounds that hold across every provider — no
+ * credential installed, or no price attested (hard rule 7 — an unpriced model cannot be
+ * quoted). The CLIENT never sees this; the client realm uses `MODEL_UNAVAILABLE_FALLBACK_
+ * CLIENT` below, because the two audiences are deliberately told different things now.
  */
 export const MODEL_UNAVAILABLE_FALLBACK =
   "it is not set up to run here yet — either no provider credential is installed for it, or its price has not been attested — so a call would run a different model.";
 
 /**
+ * THE CLIENT FALLBACK — what a client sees when the server marks a model unavailable and
+ * sends no reason. A client has no ops console, no keys and no vendor portal, so the
+ * operator ground above would tell them to do something impossible. This names the one
+ * action they have. It mirrors the server's `CLIENT_UNAVAILABLE_REASON`
+ * (`apps/api/agents/llm_models.py`); the server's own client-realm reason is the usual
+ * path and this is only reached on an API build that omits it.
+ */
+export const MODEL_UNAVAILABLE_FALLBACK_CLIENT =
+  "it isn't switched on for your account yet; ask your Calevate team to enable it.";
+
+/**
  * Why this option cannot be chosen, or `null` when it can — the ONE reading of
- * `is_available` in the client realm.
+ * `is_available` in the client realm, so it falls back to the CLIENT sentence.
  *
  * `=== false` and never `!option.is_available`, and the distinction is the reason this is
  * a function rather than a ternary at three call sites: an API build predating the field
@@ -445,7 +456,7 @@ export const MODEL_UNAVAILABLE_FALLBACK =
  */
 export function unavailableReason(option: LlmModelOption): string | null {
   if (option.is_available !== false) return null;
-  return option.unavailable_reason ?? MODEL_UNAVAILABLE_FALLBACK;
+  return option.unavailable_reason ?? MODEL_UNAVAILABLE_FALLBACK_CLIENT;
 }
 
 /**

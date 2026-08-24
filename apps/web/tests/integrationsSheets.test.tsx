@@ -258,7 +258,7 @@ describe("registering a Google Sheet", () => {
     // create — a client cannot supply the Google credential — and the screen says so
     // rather than implying the sheet is live.
     await waitFor(() =>
-      expect(container.textContent).toContain("No Google credential is attached yet"),
+      expect(container.textContent).toContain("We haven't connected to Google yet"),
     );
   });
 

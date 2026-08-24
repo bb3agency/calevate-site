@@ -39,6 +39,7 @@ import {
   type DeletionRequestSummary,
   type ErasureProof,
 } from "@/lib/api/dataRights";
+import { lookup } from "@/lib/lookup";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { type Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
@@ -741,11 +742,23 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
       </ul>
 
       <p className="mt-3 text-xs text-ink-muted">
-        Copies held by the calling system:{" "}
-        <MonoValue>{proof.engine_deletion.replace(/_/g, " ")}</MonoValue>.
+        Copies held by the calling system: {engineDeletionCopy(proof.engine_deletion)}.
       </p>
     </div>
   );
+}
+
+// The proof carries an internal status token for the calling system's own copies
+// (e.g. `unconfirmed_pending_vendor_api`). A data principal reading the certificate
+// needs the meaning in plain words, not the token, so map it here and fall back to the
+// honest "not yet confirmed" for any value we have not worded — never the raw code.
+const ENGINE_DELETION_COPY: Record<string, string> = {
+  unconfirmed_pending_vendor_api: "deletion requested, not yet confirmed",
+};
+
+function engineDeletionCopy(status: string): string {
+  if (status === "") return "not recorded";
+  return lookup(ENGINE_DELETION_COPY, status) ?? "not yet confirmed";
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

@@ -132,7 +132,7 @@ async def assert_signup_open() -> None:
             kind="transient",
             code="signup_disabled",
             title="Signup is closed",
-            detail="Self-serve signup is not open on this deployment.",
+            detail="Self-serve signup is not open right now.",
             remediation="Contact us and we will set your account up.",
         )
     status = await get_platform_status()

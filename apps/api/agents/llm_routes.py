@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.llm_models import (
     QUOTED_CALL_MINUTES,
+    LlmReasonAudience,
     available_models,
     resolve_llm_model,
     validate_llm_model,
@@ -168,8 +169,15 @@ class LlmDefaultIn(BaseModel):
 _PLAN_SURCHARGE = plan_in_effect_sql("llm_model_surcharge", at=NOW_SQL)
 
 
-async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
+async def _read_defaults(session: AsyncSession, *, audience: LlmReasonAudience) -> LlmDefaultsOut:
     """The one reader behind both realms' GET.
+
+    `audience` is the ONE thing the two realms genuinely differ on in this reader: the
+    client realm passes `"client"` so an unavailable model's `unavailable_reason` reads as
+    the client's one action ("ask your Calevate team"), and the admin realm passes
+    `"operator"` so it keeps the ground an operator fixes. The allow-list, the prices and the
+    resolution are identical for both, which is the whole reason this stays one reader — only
+    the wording of a blocked row's reason forks, and it forks here rather than in two copies.
 
     RLS does the scoping: `organizations`' policy matches on `id`, so this reads exactly
     the account the session is scoped to and a wrong id is zero rows, not a neighbour's
@@ -220,7 +228,7 @@ async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
                 is_available=option.is_available,
                 unavailable_reason=option.unavailable_reason,
             )
-            for option in available_models()
+            for option in available_models(audience=audience)
         ],
     )
 
@@ -343,7 +351,9 @@ _APPLIES_NOW = (
     description=_DESCRIPTION,
 )
 async def get_organization_llm_defaults(session: Session, _: Reader) -> LlmDefaultsOut:
-    return await _read_defaults(session)
+    # Client realm: a blocked model's reason must be the client's one action, never the
+    # operator ground (a key, a deployment, a price) they cannot touch.
+    return await _read_defaults(session, audience="client")
 
 
 @router.put(
@@ -369,7 +379,9 @@ async def set_organization_llm_default(
     principal: Owner,
 ) -> LlmDefaultsOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    model = validate_llm_model(payload.default_llm_model, field="default_llm_model")
+    model = validate_llm_model(
+        payload.default_llm_model, field="default_llm_model", audience="client"
+    )
     changed = await _write_default(session, tenant_id=principal.tenant_id, model=model)
     await write_audit(
         session,
@@ -391,7 +403,7 @@ async def set_organization_llm_default(
         # reading a run of identical entries needs to know which one moved the phone line.
         summary={"default_llm_model": model, "changed": changed},
     )
-    return await _read_defaults(session)
+    return await _read_defaults(session, audience="client")
 
 
 admin_router = APIRouter(prefix="/v1/admin", tags=["admin"])
@@ -411,7 +423,8 @@ async def admin_get_llm_defaults(org_id: UUID, _: Operator) -> LlmDefaultsOut:
     READ-ONLY by D-22, so a route that inferred the tenant would be un-callable for the
     PUT below and inconsistent with it here."""
     async with tenant_session(org_id) as scoped:
-        return await _read_defaults(scoped)
+        # Admin realm: the operator keeps the actionable ground for each blocked model.
+        return await _read_defaults(scoped, audience="operator")
 
 
 @admin_router.put(
@@ -431,7 +444,9 @@ async def admin_set_llm_default(
     request: Request,
     principal: Operator,
 ) -> LlmDefaultsOut:
-    model = validate_llm_model(payload.default_llm_model, field="default_llm_model")
+    model = validate_llm_model(
+        payload.default_llm_model, field="default_llm_model", audience="operator"
+    )
     async with tenant_session(org_id) as scoped:
         changed = await _write_default(scoped, tenant_id=org_id, model=model)
         # In the SAME transaction as the write (`write_audit` appends in the caller's),
@@ -447,4 +462,4 @@ async def admin_set_llm_default(
             ip=client_request_ip(request),
             summary={"default_llm_model": model, "changed": changed},
         )
-        return await _read_defaults(scoped)
+        return await _read_defaults(scoped, audience="operator")

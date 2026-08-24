@@ -359,7 +359,7 @@ def payments_not_configured(reason: str | None) -> ProblemError:
         kind="dependency",
         code="payments_not_configured",
         title="Online payment is unavailable",
-        detail="This deployment cannot start an online payment.",
+        detail="Your account cannot start an online payment.",
         remediation="Contact us to pay by bank transfer instead.",
     )
 

@@ -165,7 +165,7 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
         kind="dependency",
         code="number_provisioning_not_configured",
         title="Buying a number is unavailable",
-        detail="This deployment cannot buy phone numbers yet.",
+        detail="Your account cannot buy phone numbers yet.",
         remediation="Contact us and we will provision a number for your account.",
     )
 

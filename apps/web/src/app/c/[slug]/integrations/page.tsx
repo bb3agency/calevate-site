@@ -269,8 +269,8 @@ export default function IntegrationsPage() {
                 <span className="ml-auto text-xs text-slate-400">
                   {endpoint.kind === SHEET_KIND
                     ? endpoint.secret_fingerprint
-                      ? "Google credential attached"
-                      : "no Google credential yet — deliveries will fail until we attach one"
+                      ? "Google connection ready"
+                      : "not connected to Google yet — deliveries will fail until we connect it"
                     : `key ···${endpoint.secret_fingerprint ?? "—"}`}
                 </span>
                 {endpoint.active && (
@@ -702,7 +702,7 @@ function SheetsForm({
     <Card title="Send events to a Google Sheet">
       <p className="-mt-2 text-xs text-slate-500">
         We append a row per event. Share the sheet with the Google account we give you —
-        until that credential is attached on our side, deliveries appear as failures below
+        until we connect it on our side, deliveries appear as failures below
         rather than quietly doing nothing.
       </p>
       {create.error && (
@@ -717,8 +717,8 @@ function SheetsForm({
               Writing to sheet <code>{create.data.spreadsheet_id}</code>, tab{" "}
               <strong>{create.data.worksheet}</strong>.{" "}
               {create.data.credential_attached
-                ? "The Google credential is attached, so the next event lands in it."
-                : "No Google credential is attached yet, so deliveries will be recorded as failures until we attach one — that is us, not you."}
+                ? "The Google connection is ready, so the next event lands in it."
+                : "We haven't connected to Google yet, so deliveries will be recorded as failures until we connect it — that is us, not you."}
             </p>
           </NoticeBox>
         </div>
