@@ -45,6 +45,7 @@ its own.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -90,6 +91,7 @@ async def insert_prompt_version(
     notes: str | None,
     created_by: UUID | None,
     compiled_t0_context: str | None = None,
+    structured_script: dict[str, Any] | None = None,
     apply_live: bool,
 ) -> int:
     """INSERT the next version and move the agent's pointer(s) to it. Never an UPDATE
@@ -120,6 +122,14 @@ async def insert_prompt_version(
     supplied a body, not a compiled block, and claiming otherwise would make
     `agents/t0.py` recompile from an artifact nobody built.
 
+    `structured_script` is the authored STRUCTURED form (`CallScript`) this version's
+    `body` was compiled from, stamped at INSERT beside `body` for the same immutability
+    reason (migration c7e2b4f019ad). It stays None for a freeform version — one authored
+    as raw text, whose `body` is the whole of what was written and which the builder
+    reloads via `CallScript.from_freeform`. Serialised to JSON here rather than bound as a
+    dict so this module's single `text()` INSERT stays one statement over `:structured`
+    with an explicit `::jsonb` cast, never a second parameter-binding dialect.
+
     Public because it is the one place a `prompt_versions` row may be born:
     `agents/t0.py`'s recompile mints versions too (FLOWS §7), and a second insert
     statement is a second chance to forget the pointer, the UNIQUE race or the artifact.
@@ -136,9 +146,10 @@ async def insert_prompt_version(
         await session.execute(
             text(
                 "INSERT INTO prompt_versions (id, tenant_id, agent_id, version, body, "
-                "compiled_t0_context, notes, created_by, published_at, created_at, updated_at) "
-                "VALUES (:id, :tid, :aid, :version, :body, :compiled, :notes, :by, now(), "
-                "now(), now())"
+                "compiled_t0_context, structured_script, notes, created_by, published_at, "
+                "created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :version, :body, :compiled, "
+                "CAST(:structured AS jsonb), :notes, :by, now(), now(), now())"
             ),
             {
                 "id": version_id,
@@ -147,6 +158,11 @@ async def insert_prompt_version(
                 "version": version,
                 "body": body,
                 "compiled": compiled_t0_context,
+                # JSON text or NULL — `CAST(... AS jsonb)` accepts both; None round-trips to
+                # a SQL NULL, which is the "authored freeform" sentinel.
+                "structured": (
+                    json.dumps(structured_script) if structured_script is not None else None
+                ),
                 "notes": notes,
                 "by": created_by,
             },
@@ -181,6 +197,7 @@ async def write_prompt_version(
     body: str,
     notes: str | None,
     created_by: UUID | None,
+    structured_script: dict[str, Any] | None = None,
 ) -> int:
     """New immutable version. On a LIVE agent it is STAGED, not published.
 
@@ -189,6 +206,10 @@ async def write_prompt_version(
     edit can never reach a client's callers as a side effect of saving a draft.
     A draft or paused agent has nothing live to protect, so its edits are applied as
     they are written and the first publish sends them.
+
+    `structured_script` is the authored `CallScript` this `body` was compiled from
+    (`agents/script_builder.py`), or None for a freeform (raw) write — stamped at INSERT
+    beside the body so the builder can reload the exact structure the author last saw.
     """
     status, engine_ref = await _agent_state(session, agent_id)
     live = _is_live(status, engine_ref)
@@ -199,6 +220,7 @@ async def write_prompt_version(
         body=body,
         notes=notes,
         created_by=created_by,
+        structured_script=structured_script,
         apply_live=not live,
     )
     # ids and version only — prompt bodies can embed client business detail (rule 6).

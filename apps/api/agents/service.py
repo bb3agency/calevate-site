@@ -79,6 +79,7 @@ from datetime import UTC, datetime
 from typing import NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
+from calevate_shared.call_script import substitute_variables
 from calevate_shared.engine import (
     LLM_MODELS,
     AgentConfig,
@@ -813,7 +814,13 @@ def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:
     )
 
 
-def _call_prompt_for(engine: VoiceEngine, tenant_id: UUID, agent: AgentRow) -> str | None:
+def _call_prompt_for(
+    engine: VoiceEngine,
+    tenant_id: UUID,
+    agent: AgentRow,
+    *,
+    merge_values: dict[str, str | None] | None = None,
+) -> str | None:
     """The prompt this dial must CARRY, or None when the engine already holds it.
 
     THE PRODUCTION WRITER OF `CallContext.system_prompt` (D-282), and the reason the field
@@ -837,7 +844,15 @@ def _call_prompt_for(engine: VoiceEngine, tenant_id: UUID, agent: AgentRow) -> s
     """
     if engine.capabilities.hosts_agents():
         return None
-    return compose_engine_prompt(_to_config(tenant_id, agent))
+    prompt = compose_engine_prompt(_to_config(tenant_id, agent))
+    if merge_values:
+        # DIAL-TIME merge of the structured builder's `{{ }}` fields, applied to the
+        # composed prompt so the platform-rules block underneath is substituted too (it
+        # holds no `{{ }}`, so this is a no-op there, but running it over the whole string
+        # means there is one substitution pass, not one per section). Unresolved fields are
+        # removed, never spoken — `keep_unresolved` defaults False.
+        prompt = substitute_variables(prompt, merge_values)
+    return prompt
 
 
 async def _reclaim_orphan(engine: VoiceEngine, agent_id: UUID, ref: str, reason: str) -> None:
@@ -1755,7 +1770,19 @@ async def dispatch_call(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name,
                 context_note=context_note,
-                system_prompt=_call_prompt_for(engine, tenant_id, agent),
+                # The per-call prompt with `{{ }}` merge fields resolved from THIS lead's
+                # data (structured builder, D-script). Only the values known at dial time
+                # are supplied; an unfilled field collapses to nothing rather than being
+                # spoken as a literal `{{ }}` (see `substitute_variables`). On a
+                # control-plane engine (Bolna) this returns None — the prompt is agent
+                # state and the engine does its own variable substitution — so this merge
+                # only runs on engines that carry the prompt per call.
+                system_prompt=_call_prompt_for(
+                    engine,
+                    tenant_id,
+                    agent,
+                    merge_values={"lead_name": lead_name, "phone": phone_e164},
+                ),
                 from_e164=from_e164,
             ),
         )

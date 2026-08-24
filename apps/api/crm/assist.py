@@ -91,7 +91,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Final
+from typing import Final, Protocol
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionSchemaSpec
@@ -103,7 +103,12 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.workers.extraction import AZURE_PROVIDER, SARVAM_PROVIDER, AssistResult
+from apps.workers.extraction import (
+    AZURE_PROVIDER,
+    SARVAM_PROVIDER,
+    AssistCapability,
+    TokenUsage,
+)
 
 log = get_logger(__name__)
 
@@ -111,6 +116,28 @@ log = get_logger(__name__)
 #: spent this" is a query an operator runs against the ledger and a typo would answer it
 #: with silence rather than with an error.
 ASSIST_FEATURE_RESUMMARISE: Final = "call_resummarise"
+
+#: `usage_events.meta.feature` for the AI script-writing assist (`agents/script_builder`).
+#: A separate feature name so the ledger can tell a re-summarise from a script draft.
+ASSIST_FEATURE_SCRIPT_DRAFT: Final = "script_draft"
+
+
+class MeterableAssist(Protocol):
+    """The two things `meter_assist` needs from a completed assist, whatever the surface.
+
+    `AssistResult` (re-summarise, `workers/extraction`) and `ScriptDraft` (the AI script
+    writer, `workers/script_assist`) both satisfy this structurally, so ONE metering path
+    prices both — the alternative is a second copy of the Azure/Sarvam/unknown-provider
+    money branches below, which is exactly the kind of subtle duplication a ledger cannot
+    afford to have drift. Neither surface's own richer result (an `ExtractionOutput`, a
+    `CallScript`) is metering's business; the tokens and who produced them are.
+    """
+
+    @property
+    def usage(self) -> TokenUsage | None: ...
+
+    @property
+    def capability(self) -> AssistCapability: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,7 +252,7 @@ async def meter_assist(
     *,
     tenant_id: UUID,
     ref: str,
-    result: AssistResult,
+    result: MeterableAssist,
     feature: str = ASSIST_FEATURE_RESUMMARISE,
 ) -> AssistMetering:
     """Turn one `AssistResult` into `usage_events` rows, or say why it did not.
@@ -371,8 +398,10 @@ async def meter_assist(
 
 __all__ = [
     "ASSIST_FEATURE_RESUMMARISE",
+    "ASSIST_FEATURE_SCRIPT_DRAFT",
     "AssistMetering",
     "AssistSource",
+    "MeterableAssist",
     "load_assist_source",
     "meter_assist",
     "transcript_for_model",
