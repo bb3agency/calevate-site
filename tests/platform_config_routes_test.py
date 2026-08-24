@@ -443,7 +443,7 @@ async def test_a_revert_removes_the_row_and_is_audited() -> None:
     body = response.json()
     assert body["previous"] == "7.25"
     assert body["field"]["source"] == "default"
-    assert body["field"]["value"] == "6.00", "back to the code default"
+    assert body["field"]["value"] == "5.00", "back to the code default (D-466 reprice)"
     assert await _row() is None
     assert await _audit_since(since) == [("platform.config_reverted", KEY)]
 

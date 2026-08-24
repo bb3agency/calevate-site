@@ -339,7 +339,15 @@ AREAS: tuple[Area, ...] = (
     Area(
         name="tenancy-session",
         rule="hard rule 1 (tenancy/RLS)",
-        patterns=("apps/api/db/*.py", "apps/api/core/context.py"),
+        patterns=(
+            "apps/api/db/*.py",
+            "apps/api/core/context.py",
+            # `insights/service.py` re-asserts the tenant GUC inside its own SQL
+            # (`current_setting('app.tenant_id')` in the knowledge-gap queries), so it is
+            # a hard-rule-1 surface the derivation flags; guarded here beside the session
+            # factory it leans on rather than in its own budget.
+            "apps/api/insights/service.py",
+        ),
         why=(
             "the session factory is where the tenant GUC is set and where RLS therefore "
             "becomes real; every tenant-scoped query in the product is isolated by these "

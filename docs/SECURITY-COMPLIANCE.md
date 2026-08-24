@@ -255,7 +255,7 @@ lawful rather than merely useful:
 
 - **Retention period**: the tenant's OWN `lead` policy — the same category and clock as
   `call_extractions.data`, because it is the same class of data (see the retention row
-  above; the seed default is 1095 days and is subject to the open question below). The
+  above; the default is 1095 days, reconciled across doc/seed/notice by D-462). The
   nightly sweep deletes the objects and clears the references. This one does NOT depend
   on the bucket lifecycle rule the recording arm relies on: nothing here sits under a
   statutory floor, so the per-tenant mechanism is the whole answer and it exists.
@@ -406,52 +406,33 @@ floor errs towards keeping data, so nothing is destroyed too early; it errs the 
 into §8(7), because retaining personal data on a legal basis that does not exist is itself
 the storage-limitation breach.
 
-**OPEN QUESTION — the retention defaults in this document and the ones in the seed do not
-match, and neither matches the other.** Surfaced by the retention sweep, stated here
-rather than resolved because it is a policy call, not a code fix.
+**RESOLVED (D-462) — the retention defaults in this document, the seed and the published
+notice now state one set of numbers.** Surfaced by the retention sweep as a divergence
+(this section once carried "recording default 180 / transcripts and leads 24 months" while
+`scripts/seed.DEFAULT_RETENTION_POLICIES` shipped 90 / 365 / 1095); reconciled the cheap
+direction, towards what already ran and what was already published.
 
-- §4's retention row above says **transcripts/leads default to 24 months** (730 days), and
-  recordings to a **default of 180** over the 90-day TRAI floor.
-- `scripts/seed.DEFAULT_RETENTION_POLICIES` — the rows a new tenant actually gets, and the
-  rows the nightly sweep obeys — are **transcript 365 days**, **lead 1095 days**,
-  **recording 90 days**, consent_log 2555 days, engine_payload 90 days, kb 365 days.
-- The last two are D-179 and are NOT part of this divergence: this document promised
-  nothing about either store, so there is no figure for them to disagree with. 90 days is
-  the period `infra/object-lifecycle/policy.json` already assigned the `engine-payloads/`
-  prefix, and 365 matches the transcript default because a superseded knowledge version is
-  content of the same class. Both are per-tenant defaults a client may change.
+- §4's retention row above now states the **enforced-and-published defaults**: **recording
+  90 days** (the TRAI floor), **transcript 365 days**, **lead 1095 days**, consent_log
+  2555 days, engine_payload 90 days, kb 365 days — the rows a new tenant gets, the rows the
+  nightly sweep obeys (`apps/workers/retention.py`), and the numbers `/legal/privacy` §9
+  publishes verbatim. The stale spec figures were the only outlier; the notice and the
+  sweep already agreed, so nothing published to a client changed and no DPA amendment was
+  needed.
+- `engine_payload` and `kb` (D-179) were never part of the divergence: this document
+  promised nothing about either store. 90 days is the period
+  `infra/object-lifecycle/policy.json` already assigned the `engine-payloads/` prefix, and
+  365 matches the transcript default because a superseded knowledge version is content of
+  the same class. Both are per-tenant defaults a client may change.
 
-So a transcript is deleted at half the documented age and a lead is kept at one and a half
-times it.
-
-**What this is NOT, because the stronger version of this paragraph stood here and mispriced
-the item.** It said the client-facing DPA quotes this document while `apply_retention` obeys
-the rows, "so today we tell clients one retention period and run another". That is not what
-the published documents do. `/legal/dpa` §8 quotes **no period at all** except the 90-day
-recording floor — it delegates to `/legal/privacy` §9 — and §9 publishes 90 / 365 / 1095,
-which is `scripts/seed.DEFAULT_RETENTION_POLICIES` verbatim, which is what
-`apps/workers/retention.py` enforces. `privacy.ts` says so in its own header rule 1: it
-states the ENFORCED number and records the disagreement with this section as a finding. So
-the notice and the sweep agree with each other, nothing published to a client is false, and
-**this section's table is the only outlier**. Closing it is an internal reconciliation plus
-one table edit here — NOT a DPA amendment, and not a live client-facing misstatement.
-
-That does not make it optional, and it cannot be settled by picking whichever number is in
-front of you: the seed values are a defensible split (a lead is the CRM record the client
-bought and keeps using; a transcript is raw personal data with a shorter useful life),
-and 24 months for both is the figure this document has been carrying since the blueprint
-was written. What is promised in writing is the seed's numbers, via `/legal/privacy` §9 —
-which is precisely why moving TOWARDS this section's table is the expensive direction and
-moving this table towards the seed is the cheap one. That asymmetry is an input to the
-decision, not the decision.
-
-**Who must decide: the founder**, because it is a commitment to clients — and, if the
-answer is the longer periods, a re-publication of `/legal/privacy` §9 (and therefore a
-notice change clients have already been given), not an implementation detail. Whichever
-way it goes, both places change in the same
-release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is recorded as a
-decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
-row already agreed with a client is not silently re-timed by a seed change.
+The seed values are the defensible split D-462 confirmed rather than invented: a lead is
+the CRM record the client bought and keeps using, a transcript is raw personal data with a
+shorter useful life. **What remains reserved to the founder** is only the FINAL per-tenant
+numbers as a DPA commitment to confirm with counsel (playbook §20); it is no longer a
+document-versus-code disagreement. Any future change still moves both places in the same
+release — this section and `DEFAULT_RETENTION_POLICIES` — recorded as a decision-log entry
+(ROADMAP §6), and existing tenants' agreed policy rows are not silently re-timed by a seed
+change.
 
 **DECIDED (D-164) — an erasure does not reach the backups, and a restore un-does one; we
 disclose it.** Surfaced by the backup work (D-50, `infra/backup/`), left open here while

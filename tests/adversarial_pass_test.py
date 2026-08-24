@@ -180,6 +180,16 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "VALUES (:i, :t, '+919000000003', 'all', now())",
                 {},
             ),
+            (
+                "gap_id",
+                "knowledge_gaps",
+                "(id, tenant_id, agent_id, topic_key, topic_label, "
+                " example_question_redacted, example_answer_redacted, top_signal, "
+                " first_seen_at, last_seen_at) "
+                "VALUES (:i, :t, :a, 'pricing', 'Pricing', 'q', 'a', 'dont_know', "
+                " now(), now())",
+                {},
+            ),
         )
         for key, table, clause, extra in rows:
             row_id = uuid.uuid4()
@@ -284,6 +294,12 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("GET", "/v1/compliance/deletion-requests/{request_id}", {}, {}),
     ("GET", "/v1/kb/sources/{source_id}/preview", {}, {}),
+    # The D-46x knowledge-gap surface: two `{gap_id}` mutations in the client space. Both
+    # resolve the gap through `_load_gap`, whose `WHERE g.id = :id` runs under the caller's
+    # RLS scope — so a neighbour's id is invisible and the answer is a row-not-found 404,
+    # not a handler comparison. Swept so that stays true.
+    ("POST", "/v1/knowledge-gaps/{gap_id}/dismiss", {}, {}),
+    ("POST", "/v1/knowledge-gaps/{gap_id}/teach", {"answer": "It is 500 rupees."}, {}),
     (
         "POST",
         "/v1/leads/{lead_id}/call",

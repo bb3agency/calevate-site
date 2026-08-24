@@ -10,10 +10,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import text
 
 from apps.api.admin import service as admin_service
 from apps.api.core.context import Principal
+from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.insights import service
@@ -239,3 +241,47 @@ async def test_teach_without_a_draft_still_records_the_answer() -> None:
             )
         ).scalar()
     assert drafts == 0
+
+
+async def test_list_gaps_filtered_by_one_agent_excludes_the_others() -> None:
+    """The `agent_id` filter on both the page query and the count query — a tenant with
+    two agents asking for one agent's gaps must see only that agent's, and the badge
+    counts must be scoped the same way."""
+    tenant_id, agent_a = await _tenant()
+    # A second agent under the same tenant, gap-bearing so an unfiltered list would mix.
+    async with tenant_session(tenant_id) as session:
+        agent_b = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, created_at, updated_at) "
+                "VALUES (:id, :t, 'Second Agent', 'inbound', 'This is an AI.', "
+                "'This is an AI.', 'This call is recorded.', now(), now())"
+            ),
+            {"id": agent_b, "t": tenant_id},
+        )
+    call_a = await _call(tenant_id, agent_a, datetime.now(UTC))
+    call_b = await _call(tenant_id, agent_b, datetime.now(UTC))
+    await service.record_call_gaps(
+        tenant_id=tenant_id, agent_id=agent_a, call_id=call_a, turns=_pricing_turns()
+    )
+    await service.record_call_gaps(
+        tenant_id=tenant_id, agent_id=agent_b, call_id=call_b, turns=_pricing_turns()
+    )
+    async with tenant_session(tenant_id) as session:
+        only_a = await service.list_gaps(session, agent_id=agent_a)
+    assert only_a.total == 1
+    assert only_a.open_count == 1
+    assert all(g.agent_id == agent_a for g in only_a.items)
+
+
+async def test_dismissing_a_gap_that_names_nothing_is_a_404() -> None:
+    """`_load_gap`'s not-found arm: a gap id that is no tenant's (or another tenant's,
+    which RLS makes indistinguishable) 404s before any write happens."""
+    tenant_id, _agent_id = await _tenant()
+    principal = _client_principal(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as caught:
+            await service.dismiss_gap(session, uuid7(), principal=principal, reason=None)
+    assert caught.value.status == 404
+    assert caught.value.code == "not_found"

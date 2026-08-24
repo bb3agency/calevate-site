@@ -96,6 +96,13 @@ UNQUANTIZED_ON_PURPOSE: dict[str, set[str]] = {
         # let a corrected webhook be swallowed as a replay of the original. Precision
         # here is an idempotency property, not a presentation one.
         "str(payment.amount_inr)",
+        # The refund webhook branch (D-468) fingerprints its redelivery the same way and
+        # for the same reason: a `refund.processed` replay must dedupe, but a corrected
+        # refund amount under the same refund id must NOT be swallowed as one. Same
+        # idempotency property, same `payload_hash`, so the raw amount is deliberate here
+        # too. (The response body one line down quantizes with `to_paise` — this is only
+        # the hash.)
+        "str(refund.amount_inr)",
     },
 }
 

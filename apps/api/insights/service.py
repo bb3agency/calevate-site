@@ -310,14 +310,11 @@ async def _load_gap(session: AsyncSession, gap_id: UUID) -> object:
     ).first()
     if row is None:
         # RLS makes another tenant's gap indistinguishable from a missing one — a 404 is
-        # the honest answer to both and leaks nothing.
-        raise ProblemError(
-            kind="not_found",
-            code="knowledge_gap_not_found",
-            title="No such knowledge gap",
-            detail="This knowledge gap does not exist, or is not yours.",
-            status=404,
-        )
+        # the honest answer to both and leaks nothing. The ONE not-found shape
+        # (`code="not_found"`), like every other tenant-scoped 404 in the client space, so
+        # `adversarial_pass_test`'s IDOR sweep sees the generic row-not-found it asserts on
+        # rather than a per-route code that reads as a handler comparison.
+        raise ProblemError.not_found("Knowledge gap")
     return row
 
 

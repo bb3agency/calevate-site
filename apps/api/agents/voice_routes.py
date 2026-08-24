@@ -301,7 +301,20 @@ async def set_agent_voice(
     `selectable: false` — and this is the backstop that makes the picker's answer
     trustworthy rather than decorative: a screen built from a stale schema, a script, or
     a curl still cannot write a voice the engine will silently ignore.
+
+    TENANT EXISTENCE COMES BEFORE ALL OF IT (D-133). The tenant id here is a uuid an
+    operator copies off a console URL, and an absent one must answer 404 `not_found`
+    rather than any business rule about the voice — a mistyped tenant hitting
+    `unknown_voice` would send an operator hunting for the right catalog id in an account
+    that does not exist. `admin.service.tenant_exists` is the one definition, read here on
+    the cross-tenant admin session before the capability and catalog checks that would
+    otherwise mask it. `tests/absent_tenant_answer_test.py` is the census that pins it.
     """
+    from apps.api.admin import service as admin_service
+
+    if not await admin_service.tenant_exists(session, tenant_id):
+        raise ProblemError.not_found("Client")
+
     capability = voice_selection_capability()
     if not capability.available:
         raise engine_lacks("tts", engine=get_settings().engine)
