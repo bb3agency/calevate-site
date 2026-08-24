@@ -69,9 +69,7 @@ ENDPOINT_CREATED = "integration_endpoint.created"
 ENDPOINT_DISABLED = "integration_endpoint.disabled"
 
 
-def assert_may_opt_into_raw_transcript(
-    payload: CreateEndpointIn, principal: Principal
-) -> None:
+def assert_may_opt_into_raw_transcript(payload: CreateEndpointIn, principal: Principal) -> None:
     """Refuse a raw-transcript opt-in the caller may not make. Raises, or returns.
 
     THE RAW OPT-IN IS GATED THE SAME WAY A RAW READ IS (hard rule 5), and the check is a

@@ -5,6 +5,7 @@ missing from this list silently escapes migrations AND the guardrail, so keep it
 exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 """
 
+from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
@@ -25,6 +26,7 @@ __all__ = [
     "APPEND_ONLY_TABLES",
     "TENANT_TABLES",
     "Base",
+    "actions_models",
     "agents_models",
     "authn_models",
     "billing_models",
@@ -47,6 +49,10 @@ TENANT_TABLES = [
     "memberships",
     "invitations",
     "agents",
+    # ACTIONS feature: a client's saved integration credentials and their agents' in-call
+    # tool definitions. Both carry tenant_id and get the FORCEd tenant_isolation policy.
+    "integration_credentials",
+    "action_tools",
     "campaigns",
     "campaign_contacts",
     "dlt_templates",

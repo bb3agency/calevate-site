@@ -56,6 +56,7 @@ install_error_handlers(app)
 
 def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
+    from apps.api.actions.routes import router as actions_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
     from apps.api.admin.operator_routes import router as operator_router
@@ -201,6 +202,9 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ingest_router)
     application.include_router(lead_sources_router)
     application.include_router(integrations_router)
+    # ACTIONS feature: the engine-called in-call execution endpoint + the client-realm
+    # Actions tab (credentials, tools, test harness, calendar OAuth).
+    application.include_router(actions_router)
     application.include_router(dnc_router)
     # The writer `dnc_list.scope='global'` never had (migration a1c8e40f27b9), and the
     # national preference-scrub record beside it. Both live in the compliance package

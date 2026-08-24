@@ -1,6 +1,34 @@
 {
   "components": {
     "schemas": {
+      "ActionsSettingsOut": {
+        "additionalProperties": false,
+        "description": "The agent's master switch and its tools, for the Actions tab in one read.",
+        "properties": {
+          "api_actions_enabled": {
+            "title": "Api Actions Enabled",
+            "type": "boolean"
+          },
+          "calendar_available": {
+            "title": "Calendar Available",
+            "type": "boolean"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/ToolOut"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "api_actions_enabled",
+          "tools",
+          "calendar_available"
+        ],
+        "title": "ActionsSettingsOut",
+        "type": "object"
+      },
       "AddContactsIn": {
         "additionalProperties": false,
         "properties": {
@@ -1004,6 +1032,95 @@
         "title": "ApplyOut",
         "type": "object"
       },
+      "ApplyScriptIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          }
+        },
+        "title": "ApplyScriptIn",
+        "type": "object"
+      },
+      "ApplyScriptOut": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "live_version": {
+            "title": "Live Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "live_version",
+          "engine_synced"
+        ],
+        "title": "ApplyScriptOut",
+        "type": "object"
+      },
+      "AssistIn": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "title": "AssistIn",
+        "type": "object"
+      },
+      "AssistOut": {
+        "additionalProperties": false,
+        "properties": {
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "metered": {
+            "title": "Metered",
+            "type": "boolean"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script",
+          "disclosure",
+          "metered"
+        ],
+        "title": "AssistOut",
+        "type": "object"
+      },
       "AttentionItemOut": {
         "additionalProperties": false,
         "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose composed by us \u2014 never a vendor\nstring and never transcript text. A blocked lead is named by its captured lead NAME,\nfalling back to its number in full, because \"ring this person\" is the action the row\nexists to prompt (D-436).",
@@ -1194,6 +1311,43 @@
           "address"
         ],
         "title": "Branch",
+        "type": "object"
+      },
+      "CalendarCallbackIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "label": {
+            "default": "Google Calendar",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "CalendarCallbackIn",
+        "type": "object"
+      },
+      "CalendarConnectOut": {
+        "additionalProperties": false,
+        "properties": {
+          "authorize_url": {
+            "title": "Authorize Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorize_url"
+        ],
+        "title": "CalendarConnectOut",
         "type": "object"
       },
       "CallAssistOut": {
@@ -1638,6 +1792,67 @@
           "source"
         ],
         "title": "CallMomentOut",
+        "type": "object"
+      },
+      "CallScript": {
+        "additionalProperties": false,
+        "description": "A whole agent script, structured \u2014 or a raw escape hatch, never both at once.\n\nONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless\nrepresentation of a legacy freeform prompt: when it is set, the compiler returns it\nverbatim and the structured fields are ignored, so nothing an author wrote in raw mode\nis reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see\n`from_freeform`). When it is None, the structured fields compile. A model validator\nforbids the ambiguous middle \u2014 structured content AND a raw override \u2014 because a row\nthat is half one and half the other has no single answer to \"what does this compile\nto\".\n\nThe `opening_line` here is the CLIENT's opener and is distinct from the compliance\nopening: `compose_opening_line` composes the AI-disclosure / recording notices\nseparately from the agent's two toggles, and the adapter speaks THAT first; this line\nfollows it. Keeping them apart is D-163 \u2014 the notices are a regulated obligation with\nits own switches, not something a script author edits as free text.",
+        "properties": {
+          "end_call_extra_rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "End Call Extra Rules",
+            "type": "array"
+          },
+          "faq_fallback": {
+            "default": "\u0c28\u0c3e\u0c15\u0c41 \u0c06 \u0c35\u0c3f\u0c35\u0c30\u0c02 \u0c16\u0c1a\u0c4d\u0c1a\u0c3f\u0c24\u0c02\u0c17\u0c3e \u0c24\u0c46\u0c32\u0c3f\u0c2f\u0c26\u0c41 \u2014 \u0c2e\u0c3e \u0c1f\u0c40\u0c2e\u0c4d \u0c2e\u0c40\u0c15\u0c41 \u0c24\u0c3f\u0c30\u0c3f\u0c17\u0c3f \u0c15\u0c3e\u0c32\u0c4d \u0c1a\u0c47\u0c38\u0c3f \u0c1a\u0c46\u0c2c\u0c41\u0c24\u0c41\u0c02\u0c26\u0c3f.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Faq Fallback",
+            "type": "string"
+          },
+          "faqs": {
+            "items": {
+              "$ref": "#/components/schemas/FaqEntry"
+            },
+            "title": "Faqs",
+            "type": "array"
+          },
+          "opening_line": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Opening Line",
+            "type": "string"
+          },
+          "raw_override": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Override"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptVariable"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "title": "CallScript",
         "type": "object"
       },
       "CallSpendOut": {
@@ -3390,6 +3605,53 @@
         "title": "CreateCampaignOut",
         "type": "object"
       },
+      "CreateCredentialIn": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "aisensy",
+              "meta_cloud",
+              "interakt",
+              "custom_api",
+              "google_calendar"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "non_secret": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Secret"
+          },
+          "secret": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "secret"
+        ],
+        "title": "CreateCredentialIn",
+        "type": "object"
+      },
       "CreateEndpointIn": {
         "additionalProperties": false,
         "properties": {
@@ -3679,6 +3941,64 @@
           "events"
         ],
         "title": "CreateSheetEndpointIn",
+        "type": "object"
+      },
+      "CredentialOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_four": {
+            "title": "Last Four",
+            "type": "string"
+          },
+          "non_secret": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Secret"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "last_four",
+          "version",
+          "non_secret",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CredentialOut",
         "type": "object"
       },
       "CreditPackOut": {
@@ -4628,6 +4948,20 @@
         "title": "DncEntryOut",
         "type": "object"
       },
+      "EnableIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "EnableIn",
+        "type": "object"
+      },
       "EndpointOptionsOut": {
         "additionalProperties": false,
         "description": "What an endpoint may subscribe to, and what this deployment can deliver on.\n\nA DECLARED model rather than the `dict[str, list[str]]` this route used to return.\nAn undeclared response is one `openapi-typescript` can only describe as an index\nsignature, so `events` was not a NAMED field and the console's single read of it was\nthe one read `tsc` could not check \u2014 the same defect, and the same fix, as\n`SubjectExportOut` replacing a free-form dict, and the reason `MetaSetupOut` one\nmodule over says \"declared rather than a bare dict\". It also puts the response back\ninside `scripts/check_redaction_exposure.py`'s walk, which inspects response MODELS:\na route with no model is a route that guardrail cannot inspect at all.\n\n`events` stays `list[str]` rather than `list[EventName]`, and that is deliberate.\n`EventName` is what THIS BUILD can put in a request body; `EVENT_TYPES` is what the\nRUNNING deployment offers. A console generated from an older snapshot has to be able\nto see a name outside its own union in order to SAY SO, rather than render a checkbox\nwhose only possible outcome is a 422 \u2014 narrowing this to the literal would make that\ngap unrepresentable, and would turn a deployment that adds an event into a 500 out of\nresponse validation.",
@@ -5536,6 +5870,30 @@
           "answer"
         ],
         "title": "Faq",
+        "type": "object"
+      },
+      "FaqEntry": {
+        "additionalProperties": false,
+        "description": "One question/answer pair the agent may answer from directly.\n\nThe FAQ is fenced \u2014 the compiler tells the model to answer ONLY from these answers and\nto use the don't-know response otherwise \u2014 so an entry is a fact the client has\nauthorised the agent to state, which is exactly the truth-boundary PROMPT-GUIDE \u00a71.2\ndraws. Both sides support `{{ variables }}`.",
+        "properties": {
+          "answer": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "FaqEntry",
         "type": "object"
       },
       "FeatureFlagChangeOut": {
@@ -9394,6 +9752,20 @@
         "title": "MarginOut",
         "type": "object"
       },
+      "MasterSwitchIn": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "MasterSwitchIn",
+        "type": "object"
+      },
       "MeOut": {
         "additionalProperties": false,
         "properties": {
@@ -10377,6 +10749,75 @@
         "title": "OtpRequestIn",
         "type": "object"
       },
+      "ParamIn": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "lead_var": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Var"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "default": false,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "source": {
+            "enum": [
+              "static",
+              "lead_var",
+              "ai"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "type": {
+            "default": "string",
+            "enum": [
+              "string",
+              "integer",
+              "number",
+              "boolean"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "source"
+        ],
+        "title": "ParamIn",
+        "type": "object"
+      },
       "PaymentOut": {
         "additionalProperties": false,
         "description": "One bank transfer, as the wallet holds it \u2014 the reconciliation view.\n\nPublished because a correction that had to be spread over two ledger rows must still\nread as ONE payment to the person holding a bank statement. They compare\n`credited_inr` against the statement line; `entries` tells them how many rows it took\nto get there, which is the only place a restatement is visible as such.",
@@ -11167,6 +11608,33 @@
           "is_current"
         ],
         "title": "PreferenceScrubOut",
+        "type": "object"
+      },
+      "PreviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "title": "PreviewIn",
+        "type": "object"
+      },
+      "PreviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "compiled": {
+            "title": "Compiled",
+            "type": "string"
+          }
+        },
+        "required": [
+          "compiled"
+        ],
+        "title": "PreviewOut",
         "type": "object"
       },
       "ProgressOut": {
@@ -12466,6 +12934,28 @@
         "title": "RollbackOut",
         "type": "object"
       },
+      "RotateCredentialIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "secret": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret",
+          "expected_version"
+        ],
+        "title": "RotateCredentialIn",
+        "type": "object"
+      },
       "RotateSecretIn": {
         "additionalProperties": false,
         "properties": {
@@ -12536,6 +13026,50 @@
           "previous_secret_expires_at"
         ],
         "title": "RotateSecretOut",
+        "type": "object"
+      },
+      "SaveScriptIn": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "title": "SaveScriptIn",
+        "type": "object"
+      },
+      "SaveScriptOut": {
+        "additionalProperties": false,
+        "properties": {
+          "staged": {
+            "title": "Staged",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "staged"
+        ],
+        "title": "SaveScriptOut",
         "type": "object"
       },
       "SavedViewFilters": {
@@ -12847,6 +13381,97 @@
           "first_dial_not_before"
         ],
         "title": "ScheduleOut",
+        "type": "object"
+      },
+      "ScriptOut": {
+        "additionalProperties": false,
+        "description": "The draft script the builder edits, plus where it stands and the free merge fields.",
+        "properties": {
+          "has_pending": {
+            "title": "Has Pending",
+            "type": "boolean"
+          },
+          "is_freeform": {
+            "title": "Is Freeform",
+            "type": "boolean"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          },
+          "standard_variables": {
+            "items": {
+              "$ref": "#/components/schemas/VariableSuggestion"
+            },
+            "title": "Standard Variables",
+            "type": "array"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "script",
+          "version",
+          "is_freeform",
+          "has_pending",
+          "standard_variables"
+        ],
+        "title": "ScriptOut",
+        "type": "object"
+      },
+      "ScriptStep": {
+        "additionalProperties": false,
+        "description": "One ordered instruction in the task flow \u2014 a natural-language sentence, not code.\n\nPROMPT-GUIDE \u00a72/\u00a74 are explicit that a task flow is a LOOSE outline of hints, not a\nrigid line-by-line script (\"rigid scripts sound robotic and break on interruptions\"),\nso a step is prose the model follows in spirit, and reordering steps reorders the\noutline. Supports `{{ variables }}` like every other authored field.",
+        "properties": {
+          "instruction": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "title": "ScriptStep",
+        "type": "object"
+      },
+      "ScriptVariable": {
+        "additionalProperties": false,
+        "description": "One `{{ }}` merge field the author has declared, with the label the UI shows.\n\n`key` is what appears in the script text; `label` is the human name in the insert\nmenu; `example` is an optional sample value the preview can substitute so an author\nsees a realistic sentence rather than `{{ }}`. Declaring a variable does not make it\nresolve at dial time \u2014 that depends on the lead/extraction data \u2014 it only makes it\nofferable in the editor and documentable in the preview.",
+        "properties": {
+          "example": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Example",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "ScriptVariable",
         "type": "object"
       },
       "SecondFactorIn": {
@@ -15047,6 +15672,44 @@
         "title": "TenantSummary",
         "type": "object"
       },
+      "TestActionIn": {
+        "additionalProperties": false,
+        "description": "Sample values for the AI/lead-var params, to run the action before saving it live.",
+        "properties": {
+          "values": {
+            "additionalProperties": true,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "title": "TestActionIn",
+        "type": "object"
+      },
+      "TestActionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "status",
+          "payload"
+        ],
+        "title": "TestActionOut",
+        "type": "object"
+      },
       "TestWebhookIn": {
         "additionalProperties": false,
         "properties": {
@@ -15210,6 +15873,194 @@
           "is_live"
         ],
         "title": "TmRegistrationOut",
+        "type": "object"
+      },
+      "ToolIn": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          },
+          "description": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "custom_api",
+              "whatsapp",
+              "calendar"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamIn"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "pre_call_message": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pre Call Message"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "trigger": {
+            "default": "during_call",
+            "enum": [
+              "during_call",
+              "after_call"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "description",
+          "config"
+        ],
+        "title": "ToolIn",
+        "type": "object"
+      },
+      "ToolOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "credential_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "pre_call_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pre Call Message"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "kind",
+          "provider",
+          "name",
+          "description",
+          "enabled",
+          "trigger",
+          "pre_call_message",
+          "credential_id",
+          "params",
+          "config"
+        ],
+        "title": "ToolOut",
         "type": "object"
       },
       "TopUpCapabilityOut": {
@@ -15554,6 +16405,44 @@
         "title": "UndoOut",
         "type": "object"
       },
+      "UndoScriptOut": {
+        "additionalProperties": false,
+        "properties": {
+          "discarded_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discarded Version"
+          },
+          "live_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Version"
+          },
+          "undone": {
+            "title": "Undone",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "undone",
+          "discarded_version",
+          "live_version"
+        ],
+        "title": "UndoScriptOut",
+        "type": "object"
+      },
       "UnfinishedOnboardingOut": {
         "additionalProperties": false,
         "description": "One account the wizard can be resumed on \u2014 the account, never anyone at it.",
@@ -15801,6 +16690,25 @@
           "credit_balance_inr"
         ],
         "title": "UsagePanelOut",
+        "type": "object"
+      },
+      "VariableSuggestion": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "VariableSuggestion",
         "type": "object"
       },
       "VariantOut": {
@@ -16706,6 +17614,125 @@
         "summary": "Payment-captured callback \u2192 one credit_ledger entry, idempotent on the payment id",
         "tags": [
           "billing-webhooks"
+        ]
+      }
+    },
+    "/v1/actions/calendar/callback": {
+      "post": {
+        "description": "Exchange the authorization code and save the refresh token as a `google_calendar`\ncredential. Bound to the authenticated `org:manage` tenant, so a code cannot be\nredeemed onto another tenant's account.",
+        "operationId": "calendar_callback_v1_actions_calendar_callback_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarCallbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Complete Google Calendar OAuth \u2014 stores the refresh token as a credential",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/actions/calendar/connect": {
+      "get": {
+        "description": "Start the OAuth flow. `state` carries the tenant so the callback can attribute the\nrefresh token; it is signed context, not a bearer \u2014 the callback re-checks it.\n\n\u26a0 The state here is the tenant id; a production hardening is to sign it (HMAC) to stop a\nforged callback attaching a token to another tenant. Left as a NAMED follow-up because\nthe callback also requires an authenticated `org:manage` session, which already binds\nthe acting tenant \u2014 see `calendar_callback`.",
+        "operationId": "calendar_connect_v1_actions_calendar_connect_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarConnectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Begin Google Calendar OAuth \u2014 returns the consent URL",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/actions/invoke/{engine}/{tool_id}": {
+      "post": {
+        "description": "Bolna calls this for a during-call tool. Verifies the source, resolves the tenant\nfrom the injected agent ref, loads the tool under that tenant's RLS, and executes.\n\nThe response body IS the tool result the LLM reads back. Failures are returned as a\nstructured payload (not a 5xx) so the agent can relay them to the caller rather than the\ncall hearing dead air.",
+        "operationId": "invoke_action_v1_actions_invoke__engine___tool_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "title": "Engine",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tool_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tool Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Invoke Action V1 Actions Invoke  Engine   Tool Id  Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Engine-called: run one in-call action and return its result to the LLM",
+        "tags": [
+          "actions"
         ]
       }
     },
@@ -20489,6 +21516,366 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/actions": {
+      "get": {
+        "operationId": "list_agent_actions_v1_agents__agent_id__actions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionsSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The Actions tab: master switch + configured tools",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "operationId": "create_action_v1_agents__agent_id__actions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add an in-call action to an agent",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/actions/enabled": {
+      "put": {
+        "operationId": "set_master_switch_v1_agents__agent_id__actions_enabled_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterSwitchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionsSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The master 'Enable API actions' switch \u2014 applies to live calls at next publish",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/actions/{tool_id}": {
+      "delete": {
+        "operationId": "delete_action_v1_agents__agent_id__actions__tool_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tool_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tool Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove an in-call action",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      },
+      "put": {
+        "operationId": "update_action_v1_agents__agent_id__actions__tool_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tool_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tool Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Edit an in-call action",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/actions/{tool_id}/enabled": {
+      "put": {
+        "operationId": "set_action_enabled_v1_agents__agent_id__actions__tool_id__enabled_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tool_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tool Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnableIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Enable or disable one action",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/actions/{tool_id}/test": {
+      "post": {
+        "description": "The 'Test API' tab. Executes the real external call with the operator's sample\nvalues so a misconfiguration is caught before a caller ever triggers it. Audited as a\ntest invocation (`source=\"test\"`) so a live WhatsApp send in testing is still on file.",
+        "operationId": "test_action_v1_agents__agent_id__actions__tool_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "tool_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tool Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestActionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestActionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Run an action with sample values before it goes live (no audit as in-call)",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/activate": {
       "post": {
         "description": "Publishes the agent to the voice platform and reads it back to confirm the platform is running this script, this opening line and the answer it must give when a caller asks whether they are talking to an AI. Only then is it recorded as active; a platform that did not take the change is a refusal, not a warning.\n\nRefused with `agent_has_no_script` if nothing has been written for it yet, and with `agent_archived` if it has been retired. An agent that is already active is a success that publishes nothing.",
@@ -20911,6 +22298,285 @@
           }
         },
         "summary": "Bring an agent back out of the archive (archived -> inactive)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script": {
+      "get": {
+        "operationId": "get_script_v1_agents__agent_id__script_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Load the agent's draft script for the structured builder",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "put": {
+        "operationId": "save_script_v1_agents__agent_id__script_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveScriptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveScriptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the structured script as a new version (staged on a live agent)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/apply": {
+      "post": {
+        "operationId": "apply_script_v1_agents__agent_id__script_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyScriptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyScriptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Apply the staged script to live calls",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/assist": {
+      "post": {
+        "description": "AI writing assist. SUBJECT \u2192 GATE \u2192 RUN \u2192 METER, the crm/routes.assist_call order.\n\nThe SUBJECT is the client's own business description (tenant-authored config, not\ntranscript PII), so there is no transcript to load or redact \u2014 the subject is the\nrequest body, present before the gate. The GATE (`require_ai_assist`) RAISES at the\nceiling before a token is spent; the RUN drafts through the controlled worker path; the\nMETER records the Azure cost (or nothing, for the free Sarvam fallback) in its own\ntransaction. Nothing is persisted to the agent \u2014 a draft is returned for the author to\nedit and then save through `PUT` above.",
+        "operationId": "assist_script_v1_agents__agent_id__script_assist_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Draft a script from a plain-language business description (AI writing assist)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/preview": {
+      "post": {
+        "operationId": "preview_script_v1_agents__agent_id__script_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Compile a (possibly unsaved) script into the exact engine prompt",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/script/undo": {
+      "post": {
+        "operationId": "undo_script_v1_agents__agent_id__script_undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoScriptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Discard the staged script; the draft returns to what callers hear",
         "tags": [
           "agents"
         ],
@@ -23681,6 +25347,157 @@
           "compliance"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/integrations/credentials": {
+      "get": {
+        "operationId": "list_credentials_v1_integrations_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CredentialOut"
+                  },
+                  "title": "Response List Credentials V1 Integrations Credentials Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Saved integration credentials \u2014 fingerprints only, never the secret",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "operationId": "create_credential_v1_integrations_credentials_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCredentialIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save a reusable integration credential (envelope-encrypted)",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/credentials/{credential_id}": {
+      "delete": {
+        "operationId": "delete_credential_v1_integrations_credentials__credential_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Delete a saved credential (tools using it become visibly broken)",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/integrations/credentials/{credential_id}/rotate": {
+      "post": {
+        "operationId": "rotate_credential_v1_integrations_credentials__credential_id__rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateCredentialIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rotate a credential in place \u2014 every tool using it picks up the new value",
+        "tags": [
+          "actions"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/integrations/deliveries": {

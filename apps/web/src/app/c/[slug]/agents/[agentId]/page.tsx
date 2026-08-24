@@ -11,6 +11,7 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { KnowledgeGaps } from "../../KnowledgeGaps";
+import { Actions } from "../Actions";
 import { liveState } from "../AgentBadge";
 import { AgentIdentity } from "../AgentIdentity";
 import { AgentLifecycle } from "../AgentLifecycle";
@@ -104,6 +105,7 @@ export default function AgentDetailPage({
  */
 function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
+  const session = useClientSession();
   const live = liveState(agent);
   // Read through `lookup` (src/lib/lookup.ts) rather than indexed directly. This used to
   // say the API had narrowed `AgentOut.status` nowhere; it does now (a four-member union
@@ -194,6 +196,10 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
       {/* The same urgent surface as the dashboard home, scoped to THIS agent — the
           questions it could not answer on real calls, teachable in place. */}
       <KnowledgeGaps agentId={agent.id} />
+
+      <Card title="What it can do during a call">
+        <Actions agentId={agent.id} session={session} />
+      </Card>
 
       <TrainingPanel agent={agent} />
     </div>

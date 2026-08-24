@@ -215,6 +215,10 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1/pending": settled(),
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": LLM_DEFAULTS,
+    // The Actions tab's reads, so the panel renders rather than raising its own alert —
+    // these tests are about the pending/voice surface, not actions.
+    "/v1/agents/agent-1/actions": { api_actions_enabled: false, calendar_available: false, tools: [] },
+    "/v1/integrations/credentials": [],
     ...over,
   };
 }

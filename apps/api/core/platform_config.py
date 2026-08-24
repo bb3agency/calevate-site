@@ -570,6 +570,19 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "meta_page_access_tokens": AppliesRule(LIVE),
     "razorpay_webhook_secret": AppliesRule(LIVE),
     "razorpay_key_secret": AppliesRule(LIVE),
+    # Google OAuth client for Calendar actions. Read inline by `actions/calendar.py` on
+    # each token exchange (no cached client), so a rotation is live on the next connect or
+    # refresh.
+    # The base URL Bolna calls for in-call actions. Read at publish (baked into each tool's
+    # engine declaration), so a change applies on the next agent publish.
+    "actions_callback_base_url": AppliesRule(
+        NEEDS_REPUBLISH,
+        "already-published agents keep the old URL in their engine tool config until they "
+        "are republished.",
+    ),
+    "google_oauth_client_id": AppliesRule(LIVE),
+    "google_oauth_client_secret": AppliesRule(LIVE),
+    "google_oauth_redirect_uri": AppliesRule(LIVE),
 }
 
 #: The classification a field with no entry gets. Fail-safe by construction.
