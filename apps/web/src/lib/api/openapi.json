@@ -5874,6 +5874,48 @@
         "title": "FleetTenantOut",
         "type": "object"
       },
+      "GapDismissIn": {
+        "additionalProperties": false,
+        "description": "Dismiss a gap. An optional note the client leaves for their own audit trail.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "GapDismissIn",
+        "type": "object"
+      },
+      "GapTeachIn": {
+        "additionalProperties": false,
+        "description": "Teach the answer to a gap. `answer` is the fact the agent was missing; when\n`create_kb_draft` is set the service seeds a KB draft from it (see `service.teach_gap`).",
+        "properties": {
+          "answer": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "create_kb_draft": {
+            "default": true,
+            "title": "Create Kb Draft",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "answer"
+        ],
+        "title": "GapTeachIn",
+        "type": "object"
+      },
       "GlobalEntryOut": {
         "additionalProperties": false,
         "properties": {
@@ -7275,6 +7317,176 @@
           "pending"
         ],
         "title": "KekOut",
+        "type": "object"
+      },
+      "KnowledgeGapListOut": {
+        "additionalProperties": false,
+        "description": "The urgent surface. `open_count` is what the nav badge and \"N things need\nattention\" sentence read; `items` is the page, open gaps first (see\n`service.list_gaps` for the ordering).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeGapOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "open_count": {
+            "title": "Open Count",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "open_count",
+          "total"
+        ],
+        "title": "KnowledgeGapListOut",
+        "type": "object"
+      },
+      "KnowledgeGapOut": {
+        "additionalProperties": false,
+        "description": "One rolled-up gap for the card. `occurrence_count`/`call_count` are the \"Nx on M\ncalls\"; `signal` drives the \"DIDN'T KNOW THIS\"-style badge wording.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "call_count": {
+            "title": "Call Count",
+            "type": "integer"
+          },
+          "example_answer": {
+            "title": "Example Answer",
+            "type": "string"
+          },
+          "example_question": {
+            "title": "Example Question",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kb_source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kb Source Id"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "occurrence_count": {
+            "title": "Occurrence Count",
+            "type": "integer"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By"
+          },
+          "signal": {
+            "enum": [
+              "dont_know",
+              "deferred_channel",
+              "unanswered_question"
+            ],
+            "title": "Signal",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "taught",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "topic_key": {
+            "title": "Topic Key",
+            "type": "string"
+          },
+          "topic_label": {
+            "title": "Topic Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "topic_key",
+          "topic_label",
+          "status",
+          "signal",
+          "occurrence_count",
+          "call_count",
+          "example_question",
+          "example_answer",
+          "first_seen_at",
+          "last_seen_at"
+        ],
+        "title": "KnowledgeGapOut",
         "type": "object"
       },
       "KycRecordIn": {
@@ -23528,6 +23740,195 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/knowledge-gaps": {
+      "get": {
+        "operationId": "list_knowledge_gaps_v1_knowledge_gaps_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "description": "open (default, the urgent set) \u00b7 taught \u00b7 dismissed \u00b7 all",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "open",
+              "description": "open (default, the urgent set) \u00b7 taught \u00b7 dismissed \u00b7 all",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGapListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Questions the agents could not answer \u2014 urgent first, across all agents",
+        "tags": [
+          "insights"
+        ],
+        "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/knowledge-gaps/{gap_id}/dismiss": {
+      "post": {
+        "operationId": "dismiss_knowledge_gap_v1_knowledge_gaps__gap_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Gap Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapDismissIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGapOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Dismiss a knowledge gap \u2014 it leaves the urgent list, occurrences stay",
+        "tags": [
+          "insights"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/knowledge-gaps/{gap_id}/teach": {
+      "post": {
+        "operationId": "teach_knowledge_gap_v1_knowledge_gaps__gap_id__teach_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "gap_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Gap Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapTeachIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeGapOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Teach the missing answer \u2014 records it and seeds a KB draft for review",
+        "tags": [
+          "insights"
+        ],
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/lead-sources": {

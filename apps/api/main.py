@@ -112,6 +112,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
+    from apps.api.insights.routes import router as knowledge_gaps_router
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.ops.config_routes import router as ops_config_router
@@ -187,6 +188,10 @@ def _mount_routers(application: FastAPI) -> None:
     # in the campaigns package because that module owns `phone_numbers`.
     application.include_router(numbers_router)
     application.include_router(crm_router)
+    # Knowledge gaps — the urgent "what the agents couldn't answer" surface. Its own
+    # literal `/v1/knowledge-gaps` prefix collides with nothing above, so mount order is
+    # not load-bearing here.
+    application.include_router(knowledge_gaps_router)
     application.include_router(kb_router)
     application.include_router(ingest_router)
     application.include_router(lead_sources_router)

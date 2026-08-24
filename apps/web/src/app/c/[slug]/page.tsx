@@ -29,6 +29,8 @@ import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { KnowledgeGaps } from "./KnowledgeGaps";
+
 /**
  * The client's home screen.
  *
@@ -127,6 +129,12 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
           hint="Interested and not yet won or lost"
         />
       </div>
+
+      {/* URGENT insights, above the fold: an unanswered question recurs on every future
+          call, so it sits at the top across ALL the org's agents rather than only on a
+          per-agent page. The card renders its own empty state, so it is always mounted —
+          nothing here decides whether there is anything to show. */}
+      <KnowledgeGaps />
 
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
