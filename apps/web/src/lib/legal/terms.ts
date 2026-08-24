@@ -58,6 +58,19 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "govern everything else. Where the Data Processing Addendum conflicts with " +
             "these terms on the handling of personal data, the Addendum governs.",
         },
+        {
+          kind: "callout",
+          tone: "warning",
+          title: "This service is offered in India only",
+          text:
+            "Calevate is offered to businesses established in India, for calls to " +
+            "recipients in India. By using the service you confirm that you are " +
+            "established in India and that you will not use it to place calls to numbers " +
+            "outside India. We do not currently offer outbound calling to destinations " +
+            "outside India and the product refuses to dial a non-Indian number. If your " +
+            "needs are outside India, this is not the service for you — tell us and we " +
+            "will not open the account.",
+        },
       ],
     },
     {

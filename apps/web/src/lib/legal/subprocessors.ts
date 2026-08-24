@@ -1,12 +1,36 @@
 import type { LegalDocument } from "./types";
 
 /**
- * The named sub-processor register, and the one place the list exists.
+ * One register row, defined once so the rendered table and the exported name inventory
+ * cannot disagree.
+ *
+ * `names` is the canonical IDENTITY of the vendor — the brand a counterparty knows it by
+ * and the token that must never be restated in the DPA's Annex C — kept separate from
+ * `vendor`, the Vendor cell as it renders (which may add the product it sells us, e.g.
+ * "Microsoft — Azure OpenAI", or describe a slot for which no vendor is chosen yet). A row
+ * that bundles interchangeable vendors names each; a row for a not-yet-chosen vendor has
+ * no brand identity and names none. `SUBPROCESSOR_NAMES` is derived from this field, so a
+ * vendor added to or removed from the register cannot fail to change the inventory the
+ * tests read.
+ */
+interface RegisterRow {
+  readonly names: readonly string[];
+  readonly vendor: string;
+  readonly does: string;
+  readonly receives: string;
+  readonly location: string;
+  readonly status: string;
+}
+
+/**
+ * The register rows, and the one place the vendor list exists.
  *
  * The DPA's Annex C does not restate it — it links here. Two copies of a sub-processor
- * list is exactly the drift that makes the DPA's change-notification clause unkeepable.
+ * list is exactly the drift that makes the DPA's change-notification clause unkeepable,
+ * and it is the mechanism that once let a removed vendor (Clerk) and a replaced one
+ * (Vertex → Microsoft/Azure) linger in client-facing copy after they left the register.
  *
- * ## The `Status` column is load-bearing and is not decoration
+ * ## The `status` column is load-bearing and is not decoration
  *
  * Nothing in this system is deployed to production yet. A register that listed fourteen
  * vendors with no standing would tell a reader that fourteen companies hold their
@@ -17,6 +41,278 @@ import type { LegalDocument } from "./types";
  * contingency nobody has selected. Every state traces to a config field or an adapter in
  * the tree, cited in `docs/LEGAL-SURFACE.md`.
  */
+export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
+  {
+    names: ["Bolna"],
+    vendor: "Bolna",
+    does:
+      "Voice platform: runs the live call, connects the speech and language models, " +
+      "and returns the transcript and call record.",
+    receives:
+      "Caller phone number, live call audio, full transcript, call metadata, and the " +
+      "agent configuration we send it.",
+    location:
+      "United States. Their documentation states that all of their services run on " +
+      "US infrastructure unless an enterprise data-residency option is purchased, " +
+      "which we have not purchased. Read the note below before relying on this " +
+      "row either way — it is the most important caution on this page.",
+    status:
+      "Core (primary engine). The verification pilot has not yet been run, and the " +
+      "shipped default engine is a local stub.",
+  },
+  {
+    names: ["Sarvam"],
+    vendor: "Sarvam AI",
+    does:
+      "Speech recognition and voice synthesis during the call, the first pass " +
+      "that extracts fields from the transcript, and the standby for the " +
+      "dashboard assistant if the primary model is unavailable.",
+    receives:
+      "Call audio and the raw, unredacted transcript. This is the one path that " +
+      "must see raw text: a callback-number field needs the actual digits.",
+    location: "India.",
+    status:
+      "Core. It no longer supplies the language model that holds the " +
+      "conversation — that is the next row.",
+  },
+  {
+    names: ["Microsoft"],
+    vendor: "Microsoft — Azure OpenAI",
+    does:
+      "Both language-model legs when the client runs an Azure model: the model " +
+      "that holds the conversation during a call, and the dashboard assistant " +
+      "a client triggers from their own screen. A client may instead choose a " +
+      "model from another provider (see the OpenAI and Google — Gemini API " +
+      "rows), and then that provider handles the language leg in this vendor's " +
+      "place. So the choice is a choice of provider and place, not only of " +
+      "which model answers — the single-vendor claim this row used to make is " +
+      "withdrawn (section 3.3).",
+    receives:
+      "On the call leg, the conversation as it happens — everything the caller " +
+      "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
+      "transcript and the client's own configuration, never raw personal data. " +
+      "The two legs see very different things and are listed separately for " +
+      "that reason.",
+    location:
+      "United States — East US 2, by configuration. This cell has moved twice " +
+      "and both steps are kept rather than overwritten: until 19 August 2026 " +
+      "the language model ran on Google Cloud's Vertex AI in the asia-south1 " +
+      "region (Mumbai, India); from 19 August 2026 on this vendor's South " +
+      "India region; and since 22 August 2026 on this vendor's East US 2 " +
+      "region, in the United States. Read the caution below before relying " +
+      "on this: the endpoint does not name its own region, so this is a " +
+      "setting we make and check by hand rather than one a build can prove.",
+    status:
+      "Core. Until 19 August 2026 this row named Google Cloud's Vertex AI for the " +
+      "dashboard leg only; both legs moved to Microsoft on that date, and the " +
+      "in-call leg — which hears the caller — is new to this vendor. On " +
+      "22 August 2026 the region moved out of India; the vendor did not " +
+      "change, and neither did the speech provider or the first reading of " +
+      "your transcript, which are Indian and stay Indian.",
+  },
+  {
+    names: ["OpenAI"],
+    vendor: "OpenAI",
+    does:
+      "An alternative provider for the two language-model legs, reached when a " +
+      "client chooses one of its models. It does the same job as the Azure " +
+      "OpenAI row above — the model that holds the conversation during a call, " +
+      "and the dashboard assistant on redacted data — for the calls that run " +
+      "on it.",
+    receives:
+      "On the call leg, the conversation as it happens, turn by turn. On the " +
+      "dashboard leg, the redacted transcript and the client's own " +
+      "configuration, never raw personal data. Never the recording.",
+    location: "United States. This provider's API offers no Indian region to request.",
+    status:
+      "Client-selectable. Reached only when a client picks one of this " +
+      "provider's models; no client data reaches it otherwise.",
+  },
+  {
+    names: ["Google"],
+    vendor: "Google — Gemini API",
+    does:
+      "An alternative provider for the two language-model legs, reached when a " +
+      "client chooses one of its Gemini models. This is a separate Google " +
+      "service from the Sheets API below: once a Gemini model is selectable, a " +
+      "model request does reach Google again, which is why the Sheets row no " +
+      "longer says none does.",
+    receives:
+      "On the call leg, the conversation as it happens, turn by turn. On the " +
+      "dashboard leg, the redacted transcript and the client's own " +
+      "configuration, never raw personal data. Never the recording.",
+    location:
+      "Google, global. This provider's developer API names no region we can " +
+      "request, so we cannot pin where it processes and do not claim to.",
+    status:
+      "Client-selectable. Reached only when a client picks one of this " +
+      "provider's Gemini models; no client data reaches it otherwise.",
+  },
+  {
+    names: ["Exotel", "Vobiz", "Plivo"],
+    vendor: "Exotel · Vobiz · Plivo",
+    does: "Telephone numbers and the carrier connection the calls run over.",
+    receives: "Caller and called numbers, and call detail records.",
+    location: "India.",
+    status:
+      "Core once numbers are procured. None is procured yet, because that depends " +
+      "on the DLT registrations.",
+  },
+  {
+    names: ["Cloudflare"],
+    vendor: "Cloudflare",
+    does:
+      "Two distinct things: the edge in front of the site (TLS, caching, protection " +
+      "against attack), and R2 object storage.",
+    receives:
+      "At the edge: every HTTP request, including IP addresses. In R2: call " +
+      "recordings, exports, the archived raw call documents, the bodies delivered " +
+      "to client CRMs, and database backup segments.",
+    location:
+      "Global. We ask R2 to place the bucket in its Asia-Pacific region. That " +
+      "is a preference Cloudflare honours where it can and not a residency " +
+      "commitment — R2 guarantees a jurisdiction only for the European Union, " +
+      "the United States, and United States government workloads, and offers " +
+      "no India-only jurisdiction — so this data is stored outside India and " +
+      "may be stored outside Asia. We do not name a city: Cloudflare " +
+      "documents this region only as Asia-Pacific and does not publish which " +
+      "datacentre serves it.",
+    status: "Core.",
+  },
+  {
+    names: [],
+    vendor: "The hosting provider for the application server",
+    does: "Runs the application, the background workers and the PostgreSQL database.",
+    receives:
+      "Everything held in the database: phone numbers, transcripts, summaries, lead " +
+      "records, account data.",
+    location:
+      "{{PRIMARY_HOSTING_LOCATION}} — decided, and nothing has been provisioned " +
+      "yet, because no client data is in production. The blueprint does not " +
+      "require India co-location for this tier, which runs outside the live " +
+      "call path; it was chosen anyway.",
+    status: "Core.",
+  },
+  {
+    names: ["Resend"],
+    vendor: "Resend",
+    does:
+      "Transactional email: the hot-lead notification to a client, and operator " +
+      "alerts.",
+    receives:
+      "The recipient's email address; in a hot-lead notification, the lead's name " +
+      "and the call summary. The phone number is masked before the email is " +
+      "composed. Operator alerts carry identifiers only.",
+    location: "United States.",
+    status:
+      "Core. An SMTP server of your own choosing is the alternative and is " +
+      "selectable.",
+  },
+  {
+    names: ["Sentry"],
+    vendor: "Sentry",
+    does: "Error and performance monitoring for our own services.",
+    receives:
+      "Error reports and traces. Personal data is stripped before it leaves the " +
+      "process: the redaction pair backs the log formatter, the Sentry event " +
+      "hook and breadcrumbs, and traces are redacted at the exporter rather " +
+      "than at each call site.",
+    location: "Operated from outside India.",
+    status: "Configured, not enabled — it activates only when a DSN is set.",
+  },
+  {
+    names: ["Razorpay"],
+    vendor: "Razorpay",
+    does: "Card, UPI and netbanking payments for self-serve top-ups.",
+    receives:
+      "Payer contact details and payment metadata. Card numbers never reach us.",
+    location: "India.",
+    status: "Configured, not enabled. No merchant account has been confirmed.",
+  },
+  {
+    names: ["Google"],
+    vendor: "Google — Sheets API",
+    does:
+      "Writes each new lead into a Google Sheet you own. This is a separate " +
+      "Google service from the Gemini API row above and receives lead fields " +
+      "only: no call audio, no transcript and no model request reaches the " +
+      "Sheets API. From 19 August 2026 until Gemini models became selectable " +
+      "this was the only thing any Google service did for us; that is no longer " +
+      "so, because a client can now choose a Gemini model, and the earlier " +
+      "sentence saying no model request reached Google any more is withdrawn.",
+    receives:
+      "The lead's fields, including name and — depending on the option you choose " +
+      "— the phone number in raw or masked form. Never the recording or the " +
+      "transcript.",
+    location: "Google, global.",
+    status:
+      "Client-enabled. Access is granted by you sharing your own document with our " +
+      "service account, and revoked by un-sharing it.",
+  },
+  {
+    names: ["Meta"],
+    vendor: "Meta — WhatsApp Business",
+    does: "Sends a follow-up WhatsApp message to a lead using an approved template.",
+    receives: "The recipient's phone number and the template parameters.",
+    location: "Meta, global.",
+    status:
+      "Configured, not enabled. No messaging provider has been chosen, and the " +
+      "code refuses to send until one is. A separate, recorded messaging opt-in " +
+      "is required for every recipient — consent to be called never satisfies it.",
+  },
+  {
+    names: ["Meta"],
+    vendor: "Meta — Lead Ads",
+    does:
+      "Retrieves the answers a person submitted on your Facebook or Instagram lead " +
+      "form, so the agent can call them back.",
+    receives: "The lead form answers, including name and phone number.",
+    location: "Meta, global.",
+    status:
+      "Client-enabled, and per lead source: it works only where you have supplied " +
+      "the access token for your own Page.",
+  },
+  {
+    names: ["Cartesia"],
+    vendor: "Cartesia",
+    does:
+      "An alternative voice platform, built so that switching engines is a " +
+      "configuration change rather than a rewrite.",
+    receives:
+      "The same categories as the primary voice platform, if it were ever selected.",
+    location: "United States.",
+    status:
+      "Contingency. No account exists and no request has ever been made to it from " +
+      "this system.",
+  },
+  {
+    names: ["Cohere"],
+    vendor: "Cohere",
+    does:
+      "Text embeddings, needed only if the retrieval service we adopt does not " +
+      "bundle its own.",
+    receives:
+      "Chunks of the knowledge content a client uploads for their agent to answer " +
+      "from.",
+    location: "Outside India.",
+    status: "Contingency. Not selected.",
+  },
+];
+
+/**
+ * The canonical vendor-identity inventory, derived from `SUBPROCESSOR_ROWS` and the ONE
+ * list the legal tests may compare a document against.
+ *
+ * It is deliberately the brand identities, not the Vendor cells: the "Google — Gemini API"
+ * row's identity is "Google", so the register may say "Gemini" in prose while this list
+ * (correctly) does not — a departed vendor named only in the sentence that records its
+ * departure never enters here. Because it is derived, a vendor change in the register
+ * moves it automatically; nothing is retyped.
+ */
+export const SUBPROCESSOR_NAMES: readonly string[] = [
+  ...new Set(SUBPROCESSOR_ROWS.flatMap((row) => row.names)),
+];
+
 export const SUBPROCESSORS: LegalDocument = {
   slug: "subprocessors",
   title: "Sub-processors",
@@ -93,207 +389,13 @@ export const SUBPROCESSORS: LegalDocument = {
           kind: "table",
           caption: "Sub-processors, the data each receives, and where it is processed",
           columns: ["Vendor", "What it does for us", "Personal data it receives", "Location", "Status"],
-          rows: [
-            [
-              "Bolna",
-              "Voice platform: runs the live call, connects the speech and language models, " +
-                "and returns the transcript and call record.",
-              "Caller phone number, live call audio, full transcript, call metadata, and the " +
-                "agent configuration we send it.",
-              "United States. Their documentation states that all of their services run on " +
-                "US infrastructure unless an enterprise data-residency option is purchased, " +
-                "which we have not purchased. Read the note below before relying on this " +
-                "row either way — it is the most important caution on this page.",
-              "Core (primary engine). The verification pilot has not yet been run, and the " +
-                "shipped default engine is a local stub.",
-            ],
-            [
-              "Sarvam AI",
-              "Speech recognition and voice synthesis during the call, the first pass " +
-                "that extracts fields from the transcript, and the standby for the " +
-                "dashboard assistant if the primary model is unavailable.",
-              "Call audio and the raw, unredacted transcript. This is the one path that " +
-                "must see raw text: a callback-number field needs the actual digits.",
-              "India.",
-              "Core. It no longer supplies the language model that holds the " +
-                "conversation — that is the next row.",
-            ],
-            [
-              "Microsoft — Azure OpenAI",
-              "Both language-model legs when the client runs an Azure model: the model " +
-                "that holds the conversation during a call, and the dashboard assistant " +
-                "a client triggers from their own screen. A client may instead choose a " +
-                "model from another provider (see the OpenAI and Google — Gemini API " +
-                "rows), and then that provider handles the language leg in this vendor's " +
-                "place. So the choice is a choice of provider and place, not only of " +
-                "which model answers — the single-vendor claim this row used to make is " +
-                "withdrawn (section 3.3).",
-              "On the call leg, the conversation as it happens — everything the caller " +
-                "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
-                "transcript and the client's own configuration, never raw personal data. " +
-                "The two legs see very different things and are listed separately for " +
-                "that reason.",
-              "United States — East US 2, by configuration. This cell has moved twice " +
-                "and both steps are kept rather than overwritten: until 19 August 2026 " +
-                "the language model ran on Google Cloud's Vertex AI in the asia-south1 " +
-                "region (Mumbai, India); from 19 August 2026 on this vendor's South " +
-                "India region; and since 22 August 2026 on this vendor's East US 2 " +
-                "region, in the United States. Read the caution below before relying " +
-                "on this: the endpoint does not name its own region, so this is a " +
-                "setting we make and check by hand rather than one a build can prove.",
-              "Core. Until 19 August 2026 this row named Google Cloud's Vertex AI for the " +
-                "dashboard leg only; both legs moved to Microsoft on that date, and the " +
-                "in-call leg — which hears the caller — is new to this vendor. On " +
-                "22 August 2026 the region moved out of India; the vendor did not " +
-                "change, and neither did the speech provider or the first reading of " +
-                "your transcript, which are Indian and stay Indian.",
-            ],
-            [
-              "OpenAI",
-              "An alternative provider for the two language-model legs, reached when a " +
-                "client chooses one of its models. It does the same job as the Azure " +
-                "OpenAI row above — the model that holds the conversation during a call, " +
-                "and the dashboard assistant on redacted data — for the calls that run " +
-                "on it.",
-              "On the call leg, the conversation as it happens, turn by turn. On the " +
-                "dashboard leg, the redacted transcript and the client's own " +
-                "configuration, never raw personal data. Never the recording.",
-              "United States. This provider's API offers no Indian region to request.",
-              "Client-selectable. Reached only when a client picks one of this " +
-                "provider's models; no client data reaches it otherwise.",
-            ],
-            [
-              "Google — Gemini API",
-              "An alternative provider for the two language-model legs, reached when a " +
-                "client chooses one of its Gemini models. This is a separate Google " +
-                "service from the Sheets API below: once a Gemini model is selectable, a " +
-                "model request does reach Google again, which is why the Sheets row no " +
-                "longer says none does.",
-              "On the call leg, the conversation as it happens, turn by turn. On the " +
-                "dashboard leg, the redacted transcript and the client's own " +
-                "configuration, never raw personal data. Never the recording.",
-              "Google, global. This provider's developer API names no region we can " +
-                "request, so we cannot pin where it processes and do not claim to.",
-              "Client-selectable. Reached only when a client picks one of this " +
-                "provider's Gemini models; no client data reaches it otherwise.",
-            ],
-            [
-              "Exotel · Vobiz · Plivo",
-              "Telephone numbers and the carrier connection the calls run over.",
-              "Caller and called numbers, and call detail records.",
-              "India.",
-              "Core once numbers are procured. None is procured yet, because that depends " +
-                "on the DLT registrations.",
-            ],
-            [
-              "Cloudflare",
-              "Two distinct things: the edge in front of the site (TLS, caching, protection " +
-                "against attack), and R2 object storage.",
-              "At the edge: every HTTP request, including IP addresses. In R2: call " +
-                "recordings, exports, the archived raw call documents, the bodies delivered " +
-                "to client CRMs, and database backup segments.",
-              "Global. We ask R2 to place the bucket in its Asia-Pacific region. That " +
-                "is a preference Cloudflare honours where it can and not a residency " +
-                "commitment — R2 guarantees a jurisdiction only for the European Union, " +
-                "the United States, and United States government workloads, and offers " +
-                "no India-only jurisdiction — so this data is stored outside India and " +
-                "may be stored outside Asia. We do not name a city: Cloudflare " +
-                "documents this region only as Asia-Pacific and does not publish which " +
-                "datacentre serves it.",
-              "Core.",
-            ],
-            [
-              "The hosting provider for the application server",
-              "Runs the application, the background workers and the PostgreSQL database.",
-              "Everything held in the database: phone numbers, transcripts, summaries, lead " +
-                "records, account data.",
-              "{{PRIMARY_HOSTING_LOCATION}} — decided, and nothing has been provisioned " +
-                "yet, because no client data is in production. The blueprint does not " +
-                "require India co-location for this tier, which runs outside the live " +
-                "call path; it was chosen anyway.",
-              "Core.",
-            ],
-            [
-              "Resend",
-              "Transactional email: the hot-lead notification to a client, and operator " +
-                "alerts.",
-              "The recipient's email address; in a hot-lead notification, the lead's name " +
-                "and the call summary. The phone number is masked before the email is " +
-                "composed. Operator alerts carry identifiers only.",
-              "United States.",
-              "Core. An SMTP server of your own choosing is the alternative and is " +
-                "selectable.",
-            ],
-            [
-              "Sentry",
-              "Error and performance monitoring for our own services.",
-              "Error reports and traces. Personal data is stripped before it leaves the " +
-                "process: the redaction pair backs the log formatter, the Sentry event " +
-                "hook and breadcrumbs, and traces are redacted at the exporter rather " +
-                "than at each call site.",
-              "Operated from outside India.",
-              "Configured, not enabled — it activates only when a DSN is set.",
-            ],
-            [
-              "Razorpay",
-              "Card, UPI and netbanking payments for self-serve top-ups.",
-              "Payer contact details and payment metadata. Card numbers never reach us.",
-              "India.",
-              "Configured, not enabled. No merchant account has been confirmed.",
-            ],
-            [
-              "Google — Sheets API",
-              "Writes each new lead into a Google Sheet you own. This is a separate " +
-                "Google service from the Gemini API row above and receives lead fields " +
-                "only: no call audio, no transcript and no model request reaches the " +
-                "Sheets API. From 19 August 2026 until Gemini models became selectable " +
-                "this was the only thing any Google service did for us; that is no longer " +
-                "so, because a client can now choose a Gemini model, and the earlier " +
-                "sentence saying no model request reached Google any more is withdrawn.",
-              "The lead's fields, including name and — depending on the option you choose " +
-                "— the phone number in raw or masked form. Never the recording or the " +
-                "transcript.",
-              "Google, global.",
-              "Client-enabled. Access is granted by you sharing your own document with our " +
-                "service account, and revoked by un-sharing it.",
-            ],
-            [
-              "Meta — WhatsApp Business",
-              "Sends a follow-up WhatsApp message to a lead using an approved template.",
-              "The recipient's phone number and the template parameters.",
-              "Meta, global.",
-              "Configured, not enabled. No messaging provider has been chosen, and the " +
-                "code refuses to send until one is. A separate, recorded messaging opt-in " +
-                "is required for every recipient — consent to be called never satisfies it.",
-            ],
-            [
-              "Meta — Lead Ads",
-              "Retrieves the answers a person submitted on your Facebook or Instagram lead " +
-                "form, so the agent can call them back.",
-              "The lead form answers, including name and phone number.",
-              "Meta, global.",
-              "Client-enabled, and per lead source: it works only where you have supplied " +
-                "the access token for your own Page.",
-            ],
-            [
-              "Cartesia",
-              "An alternative voice platform, built so that switching engines is a " +
-                "configuration change rather than a rewrite.",
-              "The same categories as the primary voice platform, if it were ever selected.",
-              "United States.",
-              "Contingency. No account exists and no request has ever been made to it from " +
-                "this system.",
-            ],
-            [
-              "Cohere",
-              "Text embeddings, needed only if the retrieval service we adopt does not " +
-                "bundle its own.",
-              "Chunks of the knowledge content a client uploads for their agent to answer " +
-                "from.",
-              "Outside India.",
-              "Contingency. Not selected.",
-            ],
-          ],
+          rows: SUBPROCESSOR_ROWS.map((row) => [
+            row.vendor,
+            row.does,
+            row.receives,
+            row.location,
+            row.status,
+          ]),
         },
       ],
     },

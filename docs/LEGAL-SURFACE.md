@@ -34,10 +34,23 @@ its retrieval date, because Indian data-protection and telecom law moved substan
 2025–2026 and a document written from memory would be wrong in specific, damaging ways.
 
 **The single most important framing fact, and it changes how every row reads:** *nothing
-is in production.* There is no legal entity decided, no DLT registration, no provisioned
-host, no live client, and `ENGINE=fake` is the shipped default. Almost every "UNMET" below
-is therefore either (a) waiting on a founder decision or an external registrar, or (b) a
-real code gap that can be closed now. The rows say which.
+is in production.* No DLT registration, no provisioned host, no live client, and
+`ENGINE=fake` is the shipped default. Almost every "UNMET" below is therefore either (a)
+waiting on a founder decision or an external registrar, or (b) a real code gap that can be
+closed now. The rows say which.
+
+**The legal entity IS now decided — this line said "no legal entity decided" and the 24
+Aug 2026 playbook settles it.** Per `docs/legal/LEGAL-OPS-PLAYBOOK.md` §0 and §3 (the
+playbook is the legal source of truth and wins over this document), the entity is a **sole
+proprietor / trade name under the founder's PAN** — "Calevate is a product operated by
+[legal name], sole proprietor", not a separate company. That decision changes what several
+EXTERNAL rows are blocked ON — they wait on the registrars a sole proprietor uses (Udyam,
+then DLT TM-ID, GST only on a trigger), not on an entity choice that has not been made — but
+it does NOT move anything into production: the registrations themselves are unfiled, and the
+`{{LEGAL_ENTITY_NAME}}` / `{{GSTIN}}` / entity-number placeholders in §7 are still blank
+because the sole proprietorship, though decided, has not been registered anywhere yet. So
+the "nothing is in production" framing stands unchanged; what is retired is the false
+premise that the shape of the legal person is still open.
 
 ---
 
@@ -133,7 +146,7 @@ s.43A + SPDI Rules 2011 remain operative (§3.3). Sources §9.
 | DP-7 | Right to nominate | DPDP §13 | **UNMET** | Nothing in the product models a nominee. Low urgency (substantive commencement May 2027) but it is a gap, and it is the client's obligation, not ours — so what closes it is a sentence in the client's notice, not code. |
 | DP-8 | Grievance redressal within a published timeline, ≤90 days | Rule 14(3) | **PARTIAL** | `/legal/grievance` now publishes 2 business days to acknowledge, 15–30 days to resolve. There is **no grievance intake surface, no ticket record and no clock in the product** — it is an email address. What closes it: either a mailbox + a written procedure (sufficient at this size), or a `grievances` table. Say which; do not leave it implied. |
 | DP-9 | Publish the business contact of the person answering data-principal questions, and repeat it in every reply | Rule 9 | **PARTIAL** | Published as `{{DATA_PROTECTION_CONTACT_NAME/EMAIL}}` on `/legal/privacy` §14 and `/legal/grievance` §1. The "repeat it in every reply" half is a process nobody has written. |
-| DP-10 | Reasonable security safeguards: encryption/masking, access control, logs+monitoring, retained **one year**, continuity | Rule 6 | **PARTIAL** | Everything in §4 below is real. **The log-retention leg is not evidenced anywhere in the tree**: no retention period is configured for application logs or for `audit_log` (which is append-only and never expired — arguably ≥1 year by construction, but nothing states it). What closes it: a stated log-retention period in OPERATIONS and a lifecycle rule. |
+| DP-10 | Reasonable security safeguards: encryption/masking, access control, logs+monitoring, retained **one year**, continuity | Rule 6 | **CLOSED (stated policy), 24 Aug 2026** | Everything in §4 below is real, and the one leg that was unevidenced — log retention — is now a stated policy in `docs/OPERATIONS.md` §4.1. Two record classes, governed separately: **`audit_log`** (and every append-only ledger in `db/registry.APPEND_ONLY_TABLES`) is INSERT-only under a DB trigger with no sweep row against it, so it is **retained indefinitely, never expired — ≥1 year by construction** and now stated as such rather than inferred; **application logs** (structured JSON on stdout + Sentry events) carry a **365-day** period set at the host log sink (journald / shipper index / Sentry project retention). Application logs are NOT written to object storage — there is no `logs/` prefix in `infra/object-lifecycle/policy.json` and nothing in the app puts them there — so this closes as an OPERATIONS-stated policy, **not** a lifecycle rule (a lifecycle rule over a bucket that holds no logs would be theatre). The 365-day floor is DPDP Rule 6's "one year"; CERT-In's shorter-but-stricter 180-days-in-India log rule (S-7) is satisfied within it on days, with its Indian-jurisdiction condition flagged in §4.1 for when a host is provisioned. |
 | DP-11 | Data-processor contract imposing equivalent safeguards | §8(2), Rule 6(f) | **MET as text, UNMET as practice** | `/legal/dpa` is that contract, and Annex B is the equivalent-safeguards clause. **Downward**: we owe the same to *our* sub-processors, and **no vendor contract has been signed** — the Bolna residency commitment is an unrun pilot gate (`evidence/bolna-pilot-scorecard.md` is an empty template). |
 | DP-12 | Breach notification: Board without delay, detailed report ≤72h, affected principals with no threshold | Rule 7 | **MET as procedure; one lookup outstanding** | D-179: `runbooks/data-breach-notification.md` (the three clocks, the role split, the scope walk, the sign-off), `apps/api/compliance/breach.py` (the Rule 7 content, refused if an element is missing or a phone number is present) and `scripts/breach_notice.py`. The 48-hour DPA promise is pinned by test across the DPA, the runbook and the notice. **Outstanding: the Board's own reporting channel** — a lookup nobody has done, recorded in the runbook's §7 rather than left to be discovered mid-incident — and counsel's review of the wording. |
 | DP-13 | Retention limited to purpose; erase when purpose served | §8(7), Rule 8 | **PARTIAL** | Nightly sweep enforces per-tenant TTLs (`apps/workers/retention.py`). The two stores that escaped it are closed (F-2, F-3, D-179). **One store still has no clock: uploaded campaign contacts** — the category is deliberately absent because the period is a DPA commitment the founder must give, and `tests/dpdp_known_gaps_test.py` holds that open by probing the CHECK constraint. |
@@ -171,6 +184,7 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 | S-4 | Consent before collecting sensitive personal data | **PARTIAL** | Health/financial detail volunteered on a call is SPDI. Disclosed in `/legal/privacy` §3.3 and DPA Annex A; the *consent* is the client's to obtain. |
 | S-5 | **Transfer of SPDI outside India (rule 7): comparable protection at the destination, PLUS consent or necessity for performance of a contract** | **MET on the necessity leg; UNEVIDENCED on the protection leg** | This is the transfer test that is ACTUALLY IN FORCE, and the tree cited DPDP §16 instead — a section that commences 13 May 2027 (DP-17). Necessity is straightforward: the service IS the calls, and the calls run on these suppliers. Comparable protection is a judgement per vendor against its own published terms, and **F-10 records that no sub-processor agreement has been signed**, so the leg has no evidence behind it beyond those terms. What closes it: F-10, and counsel confirming the judgement is one we may make ourselves. Stated to clients in `/legal/dpa` clause 9 since 22 Aug 2026. |
 | S-6 | **Is a call recording "biometric information"? The 2011 definition of biometrics includes VOICE PATTERNS** | **UNDECIDED, AND LIVE UNTIL 13 MAY 2027 — the single most consequential open question on this page** | If YES, every call recording is SPDI: S-4's consent duty and S-5's transfer test bind the whole product, including the voice platform's own copy of the recording in the **United States** (F-12). If NO, the position is what the published documents already describe. **No Indian court or regulator has decided it**, and the definition reads as though drafted for authentication rather than for a call recording. DPDP abolishes the sensitive tier on 13 May 2027 — i.e. the question expires exactly after the window in which client #1 goes live. **Nothing in this tree may answer it.** What we do instead is right under either answer: treat call audio as though it may be SPDI, name every place it goes, and ask counsel a yes/no — OPERATIONS §2 **gate 37** (the advocate gate). Asked of clients in `/legal/dpa` clause 9 and pointed at from `/legal/privacy` §8. |
+| S-7 | **CERT-In 2022 directions (s.70B, IT Act): report a notified cyber incident within 6 hours; enable ICT-system logs and keep them for a rolling 180 days *within Indian jurisdiction*** | **PARTIAL — procedure exists; the 6-hour clock and the log-place are the gaps, and scope is an advocate question** | This is live law TODAY, under s.70B of the IT Act (not the DPDP staging), and the playbook §12.1 names it as binding "if in scope … do not invent 'we're too small'". Two operative facts, both from the direction itself (No. 20(3)/2022-CERT-In, 28 April 2022): **(a) 6-hour reporting** — a notified cyber incident must be reported to CERT-In within 6 hours of noticing it; **(b) 180-day logs in India** — logs of all ICT systems enabled and "maintained within the Indian jurisdiction" for a rolling 180 days (source in §9, retrieved 2026-08-24). Where we stand: the breach *procedure* is built (see **DP-12**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py`), but it is written around the **DPDP Rule 7** clocks (Board without delay, ≤72h report); **CERT-In's 6-hour clock to a DIFFERENT authority is not in that runbook** and must be added, and the runbook's outstanding "establish the Board's reporting channel" lookup has a CERT-In sibling — the CERT-In reporting channel — that belongs beside it. The **180-day log leg** is now covered on days by the 365-day application-log period stated in OPERATIONS §4.1 (DP-10), but the **Indian-jurisdiction condition on the log store is not satisfied by anything automatic** — it becomes real only when a host and log sink are provisioned, and if CERT-In is in scope the sink must sit in India. **Whether a solo India-only SaaS is even "in scope"** (as a "service provider" / "body corporate" under the direction) is itself the advocate question — playbook §20 routes it to the telecom/IT advocate; do not self-answer it either way. What closes it: (i) add the 6-hour CERT-In leg + its reporting channel to `runbooks/data-breach-notification.md`; (ii) counsel's scope determination; (iii) at provisioning, an India-resident log sink. |
 
 ### 3.4 Consumer Protection Act 2019 + E-Commerce Rules 2020
 
@@ -433,10 +447,26 @@ appear.** `apps/web/tests/publicLanding.test.tsx:87`
 asserts the current wording verbatim, so the test moves in the same change; that is the
 guard working, not an obstacle.
 
-I did not edit `page.tsx` — it is outside my scope. **This is FOLLOW-UP-2 and it should be
-done in the next change, not scheduled.** `/legal/privacy` §8 already carries a callout
-saying that any such claim elsewhere is an intention and that §8 overrides it, and
-`tests/legal.test.tsx` bans the claim from ever appearing in a legal document.
+I did not edit `page.tsx` — it is outside my scope. **FOLLOW-UP-2 is now CLOSED (verified by
+reading the file 24 Aug 2026), not pending.** The residency tile in
+`apps/web/src/app/page.tsx` no longer carries the old Vertex/Mumbai sentence; it now reads
+that speech and the first reading of the transcript are Indian services *"on every call"*,
+that the language model *"is not: it runs on a Microsoft Azure OpenAI account in the United
+States, in the East US 2 region"*, that until 22 August 2026 the account was in South India
+and the card said so, that the only thing the code still does is *"pin the model to that one
+region … the account's own region is confirmed by a person against Microsoft's console and
+filed: checked, not proved by a build"*, and that the platform carrying the call *"runs it on
+US infrastructure today"*. That is exactly the narrowed, non-India, non-build-proved claim
+this finding prescribed above. **The guard moved with it and now enforces the new shape in
+both directions**: `apps/web/tests/publicLanding.test.tsx` asserts the text still contains
+`"Speech and the first reading of your transcript are Indian"` AND
+`"Microsoft Azure OpenAI account in the United States"`, and bans any India-residency claim
+by shape (`expect(text).not.toMatch(/data residency|data sovereignty|sovereign/i)` and the
+banned-phrase list including the old `The AI runs on Indian endpoints`). So the
+misrepresentation this follow-up was about cannot return without a red test. `/legal/privacy`
+§8 already carries a callout saying any such claim elsewhere is an intention and that §8
+overrides it, and `tests/legal.test.tsx` bans the claim from ever appearing in a legal
+document.
 
 ### F-2 — ~~The archived raw engine payload has no retention clock.~~ **CLOSED (D-179).**
 
@@ -545,9 +575,32 @@ a *published* commitment:
 
 I published **what the code enforces**, because a notice that states a period the sweep does
 not honour is the worse of the two errors in both directions (a transcript deleted at half
-the promised age, a lead kept at 1.5×). **The founder must now reconcile them in one
-release**: SEC-COMP §4, `DEFAULT_RETENTION_POLICIES`, and `/legal/privacy` §9 all change
-together, with a ROADMAP §6 entry. Existing tenants' agreed rows are their own decision.
+the promised age, a lead kept at 1.5×).
+
+**The conflict is now RESOLVED as to which numbers are authoritative — conservatively, and
+without inventing a fourth set.** The **`scripts/seed.DEFAULT_RETENTION_POLICIES` figures
+(90 / 365 / 1095) are the enforced source of truth**, because they are the numbers the
+nightly sweep actually applies (`apps/workers/retention.py` reads the seeded
+`retention_policies` rows) AND the numbers `/legal/privacy` §9 publishes to callers — the
+enforced-and-published pair is the only one a data principal or a regulator can hold us to,
+and it is consistent with the playbook's "90-day minimum recording retention"
+(`docs/legal/LEGAL-OPS-PLAYBOOK.md` §12.3 / stop-list). **`docs/SECURITY-COMPLIANCE.md` §4's
+older 180 / 730 numbers are STALE and are superseded** — they are a design note that the
+seed and the public notice both moved past, and nothing enforces or publishes them. I have
+not edited SEC-COMP §4 here (it is the founder's + counsel's to reconcile in one release,
+per the row below and OPERATIONS-tracked ROADMAP §6); this finding is corrected only to
+record which set of numbers is real, so a reader does not treat the three-way disagreement
+as unsettled. **The founder must still fold SEC-COMP §4 into line** — SEC-COMP §4,
+`DEFAULT_RETENTION_POLICIES`, and `/legal/privacy` §9 should read one set of numbers, and
+the change is a one-line correction to SEC-COMP §4 (down to 90 / 365 / 1095), not a code
+change, with a ROADMAP §6 entry.
+
+**Caveat that survives the resolution:** the seed figures are *defaults*, and the FINAL
+retention periods for any given client are a **per-tenant DPA commitment to confirm with
+counsel** (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §20 routes retention/DPA terms to the
+advocate). A tenant may negotiate a different row; existing tenants' agreed rows are their
+own decision. So "90 / 365 / 1095 is authoritative" means *authoritative as the enforced and
+published default*, not *legally final for every tenant forever*.
 
 ### F-6 — ~~No breach-notification procedure behind the DPA's 48-hour promise.~~ **CLOSED (D-179).**
 
@@ -1005,6 +1058,10 @@ publication — that is the first thing §10 asks for.
 - Opsio, *Are the SPDI Rules still in force after DPDP Act 2023?* — https://opsiocloud.com/in/knowledge-base/are-spdi-rules-still-in-force/ (16 Aug 2026) — **s.43A and SPDI survive until 13 May 2027**
 - S&R Associates, *India's DPDP regime takes effect* — https://www.snrlaw.in/indias-digital-personal-data-protection-regime-takes-effect/ (16 Aug 2026)
 
+**CERT-In 2022 directions (s.70B, IT Act) — S-7**
+- CERT-In, *Directions under sub-section (6) of section 70B of the IT Act 2000, No. 20(3)/2022-CERT-In* (the primary text, Government of India) — https://www.cert-in.org.in/PDF/CERT-In_Directions_70B_28.04.2022.pdf (**24 Aug 2026**) — 6-hour incident reporting; logs of all ICT systems enabled and maintained **within Indian jurisdiction** for a rolling **180 days**; in force ~end June 2022 (60 days after 28 Apr 2022 issue)
+- Trilegal, *2022 CERT-In Directions on Reporting Cyber Incidents* — https://trilegal.com/wp-content/uploads/2022/05/2022-CERT-In-Directions-on-Reporting-Cyber-Incidents-1.pdf (24 Aug 2026) — top-tier law-firm summary confirming the 6-hour window, the 180-day-in-India log retention, and s.70B(7) penalty exposure
+
 **AI content / disclosure**
 - Khaitan & Co, *MeitY notifies the IT Amendment Rules 2026* — https://www.khaitanco.com/thought-leadership/MeitY-notifies-the-IT-Amendment-Rules-2026 (16 Aug 2026) — notified **10 Feb 2026**, in force **20 Feb 2026**; SGI labelling duties on **intermediaries**
 - Freshfields, *India targets deepfakes and AI-generated content* — https://www.freshfields.com/en/our-thinking/blogs/technology-quotient/india-targets-deepfakes-and-ai-generated-content-key-changes-under-meitys-2026-102mjwn (16 Aug 2026)
@@ -1089,7 +1146,7 @@ now traces to one of them.
 | # | Action | Why it is not done here |
 |---|---|---|
 | FOLLOW-UP-1 | Add `/legal` links to the site footer in `apps/web/src/app/page.tsx` (its footer currently carries no links at all) and to the two realm shells. Also add legal-page links to the sign-up flow. **Nothing on the site links to `/legal` today, so the documents are unreachable except by typing the URL** — and a payment aggregator's reviewer will look for exactly those links. | `apps/web/src/app/page.tsx` and `apps/web/src/components/**` are outside this session's edit scope. |
-| FOLLOW-UP-2 | Resolve F-1: either provision an Indian host or narrow the landing-page copy. | Same file, same reason. It should be the next change made. |
+| ~~FOLLOW-UP-2~~ | ~~Resolve F-1: narrow the landing-page copy for the language leg.~~ — **DONE, verified 24 Aug 2026.** `apps/web/src/app/page.tsx`'s residency tile now says speech and the first transcript reading are Indian while the language model runs on a *"Microsoft Azure OpenAI account in the United States, in the East US 2 region"*, confirmed by a person and *"checked, not proved by a build"*; `apps/web/tests/publicLanding.test.tsx` pins both halves and bans any India-residency claim by shape. | Was outside this session's edit scope; closed by the `apps/web` lane. |
 | FOLLOW-UP-3 | Add the 35-day backup clause to `ERASURE_LIMITATIONS` / `ERASURE_EXCEPTIONS` in `apps/api/compliance/deletion.py`, so the certificate and `/legal/privacy` §9 agree. | `apps/api` is outside this session's edit scope. |
 | ~~FOLLOW-UP-4~~ | ~~F-2 and F-3: retention categories for the engine-payload archive and for KB content~~ — **DONE (D-179)**: migration `c4d1f7b83e26`, two sweep arms, and the erasure's knowledge-base search. | Was outside the audit session's edit scope; closed in the next one. |
 | ~~FOLLOW-UP-7~~ | ~~F-11: correct `apps/web/src/lib/legal/{subprocessors,cookies}.ts` for D-410 and D-177.~~ — **DONE 20 Aug 2026** by the parallel `apps/web` session, verified by reading the files. What remains is F-11's other half. |

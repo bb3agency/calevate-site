@@ -531,6 +531,44 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   send mail — the consequence is the dead man firing, which is the correct outcome.
   What to do when it fires: `runbooks/backup-heartbeat-silent.md`.
 
+### 4.1 Log and audit retention (states the DP-10 / Rule 6 leg)
+
+This subsection exists so a retention PERIOD for logs is a stated policy rather than an
+unwritten assumption — it is what closes LEGAL-SURFACE §3.1 DP-10 (DPDP Rule 6 requires
+security logs to be "retained for one year") and it carries the second, longer floor that
+CERT-In imposes (§4.1 last bullet). There are three record classes and they are governed
+differently:
+
+- **`audit_log` (and every other append-only ledger in `db/registry.APPEND_ONLY_TABLES`)
+  — retained indefinitely, never expired, by construction.** These tables are INSERT-only
+  under a DB trigger (hard rule 4), no nightly sweep touches them, and the retention-policy
+  table (`scripts/seed.DEFAULT_RETENTION_POLICIES`) has no row that reaches them. So the
+  security-event trail satisfies the "retained one year" leg of DPDP Rule 6 with margin:
+  its floor is ≥1 year because its actual retention is unbounded. This is a deliberate
+  property, not an oversight — a shrinking audit trail is the wrong shape for the thing an
+  incident is reconstructed from.
+- **Application logs (structured JSON on stdout, plus Sentry error events) — retained
+  365 days.** These are host/collector-scoped, not a database table and **not an object in
+  the store** (there is no `logs/` prefix in `infra/object-lifecycle/policy.json`; nothing
+  in the app writes application logs to object storage — see the note under DP-10). So the
+  period is enforced at the log sink the host runs (journald `MaxRetentionSec`, the
+  shipper's index lifecycle, and Sentry's project retention), not by a bucket lifecycle
+  rule, and 365 days is the number every one of those must be set to. 365 days is the DPDP
+  Rule 6 "one year" floor. **CERT-In's own log rule is shorter in days but stricter in
+  place** (last bullet), and the binding floor is the LONGER of the two, i.e. 365 days —
+  set the sink to 365 and the CERT-In 180-day minimum is satisfied inside it.
+- **CERT-In 2022 directions (if Calevate is in scope — an advocate question, see
+  LEGAL-SURFACE S-7): 180 days, *within Indian jurisdiction*.** The 28 April 2022 CERT-In
+  directions under s.70B(6) of the IT Act require all ICT-system logs to be enabled and
+  "maintained within the Indian jurisdiction" for a rolling 180 days
+  (https://www.cert-in.org.in/PDF/CERT-In_Directions_70B_28.04.2022.pdf, retrieved
+  2026-08-24). The DAYS are covered by the 365-day period above; the PLACE is not covered
+  by anything automatic and is the part to watch when a host and a log sink are actually
+  provisioned — if CERT-In is in scope, the log sink must sit in India. Whether a tiny
+  India-only SaaS is "in scope" is itself the advocate question (playbook §12.1: "treat as
+  binding if in scope … do not invent 'we're too small'"), so this is stated as a policy to
+  confirm, not as a settled fact.
+
 ## 5. SLOs (v1)
 
 Lead visible post-hangup ≤ 2 min (99%); webhook ack < 500ms; dashboard p95 < 800ms;
