@@ -11,13 +11,13 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
   TermGloss,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { useTenant } from "@/lib/api/admin";
 import {
   REASON_MAX,
@@ -376,13 +376,16 @@ function FlagRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          {/* Shared primary CTA: the "Save this flag" label stays mounted (no name
+              flicker to "Saving…"), the spinner rides `loading`, and the two non-pending
+              disable reasons are unchanged — ActionButton folds `loading` in on top. */}
+          <ActionButton
             type="submit"
-            disabled={set.isPending || blocked !== null || !write.allowed}
-            className={PRIMARY_BUTTON}
+            loading={set.isPending}
+            disabled={blocked !== null || !write.allowed}
           >
-            {set.isPending ? "Saving…" : "Save this flag"}
-          </button>
+            Save this flag
+          </ActionButton>
           {blocked && <span className="text-xs text-amber-700 dark:text-amber-400">{blocked}</span>}
         </div>
       </form>

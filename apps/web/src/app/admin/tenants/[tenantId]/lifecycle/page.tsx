@@ -17,6 +17,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import { erasureConfirmation, useEraseTenant, useTenantErasures } from "@/lib/api/erasure";
@@ -208,9 +209,13 @@ function MoveForm({
         )}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button type="submit" disabled={move.isPending || blocked || !write.allowed} className={PRIMARY_BUTTON}>
-            {move.isPending ? "Applying…" : copy.action}
-          </button>
+          {/* Shared primary CTA: the action label (copy.action) stays mounted so the
+              button's accessible name never flickers to "Applying…" mid-request; the
+              spinner rides `loading`, and the two non-pending disable reasons are
+              unchanged. The erase control below keeps its own typed-confirm button. */}
+          <ActionButton type="submit" loading={move.isPending} disabled={blocked || !write.allowed}>
+            {copy.action}
+          </ActionButton>
           {blocked && (
             <span className="text-xs text-amber-700 dark:text-amber-400">
               A reason is required before this can be applied.

@@ -18,7 +18,6 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
@@ -26,6 +25,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { useAdminAccess } from "@/app/admin/access";
 import { ApiProblem } from "@/lib/api/client";
 import {
@@ -819,15 +819,18 @@ export function IntakeStep({
         )}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
+          {/* Shared primary CTA: the "Submit intake" label stays mounted so the button's
+              accessible name never flickers to "Recording…" mid-request; the spinner rides
+              `loading`, and the two non-pending disable reasons are unchanged. */}
+          <ActionButton
             type="submit"
             title={write.reason ?? undefined}
-            disabled={record.isPending || blockers.length > 0 || !write.allowed}
-            className={PRIMARY_BUTTON}
+            loading={record.isPending}
+            disabled={blockers.length > 0 || !write.allowed}
           >
             <CheckCircle2 aria-hidden className="h-4 w-4" />
-            {record.isPending ? "Recording…" : "Submit intake"}
-          </button>
+            Submit intake
+          </ActionButton>
           {/* Never gated on `blockers` — see `onSaveDraft`. Gated on the SAME
               permission as the submit, because it writes the same client's answers to
               the same row. */}

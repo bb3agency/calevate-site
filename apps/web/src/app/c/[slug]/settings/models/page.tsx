@@ -8,12 +8,13 @@ import {
   Card,
   FIELD_HINT,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
   formatRupeeRate,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
+import { useToast } from "@/components/interior/toaster";
 import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { compareRates } from "@/lib/llmRates";
@@ -119,6 +120,10 @@ function OrganizationDefault({
   const { href } = useClientRealm();
   const session = useClientSession();
   const save = useSetOrganizationLlmDefault(session);
+  // Transient confirmation of the write: no-op-safe when no ToastProvider is mounted
+  // (the client realm layout mounts one), and additive to the "In force now" panel that
+  // refetches — the panel proves the new state, the toast acknowledges the click.
+  const { toast } = useToast();
   /**
    * `org:manage` — the owner's own permission, the one that already governs the account's
    * settings and its spending limit, and the one no admin or impersonating session holds
@@ -216,7 +221,10 @@ function OrganizationDefault({
           onSubmit={(event) => {
             event.preventDefault();
             if (!changed) return;
-            save.mutate({ default_llm_model: selected });
+            save.mutate(
+              { default_llm_model: selected },
+              { onSuccess: () => toast({ tone: "success", title: "AI model saved" }) },
+            );
           }}
         >
           <NoticeBox
@@ -268,15 +276,21 @@ function OrganizationDefault({
           />
 
           <div className="flex flex-wrap items-center gap-3">
-            <button
+            {/* Shared ActionButton: it carries the spinner while the save is in flight
+                (`loading`) so the panel no longer spells "Saving…" itself, and it disables
+                during the request the same way the old button did (`disabled || loading`).
+                The accessible name is the children and does NOT change with `loading`, so
+                `clientLlmModel.test.tsx`'s `getByRole(button, /Save model/)` — and a screen
+                reader — keeps pointing at the same control mid-save. */}
+            <ActionButton
               type="submit"
-              disabled={!write.allowed || !changed || save.isPending}
+              loading={save.isPending}
+              disabled={!write.allowed || !changed}
               title={write.reason ?? undefined}
-              className={PRIMARY_BUTTON}
             >
               <Save aria-hidden className="h-4 w-4" />
-              {save.isPending ? "Saving…" : "Save model"}
-            </button>
+              Save model
+            </ActionButton>
             {!changed && !save.isPending && (
               <span className="text-xs text-ink-muted">Nothing has been changed yet.</span>
             )}

@@ -7,12 +7,12 @@ import {
   DANGER_BUTTON,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
@@ -248,10 +248,14 @@ function GrantControl({
   return (
     <div className="space-y-3">
       <p className="rounded-card border border-line bg-surface p-4 text-sm text-ink">{notice}</p>
-      <button type="button" disabled={!allowed || pending} onClick={onGrant} className={PRIMARY_BUTTON}>
+      {/* Shared ActionButton: the spinner rides `loading` while the opt-in is recorded, and
+          the disabled logic is unchanged (`disabled || loading`). The accessible name stays
+          "I agree…" through the write, so `whatsappAlerts.test.tsx`'s `/I agree/` — and a
+          screen reader — never lose the control. */}
+      <ActionButton type="button" loading={pending} disabled={!allowed} onClick={onGrant}>
         <BellRing aria-hidden className="h-4 w-4" />
-        {pending ? "Saving…" : "I agree — send me WhatsApp alerts"}
-      </button>
+        I agree — send me WhatsApp alerts
+      </ActionButton>
       {!allowed && reason && (
         <p className="flex items-start gap-2 text-xs text-ink-muted">
           <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />

@@ -31,6 +31,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useToast } from "@/components/interior/toaster";
 import { API_BASE } from "@/lib/api/client";
 import { useAgents } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -598,6 +599,10 @@ function LeadSourcesCard({
   const create = useCreateLeadSource(session);
   const rotate = useRotateLeadSourceSecret(session);
   const setActive = useSetLeadSourceActive(session);
+  // Turning a source off/on has no on-screen trace beyond the row's own state flipping;
+  // a transient cue confirms the write landed. Additive and no-op without a provider —
+  // the mutation, its invalidation and the `setActive.error` `ProblemNotice` are unchanged.
+  const { toast } = useToast();
 
   const [source, setSource] = useState<string>("website_form");
   const [agentId, setAgentId] = useState("");
@@ -700,7 +705,21 @@ function LeadSourcesCard({
                   },
                 )
               }
-              onToggle={() => setActive.mutate({ webhookId: item.id, active: !item.active })}
+              onToggle={() =>
+                setActive.mutate(
+                  { webhookId: item.id, active: !item.active },
+                  {
+                    onSuccess: () =>
+                      toast({
+                        tone: "success",
+                        title: item.active ? "Lead source turned off" : "Lead source turned on",
+                        description: item.active
+                          ? "It will stop accepting deliveries."
+                          : "It will accept deliveries again.",
+                      }),
+                  },
+                )
+              }
             />
           ))}
         </ul>

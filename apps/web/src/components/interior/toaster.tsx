@@ -173,12 +173,24 @@ export type ToastContextValue = {
   dismiss: (id: number) => void;
 };
 
-const ToastContext = createContext<ToastContextValue | null>(null);
+// The default is a working NO-OP, not `null`, so `useToast()` is safe to call from any
+// component whether or not a `<ToastProvider>` sits above it — a toast fired without a
+// provider silently does nothing rather than throwing. This is deliberate: the provider
+// is mounted app-wide in the realm shells (`app/c/[slug]/layout.tsx`,
+// `app/admin/layout.tsx`), but a feature screen must not crash when rendered outside a
+// shell — in a unit test, a Storybook, or the App Router's page-without-layout compose
+// path the a11y sweep uses. `dismiss` on an id that never existed is a no-op anyway, and
+// `toast` returns 0 (a valid `number` id the caller can hand to a `dismiss` that ignores
+// it), so the contract is total and every caller stays TypeScript-safe.
+const NO_OP_TOAST: ToastContextValue = {
+  toast: () => 0,
+  dismiss: () => {},
+};
+
+const ToastContext = createContext<ToastContextValue>(NO_OP_TOAST);
 
 export function useToast(): ToastContextValue {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error("useToast must be used within a <ToastProvider>");
-  return ctx;
+  return useContext(ToastContext);
 }
 
 export type ToastProviderProps = {

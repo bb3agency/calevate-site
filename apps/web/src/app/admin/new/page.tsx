@@ -21,13 +21,13 @@ import {
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
   TermGloss,
   formatIST,
 } from "@/components/ui";
+import { ActionButton } from "@/components/actionButton";
 import { ApiProblem } from "@/lib/api/client";
 // The SAME derivation the self-serve form previews with, imported rather than re-typed:
 // this wizard carried its own inline copy of the regex, and two previews of one server
@@ -413,15 +413,20 @@ export default function NewClientPage() {
 
             {createTenant.error && <ProblemNotice error={createTenant.error} />}
 
-            <button
+            {/* The shared primary CTA: the label ("Create client") stays mounted so the
+                button's accessible name never flickers to "Creating…" mid-request, and the
+                spinner is carried by `loading`. `disabled` keeps its two non-pending
+                reasons; ActionButton adds `loading` to them, so the effective disabled
+                logic is unchanged. */}
+            <ActionButton
               type="submit"
               title={refusal ?? undefined}
-              disabled={createTenant.isPending || name.trim().length < 2 || Boolean(refusal)}
-              className={PRIMARY_BUTTON}
+              loading={createTenant.isPending}
+              disabled={name.trim().length < 2 || Boolean(refusal)}
             >
               <Building2 aria-hidden className="h-4 w-4" />
-              {createTenant.isPending ? "Creating…" : "Create client"}
-            </button>
+              Create client
+            </ActionButton>
             {refusal && <p className="text-xs text-ink-muted">{refusal}</p>}
           </form>
         </Card>
@@ -749,15 +754,16 @@ function CreatedPanel({
                 className={FIELD}
               />
             </label>
-            <button
+            <ActionButton
               type="submit"
               title={refusal ?? undefined}
-              disabled={invite.isPending || !email.trim() || Boolean(refusal)}
-              className={`${PRIMARY_BUTTON} mt-5`}
+              loading={invite.isPending}
+              disabled={!email.trim() || Boolean(refusal)}
+              className="mt-5"
             >
               <Mail aria-hidden className="h-4 w-4" />
-              {invite.isPending ? "Creating…" : "Create invite"}
-            </button>
+              Create invite
+            </ActionButton>
           </form>
 
           {invite.error && <ProblemNotice error={invite.error} />}
