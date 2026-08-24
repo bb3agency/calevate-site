@@ -647,3 +647,247 @@ async def test_without_the_api_secret_a_refund_degrades_honestly(
         )
     assert raised.value.code == "payments_not_configured"
     assert [r for r in await _ledger(tenant_id) if r[0] == "refund"] == []
+
+
+async def test_with_no_provider_at_all_issue_refund_refuses_before_the_wire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployment with NO payment provider (not merely no API secret) cannot refund at
+    all: `issue_refund` refuses on `capability.available` — a different arm and a different
+    reason from the missing-secret degradation above (payments.py:1289-1290)."""
+    tenant_id = await _tenant()
+    monkeypatch.setattr(get_settings(), "payment_provider", None)
+
+    def never(_r: httpx.Request) -> httpx.Response:
+        raise AssertionError("an unconfigured deployment must never reach the provider")
+
+    _install_refund(monkeypatch, never)
+    with pytest.raises(ProblemError) as raised:
+        await payments.issue_refund(
+            tenant_id=tenant_id, payment_id="pay_x", amount_inr=Decimal("100.00")
+        )
+    assert raised.value.code == "payments_not_configured"
+
+
+# ============================================================================
+# The callback route — degradation when a secret is missing (a UNIT each)
+# ============================================================================
+
+
+async def test_the_callback_refuses_when_no_provider_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No provider at all ⇒ the callback cannot be verified and refuses, rather than
+    waving a browser-supplied "payment succeeded" through (payment_routes.py:479-480)."""
+    principal = Principal(
+        realm="client",
+        user_id=uuid.uuid4(),
+        tenant_id=await _tenant(),
+        role="owner",
+        impersonating=False,
+    )
+    monkeypatch.setattr(get_settings(), "payment_provider", None)
+    with pytest.raises(ProblemError) as raised:
+        await confirm_topup_callback(
+            CheckoutCallbackIn(
+                razorpay_order_id="order_cb",
+                razorpay_payment_id="pay_cb",
+                razorpay_signature="whatever",
+            ),
+            principal,
+        )
+    assert raised.value.code == "payments_not_configured"
+
+
+async def test_the_callback_refuses_when_the_key_secret_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provider + key id + webhook secret present (so `capability.available` is True) but
+    no KEY SECRET: there is no way to verify a callback, so it refuses rather than accepting
+    an unverifiable success from the browser (payment_routes.py:481-485)."""
+    principal = Principal(
+        realm="client",
+        user_id=uuid.uuid4(),
+        tenant_id=await _tenant(),
+        role="owner",
+        impersonating=False,
+    )
+    monkeypatch.setattr(get_settings(), "razorpay_key_secret", None)
+    with pytest.raises(ProblemError) as raised:
+        await confirm_topup_callback(
+            CheckoutCallbackIn(
+                razorpay_order_id="order_cb",
+                razorpay_payment_id="pay_cb",
+                razorpay_signature="whatever",
+            ),
+            principal,
+        )
+    assert raised.value.code == "payments_not_configured"
+
+
+# ============================================================================
+# refund.processed — an unknown tenant is real money we cannot attribute (404)
+# ============================================================================
+
+
+async def test_a_refund_for_an_unknown_tenant_404s_and_writes_nothing() -> None:
+    """A valid-UUID tenant in the notes that names no organization is a 404, not a silent
+    ack: the money is real and must reach a human, not nobody's wallet
+    (payment_routes.py:656-658)."""
+    ghost = uuid.uuid4()
+    raw, headers = _sign(
+        _refund_envelope(refund_id=_refund_id("GHOST"), payment_id="pay_g", tenant_id=ghost)
+    )
+    async with _client() as http:
+        response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 404
+    assert response.json()["type"].endswith("/not_found")
+
+
+# ============================================================================
+# The refund route — money-shape edge cases (a UNIT each)
+# ============================================================================
+
+
+def test_a_float_refund_amount_is_refused_at_the_boundary() -> None:
+    """`amount_inr` is Decimal-or-string on the wire; a float is refused by the validator
+    before any handler runs (payment_routes.py:711-713)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as raised:
+        RefundIn(payment_id="pay_1", amount_inr=25.0, reason="x")  # type: ignore[arg-type]
+    assert "float" in str(raised.value)
+
+
+async def test_the_refund_route_refuses_a_non_positive_amount(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zero or negative refund amount is refused before the provider is called
+    (payment_routes.py:772-773)."""
+    tenant_id = await _tenant()
+    pid = _payment_id("ZERO")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    def never(_r: httpx.Request) -> httpx.Response:
+        raise AssertionError("a non-positive refund must never reach the provider")
+
+    seen = _install_refund(monkeypatch, never)
+    with pytest.raises(ProblemError) as raised:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("0.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    assert raised.value.code == "invalid_refund_amount"
+    assert seen == []
+    assert [r for r in await _ledger(tenant_id) if r[0] == "refund"] == []
+
+
+# ============================================================================
+# create_refund — a 200 that is not JSON is unreadable, never fabricated
+# ============================================================================
+
+
+async def test_a_non_json_200_refund_answer_is_unreadable() -> None:
+    """A 200 whose body will not parse leaves `body = None` (payments.py:891-892) and the
+    refund is refused rather than recorded against a fabricated id."""
+
+    def responder(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<<not json>>")
+
+    adapter, _seen = _refund_adapter(responder)
+    with pytest.raises(ProblemError) as raised:
+        await adapter.create_refund(
+            payment_id="pay_1",
+            amount_inr=Decimal("500.00"),
+            notes={},
+            idempotency_key="rfnd_key_0123456789",
+        )
+    assert raised.value.code == "refund_unreadable"
+
+
+# ============================================================================
+# extract_refund — the remaining refusal arms, each hit precisely
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    ("envelope", "code"),
+    [
+        # non-dict envelope: 1137->1143
+        (None, "refund_payload_unrecognized"),
+        # dict envelope, non-dict payload: 1139->1143
+        ({"event": "refund.processed"}, "refund_payload_unrecognized"),
+        # entity present but no id: 1152
+        (
+            {"payload": {"refund": {"entity": {"payment_id": "p", "currency": "INR"}}}},
+            "refund_payload_unrecognized",
+        ),
+        # entity with id + payment_id but a non-INR currency: 1168
+        (
+            {"payload": {"refund": {"entity": {"id": "r", "payment_id": "p", "currency": "USD"}}}},
+            "payment_currency_unsupported",
+        ),
+    ],
+    ids=["non-dict-envelope", "non-dict-payload", "no-refund-id", "wrong-currency"],
+)
+def test_extract_refund_names_each_refusal_precisely(envelope: Any, code: str) -> None:
+    with pytest.raises(ProblemError) as raised:
+        payments.extract_refund(envelope)
+    assert raised.value.code == code
+
+
+# ============================================================================
+# credit_refund — one refund id, two amounts, is a doctored replay (conflict)
+# ============================================================================
+
+
+async def test_the_same_refund_id_at_a_different_amount_is_a_conflict() -> None:
+    """The ledger `ref` is the guarantee: a refund already recorded, arriving again at a
+    DIFFERENT amount, is refused rather than absorbed (payments.py:1223-1225)."""
+    tenant_id = await _tenant()
+    pid = _payment_id("CONF")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    rid = _refund_id("CONF")
+    first = payments.RefundEvent(
+        refund_id=rid,
+        payment_id=pid,
+        tenant_id=tenant_id,
+        amount_inr=Decimal("1000.00"),
+        currency="INR",
+    )
+    doctored = payments.RefundEvent(
+        refund_id=rid,
+        payment_id=pid,
+        tenant_id=tenant_id,
+        amount_inr=Decimal("2000.00"),
+        currency="INR",
+    )
+    async with tenant_session(tenant_id) as session:
+        recorded = await payments.credit_refund(session, refund=first)
+    assert recorded.recorded is True
+    with pytest.raises(ProblemError) as raised:
+        async with tenant_session(tenant_id) as session:
+            await payments.credit_refund(session, refund=doctored)
+    assert raised.value.code == "refund_amount_conflict"
+    # Only the original compensating entry exists — the conflict wrote nothing.
+    assert len([r for r in await _ledger(tenant_id) if r[0] == "refund"]) == 1
+
+
+# ============================================================================
+# failed_payment_summary — best-effort, a shape it cannot read yields {}
+# ============================================================================
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        None,  # non-dict envelope: 1314->1320
+        {"payload": "not-a-dict"},  # non-dict payload: 1316->1320
+        {"payload": {"payment": "not-a-dict"}},  # non-dict payment entity: 1318->1320
+    ],
+    ids=["non-dict-envelope", "non-dict-payload", "non-dict-payment"],
+)
+def test_failed_payment_summary_is_empty_for_a_shape_it_cannot_read(envelope: Any) -> None:
+    assert payments.failed_payment_summary(envelope) == {}
