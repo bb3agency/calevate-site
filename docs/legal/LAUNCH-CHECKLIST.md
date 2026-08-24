@@ -104,10 +104,20 @@ so this is not optional hygiene, it is the transfer basis for the product's core
   The code already treats call audio as if it may be SPDI; nothing in the tree may answer the
   question.
 - **CERT-In 6-hour breach reporting** applicability — treat as binding; the runbook
-  (`runbooks/data-breach-notification.md`) exists, the Data Protection Board's reporting
-  channel is an outstanding lookup (DP-12).
+  (`runbooks/data-breach-notification.md`) now carries the 6-hour clock (S-7/FN-1). Two
+  external lookups remain: whether a small India-only SaaS is *in scope* (advocate), and
+  the **CERT-In reporting channel** itself — a sibling of the Data Protection Board's
+  channel lookup (DP-12), neither yet established.
 - **Exact DPA retention numbers** — uploaded campaign contacts still have no clock by design
   (DP-13); the period is a founder+counsel DPA commitment, not a code default to invent.
+- **Under-floor recording erasure** — whether a DPDP erasure should destroy a call
+  recording younger than the 90-day floor is a founder decision, and it is blocked on the
+  **Bolna written erasure commitment** (pilot gate 12(f)); today such audio is deferred to
+  its lawful `erase_after`, which is correct under either answer.
+- **The 90-day recording-floor authority** — whether the floor is the TRAI opt-out cooling
+  period or UL clause 39.20 (which binds licensees, not telemarketers) is a counsel
+  question distinct from voice-as-biometric; the floor must be carried as a to-confirm, not
+  as fact (hard rule 11; tracked in `tests/dpdp_known_gaps_test.py`).
 - **Model B + TM + client DID** confirmed as the intended TCCCPR pattern for AI outbound —
   written confirmation from a telecom advocate (playbook §20).
 
