@@ -45,6 +45,7 @@ import {
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  TermGloss,
   formatCallCap,
   formatINR,
   formatIST,
@@ -188,7 +189,17 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           quote={agent.recording_notice_line}
           checked={agent.recording_notice_enabled}
           pending={setDisclosure.isPending}
-          offNote="Calls are still recorded — this only stops the agent announcing it. Telling callers their call is recorded is still your responsibility under the DPDP Act; with this off, it has to be covered by your own privacy notice or consent. If a caller asks, the agent still says yes."
+          offNote={
+            <>
+              Calls are still recorded — this only stops the agent announcing it. Telling
+              callers their call is recorded is still your responsibility under the{" "}
+              <TermGloss term="DPDP">
+                India&apos;s Digital Personal Data Protection Act
+              </TermGloss>{" "}
+              Act; with this off, it has to be covered by your own privacy notice or
+              consent. If a caller asks, the agent still says yes.
+            </>
+          }
           onChange={(next) => setDisclosure.mutate({ recording_notice_enabled: next })}
         />
       </div>
@@ -246,7 +257,7 @@ function NoticeToggle({
   quote: string;
   checked: boolean;
   pending: boolean;
-  offNote: string;
+  offNote: ReactNode;
   onChange: (next: boolean) => void;
 }) {
   return (

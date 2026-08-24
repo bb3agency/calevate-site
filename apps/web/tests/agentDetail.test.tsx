@@ -491,7 +491,14 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).not.toContain("“”");
     // The two sentences a screen like this most easily omits.
     expect(container.textContent).toContain("Calls are still recorded");
-    expect(container.textContent).toContain("still your responsibility under the DPDP Act");
+    // "DPDP" now carries a hover gloss, so it renders in its own element and the gloss
+    // text interleaves with the sentence in textContent; assert the term and the phrases
+    // around it rather than one contiguous run.
+    expect(container.textContent).toContain("still your responsibility under the");
+    expect(container.textContent).toContain("DPDP");
+    expect(container.textContent).toContain(
+      "Act; with this off, it has to be covered by your own privacy notice or consent",
+    );
     // And, in both off-states, the agent still answers honestly when asked.
     expect(container.textContent).toContain("the agent still says it is an AI");
     expect(container.textContent).toContain("the agent still says yes");
