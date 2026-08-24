@@ -61,6 +61,11 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     generated_at: "2026-08-13T04:30:00Z",
     document_type: "tax_invoice",
     document_blockers: [],
+    // Registered tax invoice: the bill-of-supply "estimated" preview fields are null.
+    estimated_gst_inr: null,
+    estimated_gst_rate_pct: null,
+    estimated_total_inr: null,
+    tax_note: null,
     supplier: {
       legal_name: "Calevate Technologies Private Limited",
       address: "Plot 42, Madhapur, Hyderabad 500081",
