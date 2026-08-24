@@ -527,6 +527,16 @@ function WebhookForm({
   const create = useCreateEndpoint(session);
   const [url, setUrl] = useState("");
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
+  // The three `call.completed` opt-ins. All start OFF, matching the server default and
+  // the base contract (summary and outcome only). `includeRawTranscript` is layered on
+  // `includeTranscript` — the server refuses raw without redacted — so the checkbox is
+  // disabled until the redacted transcript is on, and turning that off clears raw too.
+  const [includeRecordingUrl, setIncludeRecordingUrl] = useState(false);
+  const [includeTranscript, setIncludeTranscript] = useState(false);
+  const [includeRawTranscript, setIncludeRawTranscript] = useState(false);
+  // Only meaningful when the client subscribes to `call.completed`; otherwise nothing
+  // carries them. Shown regardless so the choice is visible, but the copy says so.
+  const callCompletedSelected = events.includes("call.completed");
 
   return (
     <Card title="Send events to your own system">
@@ -540,7 +550,15 @@ function WebhookForm({
         onSubmit={(e) => {
           e.preventDefault();
           create.mutate(
-            { url, events },
+            {
+              url,
+              events,
+              include_recording_url: includeRecordingUrl,
+              include_transcript: includeTranscript,
+              // Never send raw without redacted, matching the server's own rule; the UI
+              // already keeps them in step, and this is the belt to that braces.
+              include_raw_transcript: includeTranscript && includeRawTranscript,
+            },
             {
               onSuccess: (data) => {
                 onSecret(data.secret);
@@ -578,6 +596,75 @@ function WebhookForm({
             )
           }
         />
+        {/* The `call.completed` extras. Off by default: the base body is the summary and
+            the outcome, and each of these sends more of the customer's own data to your
+            endpoint, so each is a deliberate choice. */}
+        <fieldset className="space-y-1.5 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+          <legend className={`${FIELD_LABEL} px-1`}>When a call finishes, also send…</legend>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={includeRecordingUrl}
+              disabled={!write.allowed}
+              onChange={(e) => setIncludeRecordingUrl(e.target.checked)}
+            />
+            <span className="text-slate-700 dark:text-slate-300">
+              A link to the call recording
+              <span className="block text-xs text-slate-500">
+                A short-lived, signed link to our copy of the audio — not the audio itself.
+                It expires within minutes, so fetch it as soon as you receive it.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={includeTranscript}
+              disabled={!write.allowed}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setIncludeTranscript(on);
+                // Raw can never outlive redacted — the server refuses that pairing.
+                if (!on) setIncludeRawTranscript(false);
+              }}
+            />
+            <span className="text-slate-700 dark:text-slate-300">
+              The transcript, redacted
+              <span className="block text-xs text-slate-500">
+                The conversation with personal details (numbers, IDs, OTPs) masked — the
+                same text your team sees on the call screen.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={includeRawTranscript}
+              // The second opt-in only makes sense on top of the first, and the server
+              // requires it — so the control is dead until the redacted transcript is on.
+              disabled={!write.allowed || !includeTranscript}
+              onChange={(e) => setIncludeRawTranscript(e.target.checked)}
+            />
+            <span className="text-slate-700 dark:text-slate-300">
+              The transcript, unredacted
+              <span className="block text-xs text-amber-700 dark:text-amber-400">
+                Sends the FULL transcript — every phone number, ID and OTP spoken on the
+                call — to your endpoint in the clear. Only turn this on if your system is
+                allowed to hold that data. Turning it on needs the same permission as
+                reading a raw transcript, and every delivery that carries it is written to
+                your audit log.
+              </span>
+            </span>
+          </label>
+          {!callCompletedSelected && (includeRecordingUrl || includeTranscript) && (
+            <p className="px-1 text-xs text-slate-500">
+              These only take effect when you also subscribe to “A call finishes” above.
+            </p>
+          )}
+        </fieldset>
         <button
           type="submit"
           disabled={!write.allowed || create.isPending || !url || events.length === 0}
