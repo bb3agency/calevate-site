@@ -68,6 +68,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
+    from apps.api.agents.script_routes import router as script_router
     from apps.api.agents.voice_routes import router as voice_router
     from apps.api.authn.routes import (
         admin_auth_router,
@@ -167,6 +168,10 @@ def _mount_routers(application: FastAPI) -> None:
     # Before `agents_router`: `/v1/agents/lanes` is a literal path and
     # `/v1/agents/{agent_id}` would swallow it if the parameterised router won.
     application.include_router(publishing_router)
+    # Before `agents_router`: the structured-script builder lives under
+    # `/v1/agents/{agent_id}/script/...`; mounting it first keeps its literal `script`
+    # subsegment from being shadowed by any `/v1/agents/{agent_id}` route.
+    application.include_router(script_router)
     application.include_router(agents_router)
     # The ACCOUNT-level model default (D-454). Its own paths (`/v1/organization/...`,
     # `/v1/admin/organizations/...`) collide with nothing above, so mount order is not

@@ -171,7 +171,7 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
 
       <Card title="What it says">
         <div className="space-y-6">
-          <ScriptNote />
+          <ScriptNote slug={slug} agentId={agent.id} />
           <OpeningNotices agent={agent} />
         </div>
       </Card>
@@ -196,20 +196,17 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
 }
 
 /**
- * The script, as the thing it is: authored with you, applied deliberately, not shown here.
+ * The script: now client-authored in the structured builder, still applied deliberately.
  *
- * There is no client-realm read of the prompt body and there deliberately is not one: a
- * prompt carries the client's prices, staff names and call-handling rules, and the only
- * endpoint that serves it is admin-realm (`GET /v1/admin/tenants/{t}/agents/{a}/prompt`).
- * So this panel does not quote a script it cannot fetch and does not offer an editor that
- * would 403 — it names what the script decides, and who moves it.
- *
- * The sentence about Apply is the client half of §2b's two-speed publishing: the roster's
- * lane table states the rule for the platform, and this states it for the one thing on
- * this screen that waits. `PublishingPanel` above is where a WAITING version actually
- * shows, with both version pointers as data.
+ * ⚠ THIS SUPERSEDES THE OLD "authored with your account manager" COPY on the founder's
+ * approved decision that the structured builder is the primary authoring model. The panel
+ * links into `/c/{slug}/agents/{agentId}/script` (the builder), which STAGES every edit —
+ * a change still never reaches a live call until it is deliberately applied, which is the
+ * §2b two-speed guarantee D-21's regression concern is really about. `PublishingPanel`
+ * above is where a WAITING version shows, with both version pointers as data.
  */
-function ScriptNote() {
+function ScriptNote({ slug, agentId }: { slug: string; agentId: string }) {
+  const { href } = useClientRealm();
   return (
     <section>
       <SectionHeading icon={<MessageSquareQuote className="h-3.5 w-3.5" />}>
@@ -217,13 +214,18 @@ function ScriptNote() {
       </SectionHeading>
       <p className="mt-2 text-sm text-ink-muted">
         The script decides what the agent says and how it handles a call — your prices, your
-        staff, what to do when someone asks for something you do not offer. It is written
-        and changed with your account manager, and a change never reaches a live call until
-        it is deliberately applied, so nothing a caller hears moves by accident.
+        staff, what to do when someone asks for something you do not offer. Build it as an
+        opening line, steps and questions, or let AI draft it from a description. A change
+        never reaches a live call until you apply it, so nothing a caller hears moves by
+        accident.
       </p>
-      <p className="mt-2 text-sm text-ink-muted">
-        Anything waiting to be applied is listed at the top of this page.
-      </p>
+      <Link
+        href={href(`/c/${slug}/agents/${agentId}/script`)}
+        className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:text-brand-deep"
+      >
+        <MessageSquareQuote aria-hidden className="h-4 w-4" />
+        Open the script builder
+      </Link>
     </section>
   );
 }

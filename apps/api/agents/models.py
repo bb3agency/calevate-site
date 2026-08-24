@@ -5,7 +5,7 @@ agents) use use_alter so Alembic emits them as separate ALTERs after both tables
 """
 
 from datetime import datetime
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 from uuid import UUID
 
 from calevate_shared.config import SELECTABLE_ENGINES
@@ -284,6 +284,13 @@ class PromptVersion(PKMixin, TimestampMixin, Base):
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # The authored STRUCTURED form (`calevate_shared.call_script.CallScript`) this version's
+    # `body` was compiled from — opening line, ordered steps, FAQ, end-call rules, merge
+    # variables. NULL means the version was authored as freeform text (everything written
+    # before the structured builder existed); the builder represents that losslessly with
+    # `CallScript.from_freeform(body)`. Stamped at INSERT beside `body`, never updated
+    # (append-only). Migration c7e2b4f019ad.
+    structured_script: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     compiled_t0_context: Mapped[str | None] = mapped_column(Text)
     # Operator-facing: why this version exists ("rollback to v3", "new pricing").
     # NOT compiled_t0_context — that is a build artifact OF the version, reserved by
