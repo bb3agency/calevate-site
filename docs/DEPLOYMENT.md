@@ -114,6 +114,21 @@ host (api/workers run containerized; builds happen in Docker)~~ — **struck by 
 below**, jq, `systemd-timesyncd`
 (webhook ±5-min skew checks depend on it).
 
+> **pm2's log directory is a host prerequisite and nothing creates it.**
+> `apps/web/ecosystem.config.cjs` writes `/var/log/calevate/web-out.log` and
+> `web-error.log`; that path needs root, the deploy account has none, and pm2's own
+> "Creating folder" attempt fails. It cost a full deploy — the web step is the LAST one,
+> so migrations had run and all three containers had been swapped before it failed. Once,
+> as root:
+>
+> ```sh
+> sudo install -d -o calevate -g calevate -m 0755 /var/log/calevate
+> ```
+>
+> `preflight_plan` now checks it when `web` is in the plan, by reading the path out of the
+> ecosystem file and attempting an actual write — so the refusal comes before the build
+> rather than after the swap.
+
 > **NODE ITSELF IS NOT ON THIS LIST BY ACCIDENT — IT WAS NEVER INSTALLED, AND THE FIRST
 > DEPLOY FOUND OUT.** `scripts/vps-deploy.sh --all` aborted at `preflight (plan-scoped)`
 > with "pnpm is not installed", and the real cause was one level down: no `node`, so no
