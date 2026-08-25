@@ -640,3 +640,120 @@ async def test_terms_whose_window_has_closed_report_lapsed_not_none() -> None:
     assert body["state"] == "lapsed", "priced-then-expired is not the same as never priced"
     assert body["in_effect"] is None
     assert len(body["history"]) == 1, "the expired row is still history, not nothing"
+
+
+# ------------------------------------------------------------------ the margin guard
+#
+# D-469. A committed-volume bundle sells minutes the same way a prepaid pack does, so it
+# answers to the same floor — but a pack's bonus is capped by code review and a CI guard,
+# while these terms are typed into a console during an onboarding call with neither. These
+# tests pin the POSTURE, which is deliberately two different answers to two different
+# facts: a guaranteed loss is refused, a thin deal is allowed and said out loud.
+
+
+async def test_terms_that_price_a_minute_below_cost_are_refused() -> None:
+    """The one shape nobody intends. ₹7,000 for 2,000 minutes is ₹3.50/min against a ₹3.70
+    floor — it loses money on every minute, and worse the harder the client uses it."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    response = await _post(
+        token,
+        tenant_id,
+        {"monthly_fee_inr": "7000.00", "included_minutes": 2000, "overage_rate_inr": "8.0000"},
+    )
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    # RFC-9457: the machine-readable code is the tail of `type`, not a bare field.
+    assert body["type"].endswith("/plan_below_cost")
+    # The refusal has to name WHICH rate and WHAT it must clear, or the operator is left
+    # guessing which of the three numbers they typed to move.
+    assert "committed" in body["detail"]
+    assert "3.70" in body["detail"]
+    assert body["remediation"]
+
+    # And nothing was written: a refused agreement must not leave a plan row behind.
+    assert await _plan_rows(tenant_id) == []
+
+
+async def test_a_below_cost_overage_is_refused_even_behind_a_healthy_bundle() -> None:
+    """A comfortable committed rate does not launder the overage — the client pays that
+    one on exactly the minutes they use hardest."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    response = await _post(
+        token,
+        tenant_id,
+        {"monthly_fee_inr": "10000.00", "included_minutes": 2000, "overage_rate_inr": "2.0000"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("/plan_below_cost")
+    assert "overage" in response.json()["detail"]
+
+
+async def test_a_thin_but_profitable_bundle_is_accepted_and_flagged() -> None:
+    """₹4.00/min clears the ₹3.70 cost but not the 20% target. That is a founder's call to
+    make — a lighthouse client, a displacement — so the route records it and SAYS so
+    rather than standing in the way of a commercial decision."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    response = await _post(
+        token,
+        tenant_id,
+        {"monthly_fee_inr": "4000.00", "included_minutes": 1000},
+    )
+
+    assert response.status_code == 201, response.text
+    margin = response.json()["margin"]
+    assert margin["below_target_margin"] == ["committed"]
+    assert margin["effective_committed_rate_inr_per_min"] == "4.00"
+    # 7.5% of each rupee is ours; published as a FRACTION so it compares directly against
+    # `min_gross_margin` in the same payload.
+    assert margin["committed_gross_margin"] == "0.0750"
+    assert margin["min_gross_margin"] == "0.20"
+    assert margin["cost_floor_inr_per_min"] == "3.70"
+    # The agreement really was recorded — a warning is not a refusal.
+    assert len(await _plan_rows(tenant_id)) == 1
+
+
+async def test_every_plan_read_carries_its_margin() -> None:
+    """The margin of a bundle is a number on the screen that SETS it, not something
+    discovered months later when a client reconciles."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    assert (
+        await _post(
+            token,
+            tenant_id,
+            {"monthly_fee_inr": "10000.00", "included_minutes": 2000, "overage_rate_inr": "8.0000"},
+        )
+    ).status_code == 201
+
+    in_effect = (await _get(token, tenant_id)).json()["in_effect"]
+
+    # ₹10,000 / 2,000 = ₹5.00/min, 26% margin at the ₹3.70 floor.
+    assert in_effect["margin"]["effective_committed_rate_inr_per_min"] == "5.00"
+    assert in_effect["margin"]["committed_gross_margin"] == "0.2600"
+    assert in_effect["margin"]["overage_rate_inr_per_min"] == "8.0000"
+    assert in_effect["margin"]["below_target_margin"] == []
+
+
+async def test_a_retainer_with_no_bundled_minutes_quotes_no_committed_rate() -> None:
+    """Unset is not zero. A fee with no included minutes has no per-minute rate to judge,
+    and reading it as ₹0.00 would refuse an ordinary agreement as a below-cost sale."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    response = await _post(token, tenant_id, {"monthly_fee_inr": "9999.00"})
+
+    assert response.status_code == 201, response.text
+    margin = response.json()["margin"]
+    assert margin["effective_committed_rate_inr_per_min"] is None
+    assert margin["committed_gross_margin"] is None
+    assert margin["overage_rate_inr_per_min"] is None
+    assert margin["below_target_margin"] == []

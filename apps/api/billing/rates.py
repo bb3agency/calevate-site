@@ -609,6 +609,147 @@ def tts_cost_inr(chars: int) -> Decimal:
 SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = Decimal("3.70")
 
 
+# --- THE ONE GROSS-MARGIN FLOOR, AND THE ONE FORMULA (hoisted from credit_packs) ------
+#
+# `MIN_GROSS_MARGIN` used to live in `billing/credit_packs.py`, beside the prepaid packs
+# that were the only thing checking a margin. A committed-volume BUNDLE plan
+# (`plans.monthly_fee` / `included_min` / `overage_rate`) sells minutes too, and nothing
+# verified ITS rates cleared the same floor — so an operator could agree a bundle below
+# cost by accident. That is a second caller for the same invariant, and a second COPY of
+# the constant would be exactly the "two ways to say one thing" defect the repo forbids:
+# the two would drift the day one is edited, and a founder reading "20% floor" would have
+# to know which module's 20% they were reading. So the floor and its formula live HERE, in
+# the lowest money module, next to the cost floor they are always compared against, and
+# `credit_packs.py` imports them. This is the same move `MONEY_Q`/`ROUNDING` already made
+# for the rounding facts one section up, and for the same reason.
+#
+# Gross margin here is `(rate - cost) / rate` — the fraction of each retail rupee that is
+# NOT supplier cost. Founder-approved: no minute may be sold below 20% margin, which caps
+# how deep a volume bonus (packs) or how thin a bundle rate (plans) may go.
+MIN_GROSS_MARGIN: Final[Decimal] = Decimal("0.20")
+
+
+def gross_margin_ratio(*, rate: Decimal, cost: Decimal) -> Decimal:
+    """`(rate - cost) / rate`, EXACT and unquantized. NUMERIC in, NUMERIC out (hard rule 7).
+
+    The one definition of gross margin, so the prepaid pack guard and the committed-bundle
+    guard cannot disagree about what the word means. Unquantized because callers divide by
+    it or compare it against a fraction floor — rounding here would round twice.
+
+    `rate` must be positive: a zero or negative retail rate has no defined margin (you
+    cannot express a supplier cost as a fraction of nothing), and it is a below-cost sale
+    the caller has already decided to refuse. Callers guard `rate > 0` before asking;
+    `committed_plan_margin` below does exactly that.
+    """
+    return (rate - cost) / rate
+
+
+# --- THE COMMITTED-VOLUME BUNDLE MARGIN GUARD (D-469) ---------------------------------
+#
+# WHY THIS LIVES IN THE COST MODEL AND NOT IN `plans.py` OR `terms.py`. `plans.py` answers
+# "which dated row is in effect"; `terms.py` is the writer of a row. Neither knows what a
+# minute COSTS — that is this module's whole subject, and the margin of a bundle is a
+# statement about a rate against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `MIN_GROSS_MARGIN`,
+# both of which live here. Putting the computation here keeps it a pure function of the two
+# founder-approved constants beside it, exactly as `pack_gross_margin_ratio` sits beside
+# them for the prepaid motion, and keeps the admin write path (`admin/routes.py`) a thin
+# caller that decides POSTURE (refuse vs warn) rather than arithmetic.
+#
+# The effective committed per-minute rate of a bundle is `monthly_fee / included_min`: the
+# retainer buys `included_min` minutes, so that division is what the client actually pays
+# for each bundled minute. The overage rate is `overage_rate` directly. Either may be UNSET
+# (`None`), and unset is NOT zero (the null-semantics rule `terms.CommercialTerms` and
+# `admin/routes.CommercialTermsIn` both state): a bundle with no `included_min` quotes no
+# committed rate to check, and an unset `overage_rate` quotes no overage to check.
+
+
+@dataclass(frozen=True, slots=True)
+class RateMargin:
+    """One retail per-minute rate, judged against the cost floor and the margin target.
+
+    `below_cost` and `below_target` are DISJOINT and each drives a different posture at the
+    write path: a rate below cost is a guaranteed loss (refused server-side), a rate at or
+    above cost but under `MIN_GROSS_MARGIN` is a deliberate thin-margin call (warned, not
+    refused). `margin` is `None` only when the rate is non-positive, where the ratio is
+    undefined — the rate is still `below_cost` (a free or negative minute is a loss), it
+    simply has no fraction to display.
+    """
+
+    rate: Decimal
+    margin: Decimal | None
+    below_cost: bool
+    below_target: bool
+
+
+def _rate_margin(rate: Decimal, *, cost: Decimal, target: Decimal) -> RateMargin:
+    """Judge one rate. `below_cost` strictly (`rate < cost`); `below_target` only when the
+    rate clears cost yet the margin falls under the target."""
+    below_cost = rate < cost
+    margin = gross_margin_ratio(rate=rate, cost=cost) if rate > 0 else None
+    below_target = margin is not None and not below_cost and margin < target
+    return RateMargin(rate=rate, margin=margin, below_cost=below_cost, below_target=below_target)
+
+
+@dataclass(frozen=True, slots=True)
+class CommittedPlanMargin:
+    """The margin verdict on a committed-volume bundle's two client rates.
+
+    `committed` / `overage` are `None` when that rate is unset — nothing to judge, not a
+    zero. `below_cost()` / `below_target()` name the rates that tripped each line, so the
+    caller can build a message and a log line that say WHICH rate is the problem.
+    """
+
+    effective_committed_rate: Decimal | None
+    committed: RateMargin | None
+    overage: RateMargin | None
+
+    def _judged(self) -> tuple[tuple[str, RateMargin], ...]:
+        """The rates that were actually set, by name — an unset rate is judged by nothing."""
+        pairs = (("committed", self.committed), ("overage", self.overage))
+        return tuple((name, rm) for name, rm in pairs if rm is not None)
+
+    def below_cost(self) -> tuple[str, ...]:
+        """Names of the set rates priced below the cost floor — a guaranteed loss."""
+        return tuple(name for name, rm in self._judged() if rm.below_cost)
+
+    def below_target(self) -> tuple[str, ...]:
+        """Names of the set rates at/above cost but under `MIN_GROSS_MARGIN`."""
+        return tuple(name for name, rm in self._judged() if rm.below_target)
+
+
+def committed_plan_margin(
+    *,
+    monthly_fee: Decimal | None,
+    included_min: int | None,
+    overage_rate: Decimal | None,
+    cost: Decimal = SELF_SERVE_COST_FLOOR_INR_PER_MIN,
+    target: Decimal = MIN_GROSS_MARGIN,
+) -> CommittedPlanMargin:
+    """The gross margin of a committed bundle's committed and overage rates at the cost floor.
+
+    Pure and total: every argument may be `None` (unset), and unset yields a `None` verdict
+    for that rate rather than a judged zero — the load-bearing null semantics
+    `CommercialTerms` states. A committed rate exists only when BOTH `monthly_fee` and a
+    POSITIVE `included_min` are set; `included_min` of 0 (or unset) means no minutes are
+    bundled, so there is no committed per-minute rate to judge — every minute is overage.
+
+    `cost`/`target` are arguments with the founder-approved defaults so a test can pin an
+    exact case without reaching into module state, mirroring `pack_gross_margin_ratio`.
+    Decimal throughout (hard rule 7): the division uses `Decimal(included_min)`, never a
+    float, and the effective rate is left EXACT for the margin ratio — callers that display
+    it quantize once at the boundary.
+    """
+    if monthly_fee is not None and included_min is not None and included_min > 0:
+        effective = monthly_fee / Decimal(included_min)
+    else:
+        effective = None
+    committed = None if effective is None else _rate_margin(effective, cost=cost, target=target)
+    overage = None if overage_rate is None else _rate_margin(overage_rate, cost=cost, target=target)
+    return CommittedPlanMargin(
+        effective_committed_rate=effective, committed=committed, overage=overage
+    )
+
+
 #: The plan tiers whose every minute is charged at a published list price, with no
 #: included allowance in front of it. Spelled once because three places branch on it —
 #: the meter's `charge_for_call`, the runway framing and `billing.service
@@ -829,6 +970,7 @@ __all__ = [
     "ENGINE_REPORTS_TTS_MODEL",
     "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
     "LIST_PRICE_USD_INR",
+    "MIN_GROSS_MARGIN",
     "MONEY_Q",
     "PREPAID_TIERS",
     "PRICED_LLM_MODELS",
@@ -836,9 +978,13 @@ __all__ = [
     "ROUNDING",
     "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "TTS_INR_PER_10K_CHARS",
+    "CommittedPlanMargin",
     "LlmPriceAttestation",
     "LlmPriceAttestationReader",
+    "RateMargin",
     "attested_llm_prices",
+    "committed_plan_margin",
+    "gross_margin_ratio",
     "install_llm_price_attestations",
     "is_surchargeable_llm_model",
     "llm_cost_inr_per_minute",

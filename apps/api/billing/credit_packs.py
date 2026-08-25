@@ -51,17 +51,23 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Final
 
-from apps.api.billing.rates import MONEY_Q, ROUNDING
+from apps.api.billing.rates import (
+    MIN_GROSS_MARGIN,
+    MONEY_Q,
+    ROUNDING,
+    gross_margin_ratio,
+)
+
+# The gross-margin floor and its formula are HOISTED to `billing/rates.py` and imported
+# here (D-469): the committed-volume bundle plans now check the SAME invariant against the
+# SAME cost floor, and one constant in the lowest money module is the only way the two
+# guards cannot drift. Re-exported through this module's `__all__` so
+# `from billing.credit_packs import MIN_GROSS_MARGIN` — the spelling
+# `tests/credit_packs_test.py` uses — keeps working unchanged.
 
 # 1 credit = ₹1. A named constant rather than a bare `1` so the identity is greppable and
 # every derivation that assumes it (paid_credits, the effective-rate algebra) points here.
 CREDIT_INR: Final[Decimal] = Decimal("1")
-
-# The gross-margin floor every pack must clear at the cost floor. Gross margin here is
-# ``(effective_rate - cost) / effective_rate`` — the fraction of each retail rupee that is
-# not supplier cost. Founder-approved: no pack may be sold below 20% margin, which caps how
-# deep a volume bonus can go.
-MIN_GROSS_MARGIN: Final[Decimal] = Decimal("0.20")
 
 # The `meta.kind` every bonus ledger entry carries, mirroring `service.ADJUSTMENT_META_KIND`:
 # the ledger `reason` is the coarse enum ('bonus'), and this names the exact promotion so an
@@ -165,10 +171,12 @@ def pack_gross_margin_ratio(
 
     This is the number the margin guard asserts against `MIN_GROSS_MARGIN`. The cost is
     supplied by the caller from the cost model (`rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN`),
-    never baked in here, so the invariant re-scores when the cost model moves.
+    never baked in here, so the invariant re-scores when the cost model moves. The
+    `(effective - cost) / effective` formula is `rates.gross_margin_ratio` (D-469), shared
+    with the committed-bundle guard so the two cannot disagree about what margin means.
     """
     effective = pack_effective_rate_inr_per_min(pack, list_rate=list_rate)
-    return (effective - cost_inr_per_min) / effective
+    return gross_margin_ratio(rate=effective, cost=cost_inr_per_min)
 
 
 __all__ = [
