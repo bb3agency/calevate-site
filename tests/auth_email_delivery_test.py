@@ -112,9 +112,14 @@ class _Transport:
     def __init__(self, *, delivers: bool) -> None:
         self.delivers = delivers
         self.sent: list[tuple[str, str, str]] = []
+        self.sent_html: list[str | None] = []
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+        # `html` is recorded, not ignored. The double exists so the guard below can prove
+        # it implements the real Protocol; a parameter it accepted and dropped would keep
+        # that guard green while hiding whether the branded part was ever passed.
         self.sent.append((to, subject, body))
+        self.sent_html.append(html)
         return self.delivers
 
 

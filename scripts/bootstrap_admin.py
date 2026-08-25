@@ -54,8 +54,6 @@ from apps.api.core.console_links import ADMIN_CONSOLE_BASE, admin_bootstrap_link
 
 __all__ = ["ADMIN_CONSOLE_BASE", "main"]
 
-_SUBJECT = "Set up your Calevate administrator account"
-
 
 def _require_env() -> None:
     """Both URLs, for two different roles, and neither substitutes for the other.
@@ -87,17 +85,18 @@ async def _run(*, email: str, name: str | None, role: str) -> str:
     # Imported inside the function so `--help` works on a host with no database reachable,
     # and so an import error names this module rather than argparse's frame.
     from apps.api.authn.bootstrap import bootstrap_first_admin
+    from apps.workers.email_render import render
     from apps.workers.transport import get_transport
 
     result = await bootstrap_first_admin(email=email, name=name, role=role)
     link = _link(result.token)
 
-    body = (
-        "You have been made an administrator of a Calevate deployment.\n\n"
-        f"Set your password:\n\n{link}\n\n"
-        "This link works once and expires in one hour. If it expires, ask whoever "
-        "deployed this environment to run the bootstrap again.\n"
-    )
+    # THE SAME MESSAGE THE CONSOLE SENDS, not a second one written here. This script used
+    # to compose its own body — a different sentence, a different (wrong) URL — for the
+    # same act, so an operator added at deploy time and one added from the console got
+    # visibly different mail. `email_render` owns both halves of both.
+    message = render("admin_bootstrap", "admin", result.token)
+
     # Delivery is best-effort and its failure is NOT fatal: the link is printed below, and
     # a deployment whose mail provider is not configured yet must still be able to acquire
     # its first operator. A bootstrap that failed because SMTP was not ready would be a
@@ -106,7 +105,12 @@ async def _run(*, email: str, name: str | None, role: str) -> str:
     try:
         transport = get_transport()
         delivered = await asyncio.to_thread(
-            lambda: transport.send(to=result.email, subject=_SUBJECT, body=body)
+            lambda: transport.send(
+                to=result.email,
+                subject=message.subject,
+                body=message.text,
+                html=message.html,
+            )
         )
     except Exception as exc:
         print(f"warning: could not send the email ({type(exc).__name__})", file=sys.stderr)
