@@ -423,6 +423,12 @@ def _deliver(notice: AlertNotice) -> None:
         subject = _subject(notice)
         body = _body(notice)
         for attempt in (1, 2):
+            # PLAIN TEXT, DELIBERATELY, and this is the one sender that stays that way.
+            # An operator alert is grepped, forwarded to a pager gateway, and pasted into
+            # an incident channel; every one of those renders a multipart/alternative as
+            # either the raw markup or a stripped mess. The client-facing mail is branded
+            # (`workers/email_render`) because its reader is a business owner meeting the
+            # product; this reader is on call at 3am and wants the first line.
             if transport.send(to=recipient, subject=subject, body=body):
                 log.info(
                     "alert_delivered",

@@ -69,7 +69,11 @@ class RecordingTransport:
         self.sent: list[dict[str, str]] = []
         self.arrived = threading.Event()
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+        # `html` accepted because `transport.Transport` declares it (the branded
+        # alternative, `workers/email_render`). A double whose signature has drifted from
+        # the Protocol stops being evidence about the real call — which is what
+        # `tests/auth_email_delivery_test` exists to catch.
         self.sent.append({"to": to, "subject": subject, "body": body})
         self.arrived.set()
         return self.succeed

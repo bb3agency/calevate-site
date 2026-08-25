@@ -51,7 +51,8 @@ from apps.workers import transport as transport_module
 class Recorder:
     name = "recording"
     def __init__(self): self.sent = []
-    def send(self, *, to, subject, body):
+    def send(self, *, to, subject, body, html=None):  # noqa: ANN001, ANN201 — untyped double
+        # `html` accepted because `transport.Transport` declares it.
         self.sent.append(subject)
         return True
 
