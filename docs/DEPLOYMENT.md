@@ -297,6 +297,16 @@ hang up together — which is the trigger below, and is a resize away.
    starter runs 3. At the default that is 48 idle Postgres backends costing RAM the build
    spike needs — the pool is not free memory just because it is idle.
 
+   ⚠ **`DB_POOL_SIZE=6` in `.env` DOES NOTHING, and this row said to put it there.**
+   `compose.prod.yml` sets `DB_POOL_SIZE` in each service's `environment:` block
+   (`:84,:134,:153`), and a compose `environment:` entry overrides `env_file:` — so the
+   `.env` value is read and discarded. What those blocks interpolate is
+   **`API_DB_POOL_SIZE`, `VOICE_RUNTIME_DB_POOL_SIZE` and `WORKERS_DB_POOL_SIZE`**, each
+   defaulting to §2a's production number; compose resolves them from the project `.env`
+   at parse time. Those three are the knobs. Set them, not `DB_POOL_SIZE`, and the
+   `migrate` one-shot is fixed at 5 (`:181`) and is not tunable — correctly, it runs
+   alone between the build and the swap.
+
 **Better than either: stop building on the box.** Build the image in GitHub-hosted CI,
 push it to a registry, and have the VPS pull. Then `docker build` and `next build` never
 run beside a live call and 4 GB stops being tight — which also removes the reason §1 wants
