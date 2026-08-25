@@ -426,14 +426,20 @@ describe("the ROI calculator", () => {
 
   it("exposes an assumptions disclosure, closed by default and labelled illustrative", () => {
     const { container } = render(<Home />);
+    // The calculator now carries two disclosures (the benchmark assumptions and the "How
+    // we calculate" note). This asserts the ASSUMPTIONS one — where working days and the
+    // telecaller benchmarks now live, collapsed so the two primary inputs stay uncluttered.
     const details = [...calc(container).querySelectorAll("details")];
     expect(details.length).toBeGreaterThan(0);
-    const disclosure = details[0];
-    expect(disclosure.open).toBe(false);
-    expect(disclosure.querySelector("summary")?.textContent).toMatch(/how we calculate/i);
-    // The honesty note the brief requires: the numbers are framed as illustrative and
+    const disclosure = details.find((d) =>
+      /assumptions/i.test(d.querySelector("summary")?.textContent ?? ""),
+    );
+    expect(disclosure, "the assumptions disclosure did not render").toBeDefined();
+    expect(disclosure!.open).toBe(false);
+    expect(disclosure!.querySelector("summary")?.textContent).toMatch(/assumptions/i);
+    // The honesty note the brief requires: the benchmarks are framed as illustrative and
     // adjustable, not asserted as fact.
-    expect(disclosure.textContent).toMatch(/illustrative and\s*fully adjustable/i);
+    expect(disclosure!.textContent).toMatch(/pre-filled with illustrative benchmarks/i);
   });
 
   it("offers the missed-lead value as an opt-in, off by default", () => {

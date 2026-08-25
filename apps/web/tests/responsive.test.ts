@@ -364,6 +364,12 @@ describe("every scroll container can be reached from a keyboard", () => {
       "does not model — it hardcodes `overflow-x-auto`. It carries the same `role=region` " +
       "+ `aria-label` + `tabIndex={0}` inline, and the assertion checks that rather than " +
       "waiving it. (The screen's delivery-log table IS a `ScrollRegion`.)",
+    "app/c/[slug]/agents/[agentId]/script/ScriptBuilder.tsx":
+      "The compiled-prompt `<pre>` scrolls VERTICALLY (`max-h-[28rem]` + `whitespace-pre-" +
+      "wrap`, so it never scrolls sideways), which `ScrollRegion` does not model — it " +
+      "hardcodes `overflow-x-auto`. It carries the same `role=region` + `aria-label` + " +
+      "`tabIndex={0}` inline, exactly as the integrations delivered-payload `<pre>` does, " +
+      "and the assertion below checks that rather than waiving it.",
   };
 
   it("is a ScrollRegion, or is focusable in its own right", () => {

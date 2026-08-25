@@ -173,6 +173,7 @@ export function RoiCalculator() {
   const [callsPerAgentPerDay, setCallsPerAgent] = useState(
     TELECALLER.callsPerAgentPerDay.default,
   );
+  const [talkHoursPerDay, setTalkHours] = useState(TELECALLER.talkHoursPerDay.default);
   const [basePerAgentInr, setBase] = useState(TELECALLER.basePerAgentInr.default);
   const [loadedPerAgentInr, setLoaded] = useState(TELECALLER.loadedPerAgentInr.default);
   const [attritionPct, setAttrition] = useState(TELECALLER.attritionPctPerYear.default);
@@ -191,6 +192,7 @@ export function RoiCalculator() {
         avgMinutes,
         workingDays,
         callsPerAgentPerDay,
+        talkHoursPerDay,
         basePerAgentInr,
         loadedPerAgentInr,
         attritionPctPerYear: attritionPct,
@@ -202,6 +204,7 @@ export function RoiCalculator() {
       avgMinutes,
       workingDays,
       callsPerAgentPerDay,
+      talkHoursPerDay,
       basePerAgentInr,
       loadedPerAgentInr,
       attritionPct,
@@ -231,7 +234,8 @@ export function RoiCalculator() {
       <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8">
         <h3 className="text-lg font-semibold text-ink">Your call volume</h3>
         <p className="mt-1.5 text-sm text-ink-muted">
-          Start with what your line actually handles. Every figure below is yours to change.
+          Two numbers is all it takes. Everything else is pre-filled with local benchmarks
+          you can adjust later if you want to.
         </p>
         <div className="mt-6 space-y-6">
           <Control
@@ -248,30 +252,51 @@ export function RoiCalculator() {
             onChange={setAvgMinutes}
             unit="min"
           />
-          <Control
-            label="Working days a month"
-            bounds={USAGE.workingDays}
-            value={workingDays}
-            onChange={setWorkingDays}
-            unit="days"
-          />
         </div>
 
-        <h3 className="mt-8 border-t border-line pt-6 text-lg font-semibold text-ink">
-          What a telecaller costs
-        </h3>
-        <p className="mt-1.5 text-sm text-ink-muted">
-          Illustrative benchmarks for the role in Andhra Pradesh and Telangana — adjust
-          them to your own numbers.
-        </p>
-        <div className="mt-6 space-y-6">
+        <details className="group mt-8 border-t border-line pt-6">
+          {/* The summary carries an <h3>, matching the FAQ and the "How we calculate"
+              disclosure below — every disclosure on the page shares that shape, which the
+              landing tests assert across all of them. */}
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
+            <h3 className="text-sm font-semibold text-ink">
+              Assumptions — working days, and what a telecaller really costs
+            </h3>
+            <span className="shrink-0 text-xs font-medium text-brand-strong group-open:hidden">
+              Adjust
+            </span>
+            <span className="hidden shrink-0 text-xs font-medium text-ink-muted group-open:inline">
+              Hide
+            </span>
+          </summary>
+          <p className="mt-2 text-sm text-ink-muted">
+            Pre-filled with illustrative benchmarks for the role in Andhra Pradesh and
+            Telangana. You don&apos;t need to touch these — open them only to run the
+            comparison on your own numbers.
+          </p>
+          <div className="mt-6 space-y-6">
+            <Control
+              label="Working days a month"
+              bounds={USAGE.workingDays}
+              value={workingDays}
+              onChange={setWorkingDays}
+              unit="days"
+            />
           <Control
             label="Calls one telecaller handles a day"
             bounds={TELECALLER.callsPerAgentPerDay}
             value={callsPerAgentPerDay}
             onChange={setCallsPerAgent}
             unit="calls"
-            hint="A productive agent manages roughly 80–120 dials on a 5.5–6.5 hour shift."
+            hint="The dial ceiling — a productive agent starts roughly 80–120 dials on a 5.5–6.5 hour shift. On longer calls, talk-time (below) is the real limit."
+          />
+          <Control
+            label="Productive talk hours a day"
+            bounds={TELECALLER.talkHoursPerDay}
+            value={talkHoursPerDay}
+            onChange={setTalkHours}
+            unit="hrs"
+            hint="Actual talk time in a shift, after dialling, ringing, no-answers and wrap-up — usually 3–5 hours. This is why a longer call means fewer calls per agent, and more agents."
           />
           <Control
             label="Advertised base pay"
@@ -305,7 +330,8 @@ export function RoiCalculator() {
             unit="one-off"
             hint="Hiring, training and lost output — commonly ₹1–2 lakh, folded in monthly."
           />
-        </div>
+          </div>
+        </details>
       </div>
 
       {/* --- Results ------------------------------------------------------------- */}
@@ -324,6 +350,13 @@ export function RoiCalculator() {
             <span className="text-lg font-semibold text-ink-muted">
               telecaller{result.headcount === 1 ? "" : "s"}
             </span>
+          </p>
+          <p className="mt-1.5 text-sm text-ink-muted">
+            At {avgMinutes}-min calls, one agent handles about{" "}
+            <span className="font-semibold text-ink tabular-nums">
+              {result.effectiveCallsPerAgentPerDay}
+            </span>{" "}
+            a day — talk-time, not dialling, is the limit once calls run long.
           </p>
 
           <div className="mt-6 space-y-3">
