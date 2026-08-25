@@ -541,6 +541,19 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1/pending": pending,
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": defaults(),
+    // The other panels this screen mounts. They are not this file's subject, but an
+    // unstubbed route makes the harness THROW, and the panel then renders the generic
+    // "We could not reach Calevate" notice — a second element with role="alert". The two
+    // `findByRole("alert")` assertions below are about the MODEL panel's refusal, and
+    // `findByRole` fails on ambiguity, so leaving these unstubbed turns those tests into a
+    // race that CI loses more often than a laptop does.
+    "/v1/agents/agent-1/actions": { api_actions_enabled: false, calendar_available: false, tools: [] },
+    "/v1/integrations/credentials": [],
+    "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
+      items: [],
+      open_count: 0,
+      total: 0,
+    },
     ...over,
   };
 }

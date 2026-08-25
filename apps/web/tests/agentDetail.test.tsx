@@ -219,6 +219,18 @@ function routes(over: Record<string, unknown> = {}) {
     // these tests are about the pending/voice surface, not actions.
     "/v1/agents/agent-1/actions": { api_actions_enabled: false, calendar_available: false, tools: [] },
     "/v1/integrations/credentials": [],
+    // The KnowledgeGaps card's read, for the SAME reason — and it is not optional. Left
+    // unstubbed, the harness throws, the card renders the generic "We could not reach
+    // Calevate" notice, and the screen then holds TWO elements with role="alert". Every
+    // `findByRole("alert")` in this file is then a race it loses whenever that second
+    // alert has painted first: it is not a slow test, it is an ambiguous one, and it fails
+    // in CI far more often than here. Empty because gaps are `knowledgeGaps.test.tsx`'s
+    // subject; this only has to stop the panel raising an alert of its own.
+    "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
+      items: [],
+      open_count: 0,
+      total: 0,
+    },
     ...over,
   };
 }
