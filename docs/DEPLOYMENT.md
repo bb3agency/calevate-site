@@ -646,7 +646,13 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
     already swapped. Then a health poll on :3000.
 12. **nginx**: envsubst render → placeholder check → stage into
     `/var/lib/calevate/nginx-staging` → `sudo -n /usr/local/sbin/calevate-nginx-apply`,
-    gated on `NGINX_AUTO_RELOAD=1`. Unset, it renders and prints the install commands.
+    gated on `NGINX_AUTO_RELOAD=1`. Unset, it renders, COMPARES every rendered file
+    against what is installed, and FAILS the step naming the exact `install` commands
+    for the ones that differ — per file, never a glob. It used to print and return 0,
+    which let `record_deploy` file nginx as deployed at HEAD while the config on disk
+    was two commits behind; a deploy record that can be wrong is worse than none,
+    because the next operator reads it instead of the disk. So the first run of a
+    changed config fails with instructions and the second records something true.
     **The privileged half is a root-owned script the deploy account invokes with NO
     arguments** (§11) — it, and not the deploy, backs up the set on disk, installs, runs
     `nginx -t`, restores the previous files if the test fails (removing the ones this

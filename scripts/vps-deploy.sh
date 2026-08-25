@@ -1037,12 +1037,52 @@ render_nginx() {
 install_nginx() {
   step "install nginx config"
   if [[ "$NGINX_AUTO_RELOAD" != "1" ]]; then
-    log "NGINX_AUTO_RELOAD is not 1 — config rendered but NOT installed."
-    log "Review it, then install by hand:"
-    log "  sudo install -m 0644 $NGINX_STAGING/*.conf $NGINX_CONF_DIR/"
-    log "  sudo install -m 0644 $ROOT/infra/nginx/snippets/*.conf $NGINX_SNIPPET_DIR/"
-    log "  sudo nginx -t && sudo systemctl reload nginx"
-    return 0
+    # THE MANUAL PATH VERIFIES ITSELF, AND IT DID NOT — WHICH BOOKED A DEPLOY THAT NEVER
+    # HAPPENED. This branch printed three commands for a human to run and returned 0, so
+    # `record_deploy` filed `nginx` as deployed at HEAD while the files on disk were still
+    # whatever the last successful install left. On the first host to use it that gap ran
+    # two commits deep: `.deploy-state` claimed the apex vhost was live and
+    # `/etc/nginx/conf.d/calevate-site.conf` had never heard of it. A deploy record that
+    # can be wrong is worse than no record, because the next operator reads it instead of
+    # the disk.
+    #
+    # So the render still refuses to install anything — that is the whole point of the
+    # unattended-off mode, and the privileged half deliberately lives in a root-owned
+    # script — but it now COMPARES what it rendered against what is installed, and fails
+    # the step if they differ. Two consequences, both wanted: the first run of a changed
+    # config fails with the commands to run, and the second run passes and records a
+    # deploy that is true.
+    #
+    # THE PRINTED COMMANDS NAME EACH FILE, NEVER A GLOB. `render_nginx` stages into
+    # `mktemp -d`, which is mode 0700 owned by THIS account — so a `sudo install
+    # $NGINX_STAGING/*.conf` typed by a different operator account expands the glob as
+    # THAT user, matches nothing, and `install` fails while the `echo` after it still
+    # prints. That is how the two-commit gap above went unnoticed for three attempts.
+    local staged installed missing=()
+    log "NGINX_AUTO_RELOAD is not 1 — config rendered but NOT installed by this script."
+
+    for staged in "$NGINX_STAGING"/*.conf; do
+      installed="$NGINX_CONF_DIR/$(basename "$staged")"
+      cmp -s "$staged" "$installed" || missing+=("install -m 0644 $staged $NGINX_CONF_DIR/")
+    done
+    for staged in "$ROOT"/infra/nginx/snippets/*.conf; do
+      installed="$NGINX_SNIPPET_DIR/$(basename "$staged")"
+      cmp -s "$staged" "$installed" || missing+=("install -m 0644 $staged $NGINX_SNIPPET_DIR/")
+    done
+
+    if (( ${#missing[@]} == 0 )); then
+      log "every rendered file is already installed byte-for-byte — nothing to do"
+      return 0
+    fi
+
+    local line command_list=""
+    for line in "${missing[@]}"; do command_list+="       sudo $line"$'\n'; done
+    die "${#missing[@]} rendered file(s) differ from what is installed. Review them, then:
+
+$command_list       sudo nginx -t && sudo systemctl reload nginx
+
+     Re-run this deploy afterwards. It fails rather than returning 0 because returning 0
+     records a deploy of config that is still sitting in $NGINX_STAGING."
   fi
 
   # ===================== WHY THIS STEP DOES ALMOST NOTHING NOW =======================
