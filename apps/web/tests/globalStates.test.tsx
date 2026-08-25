@@ -184,8 +184,17 @@ describe("global-error, the boundary for the root layout itself", () => {
     expect(html).toContain("</html>");
   });
 
-  it("re-stamps the theme, because the root layout's <html> class went with it", () => {
-    expect(markup()).toContain("prefers-color-scheme: dark");
+  it("ships no theme switching at all, and falls back to LIGHT colours", () => {
+    // D-471: the product is light-only. This screen replaces the root layout, so it is the
+    // one place that could smuggle a theme back in — it used to re-stamp `.dark` from a
+    // media query. It must not, and its inline fallbacks (for the case where the stylesheet
+    // itself failed to load, which is why this screen exists) must be the LIGHT ones: a
+    // black last-resort page on a light-only product is a bug that only ever shows itself
+    // during an outage, when nobody is looking for it.
+    const html = markup();
+    expect(html).not.toContain("prefers-color-scheme");
+    expect(html).not.toContain("localStorage");
+    expect(html).toContain("#fafafa");
   });
 
   it("still says something a user can act on, and still quotes the reference", () => {
