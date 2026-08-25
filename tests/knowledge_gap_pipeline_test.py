@@ -4,6 +4,18 @@ This is the worker-path test: it drives `run_post_call_pipeline` with a fake eng
 transcript contains a deflection, and asserts (a) a gap lands, (b) the stored quote is
 redacted — a phone number the caller spoke is masked, proving the stage reads
 `text_redacted` and not the raw turn — and (c) a re-drive does not double-count.
+
+WHY IT LIVES HERE AND NOT BESIDE THE WORKER IT DRIVES. It was written as
+`apps/workers/knowledge_gaps_test.py`, and that placement broke the engine-isolation
+contract (hard rule 2): a module inside `apps.workers` may not import a vendor ADAPTER
+module, and `apps.api.engine.fake` is one. The contract is not about the word "engine" —
+workers legitimately need one — it is about the adapter being the only way a vendor
+payload shape can leak upward, so the rule holds even for the fake and even in a test.
+Two sibling tests (`redaction_test.py`, `transport_test.py`) stay co-located precisely
+because they never import an adapter. Driving a pipeline end to end does, which is why
+this belongs with the 67 other tests under `tests/` that do the same — `tests` is not one
+of import-linter's `root_packages`, so the boundary it guards is not one this file
+crosses. Moving it was the fix; an exemption would have been a hole in hard rule 2.
 """
 
 from __future__ import annotations
@@ -12,16 +24,15 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from calevate_shared.engine import ExecutionSnapshot
-from calevate_shared.events import TranscriptTurn
-from sqlalchemy import text
-
 from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from apps.workers.pipeline import run_post_call_pipeline
+from calevate_shared.engine import ExecutionSnapshot
+from calevate_shared.events import TranscriptTurn
+from sqlalchemy import text
 
 # A caller who reads out a number while asking a pricing question, and an agent that
 # deflects. The number MUST NOT survive into the stored quote.
