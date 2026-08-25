@@ -4,7 +4,7 @@
 on either host.
 
 **Why this file exists.** A Hostinger KVM1 (1 vCPU / 3.8 GiB / 48 G, Ubuntu 24.04.4,
-`srv1929611`) is **half-provisioned right now**, and `docs/DEPLOYMENT.md` inherits from a
+the target VPS) is **half-provisioned right now**, and `docs/DEPLOYMENT.md` inherits from a
 production repository by name ("raghava-proven", "raghava §2 verbatim", "the raghava rule")
 that this lane could read directly. This is the comparison of what that production baseline
 actually does against what the box has had done, plus a hard-rule-11 audit of our own
@@ -28,7 +28,7 @@ citations to it.
 | **UNVERIFIED-ATTRIBUTION** | Something one repo attributes to the other that the cited source does not say. |
 
 > **The whole "already done on the box" list is REPORTED, not VERIFIED-SOURCE.** This lane has
-> no shell on `srv1929611`. Swap, ufw, fail2ban, unattended-upgrades, timesyncd, nginx 1.30.4,
+> no shell on the target VPS. Swap, ufw, fail2ban, unattended-upgrades, timesyncd, nginx 1.30.4,
 > the Postgres tuning and the two roles are taken from the founder's brief. Section 0 therefore
 > opens by re-proving them with the reference's own verification commands
 > (REF:`backend/docs/CLIENT_VPS_SETUP_GUIDE.md:50-56`) rather than trusting the list. That is
@@ -47,7 +47,7 @@ argument) this file cites it and moves on.
 
 ## 0. DO THIS NEXT, IN THIS ORDER
 
-For an operator at the `srv1929611` root prompt right now. Everything in **A** happens before
+For an operator at the the target VPS root prompt right now. Everything in **A** happens before
 the box has a DNS record pointed at it. Steps are ordered so that nothing later invalidates
 anything earlier.
 
@@ -431,7 +431,7 @@ the deploy happens* (Phase 6 baseline → 7 backend → 7.4 nginx → 7.5 TLS �
 cutover). We have the procedure (`runbooks/first-deploy.md`) and the evidence convention
 (`docs/evidence/`) but no artefact that records **what was actually done on this host, when, and
 what it printed**. Given that our first deploy is attended and unrun, that record is worth more
-here than it was there. Concretely: open `docs/evidence/first-deploy-srv1929611.md` at the start
+here than it was there. Concretely: open `docs/evidence/first-deploy-the-target-vps.md` at the start
 of §0 A1 and fill it as you go — including the commands that failed.
 
 ### 3.8 Incident playbook — **ALREADY SOLVED, mostly**
@@ -572,7 +572,7 @@ truth defect; fix while touching the section.
 Stated rather than left to be discovered:
 
 1. **Nothing was executed.** No command in §0 has been run by this lane, on either host. The
-   "already done" list for `srv1929611` remains **REPORTED** until §0 A1 prints.
+   "already done" list for the target VPS remains **REPORTED** until §0 A1 prints.
 2. **`docs/DEPLOYMENT.md` is not edited by this lane.** The four findings in §4 are defects in a
    live document; this file records them with citations, and closing them is a doc edit that
    should happen in the same session as somebody reading §4. They are not external blockers.
