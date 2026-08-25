@@ -27,6 +27,8 @@ import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
 import { NavDrawer } from "@/components/navDrawer";
+import { OfflineBanner } from "@/components/offline";
+import { ThemeToggle } from "@/components/theme";
 import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
@@ -639,6 +641,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
         >
           Cross-client · every action is audited
         </span>
+        <ThemeToggle />
         <HeldCount />
       </div>
     </header>
@@ -784,6 +787,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 <SkipLink />
                 <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
                 <div className="flex flex-1 flex-col overflow-hidden">
+                  {/* One statement about the whole window, above every screen — the same
+                      strip and the same position as the client shell's, because an operator
+                      who learns it in one console must find it in the other. Renders
+                      nothing while online. */}
+                  <OfflineBanner />
                   <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
                   {/* `tabIndex={-1}`: a fragment target that is not focusable scrolls but
                       does not take focus, which is the classic reason a skip link does

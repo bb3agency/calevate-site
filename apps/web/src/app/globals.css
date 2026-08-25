@@ -56,10 +56,17 @@
 /*
  * Dark mode is CLASS-based (`@custom-variant dark`), not `prefers-color-scheme`.
  * That is a deliberate change from the scaffold: the app shell needs a toggle a user
- * can reach, and a media query cannot be overridden per-account. Nothing toggles it
- * yet — `ThemeToggle` is the seam — so today this block is reached only by a user who
- * sets `.dark` on <html> by hand. It is defined anyway so a screen written today is
- * already correct when the toggle lands, rather than needing a second dark pass.
+ * can reach, and a media query cannot be overridden per-account.
+ *
+ * IT IS NOW WIRED, and this comment used to say the opposite ("nothing toggles it yet").
+ * That third state — a full dark palette, 429 `dark:` variants across the app, a contrast
+ * gate measuring the dark tokens at 4.5:1, and no code anywhere that set the class — was
+ * the half-wired defect CLAUDE.md names: every one of those variants was unreachable and
+ * the gate was measuring a theme no user could enter. The switch is `src/lib/theme.ts`
+ * (the decision, the storage key and the blocking no-flash script), `components/theme.tsx`
+ * (the control) and the inline script at the top of `<body>` in `app/layout.tsx`, which
+ * stamps this class before the first paint. The default follows `prefers-color-scheme`;
+ * an explicit choice is stored and wins.
  */
 @custom-variant dark (&:is(.dark *));
 

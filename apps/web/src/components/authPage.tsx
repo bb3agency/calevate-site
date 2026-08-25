@@ -20,6 +20,9 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 
+import { OfflineBanner } from "@/components/offline";
+import { ThemeToggle } from "@/components/theme";
+
 export function AuthPageFrame({
   /** Names the realm in the header, so an operator can see which door they are at. */
   realmLabel,
@@ -30,15 +33,25 @@ export function AuthPageFrame({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
+      {/* Offline matters MORE here than inside the consoles: a sign-in that cannot reach
+          the API fails with a message about the request, and a person who cannot see that
+          their connection is gone reads it as "my password is wrong" and starts changing
+          it. `OfflineBanner` needs no `Providers` — query-core's `onlineManager` is a
+          module singleton, not a context — so the frame's deliberate lack of one (see the
+          header comment) is untouched. */}
+      <OfflineBanner />
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-md items-center justify-between gap-4 px-6 py-4">
           <Link href="/" className="text-base font-semibold tracking-tight text-ink">
             Calevate
           </Link>
-          <span className="flex items-center gap-1.5 text-xs text-ink-faint">
-            <Lock aria-hidden className="h-3.5 w-3.5" />
-            {realmLabel}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-xs text-ink-faint">
+              <Lock aria-hidden className="h-3.5 w-3.5" />
+              {realmLabel}
+            </span>
+            <ThemeToggle />
+          </div>
         </div>
       </header>
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-6 py-10">

@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+
+import { themeScriptSource } from "@/lib/theme";
+
 import "./globals.css";
 
 const ppMori = localFont({
@@ -75,8 +78,31 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${ppMori.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      // The theme script below adds `.dark` and a `color-scheme` to THIS element before
+      // React hydrates, so the server's markup and the browser's DOM legitimately differ
+      // here. Without this, React 19 logs a hydration mismatch on every dark-mode page
+      // load — a real warning about a deliberate act, which is the kind that trains people
+      // to ignore the warning that matters. Scoped to `<html>`: it does not descend.
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/*
+         * THE NO-FLASH SCRIPT, and its position is the whole of why it works.
+         *
+         * It is the FIRST thing in `<body>`, so the browser executes it synchronously while
+         * parsing, before any content of the page has been laid out or painted: the first
+         * paint is already in the right theme. The alternative — applying the theme in an
+         * effect after hydration — paints the light page first and repaints, which is the
+         * white flash every half-done dark mode ships with, and it lands hardest on the
+         * low-end Android the BRD names, where hydration is slowest.
+         *
+         * `dangerouslySetInnerHTML` with a STATIC source string (`lib/theme.ts`): nothing
+         * user-, route- or environment-derived is interpolated into it, so the one hazard
+         * of this API has no path in, and `tests/theme.test.ts` executes the exact bytes.
+         */}
+        <script dangerouslySetInnerHTML={{ __html: themeScriptSource() }} />
+        {children}
+      </body>
     </html>
   );
 }

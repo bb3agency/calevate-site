@@ -83,6 +83,16 @@ function stubViewport(kind: "mobile" | "desktop"): void {
       if (query.startsWith("(prefers-reduced-motion")) {
         return mediaListEntry(query, false);
       }
+      // The appearance toggle in both shell headers (`components/theme.tsx`) asks the
+      // device preference while the choice is "follow my device", which is the default and
+      // therefore every render here. Benign for the same reason as the line above: it is a
+      // preference read, it answers "light", and it puts nothing in the tab order that the
+      // drawer's counting could confuse. Answered rather than thrown, but still answered
+      // EXPLICITLY — the throw below stays, so a genuinely unexpected query in the shell is
+      // still a failure and not a silent false.
+      if (query.startsWith("(prefers-color-scheme")) {
+        return mediaListEntry(query, false);
+      }
       if (query !== "(max-width: 1023.98px)") {
         throw new Error(`unexpected media query in the shell: ${query}`);
       }
