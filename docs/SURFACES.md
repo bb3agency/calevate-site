@@ -569,8 +569,9 @@ Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working c
   seam (§2 integrations). **NOT IMPLEMENTED: server-side order creation.** Creating
   the provider-side order needs API credentials this deployment does not hold, so the
   response carries `provider_order_id: null` and `provider_order_pending: true` — the gap
-  is in the contract rather than discovered at integration time. There is no checkout that
-  can be opened from this response today.
+  is in the contract rather than discovered at integration time. The browser CAN open a
+  checkout from this response (D-470) once `provider_order_id` is non-null; while it is
+  null there is nothing to open, which is the state every deployment is in today.
 - **Payment webhook**: `POST /hooks/v1/razorpay` → one `credit_ledger` entry, signature
   verified before anything is read, inbox-claimed on `payment.captured:<payment id>` and
   idempotent on the ledger `ref` under the per-tenant credit lock. Never load-shed (a

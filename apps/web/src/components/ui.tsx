@@ -980,6 +980,23 @@ export function formatRupeeRate(value: string): string {
   return `₹${value}`;
 }
 
+/**
+ * Does this decimal STRING carry a value above zero?
+ *
+ * The question `Number(value) > 0` used to answer, without the parse. "0", "0.00" and
+ * "0.0000" are all zero and no string comparison spots that; a single digit other than
+ * zero anywhere in the string is exactly the condition, and it holds for every decimal
+ * form the server can send. It usually picks a HINT rather than a figure — which is
+ * precisely how the habit hard rule 7 is about survives to the line where it does matter.
+ *
+ * Here rather than beside a caller because it now has two: the usage screen asks it of
+ * overage minutes and of the model surcharge, and the credit-pack table asks it of a
+ * bonus percentage. Two spellings of one rule is where the drift starts.
+ */
+export function hasNonZeroDigit(value: string): boolean {
+  return /[1-9]/.test(value);
+}
+
 /** Times are stored UTC and shown IST at the edge (CLAUDE.md conventions). */
 export function formatIST(value: string | null | undefined): string {
   if (!value) return "—";

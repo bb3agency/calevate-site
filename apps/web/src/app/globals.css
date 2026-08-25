@@ -11,6 +11,13 @@
  * `--color-green-700` does not.
  */
 :root {
+  /* LIGHT ONLY (D-471). This is not decoration: `color-scheme` is what the browser reads
+     to paint its OWN furniture — scrollbars, form controls, date pickers, autofill. On a
+     machine whose OS is set to dark, a page with a light background and no `color-scheme`
+     still gets dark scrollbars and dark autofill, which is the "half of it went dark"
+     effect. Declaring it here makes the whole surface, ours and the browser's, agree. */
+  color-scheme: light;
+
   /* Brand. `brand` is the resting green, `strong` the pressed/primary-button green,
      `bright` the accent used for dots, badges and the live-state pip, `soft` the tint
      behind every icon medallion. */
@@ -54,19 +61,28 @@
 }
 
 /*
- * Dark mode is CLASS-based (`@custom-variant dark`), not `prefers-color-scheme`.
- * That is a deliberate change from the scaffold: the app shell needs a toggle a user
- * can reach, and a media query cannot be overridden per-account.
+ * THE PRODUCT SHIPS IN LIGHT MODE ONLY (D-471). There is no toggle, nothing adds `.dark`,
+ * and `:root` below pins `color-scheme: light` so the BROWSER's own furniture — scrollbars,
+ * date pickers, autofill, form controls — stays light on a machine whose OS is dark. That
+ * last part is the half people forget: without it a light page still renders dark widgets.
  *
- * IT IS NOW WIRED, and this comment used to say the opposite ("nothing toggles it yet").
- * That third state — a full dark palette, 429 `dark:` variants across the app, a contrast
- * gate measuring the dark tokens at 4.5:1, and no code anywhere that set the class — was
- * the half-wired defect CLAUDE.md names: every one of those variants was unreachable and
- * the gate was measuring a theme no user could enter. The switch is `src/lib/theme.ts`
- * (the decision, the storage key and the blocking no-flash script), `components/theme.tsx`
- * (the control) and the inline script at the top of `<body>` in `app/layout.tsx`, which
- * stamps this class before the first paint. The default follows `prefers-color-scheme`;
- * an explicit choice is stored and wins.
+ * Dark mode was briefly wired and is deliberately withdrawn, not half-built. Being precise
+ * about the three states this file has been in, because two of them look identical from
+ * here and are not:
+ *
+ *   1. dark variants existed, class-based, and NOTHING set the class — the half-wired
+ *      defect: 429 unreachable variants and a contrast gate measuring a theme no user
+ *      could enter.
+ *   2. wired, with a toggle and a no-flash script. Withdrawn: the product is light-only.
+ *   3. NOW — light is the only theme a user can reach, and that is a decision rather than
+ *      an omission.
+ *
+ * The `.dark` block and this variant STAY. Deleting them would mean touching 429 `dark:`
+ * utilities across the app for no user-visible gain, and would throw away a palette that
+ * is already contrast-checked at 4.5:1 in both themes. They are dormant, not live: nothing
+ * can set the class, so nothing can reach them. If dark mode is ever wanted again the work
+ * is a switch, not a redesign — which is exactly what state 1 could not claim, because
+ * there the absence of a switch was an accident and here it is the point.
  */
 @custom-variant dark (&:is(.dark *));
 

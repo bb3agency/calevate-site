@@ -30,7 +30,6 @@
 import { useEffect } from "react";
 
 import { FailureScreen } from "@/components/failureScreen";
-import { themeScriptSource } from "@/lib/theme";
 
 export default function GlobalError({
   error,
@@ -48,7 +47,7 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body
         className="min-h-full antialiased"
         style={{
@@ -58,9 +57,6 @@ export default function GlobalError({
             "var(--font-pp-mori), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
         }}
       >
-        {/* Static source, no interpolation of anything — see `lib/theme.ts` for why this is
-            the one shape that cannot flash, and why it is safe to inline. */}
-        <script dangerouslySetInnerHTML={{ __html: themeScriptSource() }} />
         <div className="flex min-h-screen flex-col justify-center">
           <FailureScreen
             heading="Calevate could not finish loading."

@@ -21,7 +21,6 @@ import Link from "next/link";
 import { Lock } from "lucide-react";
 
 import { OfflineBanner } from "@/components/offline";
-import { ThemeToggle } from "@/components/theme";
 
 export function AuthPageFrame({
   /** Names the realm in the header, so an operator can see which door they are at. */
@@ -50,7 +49,6 @@ export function AuthPageFrame({
               <Lock aria-hidden className="h-3.5 w-3.5" />
               {realmLabel}
             </span>
-            <ThemeToggle />
           </div>
         </div>
       </header>

@@ -40,7 +40,6 @@ import { ToastProvider } from "@/components/interior/toaster";
 import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { NavDrawer } from "@/components/navDrawer";
 import { OfflineBanner } from "@/components/offline";
-import { ThemeToggle } from "@/components/theme";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
 import { clientAuthn, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { useAttention } from "@/lib/api/attention";
@@ -358,7 +357,6 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
       </div>
 
       <div className="flex items-center gap-2 lg:gap-4">
-        <ThemeToggle />
         <Link
           href={href(`/c/${slug}/attention`)}
           aria-label={

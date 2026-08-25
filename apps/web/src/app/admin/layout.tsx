@@ -28,7 +28,6 @@ import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
 import { NavDrawer } from "@/components/navDrawer";
 import { OfflineBanner } from "@/components/offline";
-import { ThemeToggle } from "@/components/theme";
 import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
@@ -641,7 +640,6 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
         >
           Cross-client · every action is audited
         </span>
-        <ThemeToggle />
         <HeldCount />
       </div>
     </header>
