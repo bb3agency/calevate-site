@@ -183,9 +183,12 @@ dashboard toggle, which is not an idempotency guarantee.
 The honest answer, in this order:
 
 1. Online payment is not available on this deployment (§1 will tell you which reason).
-   Even where it is, there is **no checkout in this build** — the adapter creates the
-   provider's order, and nothing opens a payment window. The client screen says so and
-   hands over the order id as a reference rather than implying a payment is in progress.
+   A checkout widget now EXISTS (D-470) and opens whenever the intent comes back with a
+   real `provider_order_id`. What is missing on our boxes is the API secret, so
+   `creates_orders` is False, `provider_order_id` is null, and no window can open — the
+   client screen says so and hands over the order id as a reference rather than implying a
+   payment is in progress. "A widget exists" and "this box can take a payment" stay
+   different sentences (D-98); only the first one changed.
 2. The path that works is a bank transfer — NEFT or UPI — recorded by us against their
    wallet from the UTR the bank printed. Record it on the **admin credits screen**,
    `/admin/tenants/<tenantId>/credits` (D-82); it calls the same route that has always

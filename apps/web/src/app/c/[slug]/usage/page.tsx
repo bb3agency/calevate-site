@@ -6,30 +6,23 @@ import { Coins, Gauge, PhoneCall, Timer, Wallet } from "lucide-react";
 
 import {
   Card,
-  MonoValue,
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
-  ScrollRegion,
   Skeleton,
   StatTile,
   formatCount,
   formatINR,
   formatRupeeRate,
+  hasNonZeroDigit,
 } from "@/components/ui";
-import {
-  MAX_TOPUP_INR,
-  MIN_TOPUP_INR,
-  isPrepaid,
-  useCreditPacks,
-  useTopUpCapability,
-  useTopUpIntent,
-  type CreditPack,
-} from "@/lib/api/billing";
+import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
 import { useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";
+
+import { TopUp } from "./TopUp";
 
 /**
  * What this month costs (SURFACES §2b, `billing:read` — owners, not staff).
@@ -302,20 +295,6 @@ export default function UsagePage() {
 }
 
 /**
- * Does this decimal STRING carry a value above zero?
- *
- * The question `Number(value) > 0` used to answer, without the parse. "0", "0.00" and
- * "0.0000" are all zero and no string comparison spots that; a single digit other than
- * zero anywhere in the string is exactly the condition, and it holds for every decimal
- * form the server can send. Not money-critical here — it picks a hint — but a `Number()`
- * on a server decimal is the habit hard rule 7 is about, and habits are what reach the
- * line that matters.
- */
-function hasNonZeroDigit(value: string): boolean {
-  return /[1-9]/.test(value);
-}
-
-/**
  * The client's own spending limit (D-34 R-11, SURFACES §2b).
  *
  * Three things the screen has to get right, and each of them is a sentence on it:
@@ -485,290 +464,6 @@ function Field({
   );
 }
 
-/**
- * Adding credit — as far as the server can actually take it, and no further.
- *
- * The symptom: a prepaid client whose wallet empties has outbound calling refused, and
- * there was nowhere in the product to add money. The fix is honest rather than complete,
- * because the backend is honest rather than complete.
- *
- * ## What the capability changed (D-98)
- *
- * This panel used to offer the form unconditionally — and `PAYMENT_PROVIDER` is unset by
- * default, so on every deployment the click could only ever return
- * `payments_not_configured`. A control whose single possible outcome is a red notice is
- * §52's defect one step earlier than §52 usually catches it: not a failure rendered as a
- * state, but a state offered that is really a failure. `GET /v1/billing/topups/capability`
- * answers it before the form exists, and the three renders are the §52 three:
- *
- * - **loading is a skeleton** — never a form, and never the "not available" sentence,
- *   which would be an explanation we are about to withdraw;
- * - **failure is a refusal** — the problem notice with a retry, and no form under it,
- *   because we do not know whether the form would work;
- * - **unavailable is a statement, not an empty state** — the bank-transfer path, which is
- *   the path that actually works today (runbooks/topup-payments.md §3).
- *
- * The hint is never the gate: the route asks the same selector server-side, so a stale
- * `true` here costs a refusal after the click and can never cost a payment.
- *
- * ## Why there is still no pay button
- *
- * There is no checkout in this build and the panel says so rather than implying one. A
- * "Pay ₹2,000" button that cannot charge anything is worse than no button: the client
- * believes they have paid, keeps not being able to dial, and calls support about a
- * payment that was never taken. When an order id DOES come back it is rendered as a
- * second reference to quote — Razorpay's own support and dashboard key on it — beside the
- * true statement that nothing has been charged.
- */
-function TopUp({ session }: { session: Session }) {
-  const [amount, setAmount] = useState("");
-  const capability = useTopUpCapability(session);
-  const intent = useTopUpIntent(session);
-  const packs = useCreditPacks(session);
-  // Which control the in-flight intent belongs to, so only the pack the client clicked
-  // (or the custom row) shows its spinner — never every button at once.
-  const [pending, setPending] = useState<string | null>(null);
-  // `org:manage` is what the endpoint requires — staff should see the balance and not a
-  // form that will 403 them, and an operator in "view as client" cannot spend a client's
-  // money from a client screen (D-22).
-  const write = useWriteAccess(session, "org:manage", "add credit");
-
-  if (capability.isLoading) return <Skeleton rows={2} />;
-  if (capability.error) {
-    return (
-      <div className="mt-4 border-t border-line pt-4">
-        <ProblemNotice error={capability.error} onRetry={() => void capability.refetch()} />
-      </div>
-    );
-  }
-  if (!capability.data) return null;
-
-  if (!capability.data.online_payments_available) {
-    /* Not an empty state and not an error: a true statement about this deployment, with
-       the path that works. The server's authored reason is deliberately NOT shown — a
-       client cannot act on "no_webhook_secret" and naming our missing secret is an
-       internals leak. */
-    return (
-      <div className="mt-4 border-t border-line pt-4 text-sm text-ink-muted">
-        <p>
-          We cannot take card or UPI payment on this account. To add credit, transfer the
-          amount to us by bank — talk to your account manager for the details — and the
-          credit appears here once the payment lands.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-4 space-y-4 border-t border-line pt-4">
-      <RestrictionNote reason={write.reason} />
-      {intent.error && <ProblemNotice error={intent.error} />}
-
-      {/* The pack rate card — the productized way to add credit. A bigger pack buys
-          proportionally more calling because it grants bonus credits; the effective rate
-          and talk time are the server's own figures, priced at the live list rate. */}
-      {packs.isLoading && <Skeleton rows={4} />}
-      {packs.error && (
-        <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />
-      )}
-      {packs.data && (
-        <PacksTable
-          packs={packs.data.packs}
-          disabled={!write.allowed || intent.isPending}
-          pendingPackId={intent.isPending ? pending : null}
-          onSelect={(packId) => {
-            setPending(packId);
-            intent.mutate({ packId });
-          }}
-        />
-      )}
-
-      {/* An "other amount" for a client who wants a figure that is not a pack. Same route,
-          no bonus — packs are where the volume bonus lives. */}
-      <form
-        className="flex flex-wrap items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setPending("__custom__");
-          intent.mutate({ amountInr: amount });
-        }}
-      >
-        <label htmlFor="topup-amount" className="text-sm text-ink-muted">
-          Other amount
-        </label>
-        <span className="text-sm text-ink-faint">₹</span>
-        <input
-          id="topup-amount"
-          inputMode="decimal"
-          value={amount}
-          disabled={!write.allowed}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="2000"
-          className="w-32 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint disabled:opacity-50"
-        />
-        <button
-          type="submit"
-          disabled={!write.allowed || !amount.trim() || intent.isPending}
-          className="rounded-md border border-line px-3 py-1.5 text-sm font-semibold text-ink hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {intent.isPending && pending === "__custom__" ? "Working…" : "Get payment details"}
-        </button>
-        <span className="text-xs text-ink-faint">
-          ₹{MIN_TOPUP_INR.toLocaleString("en-IN")} to ₹{MAX_TOPUP_INR.toLocaleString("en-IN")}
-        </span>
-      </form>
-
-      {intent.data && (
-        <div className="rounded-card border border-line bg-app p-3 text-sm text-ink-muted">
-          {/* The amount the SERVER priced, as it sent it — this is the figure a bank
-              transfer has to match to the paisa. */}
-          <p className="font-semibold text-ink">
-            {formatINR(intent.data.amount_inr)} — nothing has been charged yet.
-          </p>
-          {intent.data.provider_order_id === null ? (
-            <p className="mt-1">
-              We cannot take card or UPI payment on this account yet. Transfer{" "}
-              <strong className="font-semibold text-ink">
-                {formatINR(intent.data.amount_inr)}
-              </strong>{" "}
-              to us by bank transfer quoting the reference below, or send this reference to
-              your account manager, and the credit is added once the payment lands. Your
-              balance above will not change until then.
-            </p>
-          ) : (
-            /* An order EXISTS with the payment provider. There is still no checkout in
-               this build, so the order id is rendered as the thing to quote — it is what
-               the provider's own support and dashboard key on — rather than dressed up as
-               a payment in progress. */
-            <p className="mt-1">
-              A payment for{" "}
-              <strong className="font-semibold text-ink">
-                {formatINR(intent.data.amount_inr)}
-              </strong>{" "}
-              is set up and waiting. There is no online checkout in this version — send both
-              references below to your account manager to complete it. Your balance will not
-              change until the payment is confirmed.
-            </p>
-          )}
-          <p className="mt-2 text-xs text-ink-faint">
-            ref <MonoValue>{intent.data.receipt}</MonoValue>
-          </p>
-          {intent.data.provider_order_id !== null && (
-            <p className="text-xs text-ink-faint">
-              order <MonoValue>{intent.data.provider_order_id}</MonoValue>
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The credit-pack rate card, Outpero-style: You pay / Credits / Free / Effective rate /
- * Talk time / Select. Every figure is the SERVER's — priced at the live list rate — and
- * rendered as sent (hard rule 7 reaches the browser: no decimal arithmetic on money here).
- *
- * Scrolls inside its own container on narrow screens rather than forcing the page body to
- * scroll sideways. The "best value" pack is badged and row-highlighted.
- */
-function PacksTable({
-  packs,
-  disabled,
-  pendingPackId,
-  onSelect,
-}: {
-  packs: CreditPack[];
-  disabled: boolean;
-  pendingPackId: string | null;
-  onSelect: (packId: string) => void;
-}) {
-  return (
-    <ScrollRegion label="Prepaid credit packs">
-      <table className="w-full min-w-[36rem] border-collapse text-sm">
-        <caption className="sr-only">Prepaid credit packs</caption>
-        <thead>
-          <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
-            <th scope="col" className="py-2 pr-3 font-medium">
-              You pay
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Credits
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Free
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Effective rate
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Talk time
-            </th>
-            <th scope="col" className="py-2 font-medium">
-              <span className="sr-only">Select</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {packs.map((pack) => (
-            <tr
-              key={pack.pack_id}
-              className={`border-b border-line/60 ${pack.best_value ? "bg-brand-soft" : ""}`}
-            >
-              <td className="py-3 pr-3 font-semibold tabular-nums text-ink">
-                {formatINR(pack.amount_inr)}
-                {pack.best_value && (
-                  <span className="ml-2 rounded-full bg-brand-strong px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                    Best value
-                  </span>
-                )}
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
-                {formatCredits(pack.total_credits)}
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
-                {hasNonZeroDigit(pack.bonus_pct) ? (
-                  <span className="font-medium text-brand">
-                    +{formatCredits(pack.bonus_credits)} ({pack.bonus_pct}%)
-                  </span>
-                ) : (
-                  "—"
-                )}
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
-                {formatRupeeRate(pack.effective_rate_inr_per_min)}/min
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
-                ~{formatCount(pack.talk_time_minutes)} min
-              </td>
-              <td className="py-3">
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => onSelect(pack.pack_id)}
-                  className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {pendingPackId === pack.pack_id ? "Working…" : "Select"}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </ScrollRegion>
-  );
-}
-
-/**
- * A credit COUNT (1 credit = ₹1) formatted with grouping. Only the integer part is shown —
- * credits are whole rupees to a client — and it is parsed off the STRING (never the whole
- * decimal through `Number`), so no money value is put through a binary float. The integer
- * part of a NUMERIC(12,4) string is a safe `parseInt`; the fraction is dropped on purpose.
- */
-function formatCredits(value: string): string {
-  const whole = value.split(".")[0];
-  return parseInt(whole, 10).toLocaleString("en-IN");
-}
 
 function Row({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (

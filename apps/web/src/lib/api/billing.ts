@@ -3,7 +3,7 @@
 /**
  * Prepaid wallet top-ups (D-34, D-98).
  *
- * Two hooks, and a deliberate absence.
+ * Four hooks, and a deliberate absence that survived the checkout landing.
  *
  * `useTopUpCapability` asks the server what it can do BEFORE the form is offered. That
  * is D-75's shape (`sheets_delivery_available`): the capability is a RENDERING HINT and
@@ -15,20 +15,25 @@
  * §52's defect one step earlier than §52 usually catches it.
  *
  * `useTopUpIntent` prices the top-up, binds it to the tenant and — on a deployment
- * holding the Razorpay API secret — returns the provider's `order_id`. **No deployment
- * holds it**: no Razorpay account has been provisioned, so `provider_order_id` is null
- * and `provider_order_pending` is true, exactly as before, now for a named reason
- * (`no_api_secret`) rather than for a missing feature.
+ * holding the Razorpay API secret — returns the provider's `order_id` and everything else
+ * Checkout needs. On a deployment without that secret `provider_order_id` is null and
+ * `provider_order_pending` is true, for a named reason (`no_api_secret`), and the screen
+ * renders the reference to quote on a bank transfer instead.
  *
- * THE ABSENCE: there is still no `useCompleteTopUp` and no checkout widget. Razorpay's
- * `checkout.js` is a THIRD unverified vendor surface and a supply-chain decision (hard
- * rule 9), and it would not be the source of truth in any case — the wallet is credited
- * by the signed webhook, never by the browser's callback. So an order id is rendered as
- * a reference to quote, and the screen says plainly that there is no checkout here.
+ * `useConfirmTopUp` closes the third side. It posts the three fields Checkout hands the
+ * browser back to `POST /v1/billing/topups/callback`, where the signature is verified with
+ * the key secret — **on the server, because that is the only place the secret exists**.
+ * THE ABSENCE THAT REMAINS, and it is the important one: this hook does not credit
+ * anything and does not report a balance. `CheckoutCallbackOut.credit_pending` is
+ * hard-coded `true` server-side because the callback carries no amount and no tenant; the
+ * wallet is moved by the signed webhook and by nothing else. So the success branch
+ * invalidates the balance reads and says "received, updating" — it never asserts a figure
+ * the API has not sent, which is the same honesty `provider_order_pending` keeps.
  */
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { capsKey } from "./caps";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -43,6 +48,9 @@ type Schemas = components["schemas"];
  * server's answers. That is the trap this repository has hit four times.
  */
 export type TopUpIntent = Schemas["TopUpIntentOut"];
+/** The three fields Razorpay Checkout hands back, named exactly as the provider names them. */
+export type CheckoutCallback = Schemas["CheckoutCallbackIn"];
+export type CheckoutConfirmation = Schemas["CheckoutCallbackOut"];
 export type TopUpCapability = Schemas["TopUpCapabilityOut"];
 export type CreditPack = Schemas["CreditPackOut"];
 export type CreditPacks = Schemas["CreditPacksOut"];
@@ -90,6 +98,51 @@ export function useTopUpIntent(session: Session) {
             ? { pack_id: request.packId }
             : { amount_inr: request.amountInr },
       }),
+  });
+}
+
+/**
+ * Hand the Checkout callback to the server, which is the only party that can judge it.
+ *
+ * ## Why exactly three fields, spelled out
+ *
+ * `CheckoutCallbackIn` is a `Strict` model (extra = forbid), and the object Checkout hands
+ * the `handler` is the PROVIDER's, whose shape we do not control and have not read a
+ * specification for. Forwarding it whole would make a vendor adding one field turn every
+ * client's payment confirmation into a 422 — a failure that would look, on the screen, like
+ * a payment that could not be verified. So the three are copied by name; anything else the
+ * vendor sends is dropped at this seam, which is the same rule hard rule 2 applies to
+ * engine payloads.
+ *
+ * ## Why the success branch invalidates rather than sets
+ *
+ * A verified callback proves AUTHENTICITY and moves no money: the credit follows from the
+ * signed webhook (`apps/api/billing/payments.py`), which may land before this request
+ * returns or a moment after it. `setQueryData` would need a balance, and the only balance
+ * the browser could construct is one it computed — the exact arithmetic hard rule 7 keeps
+ * out of this console. Invalidating asks the server for the figure instead, and the screen
+ * says "updating" until the server's own number changes.
+ *
+ * Both balance surfaces are invalidated because both render it: `/v1/usage` carries
+ * `credit_balance_inr` and `/v1/billing/caps` carries the spend this month is measured
+ * against. The same pair `useSetCaps` invalidates, for the same reason.
+ */
+export function useConfirmTopUp(session: Session) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (fields: CheckoutCallback) =>
+      apiRequest<CheckoutConfirmation>(session, "/v1/billing/topups/callback", {
+        method: "POST",
+        body: {
+          razorpay_order_id: fields.razorpay_order_id,
+          razorpay_payment_id: fields.razorpay_payment_id,
+          razorpay_signature: fields.razorpay_signature,
+        },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["usage", session.orgSlug] });
+      void queryClient.invalidateQueries({ queryKey: capsKey(session.orgSlug) });
+    },
   });
 }
 
