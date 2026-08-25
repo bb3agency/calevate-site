@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import TeamPage from "@/app/c/[slug]/settings/team/page";
@@ -148,6 +148,10 @@ describe("what a click actually sends", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Role for Priya/ }), {
       target: { value: "owner" },
     });
+    // The dropdown STAGES the change now (TEAM-1): a stray scroll wheel over a focused
+    // select used to grant `org:manage` outright. The write is the named second press.
+    expect(calls.filter((c) => c.method === "PATCH")).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Save Priya as Owner" }));
 
     await waitFor(() => {
       const patch = calls.find((c) => c.method === "PATCH");
@@ -179,6 +183,7 @@ describe("what a click actually sends", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Role for Priya/ }), {
       target: { value: "owner" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Save Priya as Owner" }));
 
     await waitFor(() =>
       expect(container.textContent).toContain("only owner on the account"),
@@ -199,6 +204,13 @@ describe("what a click actually sends", () => {
 
     await screen.findByText("Priya");
     fireEvent.click(screen.getByRole("button", { name: "Remove Priya from this account" }));
+    // Removal is confirmed now (TEAM-1). The dialog is the second press; the assertion
+    // that the FIRST press sent nothing lives in its own test below.
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Remove their access",
+      }),
+    );
 
     // Removing somebody does not unassign their work, so a screen that said nothing
     // would leave four leads quietly belonging to a person who can no longer sign in.
@@ -293,5 +305,87 @@ describe("what the invite flow shows", () => {
 
     await screen.findByText(INVITE.email);
     expect(screen.queryByRole("button", { name: /^Revoke / })).toBeNull();
+  });
+});
+
+/**
+ * TEAM-1 — the screen that governs who can sign in to the business now asks twice.
+ *
+ * Both controls fired on a single unconfirmed interaction. Selecting "Owner" in a
+ * dropdown granted a colleague `billing:read` AND `org:manage` — the ability to see the
+ * invoice and to remove other members, INCLUDING the person who just granted it — with no
+ * are-you-sure moment anywhere; "Remove" revoked access on one press, styled in the same
+ * class as a benign action, and the page then reported how many leads were stranded,
+ * which is a consequence disclosed after the fact.
+ *
+ * The file's own comment already said the rule ("a mis-click cannot cost somebody their
+ * own access"); it was applied to exactly one row, the reader's own. These tests apply it
+ * to everybody else's.
+ *
+ * Two different mechanisms on purpose, and the difference is argued in the page: a role
+ * change is a change of capability, so it stages in place and names what it will do (the
+ * check-answers shape); a removal destroys access, so it gets the modal.
+ */
+describe("no colleague's access changes on one unconfirmed press", () => {
+  it("stages a role change and names what it grants before it is saved", async () => {
+    const { container, calls } = await renderTeam();
+
+    await screen.findByText("Priya");
+    fireEvent.change(screen.getByRole("combobox", { name: /Role for Priya/ }), {
+      target: { value: "owner" },
+    });
+
+    expect(calls.filter((c) => c.method === "PATCH")).toEqual([]);
+    // The consequence, in capabilities the owner recognises — including the one that
+    // makes this irreversible from their side.
+    expect(container.textContent).toContain("including you");
+    expect(screen.getByRole("button", { name: "Save Priya as Owner" })).toBeTruthy();
+  });
+
+  it("lets a mis-selection be put back with nothing sent", async () => {
+    const { container, calls } = await renderTeam();
+
+    await screen.findByText("Priya");
+    const select = screen.getByRole("combobox", { name: /Role for Priya/ });
+    fireEvent.change(select, { target: { value: "owner" } });
+    fireEvent.change(select, { target: { value: "staff" } });
+
+    // Back to what the server said, so there is nothing to save and nothing to warn about.
+    expect(calls.filter((c) => c.method === "PATCH")).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Save / })).toBeNull();
+    expect(container.textContent).not.toContain("including you");
+  });
+
+  it("sends no DELETE until the removal dialog is answered", async () => {
+    const { calls } = await renderTeam();
+
+    await screen.findByText("Priya");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Priya from this account" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(calls.filter((c) => c.method === "DELETE")).toEqual([]);
+    // Names the person — a confirmation that cannot say WHOSE access confirms intent and
+    // not target — and states the lead consequence BEFORE the press rather than after.
+    expect(dialog.textContent).toContain("Priya");
+    expect(dialog.textContent).toContain("stay assigned to them");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove their access" }));
+    await waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1));
+  });
+
+  it("keeps the colleague when the owner backs out", async () => {
+    const { calls } = await renderTeam();
+
+    await screen.findByText("Priya");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Priya from this account" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Keep their access",
+      }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls.filter((c) => c.method === "DELETE")).toEqual([]);
+    expect(screen.getByRole("button", { name: "Remove Priya from this account" })).toBeTruthy();
   });
 });

@@ -5,13 +5,18 @@ import { useState } from "react";
 import {
   Card,
   EmptyState,
+  FIELD,
+  FIELD_LABEL,
   NoticeBox,
+  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -27,6 +32,7 @@ import {
   useDeliveryPayload,
   useEndpointOptions,
   useEndpoints,
+  type Endpoint,
   type OutboundEvent,
 } from "@/lib/api/integrations";
 import { hasKey, lookup } from "@/lib/lookup";
@@ -50,10 +56,19 @@ import { hasKey, lookup } from "@/lib/lookup";
  *    delivery record and no offer, rather than a button that 403s.
  */
 
+/**
+ * The delivery-status badges. `delivered` and `failed` keep their palette literals — a
+ * badge brings its OWN ground, so it is the case `tests/contrast.test.ts` puts out of
+ * scope by name ("Ink on a non-token background … the status badges") and the browser
+ * axe run is what sees it. `skipped` is the neutral one, and it is written in tokens
+ * because "neutral" IS the surface family: `bg-black/5 … text-ink-muted` is what the
+ * do-not-call and team rows already use for a colourless pill, and a second spelling of
+ * plain grey is where the two drift.
+ */
 const STATUS_TONE: Record<string, string> = {
   delivered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
   failed: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
-  skipped: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+  skipped: "bg-black/5 text-ink-muted dark:bg-white/10",
 };
 
 export default function IntegrationsPage() {
@@ -86,6 +101,22 @@ export default function IntegrationsPage() {
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
 
   const [revealed, setRevealed] = useState<string | null>(null);
+
+  /**
+   * The endpoint a client has ASKED to stop, held until they confirm it.
+   *
+   * The control used to fire `DELETE /v1/integrations/endpoints/{id}` on one click, under
+   * a label ("Turn off") that promised a switch the product does not have: there is no
+   * re-activate route, and registering the address again mints a NEW signing secret, so a
+   * mis-click stops the client's live CRM feed AND costs them a CRM reconfiguration. That
+   * is the shape NN/g reserves a confirmation for and GOV.UK reserves a warning button
+   * for; both are cited in `components/confirmDialog.tsx`.
+   *
+   * The whole endpoint rather than its id, so the dialog can name the URL that is about
+   * to stop receiving leads — a confirmation that cannot say WHICH one confirms intent
+   * and not target.
+   */
+  const [stopping, setStopping] = useState<Endpoint | null>(null);
 
   /**
    * The delivery whose body the client asked to see, or null.
@@ -138,8 +169,14 @@ export default function IntegrationsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50">Integrations</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <h1 className="text-xl font-semibold text-ink">Integrations</h1>
+        {/* `text-ink-muted`, not `text-ink-faint`: this is the screen's opening
+            paragraph at `text-sm`, the same slot every other route in this lane writes in
+            muted (`settings/team`, `settings/alerts`). Faint is for a 12px hint beside a
+            control, and the raw slate literal this replaced was neither. (Naming the
+            class here would trip the guard in `tests/contrast.test.ts`, which scans lines
+            and cannot tell a class from prose about one.) */}
+        <p className="mt-0.5 text-sm text-ink-muted">
           Send your leads and call results to your own CRM or spreadsheet as they happen.
           Every request we send is signed so your system can verify it came from us.
         </p>
@@ -150,17 +187,17 @@ export default function IntegrationsPage() {
       {/* The endpoints READ failure is refused inside the "Your endpoints" card below —
           together with the paused read, so a non-answer never renders as "No endpoints
           yet" (§52). A page-level copy here would double the refusal on a failure. */}
-      {deactivate.error && <ProblemNotice error={deactivate.error} />}
+      {deactivate.error && !stopping && <ProblemNotice error={deactivate.error} />}
 
       {revealed && (
         <Card title="Your signing secret">
-          <p className="text-sm text-slate-700 dark:text-slate-300">
+          <p className="text-sm text-ink-muted">
             Copy this now — we will not show it again.
           </p>
-          <code className="mt-2 block break-all rounded-md bg-slate-100 p-3 font-mono text-xs dark:bg-slate-800">
+          <code className="mt-2 block break-all rounded-md bg-app p-3 font-mono text-xs">
             {revealed}
           </code>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-ink-faint">
             Your system should check the <code>X-Calevate-Signature</code> header on each
             request: it is the HMAC-SHA256 of <code>{"{timestamp}.{body}"}</code> using this
             secret. Reject anything older than five minutes. This is how your system confirms a
@@ -169,7 +206,7 @@ export default function IntegrationsPage() {
           <button
             type="button"
             onClick={() => setRevealed(null)}
-            className="mt-3 rounded-md border border-slate-300 px-3 py-1 text-xs dark:border-slate-600"
+            className={`mt-3 ${SECONDARY_BUTTON_SM}`}
           >
             I&apos;ve saved it
           </button>
@@ -241,23 +278,23 @@ export default function IntegrationsPage() {
             onRetry={() => endpoints.refetch()}
           />
         ) : endpoints.data.length ? (
-          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          <ul className="divide-y divide-line">
             {endpoints.data.map((endpoint) => (
               <li key={endpoint.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                <span className="break-all font-mono text-xs text-slate-700 dark:text-slate-300">
+                <span className="break-all font-mono text-xs text-ink-muted">
                   {endpoint.url}
                 </span>
                 {!endpoint.active && (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800">
+                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-xs text-ink-muted dark:bg-white/10">
                     off
                   </span>
                 )}
                 {endpoint.kind === SHEET_KIND && (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  <span className="rounded-full bg-black/5 px-2 py-0.5 text-xs text-ink-muted dark:bg-white/10">
                     Google Sheet
                   </span>
                 )}
-                <span className="text-xs text-slate-500">{endpoint.events.join(", ")}</span>
+                <span className="text-xs text-ink-faint">{endpoint.events.join(", ")}</span>
                 {/* The fingerprint answers a different question per kind, so it says a
                     different thing per kind. For a webhook it identifies WHICH signing
                     secret this is; for a sheet `secret_ref` holds a secrets-manager
@@ -266,22 +303,34 @@ export default function IntegrationsPage() {
                     without one. Printing `key ···null` there, which is what a single line
                     for both kinds produced, is the defect that would have shipped with the
                     sheets form. */}
-                <span className="ml-auto text-xs text-slate-400">
+                <span className="ml-auto text-xs text-ink-faint">
                   {endpoint.kind === SHEET_KIND
                     ? endpoint.secret_fingerprint
                       ? "Google connection ready"
                       : "not connected to Google yet — deliveries will fail until we connect it"
                     : `key ···${endpoint.secret_fingerprint ?? "—"}`}
                 </span>
-                {endpoint.active && (
+                {endpoint.active ? (
                   <button
                     type="button"
                     disabled={!write.allowed || deactivate.isPending}
-                    onClick={() => deactivate.mutate(endpoint.id)}
-                    className="rounded-md border border-slate-300 px-2 py-1.5 text-xs disabled:opacity-50 dark:border-slate-600"
+                    onClick={() => setStopping(endpoint)}
+                    /* Named for the ROW. Five endpoints used to give a screen reader five
+                       buttons announced identically — the defect `do-not-call` and
+                       `settings/team` already fixed on their own list rows. */
+                    aria-label={`Stop sending events to ${endpoint.url}`}
+                    className={SECONDARY_BUTTON_SM}
                   >
-                    Turn off
+                    Stop sending events
                   </button>
+                ) : (
+                  /* The dead state explains itself. An `off` row carries no control at
+                     all — there is no re-activate route on the API, only
+                     `DELETE /v1/integrations/endpoints/{id}` — so without this sentence
+                     the row reads as a button that failed to render. */
+                  <span className="text-xs text-ink-faint">
+                    stopped — add a new endpoint to resume
+                  </span>
                 )}
               </li>
             ))}
@@ -318,7 +367,7 @@ export default function IntegrationsPage() {
           <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
             <table className="w-full min-w-[500px] text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr className="text-left text-xs uppercase tracking-wide text-ink-faint">
                 <th className="pb-2 font-medium">Event</th>
                 <th className="pb-2 font-medium">Result</th>
                 <th className="pb-2 font-medium">Tries</th>
@@ -328,7 +377,7 @@ export default function IntegrationsPage() {
                 {mayReadPayload && <th className="pb-2 text-right font-medium">Sent</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            <tbody className="divide-y divide-line">
               {deliveries.data.map((delivery) => (
                 <tr key={delivery.id}>
                   <td className="py-2">
@@ -337,16 +386,17 @@ export default function IntegrationsPage() {
                   <td className="py-2">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        lookup(STATUS_TONE, delivery.status) ?? "bg-slate-100 text-slate-600"
+                        lookup(STATUS_TONE, delivery.status) ??
+                        "bg-black/5 text-ink-muted dark:bg-white/10"
                       }`}
                     >
                       {delivery.status}
                     </span>
                   </td>
-                  <td className="py-2 tabular-nums text-slate-600 dark:text-slate-400">
+                  <td className="py-2 tabular-nums text-ink-muted">
                     {delivery.attempts}
                   </td>
-                  <td className="py-2 text-right text-xs text-slate-500">
+                  <td className="py-2 text-right text-xs text-ink-faint">
                     {formatIST(delivery.last_at)}
                   </td>
                   {mayReadPayload && (
@@ -356,7 +406,7 @@ export default function IntegrationsPage() {
                           type="button"
                           onClick={() => togglePayload(delivery.id)}
                           title="Shows the exact data we sent, personal details included. The read is written to your audit log."
-                          className="rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
+                          className={SECONDARY_BUTTON_SM}
                         >
                           {openPayload === delivery.id ? "Hide" : "View"}
                         </button>
@@ -366,7 +416,7 @@ export default function IntegrationsPage() {
                         // events that name no customer never had one. "—" with the
                         // reason on hover says which kind of nothing this is.
                         <span
-                          className="text-xs text-slate-400"
+                          className="text-xs text-ink-faint"
                           title="No copy is kept for this delivery — it has aged out under your retention policy, was erased, or the event carried no customer record."
                         >
                           —
@@ -392,15 +442,15 @@ export default function IntegrationsPage() {
             `delivery_body_not_retained`, which is a real answer and not an empty
             state), and neither is ever a number or a blank box. */}
         {openPayload && (
-          <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <div className="mt-4 border-t border-line pt-4">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-medium text-slate-900 dark:text-slate-50">
+              <h3 className="text-sm font-medium text-ink">
                 What we sent
               </h3>
               <button
                 type="button"
                 onClick={() => togglePayload(openPayload)}
-                className="ml-auto rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
+                className={`ml-auto ${SECONDARY_BUTTON_SM}`}
               >
                 Close
               </button>
@@ -415,7 +465,7 @@ export default function IntegrationsPage() {
               </div>
             ) : payload.data ? (
               <>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-ink-faint">
                   The exact request body your endpoint received. It contains your
                   customer&apos;s details, and this view was written to your audit log.
                 </p>
@@ -437,7 +487,7 @@ export default function IntegrationsPage() {
                   aria-label="Delivered payload"
                   // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
                   tabIndex={0}
-                  className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 font-mono text-xs whitespace-pre-wrap break-all dark:bg-slate-800"
+                  className="mt-2 max-h-80 overflow-auto rounded-md bg-app p-3 font-mono text-xs whitespace-pre-wrap break-all"
                 >
                   {payload.data.body}
                 </pre>
@@ -446,16 +496,58 @@ export default function IntegrationsPage() {
           </div>
         )}
       </Card>
+
+      {/* The confirmation, with the three facts the button could not carry: WHICH
+          endpoint, that the lead feed stops immediately, and what coming back costs.
+          `deactivate.error` renders inside the dialog rather than in the page-level
+          notice above while the dialog is open, so a refusal is read where the decision
+          is being made. The dialog closes only on success — a failed DELETE leaves the
+          endpoint live, and closing would imply otherwise. */}
+      {stopping && (
+        <ConfirmDialog
+          title="Stop sending events to this endpoint?"
+          confirmLabel="Stop sending events"
+          pendingLabel="Stopping…"
+          cancelLabel="Keep sending"
+          pending={deactivate.isPending}
+          error={deactivate.error}
+          onCancel={() => {
+            deactivate.reset();
+            setStopping(null);
+          }}
+          onConfirm={() =>
+            deactivate.mutate(stopping.id, { onSuccess: () => setStopping(null) })
+          }
+        >
+          <p>
+            Your system at <span className="break-all font-mono text-ink">{stopping.url}</span>{" "}
+            will stop receiving leads and call results immediately.
+          </p>
+          <p>
+            <strong className="font-semibold text-ink">This cannot be undone here.</strong>{" "}
+            There is no way to switch this endpoint back on — you would add the address
+            again, and that issues a NEW signing secret, so your CRM has to be
+            reconfigured with it.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
 
-/** The form language of this screen, in one place rather than per control. */
-const INPUT =
-  "mt-1 w-full rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-950";
-const FIELD_LABEL = "text-xs font-medium text-slate-600 dark:text-slate-300";
-const SUBMIT =
-  "rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900";
+/**
+ * The form language of this screen is now the CONSOLE's, not this screen's.
+ *
+ * `INPUT`, `FIELD_LABEL` and `SUBMIT` were three private copies of primitives
+ * `components/ui.tsx` already exports, written in raw slate literals — which is how this
+ * one route missed the design-token migration and ended up rendering hints at 2.56:1 in
+ * light and 3.75:1 in dark (`globals.css:39,88`). `INPUT` is `FIELD`, which also carries
+ * the `touch:min-h-11` tap-target floor this file's inputs did not have; `SUBMIT` is
+ * `PRIMARY_BUTTON`, so "Add endpoint" is the same button as every other primary action in
+ * the console rather than the only near-black one.
+ */
+const INPUT = FIELD;
+const SUBMIT = PRIMARY_BUTTON;
 
 /**
  * The event checkboxes, from the catalogue the SERVER published.
@@ -495,12 +587,12 @@ function EventChoices({
               if (hasKey(EVENT_LABELS, name)) onToggle(name, e.target.checked);
             }}
           />
-          <span className="text-slate-700 dark:text-slate-300">{eventLabel(name)}</span>
-          <code className="text-xs text-slate-400">{name}</code>
+          <span className="text-ink-muted">{eventLabel(name)}</span>
+          <code className="text-xs text-ink-faint">{name}</code>
         </label>
       ))}
       {unknown.length > 0 && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-faint">
           This account can also receive {unknown.join(", ")}, which this version of the
           console cannot subscribe to yet. Tell us and we will set it up.
         </p>
@@ -599,7 +691,7 @@ function WebhookForm({
         {/* The `call.completed` extras. Off by default: the base body is the summary and
             the outcome, and each of these sends more of the customer's own data to your
             endpoint, so each is a deliberate choice. */}
-        <fieldset className="space-y-1.5 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+        <fieldset className="space-y-1.5 rounded-md border border-line p-3">
           <legend className={`${FIELD_LABEL} px-1`}>When a call finishes, also send…</legend>
           <label className="flex items-start gap-2 text-sm">
             <input
@@ -609,9 +701,9 @@ function WebhookForm({
               disabled={!write.allowed}
               onChange={(e) => setIncludeRecordingUrl(e.target.checked)}
             />
-            <span className="text-slate-700 dark:text-slate-300">
+            <span className="text-ink-muted">
               A link to the call recording
-              <span className="block text-xs text-slate-500">
+              <span className="block text-xs text-ink-faint">
                 A short-lived, signed link to our copy of the audio — not the audio itself.
                 It expires within minutes, so fetch it as soon as you receive it.
               </span>
@@ -630,9 +722,9 @@ function WebhookForm({
                 if (!on) setIncludeRawTranscript(false);
               }}
             />
-            <span className="text-slate-700 dark:text-slate-300">
+            <span className="text-ink-muted">
               The transcript, redacted
-              <span className="block text-xs text-slate-500">
+              <span className="block text-xs text-ink-faint">
                 The conversation with personal details (numbers, IDs, OTPs) masked — the
                 same text your team sees on the call screen.
               </span>
@@ -648,7 +740,7 @@ function WebhookForm({
               disabled={!write.allowed || !includeTranscript}
               onChange={(e) => setIncludeRawTranscript(e.target.checked)}
             />
-            <span className="text-slate-700 dark:text-slate-300">
+            <span className="text-ink-muted">
               The transcript, unredacted
               <span className="block text-xs text-amber-700 dark:text-amber-400">
                 Sends the FULL transcript — every phone number, ID and OTP spoken on the
@@ -660,7 +752,7 @@ function WebhookForm({
             </span>
           </label>
           {!callCompletedSelected && (includeRecordingUrl || includeTranscript) && (
-            <p className="px-1 text-xs text-slate-500">
+            <p className="px-1 text-xs text-ink-faint">
               These only take effect when you also subscribe to “A call finishes” above.
             </p>
           )}
@@ -787,7 +879,7 @@ function SheetsForm({
 
   return (
     <Card title="Send events to a Google Sheet">
-      <p className="-mt-2 text-xs text-slate-500">
+      <p className="-mt-2 text-xs text-ink-faint">
         We append a row per event. Share the sheet with the Google account we give you —
         until we connect it on our side, deliveries appear as failures below
         rather than quietly doing nothing.
@@ -841,7 +933,7 @@ function SheetsForm({
             className={INPUT}
           />
         </label>
-        <p className="-mt-2 text-xs text-slate-500">
+        <p className="-mt-2 text-xs text-ink-faint">
           Paste the address bar while the sheet is open, or just the document id.
         </p>
         <label className="block">

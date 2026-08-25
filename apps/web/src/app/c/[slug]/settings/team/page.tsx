@@ -17,6 +17,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { lookup } from "@/lib/lookup";
 import {
@@ -90,6 +91,20 @@ export default function TeamPage() {
   /* Held here, never in the query cache: this is a credential, and the API cannot
      reissue it. Cleared when another invitation is created. */
   const [issued, setIssued] = useState<CreatedInvitation | null>(null);
+
+  /**
+   * The colleague an owner has asked to remove, held until they confirm it.
+   *
+   * "Remove" used to revoke a person's access to the whole account on one click, from a
+   * button styled `SECONDARY_BUTTON_SM` — the same visual class as a benign action, which
+   * is the pairing NN/g names as dangerous UX. The page then reported how many leads were
+   * left stranded, which is a consequence disclosed AFTER the fact; the dialog says it
+   * before.
+   *
+   * The whole member, so the dialog can name the person. "Remove this member?" confirms
+   * that a removal was intended and says nothing about whose.
+   */
+  const [removing, setRemoving] = useState<Member | null>(null);
 
   /* `.data`, never `.data ?? []` — the difference between "the server said none" and
      "the server did not answer" is this screen's whole honesty (§52). */
@@ -188,7 +203,8 @@ export default function TeamPage() {
         }
         bodyClassName="p-2"
       >
-        {(changeRole.error != null || remove.error != null) && (
+        {/* A removal refusal belongs inside the dialog while it is open — see below. */}
+        {(changeRole.error != null || (remove.error != null && removing == null)) && (
           <div className="mb-3 px-4 pt-2">
             <ProblemNotice error={changeRole.error ?? remove.error} />
           </div>
@@ -229,7 +245,7 @@ export default function TeamPage() {
                     expectedRole: member.role as MemberRole,
                   })
                 }
-                onRemove={() => remove.mutate(member.id)}
+                onRemove={() => setRemoving(member)}
               />
             ))}
           </ul>
@@ -305,6 +321,37 @@ export default function TeamPage() {
           />
         )}
       </Card>
+
+      {/* Closes only on success. A refused removal (the last owner, a stale row) leaves
+          the person on the account, and closing the dialog would say otherwise. */}
+      {removing && (
+        <ConfirmDialog
+          title={`Remove ${removing.name ?? "this member"} from this account?`}
+          confirmLabel="Remove their access"
+          pendingLabel="Removing…"
+          cancelLabel="Keep their access"
+          pending={remove.isPending}
+          error={remove.error}
+          onCancel={() => {
+            remove.reset();
+            setRemoving(null);
+          }}
+          onConfirm={() =>
+            remove.mutate(removing.id, { onSuccess: () => setRemoving(null) })
+          }
+        >
+          <p>
+            They will be signed out and will not be able to sign in to this account again
+            unless you invite them back.
+          </p>
+          {/* Said BEFORE the click. The `Access removed` notice on the list already
+              reports this afterwards, which is the wrong moment to learn it. */}
+          <p>
+            Any leads assigned to them stay assigned to them and are not reassigned —
+            you would pick those up from the Leads screen.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
@@ -363,6 +410,15 @@ function MemberRow({
   // literal with one walks the prototype chain — a role of `constructor` resolves to
   // the `Object` function instead of missing. See src/lib/lookup.ts.
   const copy = lookup(ROLE_COPY, member.role);
+  const who = member.name ?? "this member";
+  /**
+   * The role chosen in the dropdown but NOT yet saved, or null while it matches the
+   * server's. No effect resets it: once the write lands, `member.role` becomes the staged
+   * value and `pendingRole` below goes null on its own, so the button and its sentence
+   * disappear because the change has happened rather than because a timer said so.
+   */
+  const [staged, setStaged] = useState<MemberRole | null>(null);
+  const pendingRole = staged && staged !== member.role ? staged : null;
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
       <span
@@ -392,13 +448,32 @@ function MemberRow({
         ) : canManage ? (
           <>
             <label className="sr-only" htmlFor={`role-${member.id}`}>
-              Role for {member.name ?? "this member"}
+              Role for {who}
             </label>
+            {/*
+             * The select STAGES the choice; a second, named press commits it.
+             *
+             * It used to mutate straight out of `onChange`, so one stray scroll wheel over
+             * a focused dropdown granted a colleague `billing:read` and `org:manage` —
+             * including the power to remove the person who granted it — with no
+             * are-you-sure moment anywhere in the interaction. This file's own comment
+             * three lines up says the API refuses self-directed changes "so that a
+             * mis-click cannot cost somebody their own access"; the rule was right and was
+             * being applied to exactly one row.
+             *
+             * Staged rather than a modal, deliberately, and NOT because a modal was too
+             * much work: the consequence here is a sentence about capabilities, and
+             * GOV.UK's check-answers pattern is about seeing what you are about to commit
+             * rather than being interrupted. The sentence renders beside the control, in
+             * the row it concerns, and the button says which change it makes — so the
+             * confirmation carries target as well as intent. Removal, which destroys
+             * access rather than changing it, gets the dialog.
+             */}
             <select
               id={`role-${member.id}`}
-              value={member.role}
+              value={staged ?? member.role}
               disabled={busy}
-              onChange={(e) => onRole(e.target.value as MemberRole)}
+              onChange={(e) => setStaged(e.target.value as MemberRole)}
               className={`${FIELD} py-1 text-xs`}
             >
               {ROLES.map((value) => (
@@ -407,18 +482,40 @@ function MemberRow({
                 </option>
               ))}
             </select>
+            {pendingRole && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onRole(pendingRole)}
+                aria-label={`Save ${who} as ${ROLE_COPY[pendingRole].label}`}
+                className={PRIMARY_BUTTON_SM}
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {busy ? "Saving…" : "Save role"}
+              </button>
+            )}
             <button
               type="button"
               disabled={busy}
               onClick={onRemove}
               // Named for the row: a list of identical "Remove" buttons is a list of
               // identical announcements to a screen reader.
-              aria-label={`Remove ${member.name ?? "this member"} from this account`}
+              aria-label={`Remove ${who} from this account`}
               className={SECONDARY_BUTTON_SM}
             >
               <UserMinus className="h-3.5 w-3.5" />
               {busy ? "Working…" : "Remove"}
             </button>
+            {/* What the staged change actually does, said BEFORE it is made rather than
+                discovered afterwards. `basis-full` so it takes its own line under the
+                controls instead of squeezing them. */}
+            {pendingRole && (
+              <span className="basis-full text-xs text-ink-muted">
+                {pendingRole === "owner"
+                  ? `${who} will be able to see your invoice, invite and remove people — including you.`
+                  : `${who} will lose access to billing and will no longer be able to change who is on this team.`}
+              </span>
+            )}
           </>
         ) : (
           <span className="text-xs text-ink-faint">

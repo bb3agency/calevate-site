@@ -120,6 +120,25 @@ const BRAND_FILL_EXEMPT: Record<string, string> = {
     "brand mark in the console the same green as its buttons.",
 };
 
+/**
+ * The ONE `sr-only`-input label still without a focus ring, and why it is not fixed here.
+ *
+ * Same rule, same waiver discipline as `BRAND_FILL_EXEMPT` above: keyed by path, carrying
+ * its reason, and checked below for staleness so it cannot outlive the defect. This is a
+ * LIVE WCAG 2.4.7 failure and not an argued-for exception — the only entry that has ever
+ * been allowed to mean "not yet".
+ */
+const SR_ONLY_FOCUS_EXEMPT: Record<string, string> = {
+  "src/app/c/[slug]/agents/DirectionChoice.tsx":
+    "the inbound/outbound radio cards on the agent screen. Identical F78 failure to the " +
+    "five fixed alongside this guard, and the fix is the same class string — but the " +
+    "label styles it inline, so it cannot be fixed from a shared constant, and this file " +
+    "belongs to a lane editing `agents/**` concurrently. Whoever lands next in that " +
+    "directory: add `has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong " +
+    "has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app` to the " +
+    "<label> className and delete this entry — the staleness test below will insist.",
+};
+
 // `relPosix`: `BRAND_FILL_EXEMPT` is keyed on forward slashes, so on Windows every
 // argued-for exemption stopped matching and the guard reported settled violations.
 function relativeToWeb(file: string): string {
@@ -295,6 +314,185 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
       offenders,
       "`text-brand` on `bg-brand-soft` is 3.08:1 — below WCAG 1.4.3 AA. Use " +
         "`text-brand-strong` (6.01:1), which is what every other bg-brand-soft site uses.",
+    ).toEqual([]);
+  });
+
+  /**
+   * THE SEAM BETWEEN THIS FILE AND `tests/a11y.ts`, closed at the source.
+   *
+   * Everything above checks the PALETTE, and `tests/a11y.ts` disables axe's
+   * `color-contrast` rule under jsdom and defers to it. Both are right, and between them
+   * there was a hole big enough to drive a screen through: a file that writes its ink in
+   * RAW TAILWIND LITERALS is in neither test's field of view. The palette check never
+   * sees `text-slate-500` because it is not a token; axe never sees it because axe cannot
+   * measure contrast without layout. So both gates stayed green while
+   * `c/[slug]/integrations/page.tsx` — the one route the design-token migration did not
+   * reach — rendered thirty spans of ink at **2.56:1** in light and **3.75:1** in dark
+   * (`globals.css:39,88` record both measurements, from the browser axe run that produced
+   * this file), including the sentence warning a client that their deliveries are failing.
+   *
+   * ## The rule, stated precisely
+   *
+   * Under `src/app/`, a `text-<grey>-<n>` literal is a violation UNLESS the same line also
+   * sets a `bg-<grey>-<n>` literal. That exception is not a loophole, it is the boundary
+   * of what this guard can honestly claim:
+   *
+   * - Ink with no background of its own INHERITS the token surface (`--surface`/`--app`),
+   *   so the pairing is knowable from this file and the ink token is the answer. That is
+   *   the failure class, and it is the whole of `/integrations`'s defect.
+   * - Ink that brings its own literal ground is a status badge, and this file's own header
+   *   already puts those out of scope by name ("Ink on a non-token background —
+   *   `bg-rose-50`, `bg-emerald-100`, the status badges"). Enumerating them here would be
+   *   a second, drifting copy of the design, and the browser axe run is what sees them —
+   *   it reported none.
+   *
+   * ## What this deliberately does NOT cover
+   *
+   * - **Non-grey ink literals** (`text-amber-700`, `text-emerald-800`). They are used as
+   *   SEMANTIC colour — a warning, a verdict — for which this palette has no token, and
+   *   banning them would push screens back to plain ink and lose the meaning.
+   * - **Background, border and divider literals.** Those are 1.4.11 (3:1, non-text) rather
+   *   than 1.4.3, and the token migration on `/integrations` moved them anyway.
+   * - **A className split across several lines**, for the same reason the two scans above
+   *   accept that limit: every occurrence in this tree is on one line, and a scan that
+   *   tried to reassemble JSX would be a parser with its own bugs.
+   * - **Anything outside `src/app/`.** `components/ui.tsx` holds the `StatusBadge` palette
+   *   and `invoiceDocument.tsx` prints on paper; both are argued for where they live.
+   */
+  it("writes no raw grey ink literal on a token surface under src/app", () => {
+    // The families Tailwind ships as neutrals. `slate` is the one this repo drifted into,
+    // and the other four are here so the next drift is caught on its first line.
+    const GREY_INK = /(?<![-\w:])(?:dark:)?text-(?:slate|gray|zinc|neutral|stone)-\d{2,3}\b/;
+    const OWN_GROUND = /(?<![-\w:])(?:dark:)?bg-(?:slate|gray|zinc|neutral|stone)-\d{2,3}\b/;
+
+    const appFiles = sourceFiles().filter((file) =>
+      relativeToWeb(file).startsWith("src/app/"),
+    );
+    // The premise, for the reason every scan in this suite states one: a scan that has
+    // stopped matching is indistinguishable from a clean tree.
+    expect(appFiles.length, "no files under src/app — this scan is looking nowhere")
+      .toBeGreaterThan(20);
+
+    const offenders: string[] = [];
+    for (const file of appFiles) {
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, index) => {
+          if (!GREY_INK.test(line)) return;
+          if (OWN_GROUND.test(line)) return;
+          offenders.push(`${relativeToWeb(file)}:${index + 1}`);
+        });
+    }
+    expect(
+      offenders,
+      "WCAG 1.4.3 Contrast (Minimum), Level AA — and a gate blind spot rather than a " +
+        "styling preference: the palette check above cannot see a literal, and " +
+        "`tests/a11y.ts` disables axe's color-contrast rule under jsdom, so ink written " +
+        "this way is measured by nothing. `text-slate-500` is 3.75:1 on --surface in " +
+        "dark and `text-slate-400` is 2.56:1 in light (globals.css:39,88). Use the ink " +
+        "tokens, which ARE checked in both themes above: `text-ink` for a heading or a " +
+        "value, `text-ink-muted` for body copy and secondary labels, `text-ink-faint` " +
+        "for a 12px hint or caption. A status badge that brings its own `bg-` literal is " +
+        "out of scope and passes — see this test's header for why.",
+    ).toEqual([]);
+  });
+
+  /**
+   * WCAG 2.4.7 Focus Visible (AA), failure technique F78 — guarded at the source, because
+   * nothing else in this suite can.
+   *
+   * An `<input className="sr-only">` inside a styled `<label>` is the custom radio-card
+   * idiom, and it deletes the browser's own focus ring. If the label does not draw a
+   * replacement, a keyboard user tabbing into the group sees NOTHING move. The two sites
+   * in this repo were the AI-model picker (money) and the messaging-consent answer (law),
+   * and both shipped with `checked` and `hover` states and no focus treatment at all.
+   *
+   * Why a source scan and not axe: axe cannot evaluate a focus indicator — it is a
+   * property of a computed style in a state jsdom cannot enter — so a render test would
+   * pass on the broken markup, which is exactly what `tests/a11y.test.tsx` did.
+   *
+   * The scan pairs each `sr-only` input with the nearest `<label` above it and reads the
+   * text between them, which is where a JSX className sits — plus, where that className
+   * interpolates `${SOME_CONSTANT}`, the constant's own text from the same file. Most of
+   * these cards share a `CHOICE_CARD` string, so a scan that only read the opening tag
+   * would report every one of them as broken however it was fixed. It does NOT follow a
+   * constant IMPORTED from another module: chasing identifiers across files is a
+   * type-checker, and no call site in this tree does that today.
+   */
+  it("draws a focus ring on every label that hides its own input", () => {
+    const files = sourceFiles();
+    const found: string[] = [];
+    const offenders: string[] = [];
+    const HAS_RING = /has-\[:focus-visible\]|focus-within:/;
+
+    for (const file of files) {
+      const text = readFileSync(file, "utf8");
+      // File-level (and function-level) class constants, so `${CHOICE_CARD}` can be
+      // resolved to the string it actually holds.
+      const consts = new Map<string, string>();
+      for (const c of text.matchAll(/\bconst\s+(\w+)\s*=\s*([\s\S]*?);/g)) {
+        consts.set(c[1], c[2]);
+      }
+      // Every visually-hidden FORM CONTROL. `sr-only` on a <span> is a text alternative
+      // and takes no focus, so it is not this rule's business.
+      for (const match of text.matchAll(
+        /<input\b[^>]*className=(?:"sr-only"|\{[^}]*sr-only[^}]*\})/g,
+      )) {
+        const at = match.index;
+        const labelAt = text.lastIndexOf("<label", at);
+        const key = `${relativeToWeb(file)}:${text.slice(0, at).split("\n").length}`;
+        found.push(key);
+        if (labelAt === -1) {
+          offenders.push(`${key} (no enclosing <label> found)`);
+          continue;
+        }
+        const opening = text.slice(labelAt, at);
+        const viaConstant = [...opening.matchAll(/\$\{(\w+)/g)].some((ref) =>
+          HAS_RING.test(consts.get(ref[1]) ?? ""),
+        );
+        if (HAS_RING.test(opening) || viaConstant) continue;
+        if (Object.hasOwn(SR_ONLY_FOCUS_EXEMPT, relativeToWeb(file))) continue;
+        offenders.push(key);
+      }
+    }
+
+    // The premise: a scan that has stopped matching is indistinguishable from a clean
+    // tree. Six of these cards exist today across the two realms.
+    expect(found.length, "no sr-only form inputs found — this scan is looking nowhere")
+      .toBeGreaterThanOrEqual(6);
+    expect(
+      offenders,
+      "WCAG 2.4.7 Focus Visible (Level AA), failure technique F78: an `sr-only` input " +
+        "removes the browser's focus ring, so its <label> must draw one. Add " +
+        "`has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong " +
+        "has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app` to the " +
+        "label's className — the same ring `components/actionButton.tsx` uses, so this " +
+        "console has one focus style and not two. axe cannot catch this: it does not " +
+        "evaluate focus indicators, and jsdom has no layout to evaluate them in.",
+    ).toEqual([]);
+  });
+
+  it("keeps no sr-only focus exemption that has stopped applying", () => {
+    // The same rule `BRAND_FILL_EXEMPT` is held to, and it matters more here: this
+    // waiver covers a LIVE accessibility failure, so it must disappear the moment the
+    // file it names is fixed — otherwise the next `sr-only` input added to that file
+    // inherits a hole nobody argued for.
+    const HAS_RING = /has-\[:focus-visible\]|focus-within:/;
+    const stillBroken = new Set(
+      sourceFiles()
+        .filter((file) => {
+          const text = readFileSync(file, "utf8");
+          if (!/<input\b[^>]*className=(?:"sr-only"|\{[^}]*sr-only[^}]*\})/.test(text)) {
+            return false;
+          }
+          return !HAS_RING.test(text);
+        })
+        .map(relativeToWeb),
+    );
+    expect(
+      Object.keys(SR_ONLY_FOCUS_EXEMPT).filter((key) => !stillBroken.has(key)),
+      "these SR_ONLY_FOCUS_EXEMPT entries name a file that now draws a focus ring (or " +
+        "no longer hides an input) — delete them, the waiver has done its job",
     ).toEqual([]);
   });
 

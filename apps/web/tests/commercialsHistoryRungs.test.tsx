@@ -79,6 +79,18 @@ function twoRungPlan(over: Partial<PlanRow> = {}): PlanRow {
     effective_to: null,
     created_at: "2026-08-01T05:00:00Z",
     states_pricing: true,
+    // D-469: the bundle's margin at our cost floor, as the server computes it. ₹9,999 for
+    // 100 minutes is ₹99.99/min committed; the ₹8.00 overage keeps (8.00 − 3.70) / 8.00.
+    // Both clear the 20% target, so nothing is flagged.
+    margin: {
+      effective_committed_rate_inr_per_min: "99.99",
+      committed_gross_margin: "0.9631",
+      overage_rate_inr_per_min: "8.0000",
+      overage_gross_margin: "0.5375",
+      below_target_margin: [],
+      min_gross_margin: "0.20",
+      cost_floor_inr_per_min: "3.70",
+    },
     ...over,
   };
 }

@@ -83,6 +83,19 @@ function plan(over: Partial<PlanRow> = {}): PlanRow {
     effective_to: null,
     created_at: "2026-08-01T05:00:00Z",
     states_pricing: true,
+    // D-469: the margin of this bundle's rates at our cost floor, as the server computes
+    // it. ₹9,999 for 100 minutes is ₹99.99/min committed — (99.99 − 3.70) / 99.99 —
+    // and the ₹7.1250 overage keeps (7.125 − 3.70) / 7.125. Both clear the 20% target, so
+    // nothing is flagged; the figures are the server's strings, never parsed here.
+    margin: {
+      effective_committed_rate_inr_per_min: "99.99",
+      committed_gross_margin: "0.9631",
+      overage_rate_inr_per_min: "7.1250",
+      overage_gross_margin: "0.4807",
+      below_target_margin: [],
+      min_gross_margin: "0.20",
+      cost_floor_inr_per_min: "3.70",
+    },
     ...over,
   };
 }
