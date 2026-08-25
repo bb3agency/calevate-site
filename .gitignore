@@ -61,3 +61,6 @@ dump.rdb
 # project settings under `.claude/` are the kind of thing a repo legitimately checks in,
 # and a blanket ignore would silently swallow them the day somebody adds one.
 .claude/worktrees/
+
+# Live production credentials — never commit (see the file's own header)
+VPS_INPUTS.md
