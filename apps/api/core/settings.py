@@ -606,9 +606,25 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         # operators learn to ignore, which costs more than the feature.
         #
         # (`GCP_PROJECT_ID` and `GCP_SERVICE_ACCOUNT_JSON` used to be named here and are
-        # gone with the Vertex legs — see `calevate_shared.config`.) Neither is
-        # `GEMINI_API_KEY`, which opens an endpoint D-127 disqualified and whose absence is
-        # the CORRECT state.
+        # gone with the Vertex legs — see `calevate_shared.config`.) `GEMINI_API_KEY` is
+        # absent from this list for the SAME reason as the Azure credentials — an optional
+        # leg — and NOT for the reason this comment used to give.
+        #
+        # IT SAID GEMINI "opens an endpoint D-127 disqualified and whose absence is the
+        # CORRECT state". That has been false since the multi-provider posture: Google is
+        # one of three declared legs, and `agents/llm_models` marks `gemini-2.5-flash` and
+        # `gemini-2.5-flash-lite` SELECTABLE with a catalogue price — so
+        # `unofferable_reason` on both today returns exactly "this platform holds no API
+        # key for the provider that serves this model … install the provider's key in the
+        # ops console". Installing it is a supported act that widens
+        # `offerable_models()` by two, not a mistake to be talked out of.
+        #
+        # Left absent from readiness on the same argument the Azure block above makes: a
+        # probe that goes red for an optional feature is a probe operators learn to
+        # ignore. What is NOT true is that the key should never be installed, and a
+        # comment saying so in the file an operator reads before deciding is the defect
+        # class hard rule 11 exists for — a repo-internal claim, restated downstream as
+        # fact, that nobody re-derived after the decision moved.
         if not cfg.sarvam_api_key:
             missing.append("SARVAM_API_KEY")
         # AUTHENTICATION HAS NO KEY TO REPORT HERE ANY MORE, and that is the point of
