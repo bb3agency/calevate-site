@@ -1277,6 +1277,15 @@ Break it with the certificate that needs no ACME:
    `default_server`, uses the origin certificate, and returns 444. This is also §10's
    first lesson: a certless `default_server` is what turns a healthy origin into
    Cloudflare 525.
+
+   ⚠ **Its 444 is inside `location /`, and that is load-bearing rather than stylistic.**
+   Because this block is the only port-80 listener loaded during issuance, it is also the
+   block that has to serve `/.well-known/acme-challenge/` — so it carries a `^~` location
+   for the webroot. A `return 444` written at SERVER scope, which is how this template
+   originally shipped, is executed by ngx_http_rewrite_module in the server rewrite phase,
+   **before nginx selects a location**: it fires for the challenge too, and step 3 fails
+   with an empty response on a config that passes `nginx -t` cleanly. `tests/
+   nginx_default_server_acme_test.py` fails if the `return` is ever hoisted back out.
 3. **Obtain the Let's Encrypt certificates while only that file is loaded, WITH the
    renewal hook attached in the same command.** Its port-80 `default_server` answers the
    challenge for all four names:
