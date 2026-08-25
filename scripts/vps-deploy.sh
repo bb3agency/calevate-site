@@ -480,9 +480,22 @@ preflight_plan() {
   # budget hard rule 3 spends. A refusal, not a warning: the honest fix is fewer workers
   # and a lower supported concurrency, and it is one environment variable.
   if in_plan voice-runtime; then
-    local vcpu workers
+    # THE VALUE THIS CHECK READS MUST BE THE VALUE THE CONTAINER GETS, and it was not.
+    # `compose.prod.yml` interpolates `${VOICE_RUNTIME_WORKERS:-4}`, and compose resolves
+    # that from the shell FIRST and from the project `.env` second. This check only ever
+    # looked at the shell — so `VOICE_RUNTIME_WORKERS=1` sitting in `.env`, which is where
+    # a durable host setting belongs, left the refusal reading the default 4 and aborting
+    # a deploy that would have started exactly one worker. The mirror case is worse: a
+    # future check that passed on a shell value while `.env` said something larger would
+    # wave through the oversubscription it exists to prevent.
+    #
+    # `grep`, not `source`: this script never sources `.env` (see the mode warning above),
+    # and the same one-key read is already how the object-store credentials are checked.
+    local vcpu workers from_env
     vcpu=$(nproc)
-    workers=${VOICE_RUNTIME_WORKERS:-4}
+    from_env=$(sed -n 's/^VOICE_RUNTIME_WORKERS=[[:space:]]*"\{0,1\}\([0-9]\{1,\}\)"\{0,1\}[[:space:]]*$/\1/p' \
+      "$ROOT/.env" 2>/dev/null | tail -n 1)
+    workers=${VOICE_RUNTIME_WORKERS:-${from_env:-4}}
     (( workers <= vcpu )) || die \
       "VOICE_RUNTIME_WORKERS is $workers on a ${vcpu}-vCPU host. DEPLOYMENT §2a: never more
      workers than vCPU — each saturates a core, and oversubscription is paid out of the
