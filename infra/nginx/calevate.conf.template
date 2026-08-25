@@ -41,7 +41,8 @@ map $http_upgrade $connection_upgrade {
 server {
     listen 80;
     listen [::]:80;
-    server_name admin.${ROOT_DOMAIN} app.${ROOT_DOMAIN} api.${ROOT_DOMAIN} hooks.${ROOT_DOMAIN};
+    server_name ${ROOT_DOMAIN} www.${ROOT_DOMAIN}
+                admin.${ROOT_DOMAIN} app.${ROOT_DOMAIN} api.${ROOT_DOMAIN} hooks.${ROOT_DOMAIN};
 
     # certbot renews over HTTP-01 through this path. It must be served BEFORE the
     # redirect, and it must not be behind the Cloudflare origin lock — Let's Encrypt
@@ -56,6 +57,87 @@ server {
     # Cloudflare must be set to Full (STRICT). With Flexible, Cloudflare speaks HTTP to
     # this server, gets this 301 back, and loops (DEPLOYMENT §5).
     location / { return 301 https://$host$request_uri; }
+}
+
+# --- the apex and www: the public marketing site -----------------------------------
+#
+# WHY THIS BLOCK EXISTS AT ALL. It did not, and `calevate.tech` was a live defect: the
+# marketing page IS `apps/web/src/app/page.tsx` and Next serves it at `/`, but no server
+# block named the apex — so the zone's apex record pointed at this host and landed on
+# `000-default`, which answers `return 444`. The public front door of the product closed
+# the connection. `www` and the apex were also still pointing at `127.0.0.1` from before
+# the zone moved, i.e. at each visitor's own machine.
+#
+# THE SAME CERTIFICATE AS EVERY OTHER VHOST, and that is deliberate. The Cloudflare
+# Origin CA cert covers `calevate.tech` and would have worked here — but it exists for
+# exactly one job (a certless `default_server` is Cloudflare 525) and using it for a
+# second, unrelated one is two mechanisms for one problem. The Let's Encrypt lineage is
+# expanded to six names instead: one certificate, one renewal, one hook.
+#
+# REALM ISOLATION APPLIES HERE TOO. This host proxies to the same Next.js process as the
+# two consoles, so without the refusals below `calevate.tech/admin` would serve the
+# operator sign-in page to anybody who guessed the path — the exact hole P7.3 closed
+# between `admin.` and `app.`, reopened on a third hostname.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${ROOT_DOMAIN};
+
+    ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
+    ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
+    include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin.conf;
+    include /etc/nginx/snippets/calevate-headers.conf;
+
+    # Timeouts at SERVER scope, because `calevate-proxy.conf` deliberately sets none —
+    # an include is textual, so a timeout in that file would land at location scope in
+    # every block below and shadow this.
+    proxy_connect_timeout 5s;
+    proxy_send_timeout    60s;
+    proxy_read_timeout    60s;
+
+    # Smaller than the consoles': nothing is uploaded to the marketing site, and a public
+    # unauthenticated hostname is the wrong place to accept 25 MB from a stranger.
+    client_max_body_size 1m;
+
+    # Neither realm exists on the public hostname.
+    location ^~ /admin { return 404; }
+    location ^~ /c/    { return 404; }
+
+    location / {
+        limit_req zone=default burst=30 nodelay;
+        proxy_pass http://calevate_web;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+
+# `www` REDIRECTS rather than serving, so the marketing site has ONE canonical address.
+# Two hostnames serving identical HTML is a duplicate-content split for no benefit, and
+# every link we mint names the apex. 301 rather than 302: this is permanent, and the
+# permanent form is what search engines and browsers cache.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name www.${ROOT_DOMAIN};
+
+    ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
+    ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
+    include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin.conf;
+    include /etc/nginx/snippets/calevate-headers.conf;
+
+    # Stated even though this block proxies nothing: a future `location` added here would
+    # otherwise inherit nginx's 60s global defaults, and the guard requires every TLS
+    # vhost to name its own.
+    proxy_connect_timeout 5s;
+    proxy_send_timeout    60s;
+    proxy_read_timeout    60s;
+
+    return 301 https://${ROOT_DOMAIN}$request_uri;
 }
 
 # --- admin + app: the two browser realms, and they are now actually two -----------
