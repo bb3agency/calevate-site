@@ -47,10 +47,12 @@ import asyncio
 import os
 import sys
 
-#: Where the emailed link lands. The token travels in the `token` query parameter of a
-#: PAGE, which then POSTs it to `/v1/auth/admin/bootstrap/confirm` — never in an API URL,
-#: so it stays out of access logs and out of any `Referer`.
-ADMIN_CONSOLE_BASE = "https://admin.calevate.tech"
+# `core/console_links` is a constants module with no database, no settings and no vendor
+# import, so unlike everything else this script touches it is safe at module scope — the
+# `--help`-on-a-host-with-no-database property below is unaffected.
+from apps.api.core.console_links import ADMIN_CONSOLE_BASE, admin_bootstrap_link
+
+__all__ = ["ADMIN_CONSOLE_BASE", "main"]
 
 _SUBJECT = "Set up your Calevate administrator account"
 
@@ -74,7 +76,11 @@ def _require_env() -> None:
 
 
 def _link(token: str) -> str:
-    return f"{ADMIN_CONSOLE_BASE}/bootstrap?token={token}"
+    """Delegates. It USED to compose the URL itself, as `{base}/bootstrap?token=…`, which
+    is a page this app does not serve — and `apps/workers/auth_email` had the identical
+    string, so the guard comparing the two composers passed. Two writers of one URL is the
+    defect; there is one now, and `core/console_links` argues it."""
+    return admin_bootstrap_link(token)
 
 
 async def _run(*, email: str, name: str | None, role: str) -> str:

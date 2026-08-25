@@ -145,7 +145,7 @@ audit row, and printed:
 ```
 email sent: NO — use the link below
 Setup link (single use):
-https://admin.calevate.tech/bootstrap?token=…
+https://admin.calevate.tech/auth/admin/bootstrap?token=…
 ```
 
 **So email delivery does NOT block the first login.** That was the standing assumption

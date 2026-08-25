@@ -1277,6 +1277,15 @@ Break it with the certificate that needs no ACME:
    `default_server`, uses the origin certificate, and returns 444. This is also §10's
    first lesson: a certless `default_server` is what turns a healthy origin into
    Cloudflare 525.
+
+   ⚠ **Its 444 is inside `location /`, and that is load-bearing rather than stylistic.**
+   Because this block is the only port-80 listener loaded during issuance, it is also the
+   block that has to serve `/.well-known/acme-challenge/` — so it carries a `^~` location
+   for the webroot. A `return 444` written at SERVER scope, which is how this template
+   originally shipped, is executed by ngx_http_rewrite_module in the server rewrite phase,
+   **before nginx selects a location**: it fires for the challenge too, and step 3 fails
+   with an empty response on a config that passes `nginx -t` cleanly. `tests/
+   nginx_default_server_acme_test.py` fails if the `return` is ever hoisted back out.
 3. **Obtain the Let's Encrypt certificates while only that file is loaded, WITH the
    renewal hook attached in the same command.** Its port-80 `default_server` answers the
    challenge for all four names:
@@ -1400,7 +1409,7 @@ connection.
 
 **What it does (D-171):** creates the `admin_users` row with NO password and mails a
 **single-use setup link that expires in 60 minutes**. The operator opens
-`https://admin.calevate.tech/bootstrap?token=…`, sets a password, and is then a working
+`https://admin.calevate.tech/auth/admin/bootstrap?token=…`, sets a password, and is then a working
 administrator. **The link is also printed to stdout**, deliberately — a deployment whose
 mail provider is not configured yet must still be able to acquire its first operator, and
 the mail credentials are themselves stored by an operator, in the console. No password is

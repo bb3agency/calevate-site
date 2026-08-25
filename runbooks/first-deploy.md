@@ -142,6 +142,29 @@ Python 3.12 and `uv`, and run `uv sync --all-packages` in the deploy root at ste
 
 ---
 
+## 1b. The service account MUST be named `calevate` — check before you create it
+
+Not a convention: `infra/hygiene/systemd/calevate-hygiene.service:24` runs as `User=calevate`,
+`infra/privileged/sbin/calevate-nginx-apply:55` refuses unless `DEPLOY_USER=calevate` owns the
+staged file, and `infra/privileged/sudoers.d/calevate-deploy` grants to that name.
+`infra/privileged/README.md:87` states the three must agree. A deploy account called anything
+else does not fail loudly — the timer runs as a user that does not exist, the nginx guard
+refuses on an owner mismatch, and the sudoers grant lands on nobody. All three surface days
+later, separately.
+
+Your interactive login does NOT have to be this account, and preferably is not: `calevate` is a
+service account with no blanket sudo, which is what makes the scoped `sudoers.d` policy in
+`infra/privileged/` worth having. Log in as yourself; let the app run as `calevate`.
+
+```sh
+# refuse to go on if the name does not match what infra/ hard-codes
+grep -h "^User=\|DEPLOY_USER=" infra/hygiene/systemd/calevate-hygiene.service \
+     infra/privileged/sbin/calevate-nginx-apply | sort -u
+id calevate || echo "CREATE IT before step 10 installs the timer and the sudoers policy"
+```
+
+---
+
 ## 2. Postgres, and the two roles — **do this BEFORE the first migration**
 
 Migration `05bba2f3c19c` contains `CREATE ROLE calevate_app LOGIN PASSWORD 'calevate_app'
@@ -330,7 +353,7 @@ created admin_users row 0…  (superadmin)
 email sent: NO — use the link below
 expires:    …
 Setup link (single use):
-https://admin.calevate.tech/bootstrap?token=…
+https://admin.calevate.tech/auth/admin/bootstrap?token=…
 ```
 
 **`email sent: NO` is fine and expected before Resend is configured.** The link is printed

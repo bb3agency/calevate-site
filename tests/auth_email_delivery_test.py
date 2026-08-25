@@ -24,8 +24,10 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from apps.api.core import console_links
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.workers import auth_email, transport
 from arq import Retry
@@ -54,6 +56,47 @@ WEB_ACCEPT_INVITE_PATH = (
     )
     or _NO_MATCH
 ).group(1)
+
+#: The admin console's bootstrap route, same treatment as the invite one above.
+_ADMIN_AUTHN_TS = Path(__file__).resolve().parent.parent / "apps/web/src/lib/authn/adminAuthn.ts"
+WEB_ADMIN_BOOTSTRAP_PATH = (
+    re.search(
+        r'ADMIN_BOOTSTRAP_PATH\s*=\s*"([^"]+)"',
+        _ADMIN_AUTHN_TS.read_text(encoding="utf-8"),
+    )
+    or _NO_MATCH
+).group(1)
+
+_APP_DIR = Path(__file__).resolve().parent.parent / "apps/web/src/app"
+
+
+def _served_paths() -> frozenset[str]:
+    """Every URL the Next.js App Router actually serves a page for.
+
+    THE AUTHORITY, and the reason this exists at all. The guard that used to stand here
+    compared the two bootstrap-link composers TO EACH OTHER; they agreed, on
+    `/bootstrap`, which is a page nobody serves. Agreement between writers proves nothing
+    about the thing that has to answer — so the paths are resolved against the route tree
+    on disk instead.
+
+    `(auth)` and friends are ROUTE GROUPS: they organise files and contribute NO url
+    segment, which is exactly what makes `/auth/admin/bootstrap` hard to read off a
+    directory listing and easy to get wrong from memory. Dynamic segments (`[slug]`) are
+    dropped rather than modelled — no mailed link has one, and pretending to match them
+    would let a wrong path pass by landing on a catch-all.
+    """
+    paths = set()
+    for page in _APP_DIR.rglob("page.tsx"):
+        segments = [
+            part
+            for part in page.relative_to(_APP_DIR).parent.parts
+            if not (part.startswith("(") and part.endswith(")"))
+        ]
+        if any(part.startswith("[") for part in segments):
+            continue
+        paths.add("/" + "/".join(segments) if segments else "/")
+    return frozenset(paths)
+
 
 PAYLOAD: dict[str, Any] = {
     "kind": "password_reset",
@@ -183,44 +226,109 @@ async def test_the_real_transport_protocol_is_what_the_fake_implements() -> None
     assert inspect.signature(_Transport.send) == expected
 
 
-async def test_the_invitation_link_names_the_page_the_web_app_serves() -> None:
-    """The guard `auth_email.py`'s own comment promised and nobody wrote.
+def test_the_route_tree_resolver_can_see_the_app_at_all() -> None:
+    """The premise every assertion below rests on.
 
-    That comment named `tests/auth_email_test.py`, a file this repo does not have, so the
-    emailed path and the web app's path could drift apart with nothing going red — the
-    same defect class as a router nobody mounted. D-190 made this template the ONLY way an
-    invitation reaches anybody, so a stale path here is a dead invite for every new member.
-
-    The path is READ OUT OF the TypeScript source (at import, so this stays a pure
-    assertion): a constant copied into a Python string is the drift, not the guard.
+    FAILS IF: `apps/web/src/app` moves, or Next stops using `page.tsx`. Without this, an
+    empty set would make every path below look wrong and send the next reader after a
+    composer that is fine.
     """
-    assert WEB_ACCEPT_INVITE_PATH, "CLIENT_ACCEPT_INVITE_PATH moved — this guard is blind"
-    body = auth_email._body("invite_password", "client", "tok_abc")
-    assert f"{WEB_ACCEPT_INVITE_PATH}?token=tok_abc" in body, (
-        f"the invitation email points somewhere other than {WEB_ACCEPT_INVITE_PATH}, which "
-        "is the page the web app actually serves"
+    served = _served_paths()
+    assert len(served) > 20, f"only {len(served)} routes found — the resolver is blind"
+    assert "/auth/sign-in" in served, sorted(served)[:20]
+
+
+@pytest.mark.parametrize(
+    ("what", "link"),
+    [
+        ("the operator setup link", console_links.admin_bootstrap_link("tok")),
+        ("the client password reset", console_links.password_reset_link("client", "tok")),
+        ("the operator password reset", console_links.password_reset_link("admin", "tok")),
+        ("the invitation link", console_links.accept_invitation_link("tok")),
+    ],
+)
+def test_every_mailed_link_names_a_page_this_app_serves(what: str, link: str) -> None:
+    """THE GUARD THAT WAS MISSING, and two of these four failed the day it was written.
+
+    `admin_bootstrap` said `/bootstrap`; the page is `/auth/admin/bootstrap`.
+    `password_reset` said `/reset-password` for BOTH realms; the pages are
+    `/auth/reset-password` and `/auth/admin/reset-password`. Each is single-use and
+    short-lived, so a wrong path does not merely inconvenience somebody — it burns the
+    credential, and the bootstrap one is the only way into a fresh deployment.
+    """
+    path = urlsplit(link).path
+    served = _served_paths()
+    assert path in served, (
+        f"{what} points at {path}, which no page serves. Nearest: "
+        f"{sorted(p for p in served if p.startswith('/auth'))}"
     )
 
 
-async def test_the_operator_setup_link_names_the_page_the_bootstrap_script_prints() -> None:
-    """The same guard for the OTHER single-use link, and it has two writers.
+def test_the_query_parameter_is_the_one_the_page_strips_from_the_url() -> None:
+    """`useLinkToken` takes exactly `token` out of the URL on arrival, so the secret is not
+    left in browser history or in a screenshot. A link that named it anything else would
+    both fail to redeem AND leave the token sitting in the address bar."""
+    for link in (
+        console_links.admin_bootstrap_link("tok"),
+        console_links.password_reset_link("client", "tok"),
+        console_links.accept_invitation_link("tok"),
+    ):
+        assert parse_qs(urlsplit(link).query) == {"token": ["tok"]}, link
 
-    `scripts/bootstrap_admin` composes the deploy-time link itself and PRINTS it, while
-    `authn/operators.create_operator` mails one through this template for every operator
-    added from the console afterwards. Two composers, one page, one single-use token — so
-    a drift between them is not a broken link, it is a burned token: the person clicks,
-    the page 404s, and the token is either spent or expires before anybody works out why.
 
-    Compared against the script's OWN constants rather than a literal, for the reason the
-    invitation guard above gives.
+def test_the_two_realms_get_different_reset_pages_on_different_hosts() -> None:
+    """One string served both realms before, which is how it could be wrong for both at
+    once. Admin and client are separate hostnames with separate session modules (D-177);
+    a shared reset URL is a category error even when the path happens to exist."""
+    admin = console_links.password_reset_link("admin", "tok")
+    client = console_links.password_reset_link("client", "tok")
+    assert admin != client
+    assert admin.startswith(console_links.ADMIN_CONSOLE_BASE)
+    assert client.startswith(console_links.CONSOLE_BASE)
+
+
+@pytest.mark.parametrize(
+    ("ts_path", "python_path", "constant"),
+    [
+        (
+            WEB_ACCEPT_INVITE_PATH,
+            console_links.CLIENT_ACCEPT_INVITE_PATH,
+            "CLIENT_ACCEPT_INVITE_PATH",
+        ),
+        (WEB_ADMIN_BOOTSTRAP_PATH, console_links.ADMIN_BOOTSTRAP_PATH, "ADMIN_BOOTSTRAP_PATH"),
+    ],
+)
+def test_the_web_app_and_the_mailer_name_the_same_page(
+    ts_path: str, python_path: str, constant: str
+) -> None:
+    """The route tree says the page EXISTS; this says the browser code agrees which one it
+    is. Both are needed: a rename that moved the directory and the TypeScript constant
+    together would keep the test above green while the mailer pointed at the old page.
     """
-    from scripts.bootstrap_admin import ADMIN_CONSOLE_BASE, _link
-
-    body = auth_email._body("admin_bootstrap", "admin", "tok_admin")
-    assert _link("tok_admin") in body, (
-        "the operator setup email and scripts/bootstrap_admin disagree about the page "
-        f"that redeems the token ({ADMIN_CONSOLE_BASE})"
+    assert ts_path, f"{constant} moved or was renamed — this guard is blind"
+    assert ts_path == python_path, (
+        f"{constant} is {ts_path!r} in the web app and {python_path!r} in "
+        "apps/api/core/console_links — one of them is mailing a dead URL"
     )
+
+
+async def test_the_bodies_carry_the_composed_link_rather_than_one_of_their_own() -> None:
+    """`_body` used to write these URLs itself, and `scripts/bootstrap_admin` wrote the
+    same one a second time. Both now delegate, which is what makes the guards above cover
+    the mail that actually goes out rather than a function nobody sends."""
+    from scripts.bootstrap_admin import _link
+
+    assert console_links.admin_bootstrap_link("tok_admin") in auth_email._body(
+        "admin_bootstrap", "admin", "tok_admin"
+    )
+    assert _link("tok_admin") == console_links.admin_bootstrap_link("tok_admin")
+    assert console_links.accept_invitation_link("tok_abc") in auth_email._body(
+        "invite_password", "client", "tok_abc"
+    )
+    for realm in ("admin", "client"):
+        assert console_links.password_reset_link(realm, "tok_r") in auth_email._body(
+            "password_reset", realm, "tok_r"
+        )
     assert auth_email._SUBJECTS["admin_bootstrap"], "the kind has no subject line"
 
 

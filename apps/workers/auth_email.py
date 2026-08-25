@@ -61,6 +61,12 @@ from typing import Any
 from arq import Retry
 
 from apps.api.core.alerting import alert
+from apps.api.core.console_links import (
+    CONSOLE_BASE,
+    accept_invitation_link,
+    admin_bootstrap_link,
+    password_reset_link,
+)
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.workers.transport import _domain, get_transport
@@ -83,18 +89,12 @@ _SUBJECTS: dict[str, str] = {
     "admin_bootstrap": "Set up your Calevate administrator account",
 }
 
-#: Where the emailed links point. The token travels in the `token` query parameter of a
-#: PAGE, never of an API route — the page then POSTs it — which is what keeps the secret
-#: out of the API's access logs and out of any `Referer` an outbound link on that page
-#: would send.
-#:
-#: `CONSOLE_BASE` is PUBLIC because `workers/notifications.py` links a hot-lead alert
-#: back to the lead it is about, and a second literal of this host is the defect class
-#: D-103 exists for. It is exported rather than moved because both readers are worker
-#: email composers and a module holding one constant is not a better home than the one
-#: that already mints links.
-CONSOLE_BASE = "https://app.calevate.tech"
-_ADMIN_BASE = "https://admin.calevate.tech"
+#: `CONSOLE_BASE` is RE-EXPORTED, not defined here. `workers/notifications.py` imports it
+#: from this module to link a hot-lead alert back to the lead it is about, and that import
+#: predates `core/console_links`; re-exporting keeps the one caller working while leaving
+#: exactly one definition of the host. Every link body below is composed by that module —
+#: this file no longer knows what any of these URLs look like, which is the point: it got
+#: two of them wrong while looking entirely reasonable.
 
 #: Seconds to wait before each retry, indexed by the attempt that just failed. One entry
 #: shorter than `WORKER_MAX_TRIES`, because the last attempt has nothing after it — the
@@ -110,12 +110,16 @@ def _retry_after(attempt: int) -> float:
 
 def _body(kind: str, realm: str, secret: str) -> str:
     """The message. Plain text, because a transactional secret does not need HTML and an
-    HTML mail is one more thing that can render wrong in a client we have never seen."""
-    base = _ADMIN_BASE if realm == "admin" else CONSOLE_BASE
+    HTML mail is one more thing that can render wrong in a client we have never seen.
+
+    Every URL comes from `core/console_links`, which is the only place that knows what a
+    console page is called. This function composed them itself until two of the three
+    named pages that are not served — see that module's docstring.
+    """
     if kind == "password_reset":
         return (
             "Someone asked to reset the password for this Calevate account.\n\n"
-            f"{base}/reset-password?token={secret}\n\n"
+            f"{password_reset_link(realm, secret)}\n\n"
             "This link works once and expires in one hour. If this was not you, you can "
             "ignore this email — your password has not changed."
         )
@@ -125,29 +129,22 @@ def _body(kind: str, realm: str, secret: str) -> str:
         # D-177's rule is that newly minted links name the surviving page directly, and
         # this template mints them. It pointed at the legacy path while nothing sent it;
         # D-190 made it the only way an invitation reaches anybody, which is what turned a
-        # stale string into a live extra hop. Kept in step with
-        # `apps/web/src/lib/authn/clientAuthn.CLIENT_ACCEPT_INVITE_PATH` (which
-        # `members.INVITE_PATH` re-exports) by `tests/auth_email_delivery_test.py`,
-        # in the test whose name says so. That reference named
-        # `tests/auth_email_test.py`, a file this repo does not have — a guard
-        # promised in a comment and never written, which is the same defect class as
-        # an unmounted router: the two strings could drift apart and nothing anywhere
-        # would go red.
+        # stale string into a live extra hop.
         return (
             "You have been invited to a Calevate workspace.\n\n"
-            f"{base}/auth/accept-invitation?token={secret}\n\n"
+            f"{accept_invitation_link(secret)}\n\n"
             "This link works once and expires in 72 hours. If you were not expecting it, "
             "you can ignore this email — nothing happens until you open it."
         )
     if kind == "admin_bootstrap":
-        # `/bootstrap`, the admin console page that POSTs this token to
-        # `/v1/auth/admin/bootstrap/confirm`. Kept in step with
-        # `scripts/bootstrap_admin._link`, which composes the same URL for the deploy-time
-        # path and prints it — `tests/auth_email_delivery_test.py` compares the two,
-        # because a setup link is single-use and a wrong path burns it.
+        # The admin console page that POSTs this token to
+        # `/v1/auth/admin/bootstrap/confirm`. It said `/bootstrap` here, and
+        # `scripts/bootstrap_admin` said `/bootstrap` too, and the guard that compared them
+        # compared them to EACH OTHER — so a page nobody serves passed as agreed. One
+        # composer now, checked against the route tree.
         return (
             "You have been given an administrator account on a Calevate deployment.\n\n"
-            f"Set your password:\n\n{base}/bootstrap?token={secret}\n\n"
+            f"Set your password:\n\n{admin_bootstrap_link(secret)}\n\n"
             "This link works once and expires in one hour. If it expires, ask the "
             "administrator who added you to send another."
         )

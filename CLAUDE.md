@@ -336,6 +336,50 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
     - This binds visible reasoning and lane briefs too: an unverified premise passed to a
       subagent becomes its foundation. Verify before you delegate a fact.
 
+12. **Verify the PREMISE before you act on it. Rule 11 governs what you SAY; this governs
+    what you DO, and an unchecked premise you act on costs more than one you merely state.**
+    Every failure in the session that produced this rule was the same shape: a check that
+    was available, cheap, and not run.
+    - **If a check exists and is cheap, run it — do not reason about what it would say.**
+      A `grep`, an `ls`, a `--dry-run`, reading the config, is seconds. Being wrong about a
+      live system is not. "It's probably X" is the sentence to notice: it means a
+      verification is available and you are choosing inference over it.
+    - **Grep before you name.** A name you invent may already be fixed somewhere in this
+      tree. The deploy account was named `deploy` from habit while
+      `infra/hygiene/systemd/calevate-hygiene.service:24`, `infra/privileged/sbin/
+      calevate-nginx-apply:55` and `infra/privileged/sudoers.d/calevate-deploy` all
+      hard-code `calevate` — and `infra/privileged/README.md:87` already SAID the three must
+      agree. One grep would have found it. The failure mode is the expensive kind: nothing
+      errors, and a timer, a guard and a sudoers grant each break silently, days apart.
+    - **Enumerate the contract; do not recall it.** Which gates exist is a fact in
+      `.github/workflows/ci.yml`, not in memory. Guessing produced two consecutive red CI
+      runs (`lint-imports`, then OpenAPI snapshot freshness) that a single read of that file
+      would have prevented. The same holds for any registry the repo keeps: the append-only
+      table list, `BOUNDED_LISTS`, the guarded surfaces. Read the source of truth.
+    - **Satisfying the WORDS of an instruction while defeating its PURPOSE is not
+      compliance.** The runbook says `listen_addresses` "must include the Docker bridge
+      gateway"; `*` includes it, and also binds the public interface, leaving only ufw in
+      front — the one control that explicitly does not contain Docker. Before implementing
+      an instruction, ask what it is protecting against; if your implementation does not
+      protect against that, it is wrong however literally it complies.
+    - **A speculation may never become a recommendation.** Asking "does their runner build,
+      or only pull?" was right; offering to reverse a decision on the guess was not. The
+      source said it runs `npm ci`, `docker compose build`, then `npm ci` and `next build`
+      again. Say "I don't know yet, I'm checking" and then check — the answer usually costs
+      one command.
+    - **On a live system, INSPECT BEFORE YOU MUTATE, and never hand over a destructive
+      command for a path you have not looked at.** `rm -rf`, `DROP`, `deluser`, a config
+      overwrite: list it, check what it holds, confirm nothing irreplaceable is inside, then
+      act. A file holding `PLATFORM_KEK` is not a re-clone away.
+    - **When acting through a person at a terminal, prove the outcome rather than assuming
+      it.** Have the command print what changed and assert the property that matters
+      (`ss -tlnp` showing no `0.0.0.0`, `sshd -T` showing the daemon's resolved value, not
+      the file you think it read). Their paste is your only instrument.
+    - **A repo-internal claim is not evidence of itself, and this includes attribution.**
+      Four "raghava-proven" claims in `docs/DEPLOYMENT.md` were false the whole time because
+      nobody had read the source they cited. If you cite something, open it.
+
+
 ## Conventions
 
 - Python 3.12, FastAPI, Pydantic v2 everywhere at boundaries; SQLAlchemy 2.0 typed ORM;

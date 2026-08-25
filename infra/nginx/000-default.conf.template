@@ -22,7 +22,7 @@
 # the alphabetical include order, which is not required by nginx (default_server is
 # explicit) but makes the intent visible in a directory listing.
 #
-# Substituted variables: ROOT_DOMAIN  ORIGIN_CERT_PATH  ORIGIN_KEY_PATH
+# Substituted variables: ROOT_DOMAIN  ORIGIN_CERT_PATH  ORIGIN_KEY_PATH  ACME_WEBROOT
 
 server {
     listen 80 default_server;
@@ -35,8 +35,32 @@ server {
     ssl_certificate_key ${ORIGIN_KEY_PATH};
     include /etc/nginx/snippets/calevate-tls.conf;
 
+    # THE ACME CHALLENGE LIVES HERE, AND `return 444` MUST NOT BE AT SERVER SCOPE.
+    #
+    # DEPLOYMENT §9.5a breaks the certificate deadlock by loading THIS file alone and then
+    # running `certbot certonly --webroot` — the real vhost cannot be loaded first, because
+    # every one of its TLS blocks references a certificate that does not exist yet. So the
+    # only port-80 listener on the box during issuance is this one, and it is therefore the
+    # block that has to answer `/.well-known/acme-challenge/` for all four names.
+    #
+    # It did not. `return 444` sat at SERVER scope, where ngx_http_rewrite_module runs it in
+    # the server rewrite phase — BEFORE location selection — so it fired for every request
+    # including the challenge, and certbot would have failed with an empty response on a
+    # config that tests clean. Moving the 444 into a catch-all `location /` is what lets a
+    # more specific `location` be reached at all; `^~` then keeps it ahead of any regex
+    # location a later edit adds.
+    #
+    # Nothing about the block's purpose changes: everything that is not an ACME challenge
+    # still gets 444, which is what makes a direct-to-IP scanner learn nothing.
+    location ^~ /.well-known/acme-challenge/ {
+        root ${ACME_WEBROOT};
+        default_type "text/plain";
+    }
+
     # No origin allowlist include here on purpose. This block's job is to complete a TLS
     # handshake and say nothing; a 403 from the access module would be a longer answer
     # than 444 and would still have completed the handshake anyway.
-    return 444;
+    location / {
+        return 444;
+    }
 }
