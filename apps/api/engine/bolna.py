@@ -98,6 +98,7 @@ throttle block below for what is and is not retried, and why.
 
 from __future__ import annotations
 
+import json
 import random
 import re
 from collections.abc import Callable, Mapping
@@ -113,6 +114,7 @@ from calevate_shared.engine import (
     DECLARED_POSTURE,
     E164,
     LLM_TTFT_BUDGET_MS,
+    ActionToolSpec,
     AgentConfig,
     AgentSnapshot,
     CallContext,
@@ -711,6 +713,122 @@ def _llm_routing(models: ModelConfig) -> dict[str, str]:
         # sent because their schema has the field and an ignored key costs nothing.
         body["base_url"] = models.llm_base_url
     return body
+
+
+# The Python `%`-format specifier one AI-inferred parameter type maps to, so Bolna
+# substitutes the LLM's extracted value with the right coercion (VERIFIED-VENDOR-DOCS,
+# custom-function-calls.md:276-280: `%(name)s` / `%(name)i` / `%(name)f`). A boolean has
+# no specifier of its own in their table, so it rides the string form — the value still
+# arrives, as `"true"`/`"false"`, and our execution layer reads it back.
+_PARAM_FORMAT: Final[dict[str, str]] = {
+    "string": "s",
+    "integer": "i",
+    "number": "f",
+    "boolean": "s",
+}
+
+# The JSON-schema scalar type Bolna's `parameters` block wants per our param type. Boolean
+# is a real JSON-schema type the vendor lists (custom-function-calls.md:222-233); the
+# format specifier above is the separate question of how the substituted value is coerced.
+_PARAM_JSON_TYPE: Final[dict[str, str]] = {
+    "string": "string",
+    "integer": "integer",
+    "number": "number",
+    "boolean": "boolean",
+}
+
+
+def _one_api_tool(tool: ActionToolSpec) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Render one `ActionToolSpec` into (function-definition, execution-params) for Bolna.
+
+    Split into the two members `ApiTools` carries — `tools` (the OpenAI function-calling
+    definition the LLM reads) and `tools_params[name]` (the Bolna execution block with
+    `key: "custom_task"`) — because the vendor's own schema splits them that way
+    (`create.md:690-706`, `ApiTools.tools` + `ApiTools.tools_params` "keyed by the tool's
+    name"). The single-object console shape (`{name, description, parameters, key,
+    value}`, custom-function-calls.md:147-172) is that same data before the split.
+
+    Only `ai` params enter the `parameters` schema; `context` params are substituted by
+    Bolna and never asked of the model, so they appear only in `value.param`. STATIC
+    bindings appear in NEITHER — they are applied on our side, never sent to the vendor.
+    """
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    param_map: dict[str, str] = {}
+    for p in tool.params:
+        if p.fill == "ai":
+            properties[p.name] = {"type": _PARAM_JSON_TYPE[p.type], "description": p.description}
+            if p.required:
+                required.append(p.name)
+            param_map[p.name] = f"%({p.name}){_PARAM_FORMAT[p.type]}"
+        else:  # context — a Bolna system variable like {from_number}
+            # `context_ref` is validated non-empty for a context param by `ActionToolSpec`'s
+            # builder in `apps/api/actions`; the `or ""` keeps mypy honest and renders an
+            # empty substitution rather than the string "None" if one ever slipped through.
+            param_map[p.name] = p.context_ref or ""
+
+    definition: dict[str, Any] = {
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": {"type": "object", "properties": properties, "required": required},
+    }
+    # `value` in the console schema; carried under the tool's name in `tools_params`.
+    exec_params: dict[str, Any] = {
+        "method": tool.method,  # POST — see `ActionToolSpec.method`
+        "url": tool.url,  # OUR voice-runtime endpoint, never the client's API
+        "param": param_map,
+        # POST body is JSON, so the receiver (`tool_routes`) can `json.loads` it. Their own
+        # POST examples set this explicitly; it is not implied
+        # (docs/evidence/bolna-tools-integrations.md §2.1).
+        "headers": {"Content-Type": "application/json"},
+        # Mandatory and fixed — the vendor says so twice (tools-tab.md:58,
+        # custom-function-calls.md:176). NOT the credential: the external API's real
+        # credential lives in `integration_credentials` and is applied by our endpoint, so
+        # no `api_token` is sent to Bolna at all (the feature's whole point).
+        "key": "custom_task",
+    }
+    if tool.pre_call_message:
+        exec_params["pre_call_message"] = tool.pre_call_message
+    return definition, exec_params
+
+
+def _api_tools(cfg: AgentConfig) -> dict[str, Any] | None:
+    """The `tools_config.api_tools` block for an agent's in-call actions, or None.
+
+    None (not an empty object) when the agent exposes no actions, so `_agent_body` omits
+    the key entirely and an actionless agent's body is byte-for-byte what it was before
+    this feature — the "an omitted key is a field left as it was" rule the rest of this
+    module lives by, used deliberately here to make actions a pure addition.
+
+    ⚠ MARKED ASSUMPTION — OPERATIONS §2 gate 18 (the custom-function envelope), and the
+    open half is named in `docs/evidence/bolna-tools-integrations.md §1.5`. The per-tool
+    shape (`name`/`description`/`parameters`/`key: custom_task`/`value`) and the format
+    specifiers are VERIFIED-VENDOR-DOCS. What is NOT verified against a live account is the
+    ENVELOPE: `ApiTools.tools` is declared `type: array` while its own description says it
+    "needs to be a JSON string" (`create.md:693-700`), a self-contradiction the vendor has
+    not resolved, and the OAS `oneOf` only enumerates `TransferCallTools`, never a custom
+    function. We follow the description over the type — `tools` is emitted as a JSON STRING
+    of the function-definition array, `tools_params` as an object keyed by tool name —
+    because the sibling `TransferCallToolParams.param` resolves the same contradiction the
+    same way (a stringified nested blob), which is the strongest signal available. Whoever
+    runs gate 18 sends one and reads it back; if the array form is right instead, this ONE
+    function changes and nothing above it does. Failing LOUD is the safe direction: a wrong
+    envelope is a 422 at publish (surfaced by `create_agent`), not a silently toolless
+    agent that a caller discovers mid-call.
+    """
+    if not cfg.action_tools:
+        return None
+    definitions: list[dict[str, Any]] = []
+    tools_params: dict[str, Any] = {}
+    for tool in cfg.action_tools:
+        definition, exec_params = _one_api_tool(tool)
+        definitions.append(definition)
+        tools_params[tool.name] = exec_params
+    return {
+        # A JSON STRING, per the field's own description — see the gate-18 note above.
+        "tools": json.dumps(definitions, separators=(",", ":")),
+        "tools_params": tools_params,
+    }
 
 
 _TERMINAL_RAW = frozenset(
@@ -2385,7 +2503,11 @@ class BolnaEngine:
         require_speech_leg("llm", engine=self, value=cfg.models.llm_model)
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
         prompt = compose_engine_prompt(cfg)
-        return {
+        # The in-call ACTION tools, or None for an agent with none — see `_api_tools`. Held
+        # in a local so the `tools_config` literal below can add the key ONLY when there is
+        # one, keeping an actionless agent's body identical to what it was before actions.
+        api_tools = _api_tools(cfg)
+        body: dict[str, Any] = {
             "agent_config": {
                 "agent_name": cfg.name,
                 "agent_type": "other",
@@ -2702,6 +2824,13 @@ class BolnaEngine:
             },
             "agent_prompts": {"task_1": {"system_prompt": prompt}},
         }
+        if api_tools is not None:
+            # Added rather than always-present so an agent with no actions sends no
+            # `api_tools` at all — see `_api_tools`. `tasks[0].tools_config` is the block
+            # built above; this is the one place actions touch the vendor body.
+            tasks = body["agent_config"]["tasks"]
+            tasks[0]["tools_config"]["api_tools"] = api_tools
+        return body
 
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
         # /v2/agent — legacy unversioned agent paths are deprecated, never call them.

@@ -58,12 +58,12 @@ from apps.api.billing.rates import (
     MONEY_Q,
     PREPAID_TIERS,
     ROUNDING,
-    billable_tier,
     llm_surcharge_applies,
     llm_surcharge_billed_inr,
     prepaid_billed_inr,
 )
 from apps.api.billing.service import (
+    BASE_OVERAGE_RUNG,
     UNSURCHARGED_MODEL,
     charge_for_call,
     month_increment,
@@ -92,6 +92,8 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.insights import detection as gap_detection
+from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
 from apps.api.integrations.service import subscribed_endpoint_sql
 from apps.api.reliability.service import (
@@ -1039,6 +1041,28 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
                 moments=moments,
             )
 
+    # STEP 3c — knowledge gaps: the questions this agent could not answer (D-Knowledge-Gaps).
+    # An inline string-match stage like STEP 2b/3b — no model call, no round trip — over the
+    # REDACTED turns, so the caller-facing quotes it stores can never carry raw PII (hard
+    # rule 6). It reads `redact(turn.text).text`, the same redaction STEP 2 wrote to
+    # `transcript_turns.text_redacted`, and never `turn.text`. Exactly-once per call:
+    # `record_call_gaps` replaces this call's occurrence rows and recomputes the aggregate,
+    # so a re-drive cannot double-count (`apps/api/insights/service.py`). Guarded on a
+    # transcript existing — a call with none implies no gaps.
+    if snapshot.transcript:
+        redacted_turns = [
+            gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
+            for turn in snapshot.transcript
+        ]
+        with span("pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+            gap_count = await gap_service.record_call_gaps(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                call_id=call_id,
+                turns=redacted_turns,
+            )
+            set_span_attributes(stage, gap_count=gap_count)
+
     # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
     with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:
         lead_id = await _upsert_lead(
@@ -1707,8 +1731,7 @@ def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: 
     **It is clamped to zero rather than refused, and the call still meters.** Zero is
     the already-designed answer for "this call has a real leg cost and no countable
     seconds" — `_unit_price` keeps the leg whole at `qty <= 0` and the client is billed
-    for no minutes, which is the client-favourable direction and the same one
-    `billable_tier` takes for an unprovable rung. Refusing to meter at all was the
+    for no minutes, which is the client-favourable direction. Refusing to meter at all was the
     alternative and it is worse in exactly the way P1.2 describes: a completed call with
     no usage artefact is one the reconciliation poller calls `settled` and never
     revisits.
@@ -1968,7 +1991,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         config_row = (
             await session.execute(
                 # LEFT JOIN: a call whose agent row was since removed still has to
-                # meter — and it meters as UNPROVEN, which bills at the value rate.
+                # meter — the voice column is only carried through for reporting now
+                # (one voice quality, one rate), so an absent agent changes no price.
                 #
                 # `organizations` is joined for the SECOND rung of the model resolution
                 # (`agents/llm_models.py`), in the SAME statement rather than a second
@@ -1992,14 +2016,12 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         voice_id, agent_model, organization_model = (
             config_row if config_row is not None else (None, None, None)
         )
-        # WHICH VOICE ACTUALLY RAN IS NOT SOMETHING WE MEASURE. The engine reports a
-        # synthesizer leg cost and no model name (billing/rates.py explains the vendor
-        # question), so this is the voice the agent was CONFIGURED with at metering
-        # time — an assumption, stamped with its provenance so no later reader can
-        # mistake it for a measurement. An unrecognised or absent voice resolves to the
-        # VALUE tier: SURFACES §2b's rule is that an unproven call is never billed at
-        # the premium rate.
-        tts_tier, tts_tier_source = billable_tier(voice_id if isinstance(voice_id, str) else None)
+        # THE RUNG A CALL IS METERED ON. There is one voice quality now (the single-tier
+        # voice decision), so every call bills at the plan's BASE overage rate — a single
+        # constant, `BASE_OVERAGE_RUNG`, not a per-voice choice. The old `billable_tier`
+        # honesty rule (bill the cheaper rung for an unprovable premium voice) is gone
+        # with the second voice it protected against. The CONFIGURED voice id is still
+        # stamped below (`tts_voice`) for reporting; it no longer decides a price.
         # WHICH LANGUAGE MODEL THIS CALL RAN, recorded for exactly the reason the TTS rung
         # beside it is (D-454). A client now CHOOSES the model their agents run, the two
         # selectable models differ by 2.7x on both token legs, and both of the columns
@@ -2012,8 +2034,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # precisely the question an unexplained Azure invoice asks.
         #
         # IT IS A CONFIGURATION READ, NOT A MEASUREMENT, and `llm_model_source` is where
-        # that is said out loud — the same honesty `tts_tier_source` carries and for the
-        # same vendor reason: no execution payload names the model that served the call
+        # that is said out loud, for the vendor reason that no execution payload names the
+        # model that served the call
         # (`billing/rates.py`). `agent` and `organization` mean somebody chose, at that
         # level, and the publish path pushed the matching deployment (`agents/service.py
         # ::in_call_llm`). `platform` means NOBODY chose — which on an Azure deployment is
@@ -2082,12 +2104,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # what `runbooks/vendor-cost-unit.md` triages on. The adapter cannot be
                 # asked six weeks later what it assumed.
                 "currency_stated": cost.currency_stated,
-                # D-36's TTS ladder, recorded per row so metering can be audited by
-                # rung and a mis-tiered call can be compensated (never edited — hard
-                # rule 4). `tts_tier_source` is the honesty: `agent_config` means we
-                # read the agent's configured voice, NOT that the engine told us.
-                "tts_tier": tts_tier,
-                "tts_tier_source": tts_tier_source,
+                # The overage rung, recorded per row so metering can be audited by rung.
+                # One voice quality now (the single-tier voice decision), so this is the
+                # plan's base rung on every call. `tts_voice` keeps the configured voice
+                # id for reporting; it is not a price input.
+                "tts_tier": BASE_OVERAGE_RUNG,
                 "tts_voice": voice_id if isinstance(voice_id, str) else None,
                 # D-454's model choice, stamped per row for the reason argued above.
                 "llm_model": llm.model,
@@ -2271,7 +2292,9 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             month=month,
             minutes=minutes,
             seconds=duration_s,
-            tts_tier=tts_tier,
+            # The rung this call's minutes attribute against — the same value stamped on
+            # the row above (one voice quality, so the base rung on every call).
+            tts_tier=BASE_OVERAGE_RUNG,
             llm_model_bucket=llm_bucket,
             included_min=included_min,
             rate=overage_rate,

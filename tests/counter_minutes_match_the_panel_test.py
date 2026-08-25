@@ -48,14 +48,15 @@ from tests.spend_caps_test import _bill, _plan, _spend_state, _tenant
 _AWKWARD_SECONDS = (3847, 2913, 611, 137, 89, 1451)
 
 
-async def _voice(tenant_id: UUID, agent_id: UUID, tier: str) -> None:
-    from apps.api.agents.voices import CATALOG
+async def _voice(tenant_id: UUID, agent_id: UUID) -> None:
+    """Set the one voice quality (the single-tier voice decision). The minute counter this
+    test checks is rung-independent, so a single voice exercises it fully."""
+    from apps.api.agents.voices import default_voice
 
-    voice = next(v.id for v in CATALOG if v.tier == tier)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET tts_voice = :v WHERE id = :i"),
-            {"v": voice, "i": agent_id},
+            {"v": default_voice().id, "i": agent_id},
         )
 
 
@@ -71,8 +72,8 @@ async def test_the_counter_and_the_panel_report_the_same_minutes(tier: str) -> N
             {"t": tier, "i": tenant_id},
         )
     now = datetime.now(UTC)
-    for index, seconds in enumerate(_AWKWARD_SECONDS):
-        await _voice(tenant_id, agent_id, "premium" if index % 2 else "value")
+    await _voice(tenant_id, agent_id)
+    for seconds in _AWKWARD_SECONDS:
         await _bill(tenant_id, agent_id, seconds=seconds, spend="1.0000", ended=now)
 
     _month, counter_minutes, _spend, _capped, _billed = await _spend_state(tenant_id)

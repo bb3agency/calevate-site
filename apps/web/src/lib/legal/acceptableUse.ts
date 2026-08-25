@@ -47,6 +47,15 @@ export const ACCEPTABLE_USE: LegalDocument = {
             "lands on you. We build the gates and refuse the launch when a gate is not " +
             "green. We cannot take the obligation off you and we will not pretend to.",
         },
+        {
+          kind: "para",
+          text:
+            "Calevate is an India-only service. It is for businesses established in " +
+            "India, calling recipients in India. We do not offer outbound calling to " +
+            "numbers outside India, and the product refuses to dial a destination that is " +
+            "not an Indian (+91) number — a non-Indian destination is not a setting you " +
+            "can turn on. This is a deliberate scope limit, not a temporary gap.",
+        },
       ],
     },
     {
@@ -350,6 +359,9 @@ export const ACCEPTABLE_USE: LegalDocument = {
               "without our written agreement — the registrations are per Principal Entity " +
               "and a call placed for somebody else's business under your registration is " +
               "a breach of the telecom rules as well as of this policy.",
+            "Placing calls to numbers outside India, or using the service for a business " +
+              "not established in India. Calevate is India-only (section 1); the product " +
+              "refuses a non-Indian destination number.",
           ],
         },
       ],

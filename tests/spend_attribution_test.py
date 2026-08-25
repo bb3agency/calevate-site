@@ -762,16 +762,16 @@ async def test_a_prepaid_month_publishes_the_gap_between_the_wallet_and_the_pane
         await billing.record_entry(
             session, tenant_id=tenant_id, delta=Decimal("500.00"), reason="topup", ref="rzp_gap"
         )
-        # Deliberately NOT the ₹60.00 the panel prices 10 minutes at, so the two disagree
-        # the way the measured residual does — by more, so the assertion is about the
-        # mechanism rather than about a paisa.
+        # Deliberately NOT the ₹50.00 the panel prices 10 minutes at (₹5/min list rate),
+        # so the two disagree the way the measured residual does — the assertion is about
+        # the mechanism rather than about a paisa.
         await billing.charge_for_call(
-            session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("50.0000")
+            session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("40.0000")
         )
         period = await period_attribution(session, tenant_id=tenant_id)
 
-    assert period.itemised_charge_inr == Decimal("50.00"), "the wallet's own rupees"
-    assert period.period_charge_inr == Decimal("60.00"), "the panel's own rupees"
+    assert period.itemised_charge_inr == Decimal("40.00"), "the wallet's own rupees"
+    assert period.period_charge_inr == Decimal("50.00"), "the panel's own rupees"
     assert period.itemisation_residual_inr == Decimal("10.00")
     assert period.residual_reason == "prepaid_wallet_vs_panel"
 
@@ -986,30 +986,41 @@ async def test_an_ist_month_boundary_puts_a_late_evening_call_in_the_month_it_wa
 
 
 async def test_a_compensating_correction_row_stays_inside_every_total() -> None:
-    """`record_tier_correction` appends an `other` row whose `unit_cost_paid` is a SIGNED
-    delta (hard rule 4 — fixes are compensating entries, never an UPDATE). A premium→value
-    correction is negative, so the month's cost goes DOWN and a `by_unit` line is negative.
+    """A compensating `other` row whose `unit_cost_paid` is a SIGNED delta (hard rule 4 —
+    fixes are compensating entries, never an UPDATE) must stay inside the partition. A
+    negative delta takes the month's cost DOWN and makes a `by_unit` line negative; a
+    breakdown that dropped the negative line would publish a cost total larger than the
+    ledger's own.
 
-    Both are real numbers and both have to stay inside the partition: a breakdown that
-    dropped the negative line would publish a cost total larger than the ledger's own.
+    The single-tier voice decision removed the TTS-tier correction that used to write this
+    kind of row, so the row is inserted directly here — the property under test is the
+    partition reader's, not any one correction API's, and `cost_unit.py`'s currency
+    restatement still writes exactly this shape.
     """
     tenant_id, reception = await _tenant(included_min=0, overage_rate="8.0000")
     call_id = await _metered_call(tenant_id, reception, seconds=600, unit_cost="0.5000")
+    delta = Decimal("-15.0000")
     async with tenant_session(tenant_id) as session:
-        delta = await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            billed_tier="premium",
-            actual_tier="value",
-            chars=10_000,
-            ref=f"tier:{uuid.uuid4().hex[:8]}",
-            note="wrong voice recorded",
+        # `unit_type = 'other'`, `qty = 1`, `unit_cost_paid` = the signed delta — the
+        # compensating-entry shape, stamped on the call it corrects.
+        await session.execute(
+            text(
+                "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+                "unit_cost_paid, occurred_at, meta, created_at) VALUES (:i, :t, :c, 'other', "
+                "1, :cost, now(), CAST(:m AS jsonb), now())"
+            ),
+            {
+                "i": uuid7(),
+                "t": tenant_id,
+                "c": call_id,
+                "cost": delta,
+                "m": '{"kind": "manual_correction"}',
+            },
         )
         period = await period_attribution(session, tenant_id=tenant_id)
         margin = await billing.margin_for_tenant(session, tenant_id=tenant_id)
 
-    assert delta is not None and delta < 0, "a premium->value correction credits our cost"
+    assert delta < 0, "a credit correction takes our cost down"
     assert period.cost_inr == margin["cost_inr"] == to_paise(Decimal("300") + delta)
     assert sum(u.cost_inr for u in period.by_unit) == period.cost_inr
     assert sum(c.cost_inr for c in period.by_call) == period.cost_inr

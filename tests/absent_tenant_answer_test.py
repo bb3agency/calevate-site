@@ -93,7 +93,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {"max_call_duration_s": 300},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {"body": PROMPT_BODY},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {"version": 1},
-    "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {"voice_id": "bulbul:v2"},
+    "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {"voice_id": "bulbul:v3"},
     # An EMPTY variable list is a valid body (a schema may capture nothing extra), so the
     # route validates and reaches the tenant lookup — which 404s for a tenant that names
     # nothing. A non-empty body would work too; empty is the minimal one that gets past
@@ -150,6 +150,10 @@ BODIES: dict[str, dict[str, Any] | None] = {
     },
     "POST /v1/admin/tenants/{tenant_id}/kb/{source_id}/reject": {"reason": "out of scope"},
     "POST /v1/admin/tenants/{tenant_id}/kyc": {"status": "in_review"},
+    "POST /v1/admin/tenants/{tenant_id}/refunds": {
+        "payment_id": "pay_CENSUS0000001",
+        "reason": "census — duplicate top-up",
+    },
     "POST /v1/admin/tenants/{tenant_id}/numbers": {
         "e164": f"+9198{uuid.uuid4().int % 100000000:08d}",
         "series": "160",

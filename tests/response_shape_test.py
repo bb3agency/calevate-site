@@ -285,8 +285,8 @@ async def test_the_wallet_is_a_string_for_a_self_serve_client() -> None:
     # panel said ₹489.70, off one wallet, in one instant.
     assert body.credit_balance_inr == "300.00"
     assert body.monthly_fee_inr == "9999.00", "and it is not the odd one out any more"
-    # Runway is now priced off the wallet, not the cap (₹300 at the ₹6/min list rate).
-    assert body.minutes_left == 50
+    # Runway is now priced off the wallet, not the cap (₹300 at the ₹5/min list rate).
+    assert body.minutes_left == 60
 
 
 async def test_one_wallet_reads_the_same_on_the_client_panel_and_the_admin_console() -> None:
@@ -829,7 +829,9 @@ async def test_the_invoice_answers_a_declared_model_with_an_overage_line() -> No
     from apps.api.billing.invoice import _tenant_serial_suffix
 
     expected_suffix = _tenant_serial_suffix(tenant_id)
-    assert invoice.invoice_number == f"CAL-{invoice.month.replace('-', '')}-{expected_suffix}"
+    # Rule 46(b) sixteen-character format: CAL + YYMM + base-36 tenant suffix.
+    assert invoice.invoice_number == f"CAL{invoice.month[2:4]}{invoice.month[5:7]}{expected_suffix}"
+    assert len(invoice.invoice_number) == 16
     assert invoice.organization.id == str(tenant_id)
     assert invoice.organization.billing_email is None, "nullable, and genuinely null here"
 
@@ -849,10 +851,18 @@ async def test_the_invoice_answers_a_declared_model_with_an_overage_line() -> No
         overage_line.amount_inr
     )
 
+    # No GST registration is configured here, so the document is a BILL OF SUPPLY: no tax
+    # is charged, the total is the subtotal, and the words say so (CGST s.32, Rule 49). The
+    # 18% figure survives only as a clearly-labelled internal estimate.
     assert invoice.subtotal_inr == "10159.00"
-    assert invoice.gst_rate_pct == "18"
-    assert invoice.gst_inr == "1828.62"
-    assert invoice.total_inr == "11987.62"
+    assert invoice.gst_rate_pct == "0"
+    assert invoice.gst_inr == "0.00"
+    assert invoice.total_inr == "10159.00"
+    assert invoice.tax_components == []
+    assert invoice.tax_note is not None and "no tax is charged" in invoice.tax_note
+    assert invoice.estimated_gst_rate_pct == "18"
+    assert invoice.estimated_gst_inr == "1828.62"
+    assert invoice.estimated_total_inr == "11987.62"
     assert invoice.usage.minutes_used == "120.00"
     assert invoice.usage.calls == 1
     assert invoice.usage.included_minutes == 100
@@ -1061,6 +1071,13 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
     "GET /hooks/v1/ingest/meta/{webhook_id}": (
         "Meta's subscription handshake, which must echo `hub.challenge` verbatim as "
         "plain text — a JSON model would break the handshake."
+    ),
+    "POST /v1/actions/invoke/{engine}/{tool_id}": (
+        "the engine-called in-call action endpoint (source-IP gated like the webhook "
+        "receiver, never a client dashboard route). The body IS the tool result the LLM "
+        "reads back, and its shape is whatever the tenant-configured external API returns "
+        "or a structured failure — genuinely open-ended, so there is no model to declare. "
+        "It carries no Calevate-stored tenant data; the recipient is the engine/LLM."
     ),
 }
 

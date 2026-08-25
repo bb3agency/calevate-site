@@ -56,6 +56,7 @@ install_error_handlers(app)
 
 def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
+    from apps.api.actions.routes import router as actions_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
     from apps.api.admin.operator_routes import router as operator_router
@@ -68,6 +69,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
+    from apps.api.agents.script_routes import router as script_router
     from apps.api.agents.voice_routes import router as voice_router
     from apps.api.authn.routes import (
         admin_auth_router,
@@ -77,6 +79,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import router as credits_admin_router
+    from apps.api.billing.payment_routes import refund_router
     from apps.api.billing.payment_routes import router as topups_router
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
     from apps.api.billing.routes import client_router as billing_invoice_router
@@ -111,6 +114,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.ingest.routes import router as ingest_router
     from apps.api.ingest.routes import sources_router as lead_sources_router
+    from apps.api.insights.routes import router as knowledge_gaps_router
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.ops.config_routes import router as ops_config_router
@@ -167,6 +171,10 @@ def _mount_routers(application: FastAPI) -> None:
     # Before `agents_router`: `/v1/agents/lanes` is a literal path and
     # `/v1/agents/{agent_id}` would swallow it if the parameterised router won.
     application.include_router(publishing_router)
+    # Before `agents_router`: the structured-script builder lives under
+    # `/v1/agents/{agent_id}/script/...`; mounting it first keeps its literal `script`
+    # subsegment from being shadowed by any `/v1/agents/{agent_id}` route.
+    application.include_router(script_router)
     application.include_router(agents_router)
     # The ACCOUNT-level model default (D-454). Its own paths (`/v1/organization/...`,
     # `/v1/admin/organizations/...`) collide with nothing above, so mount order is not
@@ -186,10 +194,17 @@ def _mount_routers(application: FastAPI) -> None:
     # in the campaigns package because that module owns `phone_numbers`.
     application.include_router(numbers_router)
     application.include_router(crm_router)
+    # Knowledge gaps — the urgent "what the agents couldn't answer" surface. Its own
+    # literal `/v1/knowledge-gaps` prefix collides with nothing above, so mount order is
+    # not load-bearing here.
+    application.include_router(knowledge_gaps_router)
     application.include_router(kb_router)
     application.include_router(ingest_router)
     application.include_router(lead_sources_router)
     application.include_router(integrations_router)
+    # ACTIONS feature: the engine-called in-call execution endpoint + the client-realm
+    # Actions tab (credentials, tools, test harness, calendar OAuth).
+    application.include_router(actions_router)
     application.include_router(dnc_router)
     # The writer `dnc_list.scope='global'` never had (migration a1c8e40f27b9), and the
     # national preference-scrub record beside it. Both live in the compliance package
@@ -245,6 +260,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(caps_router)
     application.include_router(topups_router)
     application.include_router(razorpay_router)
+    application.include_router(refund_router)
     # The client's own invoice — the same `build_invoice` the admin route serves, in the
     # realm of the persona BRD §51 says pays it. Literal `/v1/billing/invoice`, declared
     # beside the other two `/v1/billing/*` routers for the same reason they are ordered

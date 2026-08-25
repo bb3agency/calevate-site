@@ -397,11 +397,11 @@ export function PublishingPanel({ agent }: { agent: Agent }) {
 /**
  * The voice the caller hears — and, only when they differ, the one waiting for us.
  *
- * **Why a client sees this at all.** D-36's premium/value ladder is a PRICE ladder — the
- * two rungs bill at different per-minute rates (§2b's honest degraded-tier billing) and
- * `usage_events.meta.tts_tier` already records which rung each call ran on. A client
- * billed by rung gets to read the rung. Changing it is still ours (D-21), which is why
- * there is no control here, only a fact and who moves it.
+ * **Why a client sees this at all.** There is one voice quality now (the single-tier voice
+ * decision) at one per-minute rate, so the voice is no longer a price lever — but a client
+ * is still entitled to know which persona their agent speaks in, exactly as they read its
+ * disclosure line. Changing it is still ours (D-21), which is why there is no control here,
+ * only a fact and who moves it.
  *
  * **One box when there is one answer, two when there are two.** A configured voice the
  * calling system is already holding is a single fact. A voice chosen and not yet published

@@ -38,6 +38,7 @@ import {
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { Faq } from "@/components/marketing/faq";
 import { HeroStagger, Reveal, SmoothScroll } from "@/components/marketing/motion";
+import { RoiCalculator } from "@/components/marketing/roiCalculator";
 import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
 import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 
@@ -51,8 +52,13 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  * not get a single new claim. What is still deliberately ABSENT, because the absences are
  * the load-bearing part and a rewrite is exactly when they get quietly reinstated:
  *
- * - **No prices.** D-11's managed pricing is negotiated per client and D-34's self-serve
- *   tier has no published number. A price here is a quote nobody can honour.
+ * - **No prices, with ONE deliberate exception.** D-11's managed pricing is negotiated
+ *   per client, so no plan price appears. The exception is the ROI calculator (section
+ *   03): it shows the published self-serve rate (`self_serve_inr_per_min`, ₹5/min) as the
+ *   INPUT to a comparison the buyer drives with their own numbers — a tool, not a tag. A
+ *   fixed "₹X/month" would still be the quote nobody can honour; a figure the buyer sets
+ *   and checks is not. `publicLanding.test.tsx` scopes its price/percent bans off that one
+ *   section and keeps them everywhere else.
  * - **No customer counts, logos or testimonials.** There is no client #1 in production
  *   (ROADMAP M2). "Trusted by N businesses" is the single most-copied line on SaaS
  *   landing pages and it would be a fabrication.
@@ -494,11 +500,35 @@ export default function Home() {
             </div>
           </section>
 
+          {/* --- ROI calculator ---------------------------------------------------- */}
+          {/*
+           * The one place a price appears (see `roiCalculator.tsx` for why the page's
+           * no-prices rule makes an exception for a tool the buyer drives). It turns the
+           * core sales argument — AI versus hiring telecallers — into something a prospect
+           * checks with their own numbers, at our published self-serve rate.
+           */}
+          <section id="cost" className="scroll-mt-20 border-t border-line">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <Reveal>
+                <Eyebrow index="03">What it costs</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  Do the maths against hiring, with your own numbers
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                  A telecaller costs far more than the salary in the job ad, and a desk sits
+                  idle on a quiet day. Put in what your line handles and see the comparison —
+                  every assumption on both sides is yours to change.
+                </p>
+              </Reveal>
+              <RoiCalculator />
+            </div>
+          </section>
+
           {/* --- Verticals --------------------------------------------------------- */}
           <section id="verticals" className="scroll-mt-20 border-t border-line bg-surface/40">
             <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <Eyebrow index="03">Made for your line of work</Eyebrow>
+                <Eyebrow index="04">Made for your line of work</Eyebrow>
                 <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   It starts with the questions your line of work actually asks
                 </h2>
@@ -562,7 +592,7 @@ export default function Home() {
             <div className={`${SHELL} py-20 sm:py-24`}>
               <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
                 <Reveal>
-                  <Eyebrow index="04">Telugu-first</Eyebrow>
+                  <Eyebrow index="05">Telugu-first</Eyebrow>
                   <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                     Telugu first, and not as a setting somebody remembered at the end
                   </h2>
@@ -637,7 +667,7 @@ export default function Home() {
               <div className="flex items-center justify-between gap-8">
                 <Reveal className="min-w-0 flex-1">
                   <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-bright uppercase">
-                    <span className="font-mono text-white/70">05</span>
+                    <span className="font-mono text-white/70">06</span>
                     <span aria-hidden className="h-px w-6 bg-white/40" />
                     Built for the Indian rules
                   </p>
@@ -678,7 +708,7 @@ export default function Home() {
             <div className={`${SHELL} py-20 sm:py-24`}>
               <div className="flex items-center justify-between gap-6">
                 <Reveal className="min-w-0 flex-1">
-                  <Eyebrow index="06">Your customers&apos; data</Eyebrow>
+                  <Eyebrow index="07">Your customers&apos; data</Eyebrow>
                   <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                     Where it runs, and who can see what
                   </h2>
@@ -766,7 +796,7 @@ export default function Home() {
           <section id="quality" className="scroll-mt-20 border-t border-line bg-surface/40">
             <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <Eyebrow index="07">Held to a report</Eyebrow>
+                <Eyebrow index="08">Held to a report</Eyebrow>
                 <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   We test your agent, and you read the same report we do
                 </h2>
@@ -800,7 +830,7 @@ export default function Home() {
           <section id="faq" className="scroll-mt-20 border-t border-line">
             <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <Eyebrow index="08">Questions</Eyebrow>
+                <Eyebrow index="09">Questions</Eyebrow>
                 <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   Questions people ask us first
                 </h2>

@@ -1020,9 +1020,11 @@ function VoicePanel({
   return (
     <Card title="Voice">
       <p className="-mt-2 text-xs text-ink-muted">
-        Setting a voice writes it to the agent and stops there — a live agent keeps
-        speaking in its old voice until the next publish, which is deliberate: re-voicing a
-        running client&apos;s phone line is not something to do silently.
+        One voice quality (Sarvam Bulbul v3) — the choice here is the persona, not a price
+        tier, so it does not change the client&apos;s per-minute rate. Setting a voice writes
+        it to the agent and stops there: a live agent keeps speaking in its old voice until
+        the next publish, which is deliberate — re-voicing a running client&apos;s phone line
+        is not something to do silently.
       </p>
       <div className="mt-3 space-y-3">
         <RestrictionNote reason={write.reason} />
@@ -1102,8 +1104,8 @@ function VoicePanel({
 
         {save.data && (
           <p className="text-xs text-ink-muted">
-            Saved — {save.data.voice.label} ({save.data.voice.tier} tier,{" "}
-            {save.data.voice.tts_model}). {save.data.next_step}
+            Saved — {save.data.voice.label} ({save.data.voice.tts_model}).{" "}
+            {save.data.next_step}
           </p>
         )}
       </div>
@@ -1187,12 +1189,12 @@ function voiceName(voice: AgentVoice): string {
 /**
  * What the operator is about to choose, before they choose it.
  *
- * The `<option>` text carries the tier and the model because that is what an operator
- * compares on; the rest — languages, the catalogue's own note, and whether the string has
- * been confirmed on the engine — needs more room than an option can hold. Nothing is
- * rendered when the select sits on "choose a voice", which now only happens on an agent
- * with no voice configured: the block above has already said so, and repeating it here
- * would be two answers to one question.
+ * The `<option>` text carries the persona and the model because that is what an operator
+ * compares on; the rest — languages, gender, the catalogue's own note, and whether the
+ * string has been confirmed on the engine — needs more room than an option can hold.
+ * Nothing is rendered when the select sits on "choose a voice", which now only happens on
+ * an agent with no voice configured: the block above has already said so, and repeating it
+ * here would be two answers to one question.
  */
 function VoiceDetail({ voice }: { voice: Voice | undefined }) {
   if (!voice) return null;
@@ -1200,7 +1202,7 @@ function VoiceDetail({ voice }: { voice: Voice | undefined }) {
     <div className="rounded-card border border-line p-3 text-xs text-ink-muted">
       <p>
         <span className="font-semibold text-ink">{voice.label}</span> · {voice.provider}{" "}
-        {voice.tts_model} · {voice.tier} tier
+        {voice.tts_model}
         {voice.gender ? ` · ${voice.gender}` : ""} · {voice.languages.join(", ")}
       </p>
       <p className="mt-1">{voice.note}</p>
@@ -1217,10 +1219,12 @@ function VoiceDetail({ voice }: { voice: Voice | undefined }) {
   );
 }
 
-/** One catalogue entry, in the words an operator picks on. */
+/** One catalogue entry, in the words an operator picks on. A persona (label, and gender
+ *  once the pilot enumerates speakers), never a price tier — there is one voice quality. */
 function voiceReading(voice: Voice): string {
+  const persona = voice.gender ? `${voice.label} — ${voice.gender}` : voice.label;
   const badge = voice.verified ? "" : " · unverified";
-  return `${voice.label} — ${voice.tier} (${voice.tts_model})${badge}`;
+  return `${persona} (${voice.tts_model})${badge}`;
 }
 
 /**

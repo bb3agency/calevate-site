@@ -88,7 +88,37 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
 }
 
 const CAPABILITY = "/v1/billing/topups/capability";
+const PACKS = "/v1/billing/topups/packs";
 const INTENT = "POST /v1/billing/topups/intent";
+
+/** The pack rate card the panel renders as a table, at ₹5.00/min list. */
+const PACK_CARD = {
+  list_rate_inr_per_min: "5.00",
+  packs: [
+    {
+      pack_id: "starter",
+      amount_inr: "1499.00",
+      paid_credits: "1499.00",
+      bonus_credits: "0.00",
+      total_credits: "1499.00",
+      bonus_pct: "0",
+      effective_rate_inr_per_min: "5.0000",
+      talk_time_minutes: 299,
+      best_value: false,
+    },
+    {
+      pack_id: "max",
+      amount_inr: "50000.00",
+      paid_credits: "50000.00",
+      bonus_credits: "4000.00",
+      total_credits: "54000.00",
+      bonus_pct: "8",
+      effective_rate_inr_per_min: "4.6296",
+      talk_time_minutes: 10800,
+      best_value: true,
+    },
+  ],
+};
 
 function routes(over: Record<string, unknown> = {}) {
   return {
@@ -99,6 +129,7 @@ function routes(over: Record<string, unknown> = {}) {
       online_payments_available: true,
       provider_orders_available: true,
     },
+    [PACKS]: PACK_CARD,
     ...over,
   };
 }
@@ -125,7 +156,7 @@ describe("the top-up panel", () => {
     // state and pass or fail on timing.
     await screen.findByText(/transfer the amount to us by bank/);
     expect(
-      screen.queryByLabelText("Add credit"),
+      screen.queryByLabelText("Other amount"),
       "no form when it cannot work",
     ).toBeNull();
     expect(screen.queryByText("Get payment details")).toBeNull();
@@ -168,7 +199,7 @@ describe("the top-up panel", () => {
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.queryByLabelText("Add credit")).toBeNull();
+    expect(screen.queryByLabelText("Other amount")).toBeNull();
     expect(container.textContent).not.toContain(
       "transfer the amount to us by bank",
     );
@@ -192,7 +223,7 @@ describe("the top-up panel", () => {
       }),
     );
 
-    const field = await screen.findByLabelText("Add credit");
+    const field = await screen.findByLabelText("Other amount");
     const { fireEvent } = await import("@testing-library/react");
     fireEvent.change(field, { target: { value: "2500.10" } });
     fireEvent.click(screen.getByText("Get payment details"));
@@ -234,7 +265,7 @@ describe("the top-up panel", () => {
       }),
     );
 
-    const field = await screen.findByLabelText("Add credit");
+    const field = await screen.findByLabelText("Other amount");
     const { fireEvent } = await import("@testing-library/react");
     fireEvent.change(field, { target: { value: "2000" } });
     fireEvent.click(screen.getByText("Get payment details"));
@@ -244,5 +275,40 @@ describe("the top-up panel", () => {
     expect(container.textContent).toContain("nothing has been charged yet");
     // No checkout exists in this build, so nothing may imply one is opening.
     expect(container.textContent).not.toMatch(/redirect|opening|pay now/i);
+  });
+
+  it("renders the pack rate card and starts an intent priced by pack, not amount", async () => {
+    const { container, calls } = await renderClientPage(
+      page,
+      routes({
+        [INTENT]: {
+          tenant_id: "o1",
+          receipt: "clv_pack_max",
+          amount_inr: "50000.00",
+          amount_paise: 5000000,
+          currency: "INR",
+          notes: { calevate_tenant_id: "o1", calevate_pack_id: "max" },
+          key_id: "rzp_test_x",
+          provider_order_id: null,
+          provider_order_pending: true,
+          pack_id: "max",
+        },
+      }),
+    );
+
+    // The rate card renders both packs with their server-priced figures — the effective
+    // rate and the bonus, neither computed in the browser.
+    await screen.findByText("Best value");
+    expect(container.textContent).toContain("₹4.6296/min"); // the max pack's effective rate
+    expect(container.textContent).toContain("+4,000 (8%)"); // its free bonus credits
+
+    // Selecting a pack posts its id — never an amount — so the catalogue is the price.
+    const { fireEvent } = await import("@testing-library/react");
+    const selects = screen.getAllByText("Select");
+    fireEvent.click(selects[selects.length - 1]); // the "max" row
+
+    await screen.findByText(/nothing has been charged yet/);
+    const sent = calls.find((c) => c.path === "/v1/billing/topups/intent");
+    expect(sent?.body).toBe(JSON.stringify({ pack_id: "max" }));
   });
 });

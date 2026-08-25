@@ -552,3 +552,24 @@ async def test_a_tenant_that_cannot_be_charged_takes_the_retry_ladder_then_alert
     with pytest.raises(RuntimeError, match="could not be issued"):
         await issue_one_time_charges({"job_try": WORKER_MAX_TRIES})
     assert alerts == [("WORKER_TERMINAL", "setup_fees_unissued")]
+
+
+@pytest.fixture(autouse=True)
+def _gst_registered_supplier(monkeypatch: pytest.MonkeyPatch):
+    """Register a specimen GST supplier for this suite.
+
+    These tests assert the TAX-INVOICE arithmetic (18% GST split into heads), which is only
+    lawful once Calevate is GST-registered. An UNregistered supplier now issues a bill of
+    supply with no tax (CGST s.32, Rule 49; billing/invoice.py), so without a registered
+    supplier ``gst_inr`` would be zero and these arithmetic assertions would test nothing.
+    The specimen GSTIN is Telangana (36) so an intra-State supply splits into CGST+SGST.
+    """
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate Technologies Private Limited")
+    monkeypatch.setenv("GST_SUPPLIER_ADDRESS", "Plot 42, Madhapur, Hyderabad 500081")
+    monkeypatch.setenv("GST_SUPPLIER_GSTIN", "36AABCC1234D1Z5")
+    monkeypatch.setenv("GST_SUPPLY_SAC", "998315")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

@@ -55,25 +55,27 @@ an API client would record a promise nothing in the system keeps.
 
 ---
 
-**A conflict in our own documents, surfaced rather than resolved.**
+**A conflict in our own documents, now RESOLVED as a deferral (SEC-COMP §4).**
 
 SEC-COMP §4 describes the erasure workflow as covering "calls/turns/leads/**recordings**
 … covers our object storage AND engine copies". SEC-COMP §1 records the TRAI rule as a
-**90-day minimum retention of call recordings on Indian infrastructure**, a floor the
+**90-day minimum retention of call recordings**, a floor the
 codebase treats as binding in two places (`retention_policies` has a DB CHECK, and
 `apply_retention` refuses to act below `RECORDING_FLOOR_DAYS`). For a recording less
-than 90 days old these instructions point in opposite directions: §4 says erase it on
-request, §1 says retaining it is mandatory.
+than 90 days old those instructions once appeared to point in opposite directions: §4 says
+erase it on request, §1 says retaining it is mandatory.
 
-The code as it stands has already half-picked, probably without anyone deciding to:
-`execute_deletion_request` clears `calls.recording_url` unconditionally, at any age. So
-today the *pointer* goes immediately (nothing in our system can reach the audio) and the
-*bytes* survive the request. That is a defensible reading, but it is a reading, and this
-module does not launder it into a claim. `ERASURE_LIMITATIONS` and `ERASURE_EXCEPTIONS`
-state the position and name both sections so that whoever hands the certificate to a data
-principal knows they are standing on an unresolved question. Resolving it is a docs
-decision (a decision-log entry against SEC-COMP), not something a producer module gets to
-settle.
+SEC-COMP §4 has settled it, and the settlement is a DEFERRAL rather than a refusal, on
+DPDP §12(3)'s own terms: erasure is owed "unless retention ... is necessary for compliance
+with any law", so a retention obligation POSTPONES an erasure rather than cancelling it. So
+`execute_deletion_request` clears `calls.recording_url` immediately at any age (nothing in
+our system can reach the audio thereafter), destroys the audio bytes outright once they are
+past the floor, and for audio still inside the 90-day floor writes a row to
+`recording_erasure_holds` carrying a lawful `erase_after` — the earliest instant the floor
+permits destruction — which the retention sweep honours automatically without a second
+request (migration `9c1d3e7a05f4`). `ERASURE_LIMITATIONS` and `ERASURE_EXCEPTIONS` state
+that position and cite both sections, so whoever hands the certificate to a data principal
+is describing a scheduled destruction with a stated date, not standing on an open question.
 
 An earlier version of this notice told the data principal the audio was "removed by the
 object-store lifecycle rule, which is floored at 90 days". That sentence described a

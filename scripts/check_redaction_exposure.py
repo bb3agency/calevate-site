@@ -265,6 +265,23 @@ ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
         "client defined those fields to describe this caller — so masking it would "
         "corrupt the very answer the request asks for (compliance/export.py decision 3)."
     ),
+    # ACTIONS feature. Free-form by NECESSITY (three kinds carry three config shapes; an
+    # external test reply is arbitrary) and none is populated from a live call's transcript:
+    # they are operator-authored config and an operator-run test, all behind
+    # `org:read`/`org:manage`. The endpoint that DOES touch a caller is
+    # `/v1/actions/invoke/**`, which returns a bare dict with no response model.
+    "ToolOut.config": (
+        "the tool's own kind-specific configuration (URL, template/campaign name, param "
+        "bindings) — operator-authored strings, no caller data (tests/actions_db_test.py)."
+    ),
+    "CredentialOut.non_secret": (
+        "non-secret metadata bound to a saved credential (e.g. a connected Google "
+        "account's granted scopes); the secret is never in any response, only `last_four`."
+    ),
+    "TestActionOut.payload": (
+        "the external system's reply to a TEST invocation the operator ran with their own "
+        "sample values, returned to that same operator — not a live call's data."
+    ),
 }
 
 _METHODS = ("get", "post", "patch", "put", "delete")

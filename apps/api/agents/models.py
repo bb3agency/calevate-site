@@ -5,7 +5,7 @@ agents) use use_alter so Alembic emits them as separate ALTERs after both tables
 """
 
 from datetime import datetime
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 from uuid import UUID
 
 from calevate_shared.config import SELECTABLE_ENGINES
@@ -229,6 +229,14 @@ class Agent(PKMixin, TimestampMixin, Base):
     max_call_duration_s: Mapped[int | None] = mapped_column(Integer)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration
+    # e1f7a3c920b4). Default FALSE: an agent nobody configured actions for makes no
+    # mid-call external calls. Read by `actions/service.actions_enabled` and written
+    # by the Actions tab's master-switch route; the adapter only ships `api_tools`
+    # when this is on. Server-default keeps a row created outside this path safe.
+    api_actions_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     # THE LEGACY BUNDLE (migration f4a1d0b6e29c, D-163). Both notices joined, whatever
     # the toggles say — see `compliance/disclosure.bundled_disclosure_line` for why it
     # deliberately does NOT track what is spoken. Written, no longer read by the publish
@@ -284,6 +292,13 @@ class PromptVersion(PKMixin, TimestampMixin, Base):
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # The authored STRUCTURED form (`calevate_shared.call_script.CallScript`) this version's
+    # `body` was compiled from — opening line, ordered steps, FAQ, end-call rules, merge
+    # variables. NULL means the version was authored as freeform text (everything written
+    # before the structured builder existed); the builder represents that losslessly with
+    # `CallScript.from_freeform(body)`. Stamped at INSERT beside `body`, never updated
+    # (append-only). Migration c7e2b4f019ad.
+    structured_script: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     compiled_t0_context: Mapped[str | None] = mapped_column(Text)
     # Operator-facing: why this version exists ("rollback to v3", "new pricing").
     # NOT compiled_t0_context — that is a build artifact OF the version, reserved by

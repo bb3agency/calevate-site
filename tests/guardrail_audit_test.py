@@ -823,6 +823,12 @@ class TestRedactionExposure:
             "SubjectExportCallOut.summary",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
+            # ACTIONS feature: operator-authored tool config, a saved credential's
+            # non-secret metadata, and the reply to an operator-run test invocation — all
+            # free-form by necessity, none from a live call. See check_redaction_exposure.py.
+            "ToolOut.config",
+            "CredentialOut.non_secret",
+            "TestActionOut.payload",
             "LeadOut.data",
             "CallDetailOut.extraction",
             "SubjectExportLeadOut.data",

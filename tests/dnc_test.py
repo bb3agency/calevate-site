@@ -75,6 +75,12 @@ async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
             text("UPDATE agents SET status = 'live', direction = 'outbound' WHERE id = :a"),
             {"a": agent_id},
         )
+    # Outbound now requires the DLT PE-TM chain + a registered number bound to the agent
+    # (LEGAL-OPS-PLAYBOOK §10.8), so a "before it's on the DNC list" dial is only ALLOWED
+    # once those exist — supply them so the DNC rule is what this suite measures.
+    from tests.conftest import arm_agent_for_outbound
+
+    await arm_agent_for_outbound(tenant_id, agent_id)
     return tenant_id, agent_id, str(slug), f"dev:client:{user_id}"
 
 

@@ -90,6 +90,12 @@ async def _tenant_with_ingest(
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
+    # Outbound (the instant callback) now requires the client's DLT PE-TM chain active and
+    # a registered number bound to the agent (LEGAL-OPS-PLAYBOOK §10.8). Supply both so the
+    # gate reaches the dial, like a real client onboarded for outbound.
+    from tests.conftest import arm_agent_for_outbound
+
+    await arm_agent_for_outbound(tenant_id, agent_id)
     return tenant_id, agent_id, webhook_id
 
 
@@ -173,6 +179,33 @@ async def test_a_dnc_number_gets_a_lead_but_never_a_call() -> None:
     assert lead_count == 1, "the enquiry is kept — it is the client's data"
     assert call_count == 0, "the dial never happened"
     assert note and note.get("rule") == "dnc", "the timeline says exactly why"
+
+
+async def test_a_non_india_number_gets_a_lead_but_never_a_call() -> None:
+    """The India-only freeze at ingest (LEGAL-OPS-PLAYBOOK §14/§18). A well-formed foreign
+    number is not silently dialable: the enquiry is kept (it is the client's data) and the
+    gate refuses the dial with `destination_not_india`, routing it to the same
+    needs-attention state a DNC block does — never a placed call to a foreign number."""
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
+    async with _client() as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/{webhook_id}",
+            json={"phone_number": "+15551234567", "full_name": "Overseas Caller"},
+            headers={SECRET_HEADER: SECRET},
+        )
+    body = response.json()
+    assert body["dispatched"] is False
+    assert body["blocked"] == "destination_not_india"
+
+    async with tenant_session(tenant_id) as session:
+        lead_count = (
+            await session.execute(
+                text("SELECT count(*) FROM leads WHERE phone_e164 = '+15551234567'")
+            )
+        ).scalar()
+        call_count = (await session.execute(text("SELECT count(*) FROM calls"))).scalar()
+    assert lead_count == 1, "the enquiry is kept — it is the client's data"
+    assert call_count == 0, "no call was placed to a foreign number"
 
 
 async def test_missing_form_consent_keeps_the_lead_and_refuses_the_call() -> None:

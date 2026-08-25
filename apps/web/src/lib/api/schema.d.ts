@@ -164,6 +164,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/actions/calendar/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Google Calendar OAuth — stores the refresh token as a credential
+         * @description Exchange the authorization code and save the refresh token as a `google_calendar`
+         *     credential. Bound to the authenticated `org:manage` tenant, so a code cannot be
+         *     redeemed onto another tenant's account.
+         */
+        post: operations["calendar_callback_v1_actions_calendar_callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/actions/calendar/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Begin Google Calendar OAuth — returns the consent URL
+         * @description Start the OAuth flow. `state` carries the tenant so the callback can attribute the
+         *     refresh token; it is signed context, not a bearer — the callback re-checks it.
+         *
+         *     ⚠ The state here is the tenant id; a production hardening is to sign it (HMAC) to stop a
+         *     forged callback attaching a token to another tenant. Left as a NAMED follow-up because
+         *     the callback also requires an authenticated `org:manage` session, which already binds
+         *     the acting tenant — see `calendar_callback`.
+         */
+        get: operations["calendar_connect_v1_actions_calendar_connect_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/actions/invoke/{engine}/{tool_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Engine-called: run one in-call action and return its result to the LLM
+         * @description Bolna calls this for a during-call tool. Verifies the source, resolves the tenant
+         *     from the injected agent ref, loads the tool under that tenant's RLS, and executes.
+         *
+         *     The response body IS the tool result the LLM reads back. Failures are returned as a
+         *     structured payload (not a 5xx) so the agent can relay them to the caller rather than the
+         *     call hearing dead air.
+         */
+        post: operations["invoke_action_v1_actions_invoke__engine___tool_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/client-health": {
         parameters: {
             query?: never;
@@ -1319,6 +1392,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refund a captured payment — provider refund + a compensating ledger entry
+         * @description Issues a refund at the provider and records it as a compensating credit_ledger entry (append-only, negative delta). Idempotent on a derived key so a double click issues one refund. Omit amount_inr for a full refund of the payment's top-up, or send a smaller amount for a partial refund.
+         */
+        post: operations["issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/spend": {
         parameters: {
             query?: never;
@@ -1489,7 +1582,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The voices an agent may speak in (client-readable; D-36's premium/value ladder)
+         * The voices an agent may speak in (client-readable; one Bulbul v3 quality)
          * @description Static data plus one capability read: no DB, no network, no tenant scoping.
          *
          *     Client-realm readable on purpose — a client is legally the Principal Entity and
@@ -1541,6 +1634,98 @@ export interface paths {
          *     An archived agent is refused: restore it first.
          */
         patch: operations["update_agent_route_v1_agents__agent_id__patch"];
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The Actions tab: master switch + configured tools */
+        get: operations["list_agent_actions_v1_agents__agent_id__actions_get"];
+        put?: never;
+        /** Add an in-call action to an agent */
+        post: operations["create_action_v1_agents__agent_id__actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** The master 'Enable API actions' switch — applies to live calls at next publish */
+        put: operations["set_master_switch_v1_agents__agent_id__actions_enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/{tool_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Edit an in-call action */
+        put: operations["update_action_v1_agents__agent_id__actions__tool_id__put"];
+        post?: never;
+        /** Remove an in-call action */
+        delete: operations["delete_action_v1_agents__agent_id__actions__tool_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/{tool_id}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Enable or disable one action */
+        put: operations["set_action_enabled_v1_agents__agent_id__actions__tool_id__enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/actions/{tool_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run an action with sample values before it goes live (no audit as in-call)
+         * @description The 'Test API' tab. Executes the real external call with the operator's sample
+         *     values so a misconfiguration is caught before a caller ever triggers it. Audited as a
+         *     test invocation (`source="test"`) so a live WhatsApp send in testing is still on file.
+         */
+        post: operations["test_action_v1_agents__agent_id__actions__tool_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/agents/{agent_id}/activate": {
@@ -1739,6 +1924,103 @@ export interface paths {
          * @description It comes back INACTIVE, not active. Nothing can prove the voice platform still holds a retired agent's configuration, and the only thing that establishes it is a publish — so activate it afterwards, deliberately.
          */
         post: operations["restore_agent_route_v1_agents__agent_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Load the agent's draft script for the structured builder */
+        get: operations["get_script_v1_agents__agent_id__script_get"];
+        /** Save the structured script as a new version (staged on a live agent) */
+        put: operations["save_script_v1_agents__agent_id__script_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply the staged script to live calls */
+        post: operations["apply_script_v1_agents__agent_id__script_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/assist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft a script from a plain-language business description (AI writing assist)
+         * @description AI writing assist. SUBJECT → GATE → RUN → METER, the crm/routes.assist_call order.
+         *
+         *     The SUBJECT is the client's own business description (tenant-authored config, not
+         *     transcript PII), so there is no transcript to load or redact — the subject is the
+         *     request body, present before the gate. The GATE (`require_ai_assist`) RAISES at the
+         *     ceiling before a token is spent; the RUN drafts through the controlled worker path; the
+         *     METER records the Azure cost (or nothing, for the free Sarvam fallback) in its own
+         *     transaction. Nothing is persisted to the agent — a draft is returned for the author to
+         *     edit and then save through `PUT` above.
+         */
+        post: operations["assist_script_v1_agents__agent_id__script_assist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Compile a (possibly unsaved) script into the exact engine prompt */
+        post: operations["preview_script_v1_agents__agent_id__script_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discard the staged script; the draft returns to what callers hear */
+        post: operations["undo_script_v1_agents__agent_id__script_undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2437,6 +2719,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/topups/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify the Checkout callback signature (order_id|payment_id, key_secret)
+         * @description After a successful Checkout the browser posts back razorpay_order_id, razorpay_payment_id and razorpay_signature. This verifies the signature on the SERVER with the key_secret — a different scheme and a different secret from the webhook — and rejects a mismatch. It does NOT credit the wallet: the callback carries no amount, so the credit follows from the webhook.
+         */
+        post: operations["confirm_topup_callback_v1_billing_topups_callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/topups/capability": {
         parameters: {
             query?: never;
@@ -2471,6 +2773,26 @@ export interface paths {
          * @description Creates the provider-side order when this deployment holds the API secret. It does not today — no Razorpay account is provisioned — so `provider_order_id` is null and `provider_order_pending` is true. Idempotent on a server-derived key: the same tenant asking for the same amount twice gets one order.
          */
         post: operations["create_topup_intent_v1_billing_topups_intent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/topups/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The prepaid credit-pack rate card, priced at the live list rate
+         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: paid + bonus credits, the effective per-minute rate, and the talk time the credits buy. Selecting a pack starts a top-up intent with its `pack_id`.
+         */
+        get: operations["read_credit_packs_v1_billing_topups_packs_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3209,6 +3531,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/integrations/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Saved integration credentials — fingerprints only, never the secret */
+        get: operations["list_credentials_v1_integrations_credentials_get"];
+        put?: never;
+        /** Save a reusable integration credential (envelope-encrypted) */
+        post: operations["create_credential_v1_integrations_credentials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/credentials/{credential_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved credential (tools using it become visibly broken) */
+        delete: operations["delete_credential_v1_integrations_credentials__credential_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/integrations/credentials/{credential_id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate a credential in place — every tool using it picks up the new value */
+        post: operations["rotate_credential_v1_integrations_credentials__credential_id__rotate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/integrations/deliveries": {
         parameters: {
             query?: never;
@@ -3413,6 +3787,57 @@ export interface paths {
         get: operations["preview_source_v1_kb_sources__source_id__preview_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/knowledge-gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Questions the agents could not answer — urgent first, across all agents */
+        get: operations["list_knowledge_gaps_v1_knowledge_gaps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/knowledge-gaps/{gap_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss a knowledge gap — it leaves the urgent list, occurrences stay */
+        post: operations["dismiss_knowledge_gap_v1_knowledge_gaps__gap_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/knowledge-gaps/{gap_id}/teach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Teach the missing answer — records it and seeds a KB draft for review */
+        post: operations["teach_knowledge_gap_v1_knowledge_gaps__gap_id__teach_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4468,6 +4893,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActionsSettingsOut
+         * @description The agent's master switch and its tools, for the Actions tab in one read.
+         */
+        ActionsSettingsOut: {
+            /** Api Actions Enabled */
+            api_actions_enabled: boolean;
+            /** Calendar Available */
+            calendar_available: boolean;
+            /** Tools */
+            tools: components["schemas"]["ToolOut"][];
+        };
         /** AddContactsIn */
         AddContactsIn: {
             /** Contacts */
@@ -4479,6 +4916,11 @@ export interface components {
             added: number;
             /** Duplicate */
             duplicate: number;
+            /**
+             * Foreign
+             * @default 0
+             */
+            foreign: number;
             /** Malformed */
             malformed: number;
         };
@@ -4934,6 +5376,33 @@ export interface components {
             /** Live Version */
             live_version: number;
         };
+        /** ApplyScriptIn */
+        ApplyScriptIn: {
+            /** Expected Version */
+            expected_version?: number | null;
+        };
+        /** ApplyScriptOut */
+        ApplyScriptOut: {
+            /** Applied */
+            applied: boolean;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /** Live Version */
+            live_version: number;
+        };
+        /** AssistIn */
+        AssistIn: {
+            /** Description */
+            description: string;
+        };
+        /** AssistOut */
+        AssistOut: {
+            /** Disclosure */
+            disclosure: string | null;
+            /** Metered */
+            metered: boolean;
+            script: components["schemas"]["CallScript"];
+        };
         /**
          * AttentionItemOut
          * @description One thing the platform refused to do quietly (crm/attention.py).
@@ -5034,6 +5503,21 @@ export interface components {
             address: string;
             /** Label */
             label: string;
+        };
+        /** CalendarCallbackIn */
+        CalendarCallbackIn: {
+            /** Code */
+            code: string;
+            /**
+             * Label
+             * @default Google Calendar
+             */
+            label: string;
+        };
+        /** CalendarConnectOut */
+        CalendarConnectOut: {
+            /** Authorize Url */
+            authorize_url: string;
         };
         /**
          * CallAssistOut
@@ -5211,6 +5695,47 @@ export interface components {
              * @enum {string}
              */
             source: "derived" | "model";
+        };
+        /**
+         * CallScript
+         * @description A whole agent script, structured — or a raw escape hatch, never both at once.
+         *
+         *     ONE MODEL, TWO SHAPES. `raw_override` is the escape hatch AND the lossless
+         *     representation of a legacy freeform prompt: when it is set, the compiler returns it
+         *     verbatim and the structured fields are ignored, so nothing an author wrote in raw mode
+         *     is reinterpreted, and a pre-structured `prompt_versions.body` round-trips exactly (see
+         *     `from_freeform`). When it is None, the structured fields compile. A model validator
+         *     forbids the ambiguous middle — structured content AND a raw override — because a row
+         *     that is half one and half the other has no single answer to "what does this compile
+         *     to".
+         *
+         *     The `opening_line` here is the CLIENT's opener and is distinct from the compliance
+         *     opening: `compose_opening_line` composes the AI-disclosure / recording notices
+         *     separately from the agent's two toggles, and the adapter speaks THAT first; this line
+         *     follows it. Keeping them apart is D-163 — the notices are a regulated obligation with
+         *     its own switches, not something a script author edits as free text.
+         */
+        CallScript: {
+            /** End Call Extra Rules */
+            end_call_extra_rules?: string[];
+            /**
+             * Faq Fallback
+             * @default నాకు ఆ వివరం ఖచ్చితంగా తెలియదు — మా టీమ్ మీకు తిరిగి కాల్ చేసి చెబుతుంది.
+             */
+            faq_fallback: string;
+            /** Faqs */
+            faqs?: components["schemas"]["FaqEntry"][];
+            /**
+             * Opening Line
+             * @default
+             */
+            opening_line: string;
+            /** Raw Override */
+            raw_override?: string | null;
+            /** Steps */
+            steps?: components["schemas"]["ScriptStep"][];
+            /** Variables */
+            variables?: components["schemas"]["ScriptVariable"][];
         };
         /**
          * CallSpendOut
@@ -5505,6 +6030,43 @@ export interface components {
             suppressed: boolean;
             /** Valid */
             valid: boolean;
+        };
+        /**
+         * CheckoutCallbackIn
+         * @description The three fields Razorpay Checkout hands back to the browser on success.
+         *
+         *     Named exactly as the provider names them so the frontend forwards them verbatim; the
+         *     server is where they are verified (never in the browser).
+         */
+        CheckoutCallbackIn: {
+            /** Razorpay Order Id */
+            razorpay_order_id: string;
+            /** Razorpay Payment Id */
+            razorpay_payment_id: string;
+            /** Razorpay Signature */
+            razorpay_signature: string;
+        };
+        /**
+         * CheckoutCallbackOut
+         * @description What the confirmation route tells the browser once the signature verifies.
+         *
+         *     `credit_pending` is TRUE deliberately and always: the callback proves authenticity but
+         *     carries no amount and no tenant, so the wallet credit follows from the webhook. The UI
+         *     should show "payment received, balance updating" rather than asserting a new balance it
+         *     has not been told — the same honesty `provider_order_pending` keeps on the intent.
+         */
+        CheckoutCallbackOut: {
+            /** Credit Pending */
+            credit_pending: boolean;
+            /** Order Id */
+            order_id: string;
+            /** Payment Id */
+            payment_id: string;
+            /**
+             * Verified
+             * @constant
+             */
+            verified: true;
         };
         /** ChunkOut */
         ChunkOut: {
@@ -5833,10 +6395,41 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** CreateCredentialIn */
+        CreateCredentialIn: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "aisensy" | "meta_cloud" | "interakt" | "custom_api" | "google_calendar";
+            /** Label */
+            label: string;
+            /** Non Secret */
+            non_secret?: {
+                [key: string]: unknown;
+            } | null;
+            /** Secret */
+            secret: string;
+        };
         /** CreateEndpointIn */
         CreateEndpointIn: {
             /** Events */
             events: ("lead.created" | "lead.updated" | "call.completed" | "campaign.completed")[];
+            /**
+             * Include Raw Transcript
+             * @default false
+             */
+            include_raw_transcript: boolean;
+            /**
+             * Include Recording Url
+             * @default false
+             */
+            include_recording_url: boolean;
+            /**
+             * Include Transcript
+             * @default false
+             */
+            include_transcript: boolean;
             /**
              * Url
              * Format: uri
@@ -5852,6 +6445,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Include Raw Transcript */
+            include_raw_transcript: boolean;
+            /** Include Recording Url */
+            include_recording_url: boolean;
+            /** Include Transcript */
+            include_transcript: boolean;
             /** Secret */
             secret: string;
             /** Url */
@@ -5924,6 +6523,72 @@ export interface components {
             spreadsheet: string;
             /** Worksheet */
             worksheet?: string | null;
+        };
+        /** CredentialOut */
+        CredentialOut: {
+            /** Created At */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Last Four */
+            last_four: string;
+            /** Non Secret */
+            non_secret: {
+                [key: string]: unknown;
+            } | null;
+            /** Updated At */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /**
+         * CreditPackOut
+         * @description One purchasable pack, priced for display. Every rupee value is an exact decimal
+         *     STRING (hard rule 7) and stays one to the DOM — nothing here is a JSON number a browser
+         *     would parse back through a float.
+         *
+         *     The EFFECTIVE RATE and TALK TIME are derived server-side from the live list rate and the
+         *     catalogue, so the table a client sees and the credits the receiver grants come from one
+         *     source and cannot drift.
+         */
+        CreditPackOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Best Value */
+            best_value: boolean;
+            /** Bonus Credits */
+            bonus_credits: string;
+            /** Bonus Pct */
+            bonus_pct: string;
+            /** Effective Rate Inr Per Min */
+            effective_rate_inr_per_min: string;
+            /** Pack Id */
+            pack_id: string;
+            /** Paid Credits */
+            paid_credits: string;
+            /** Talk Time Minutes */
+            talk_time_minutes: number;
+            /** Total Credits */
+            total_credits: string;
+        };
+        /**
+         * CreditPacksOut
+         * @description The pack rate card. `list_rate_inr_per_min` is published beside the packs so the
+         *     screen can show what a minute lists at (and, on the 0%-bonus pack, that the effective
+         *     rate equals it) without a second source of the number.
+         */
+        CreditPacksOut: {
+            /** List Rate Inr Per Min */
+            list_rate_inr_per_min: string;
+            /** Packs */
+            packs: components["schemas"]["CreditPackOut"][];
         };
         /** CreditsOut */
         CreditsOut: {
@@ -6359,6 +7024,11 @@ export interface components {
             /** Source */
             source: string | null;
         };
+        /** EnableIn */
+        EnableIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /**
          * EndpointOptionsOut
          * @description What an endpoint may subscribe to, and what this deployment can deliver on.
@@ -6402,6 +7072,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Include Raw Transcript */
+            include_raw_transcript: boolean;
+            /** Include Recording Url */
+            include_recording_url: boolean;
+            /** Include Transcript */
+            include_transcript: boolean;
             /** Kind */
             kind: string;
             /** Secret Fingerprint */
@@ -6759,6 +7435,21 @@ export interface components {
             question: string;
         };
         /**
+         * FaqEntry
+         * @description One question/answer pair the agent may answer from directly.
+         *
+         *     The FAQ is fenced — the compiler tells the model to answer ONLY from these answers and
+         *     to use the don't-know response otherwise — so an entry is a fact the client has
+         *     authorised the agent to state, which is exactly the truth-boundary PROMPT-GUIDE §1.2
+         *     draws. Both sides support `{{ variables }}`.
+         */
+        FaqEntry: {
+            /** Answer */
+            answer: string;
+            /** Question */
+            question: string;
+        };
+        /**
          * FeatureFlagChangeOut
          * @description What the write did — including doing nothing, which is a normal outcome.
          *
@@ -6964,6 +7655,28 @@ export interface components {
             slug: string;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /**
+         * GapDismissIn
+         * @description Dismiss a gap. An optional note the client leaves for their own audit trail.
+         */
+        GapDismissIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * GapTeachIn
+         * @description Teach the answer to a gap. `answer` is the fact the agent was missing; when
+         *     `create_kb_draft` is set the service seeds a KB draft from it (see `service.teach_gap`).
+         */
+        GapTeachIn: {
+            /** Answer */
+            answer: string;
+            /**
+             * Create Kb Draft
+             * @default true
+             */
+            create_kb_draft: boolean;
         };
         /** GlobalEntryOut */
         GlobalEntryOut: {
@@ -7440,6 +8153,12 @@ export interface components {
             document_blockers: string[];
             /** Document Type */
             document_type: string;
+            /** Estimated Gst Inr */
+            estimated_gst_inr: string | null;
+            /** Estimated Gst Rate Pct */
+            estimated_gst_rate_pct: string | null;
+            /** Estimated Total Inr */
+            estimated_total_inr: string | null;
             /** Generated At */
             generated_at: string;
             /** Gst Inr */
@@ -7459,6 +8178,8 @@ export interface components {
             supplier: components["schemas"]["InvoiceSupplierOut"];
             /** Tax Components */
             tax_components: components["schemas"]["InvoiceTaxComponentOut"][];
+            /** Tax Note */
+            tax_note: string | null;
             /** Total Inr */
             total_inr: string;
             usage: components["schemas"]["InvoiceUsageOut"];
@@ -7611,6 +8332,79 @@ export interface components {
             pending: number;
             /** Versions */
             versions: number;
+        };
+        /**
+         * KnowledgeGapListOut
+         * @description The urgent surface. `open_count` is what the nav badge and "N things need
+         *     attention" sentence read; `items` is the page, open gaps first (see
+         *     `service.list_gaps` for the ordering).
+         */
+        KnowledgeGapListOut: {
+            /** Items */
+            items: components["schemas"]["KnowledgeGapOut"][];
+            /** Open Count */
+            open_count: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * KnowledgeGapOut
+         * @description One rolled-up gap for the card. `occurrence_count`/`call_count` are the "Nx on M
+         *     calls"; `signal` drives the "DIDN'T KNOW THIS"-style badge wording.
+         */
+        KnowledgeGapOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name?: string | null;
+            /** Call Count */
+            call_count: number;
+            /** Example Answer */
+            example_answer: string;
+            /** Example Question */
+            example_question: string;
+            /**
+             * First Seen At
+             * Format: date-time
+             */
+            first_seen_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kb Source Id */
+            kb_source_id?: string | null;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Occurrence Count */
+            occurrence_count: number;
+            /** Resolution */
+            resolution?: string | null;
+            /** Resolved At */
+            resolved_at?: string | null;
+            /** Resolved By */
+            resolved_by?: string | null;
+            /**
+             * Signal
+             * @enum {string}
+             */
+            signal: "dont_know" | "deferred_channel" | "unanswered_question";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "taught" | "dismissed";
+            /** Topic Key */
+            topic_key: string;
+            /** Topic Label */
+            topic_label: string;
         };
         /**
          * KycRecordIn
@@ -8325,6 +9119,11 @@ export interface components {
             revenue_inr: string;
             tiers: components["schemas"]["TierSplitOut"];
         };
+        /** MasterSwitchIn */
+        MasterSwitchIn: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** MeOut */
         MeOut: {
             /** Impersonating */
@@ -8762,6 +9561,36 @@ export interface components {
              */
             purpose: "email_verify";
         };
+        /** ParamIn */
+        ParamIn: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Lead Var */
+            lead_var?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "static" | "lead_var" | "ai";
+            /**
+             * Type
+             * @default string
+             * @enum {string}
+             */
+            type: "string" | "integer" | "number" | "boolean";
+            /** Value */
+            value?: string | null;
+        };
         /**
          * PaymentOut
          * @description One bank transfer, as the wallet holds it — the reconciliation view.
@@ -9040,6 +9869,15 @@ export interface components {
             suppressed: number;
             /** Unmatched */
             unmatched: number;
+        };
+        /** PreviewIn */
+        PreviewIn: {
+            script: components["schemas"]["CallScript"];
+        };
+        /** PreviewOut */
+        PreviewOut: {
+            /** Compiled */
+            compiled: string;
         };
         /** ProgressOut */
         ProgressOut: {
@@ -9414,6 +10252,37 @@ export interface components {
             /** Until */
             until?: string | null;
         };
+        /**
+         * RefundIn
+         * @description An operator issuing a refund against one captured payment.
+         *
+         *     `amount_inr` is optional: absent means "refund the full top-up recorded for this
+         *     payment", present means a partial refund of that much. A float is refused at the
+         *     boundary, identical to the top-up route — money crosses the wire as a string.
+         */
+        RefundIn: {
+            /** Amount Inr */
+            amount_inr?: number | string | null;
+            /** Payment Id */
+            payment_id: string;
+            /** Reason */
+            reason: string;
+        };
+        /** RefundOut */
+        RefundOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Balance Inr */
+            balance_inr: string | null;
+            /** Payment Id */
+            payment_id: string;
+            /** Processing Days */
+            processing_days: number;
+            /** Recorded */
+            recorded: boolean;
+            /** Refund Id */
+            refund_id: string;
+        };
         /** RegisterTemplateIn */
         RegisterTemplateIn: {
             /** Body */
@@ -9533,6 +10402,13 @@ export interface components {
             /** To Version */
             to_version: number;
         };
+        /** RotateCredentialIn */
+        RotateCredentialIn: {
+            /** Expected Version */
+            expected_version: number;
+            /** Secret */
+            secret: string;
+        };
         /** RotateSecretIn */
         RotateSecretIn: {
             /** App Secret */
@@ -9556,6 +10432,19 @@ export interface components {
             secret: string | null;
             /** Secret Header */
             secret_header: string;
+        };
+        /** SaveScriptIn */
+        SaveScriptIn: {
+            /** Notes */
+            notes?: string | null;
+            script: components["schemas"]["CallScript"];
+        };
+        /** SaveScriptOut */
+        SaveScriptOut: {
+            /** Staged */
+            staged: boolean;
+            /** Version */
+            version: number;
         };
         /**
          * SavedViewFilters
@@ -9740,6 +10629,55 @@ export interface components {
              * Format: date-time
              */
             start_at: string;
+        };
+        /**
+         * ScriptOut
+         * @description The draft script the builder edits, plus where it stands and the free merge fields.
+         */
+        ScriptOut: {
+            /** Has Pending */
+            has_pending: boolean;
+            /** Is Freeform */
+            is_freeform: boolean;
+            script: components["schemas"]["CallScript"];
+            /** Standard Variables */
+            standard_variables: components["schemas"]["VariableSuggestion"][];
+            /** Version */
+            version: number | null;
+        };
+        /**
+         * ScriptStep
+         * @description One ordered instruction in the task flow — a natural-language sentence, not code.
+         *
+         *     PROMPT-GUIDE §2/§4 are explicit that a task flow is a LOOSE outline of hints, not a
+         *     rigid line-by-line script ("rigid scripts sound robotic and break on interruptions"),
+         *     so a step is prose the model follows in spirit, and reordering steps reorders the
+         *     outline. Supports `{{ variables }}` like every other authored field.
+         */
+        ScriptStep: {
+            /** Instruction */
+            instruction: string;
+        };
+        /**
+         * ScriptVariable
+         * @description One `{{ }}` merge field the author has declared, with the label the UI shows.
+         *
+         *     `key` is what appears in the script text; `label` is the human name in the insert
+         *     menu; `example` is an optional sample value the preview can substitute so an author
+         *     sees a realistic sentence rather than `{{ }}`. Declaring a variable does not make it
+         *     resolve at dial time — that depends on the lead/extraction data — it only makes it
+         *     offerable in the editor and documentable in the preview.
+         */
+        ScriptVariable: {
+            /**
+             * Example
+             * @default
+             */
+            example: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
         };
         /** SecondFactorIn */
         SecondFactorIn: {
@@ -10614,6 +11552,27 @@ export interface components {
             /** Vertical Template */
             vertical_template: string | null;
         };
+        /**
+         * TestActionIn
+         * @description Sample values for the AI/lead-var params, to run the action before saving it live.
+         */
+        TestActionIn: {
+            /** Values */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        /** TestActionOut */
+        TestActionOut: {
+            /** Ok */
+            ok: boolean;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Status */
+            status: string;
+        };
         /** TestWebhookIn */
         TestWebhookIn: {
             /** Payload */
@@ -10690,6 +11649,73 @@ export interface components {
             /** Verified At */
             verified_at: string | null;
         };
+        /** ToolIn */
+        ToolIn: {
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Credential Id */
+            credential_id?: string | null;
+            /** Description */
+            description: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "custom_api" | "whatsapp" | "calendar";
+            /** Name */
+            name: string;
+            /** Params */
+            params?: components["schemas"]["ParamIn"][];
+            /** Pre Call Message */
+            pre_call_message?: string | null;
+            /** Provider */
+            provider?: string | null;
+            /**
+             * Trigger
+             * @default during_call
+             * @enum {string}
+             */
+            trigger: "during_call" | "after_call";
+        };
+        /** ToolOut */
+        ToolOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Credential Id */
+            credential_id: string | null;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            }[];
+            /** Pre Call Message */
+            pre_call_message: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Trigger */
+            trigger: string;
+        };
         /**
          * TopUpCapabilityOut
          * @description What this deployment can do about money, asked before the click (D-75's shape).
@@ -10724,7 +11750,9 @@ export interface components {
         /** TopUpIntentIn */
         TopUpIntentIn: {
             /** Amount Inr */
-            amount_inr: number | string;
+            amount_inr?: number | string | null;
+            /** Pack Id */
+            pack_id?: string | null;
         };
         /** TopUpIntentOut */
         TopUpIntentOut: {
@@ -10743,6 +11771,8 @@ export interface components {
             notes: {
                 [key: string]: string;
             };
+            /** Pack Id */
+            pack_id: string | null;
             /** Provider Order Id */
             provider_order_id: string | null;
             /** Provider Order Pending */
@@ -10816,6 +11846,15 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
+            /** Discarded Version */
+            discarded_version: number | null;
+            /** Live Version */
+            live_version: number | null;
+            /** Undone */
+            undone: boolean;
+        };
+        /** UndoScriptOut */
+        UndoScriptOut: {
             /** Discarded Version */
             discarded_version: number | null;
             /** Live Version */
@@ -10925,6 +11964,13 @@ export interface components {
             /** Spend Used Inr */
             spend_used_inr: string;
         };
+        /** VariableSuggestion */
+        VariableSuggestion: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
         /**
          * VariantOut
          * @description One arm's counts. THREE, resolved by direction, because since D-60 an arm can be
@@ -11023,15 +12069,10 @@ export interface components {
              */
             provider: "sarvam";
             /**
-             * Tier
-             * @enum {string}
-             */
-            tier: "premium" | "value";
-            /**
              * Tts Model
-             * @enum {string}
+             * @constant
              */
-            tts_model: "bulbul:v3" | "bulbul:v2";
+            tts_model: "bulbul:v3";
             /**
              * Verified
              * @default false
@@ -11108,7 +12149,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "credited" | "duplicate" | "ignored";
+            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored";
         };
         /** WritePromptIn */
         WritePromptIn: {
@@ -11406,6 +12447,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookAck"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    calendar_callback_v1_actions_calendar_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarCallbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    calendar_connect_v1_actions_calendar_connect_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarConnectOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    invoke_action_v1_actions_invoke__engine___tool_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -13455,6 +14592,41 @@ export interface operations {
             };
         };
     };
+    issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefundIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefundOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     tenant_spend_v1_admin_tenants__tenant_id__spend_get: {
         parameters: {
             query?: {
@@ -13812,6 +14984,245 @@ export interface operations {
             };
         };
     };
+    list_agent_actions_v1_agents__agent_id__actions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionsSettingsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_action_v1_agents__agent_id__actions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_master_switch_v1_agents__agent_id__actions_enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MasterSwitchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionsSettingsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    update_action_v1_agents__agent_id__actions__tool_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_action_v1_agents__agent_id__actions__tool_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_action_enabled_v1_agents__agent_id__actions__tool_id__enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnableIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    test_action_v1_agents__agent_id__actions__tool_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestActionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestActionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     activate_agent_route_v1_agents__agent_id__activate_post: {
         parameters: {
             query?: never;
@@ -14117,6 +15528,208 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentLifecycleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_script_v1_agents__agent_id__script_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_script_v1_agents__agent_id__script_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveScriptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaveScriptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    apply_script_v1_agents__agent_id__script_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyScriptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyScriptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    assist_script_v1_agents__agent_id__script_assist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    preview_script_v1_agents__agent_id__script_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    undo_script_v1_agents__agent_id__script_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoScriptOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -15173,6 +16786,39 @@ export interface operations {
             };
         };
     };
+    confirm_topup_callback_v1_billing_topups_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckoutCallbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckoutCallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_topup_capability_v1_billing_topups_capability_get: {
         parameters: {
             query?: never;
@@ -15222,6 +16868,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopUpIntentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_credit_packs_v1_billing_topups_packs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditPacksOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -16424,6 +18099,132 @@ export interface operations {
             };
         };
     };
+    list_credentials_v1_integrations_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_credential_v1_integrations_credentials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCredentialIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_credential_v1_integrations_credentials__credential_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rotate_credential_v1_integrations_credentials__credential_id__rotate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                credential_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateCredentialIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CredentialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_deliveries_v1_integrations_deliveries_get: {
         parameters: {
             query?: {
@@ -16819,6 +18620,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChunkOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_knowledge_gaps_v1_knowledge_gaps_get: {
+        parameters: {
+            query?: {
+                agent_id?: string | null;
+                /** @description open (default, the urgent set) · taught · dismissed · all */
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeGapListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_knowledge_gap_v1_knowledge_gaps__gap_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gap_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GapDismissIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeGapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    teach_knowledge_gap_v1_knowledge_gaps__gap_id__teach_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gap_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GapTeachIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeGapOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -59,8 +59,22 @@ A `lead.updated` envelope carries the same `data` keys as `lead.created`, with t
 as they stand AFTER the edit.
 
 A `call.completed` envelope carries in `data`: `call_id`, `lead_id` (may be null),
-`direction`, `duration_s`, `outcome`, `sentiment`, `summary`. The summary — never the
-transcript — is what leaves on a webhook.
+`direction`, `duration_s`, `outcome`, `sentiment`, `summary`. By default the summary —
+never the transcript — is what leaves on a webhook. Three **per-endpoint opt-ins** add
+more, and only to the endpoint that asked (§1.7):
+
+- `recording_url` — present only if the endpoint opted into `include_recording_url` **and**
+  a recording exists. A **signed, short-lived link** to our copy of the audio (never the
+  audio bytes). It expires within minutes — fetch it as soon as you receive the delivery,
+  and do not store the URL. If the call has no recording (never made, erased, or aged out
+  under retention), the field is **omitted**, not sent as `null`.
+- `transcript` — present only if the endpoint opted into `include_transcript`. The
+  **redacted** transcript: a JSON array of turns, each `{ "speaker", "text", "lang",
+  "start_ms" }`, in call order, with personal details (numbers, IDs, OTPs) masked — the
+  same text a dashboard reader with `calls:read` sees.
+- `raw_transcript` — present only if the endpoint opted into `include_raw_transcript`. The
+  **unredacted** transcript, same array shape as `transcript`. This is your customer's
+  personal data in the clear, so it is gated harder — see §1.7.
 
 A `campaign.completed` envelope carries in `data`: `campaign_id`, `name` (the campaign's,
 not a person's), `contacts_total`, `contacts_reached` and `completed_at`. **It is the one
@@ -145,7 +159,11 @@ Three rules that matter:
 - `POST /v1/integrations/endpoints` with `{"url": "https://…", "events": ["lead.created"]}`
   registers an endpoint (http(s) URLs only, at least one event) and returns the signing
   secret **exactly once**, in that response. Store it in your secrets manager
-  immediately — no later API call ever returns it again.
+  immediately — no later API call ever returns it again. The body also accepts the three
+  `call.completed` opt-ins (§1.7), all defaulting to `false`:
+  `include_recording_url`, `include_transcript`, `include_raw_transcript`. The response and
+  `GET /v1/integrations/endpoints` echo all three so you can confirm what an endpoint is
+  set to receive.
 
 **Where an endpoint may live.** Your URL must resolve to an address on the public
 internet and listen on port **80 or 443**. We resolve the hostname and refuse anything
@@ -180,6 +198,37 @@ URL, not returning a `3xx` from the old one.
 to your receiver (accept both during the cutover), then deactivate the old endpoint.
 There is no in-place rotation, by design — a secret is born with its endpoint and shown
 once.
+
+### 1.7 Getting the recording and transcript on `call.completed`
+
+By default a `call.completed` webhook carries the summary and the outcome, not the
+transcript and not the recording — the transcript is the most sensitive thing we hold. If
+your system needs more, you opt in **per endpoint**, at registration, with three booleans
+on `POST /v1/integrations/endpoints` (all default `false`):
+
+| Field                    | Adds to `call.completed.data`                | Gate |
+| ------------------------ | -------------------------------------------- | ---- |
+| `include_recording_url`  | `recording_url` — a signed, short-TTL link to our copy of the audio, omitted when there is no recording | `org:manage` |
+| `include_transcript`     | `transcript` — the REDACTED transcript, as an array of turns | `org:manage` |
+| `include_raw_transcript` | `raw_transcript` — the UNREDACTED transcript, same array shape | `org:manage` **and** `calls:read_raw` |
+
+Three rules govern them:
+
+- **The recording link is short-lived and is not the audio.** It points at our own copy
+  and expires within minutes. Fetch it as soon as the delivery arrives; do not store the
+  URL. It is omitted entirely for a call that has no recording.
+- **`include_raw_transcript` is a SECOND opt-in on top of `include_transcript`**, not a
+  standalone one — the request is refused (`raw_transcript_requires_transcript`) if you
+  ask for raw without redacted. The unredacted transcript contains every phone number, ID
+  and OTP spoken on the call, in the clear, so it also requires the same permission as
+  reading a raw transcript in the dashboard (`calls:read_raw`); a caller without it is
+  refused. And **every delivery that carries a raw transcript is written to your audit
+  log** — the same control that governs reading a raw transcript or a delivered payload on
+  screen (hard rule 5).
+- **These do not change the retained delivery body or its gating.** As with any delivery,
+  we keep a copy of what we sent (§1.5 / the payload view), still behind `calls:read_raw`
+  and still audited on read. Opting in widens what your endpoint receives, not who may
+  read the forensic copy.
 
 ---
 

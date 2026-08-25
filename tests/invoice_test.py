@@ -200,7 +200,8 @@ def build_expected_number(tenant_id: Any, month_part: str) -> str:
     A test that re-derives the algorithm agrees with itself and proves nothing."""
     from apps.api.billing.invoice import _tenant_serial_suffix
 
-    return f"CAL-{month_part}-{_tenant_serial_suffix(tenant_id)}"
+    # New sixteen-character format (Rule 46(b)): CAL + YYMM + base-36 tenant suffix.
+    return f"CAL{month_part[2:4]}{month_part[4:6]}{_tenant_serial_suffix(tenant_id)}"
 
 
 async def test_the_invoice_number_is_deterministic_per_tenant_month() -> None:
@@ -221,7 +222,8 @@ async def test_the_invoice_number_is_deterministic_per_tenant_month() -> None:
     # shifted right by 16, advancing once every 65.5 seconds. Any two clients onboarded in
     # the same minute shared this number, and the test could not see it because it only
     # ever compared against the same expression the code used.
-    assert first["invoice_number"].startswith(f"CAL-{month_part}-")
+    assert first["invoice_number"].startswith(f"CAL{month_part[2:4]}{month_part[4:6]}")
+    assert len(first["invoice_number"]) == 16, "Rule 46(b): at most sixteen characters"
     assert first["invoice_number"] == build_expected_number(tenant_id, month_part)
 
 
@@ -420,3 +422,24 @@ async def test_an_invoice_for_a_tenant_that_does_not_exist_is_a_404_not_a_blank_
 
     assert refused.value.status == 404
     assert refused.value.code == "not_found"
+
+
+@pytest.fixture(autouse=True)
+def _gst_registered_supplier(monkeypatch: pytest.MonkeyPatch):
+    """Register a specimen GST supplier for this suite.
+
+    These tests assert the TAX-INVOICE arithmetic (18% GST split into heads), which is only
+    lawful once Calevate is GST-registered. An UNregistered supplier now issues a bill of
+    supply with no tax (CGST s.32, Rule 49; billing/invoice.py), so without a registered
+    supplier ``gst_inr`` would be zero and these arithmetic assertions would test nothing.
+    The specimen GSTIN is Telangana (36) so an intra-State supply splits into CGST+SGST.
+    """
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate Technologies Private Limited")
+    monkeypatch.setenv("GST_SUPPLIER_ADDRESS", "Plot 42, Madhapur, Hyderabad 500081")
+    monkeypatch.setenv("GST_SUPPLIER_GSTIN", "36AABCC1234D1Z5")
+    monkeypatch.setenv("GST_SUPPLY_SAC", "998315")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

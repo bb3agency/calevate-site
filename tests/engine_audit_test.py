@@ -1601,6 +1601,14 @@ _VENDOR_ONLY_KEYS = frozenset(
         # The greeting field — Bolna's own noun for it. Read since P3.3, because the
         # disclosure verdict has to be scored against the field that SPEAKS.
         "agent_welcome_message",
+        # THE VENDOR'S CONFIG-KEY FOR AN AGENT'S IN-CALL ACTIONS BLOCK (Actions lane).
+        # Bolna nests it at `tasks[].tools_config.api_tools`; OUR word for the same concept
+        # is `action_tools` (`AgentConfig.action_tools`, `ActionToolSpec`), so `api_tools`
+        # appearing as a key outside the adapter would be a vendor spelling that escaped —
+        # exactly `call_type`'s case. It is read (written) only in `bolna.py::_agent_body`;
+        # every other shipped mention is prose explaining the vendor, which the AST reader
+        # ignores.
+        "api_tools",
         # THE DIRECTION OF A CALL, IN THE VENDOR'S SPELLING (D-359). Bolna puts it on
         # `telephony_data.call_type` as `"inbound"`/`"outbound"`; OUR word for the same
         # thing is `direction`, on `CallEvent` and `ExecutionSnapshot`. That is exactly
@@ -1841,6 +1849,14 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "network",
         "next",
         "platform",
+        # OURS AS MUCH AS THE VENDOR'S. `pre_call_message` is Bolna's exec-param for a line
+        # spoken before a custom-function call, but it is ALSO our own field name for it —
+        # `ToolIn`/`ToolOut.pre_call_message`, `LoadedTool.pre_call_message`, the
+        # `action_tools` column and `ActionToolSpec` all carry it — so finding it outside the
+        # adapter proves nothing about a leaked vendor shape. The adapter reads it off OUR
+        # `tool.pre_call_message` and writes it under the matching key; contrast `api_tools`,
+        # the block noun only Bolna spells, banned above.
+        "pre_call_message",
         "recording_url",
         "retry-after",
         "role",

@@ -2064,6 +2064,86 @@ class ModelConfig(BaseModel):
         return self
 
 
+#: How Bolna fills one custom-function parameter slot for an in-call ACTION tool.
+#:
+#: - ``ai``      the LLM extracts the value from the conversation. It is declared in the
+#:               function's ``parameters`` JSON-schema so the model knows to collect it,
+#:               and mapped in ``value.param`` as a ``%(name)s`` format specifier.
+#: - ``context`` a Bolna system variable substituted at call time (``{from_number}`` etc.
+#:               — the four the vendor auto-injects into function parameters, VERIFIED-
+#:               VENDOR-DOCS `bolna-findings/mirror/pages/tool-calling/
+#:               custom-function-calls.md:581-586`). It is NOT in ``parameters`` — the LLM
+#:               never fills it — only in ``value.param``.
+#:
+#: STATIC values are deliberately NOT a fill mode here: they never reach Bolna's config at
+#: all. `apps/api/actions` applies them on OUR side at execution, which is what keeps a
+#: credential or a fixed value off the vendor (the whole architecture of this feature).
+ActionParamFill = Literal["ai", "context"]
+
+#: The JSON-schema scalar types Bolna's custom functions accept for a parameter
+#: (VERIFIED-VENDOR-DOCS, custom-function-calls.md:222-233: string/integer/number/boolean).
+ActionParamType = Literal["string", "integer", "number", "boolean"]
+
+
+class ActionToolParam(BaseModel):
+    """ONE parameter slot the engine must know about to let the LLM invoke an action.
+
+    Only the slots Bolna itself fills live here — the AI-inferred arguments and the
+    call-context variables. STATIC bindings and lead/CRM fields our own execution layer
+    resolves are NOT here, because the engine neither sends nor sees them: they are
+    applied in `apps/api/actions/execution.py` after the call comes back to us.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: The parameter name. For ``ai`` it must match the key in the ``parameters`` schema
+    #: and the ``value.param`` mapping exactly (custom-function-calls.md:283, case
+    #: sensitive). For ``context`` it is the key our endpoint reads the value back under.
+    name: str
+    fill: ActionParamFill = "ai"
+    type: ActionParamType = "string"
+    #: What the LLM is collecting — only meaningful for ``ai``. "The description is
+    #: everything" for triggering (custom-function-calls.md), so it is carried, not dropped.
+    description: str = ""
+    required: bool = False
+    #: For ``fill="context"`` only: the Bolna system-variable reference to substitute,
+    #: e.g. ``"{from_number}"``. Ignored for ``ai``.
+    context_ref: str | None = None
+
+
+class ActionToolSpec(BaseModel):
+    """ONE in-call action, normalized so any adapter can render it into its own tool shape.
+
+    This is the hard-rule-2 boundary object for the ACTIONS feature: `apps/api/actions`
+    builds it (with `url` pointing at OUR voice-runtime tool endpoint) and the adapter
+    turns it into the vendor's function-calling config. No vendor field names cross here.
+
+    The `url` is always ours, never the client's external API — Bolna calls us, we call
+    the external system with the saved credential through the egress guard. That is what
+    keeps credentials and SSRF vetting on our side (the feature's architecture).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: snake_case function name the LLM sees (custom-function-calls.md best practice).
+    name: str
+    #: WHEN the model should call it — the text the LLM reads to decide. For a during-call
+    #: WhatsApp send this carries the client's natural-language "when during the call"
+    #: condition.
+    description: str
+    #: What the agent SAYS while our endpoint runs, so the caller does not hear dead air
+    #: over the external round trip (Bolna `pre_call_message`; the latency mitigation the
+    #: vendor documents for tool calls, custom-function-calls.md).
+    pre_call_message: str | None = None
+    #: MUST be POST for our endpoint: Bolna maps `param` onto the JSON body for POST and
+    #: onto the query string for GET, and our tool route reads a JSON body
+    #: (docs/evidence/bolna-tools-integrations.md §2.1).
+    method: Literal["POST"] = "POST"
+    #: OUR voice-runtime endpoint for this tool.
+    url: str
+    params: tuple[ActionToolParam, ...] = ()
+
+
 class AgentConfig(BaseModel):
     """What an agent IS, in our terms. The adapter renders this into the vendor's
     agent object."""
@@ -2095,6 +2175,12 @@ class AgentConfig(BaseModel):
     webhook_url: str | None = None
     knowledge_base_ref: str | None = None
     max_call_duration_s: int = 600
+    #: The in-call ACTION tools this agent exposes to the LLM (the ACTIONS feature). Empty
+    #: for every agent that has none, which is every agent until one is configured — the
+    #: adapter emits no `api_tools` block at all in that case, so the default is a true
+    #: no-op. Populated by `agents/service.publish_agent` from `apps/api/actions` only when
+    #: the agent's master "Enable API actions" switch is on.
+    action_tools: tuple[ActionToolSpec, ...] = ()
 
 
 class DisclosurePosture(BaseModel):
@@ -3302,6 +3388,10 @@ class VoiceEngine(Protocol):
 __all__ = [
     "E164",
     "WEBHOOK_AUTH_BY_ENGINE",
+    "ActionParamFill",
+    "ActionParamType",
+    "ActionToolParam",
+    "ActionToolSpec",
     "AgentConfig",
     "AgentHosting",
     "AgentSnapshot",

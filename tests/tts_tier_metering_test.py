@@ -1,19 +1,17 @@
-"""Honest degraded-tier billing (SURFACES §2b, D-35/D-36).
+"""One voice quality, one TTS rate, metered onto one overage rung.
 
-SURFACES §2b holds us to this: "if a premium voice is unavailable the call runs on the
-cheaper voice and is **billed at the cheaper rate**, never silently upgraded." D-36 makes
-that ladder real — Bulbul v3 is the default at ₹30/10k chars, v2 is the value tier at
-₹15/10k — so a call genuinely CAN run on the cheaper rung.
+The single-tier voice decision (superseding D-36/D-35/D-34) withdrew the Bulbul v2 "value"
+voice rung: there is one voice quality now (Sarvam Bulbul v3), one TTS rate (₹30/10k chars),
+and one client rate. The old two-rung honesty machinery — `billable_tier`, `TtsTier`,
+`tts_tier_source`, `record_tier_correction` — is gone, because with one voice a call can
+never run on the wrong rung and can never be billed the "wrong" rate.
 
-**The finding these tests pin first: nothing tells us which voice actually ran.**
-`ExecutionSnapshot` carries no TTS model, and neither does `CostBreakdown` — the engine
-reports a synthesizer LEG COST and no model name, no character count. So the tier on a
-usage row is an ASSUMPTION read from the agent's configuration, never a measurement, and
-the ledger says so in as many words (`tts_tier_source`). The first test is a tripwire: the
-day a vendor field appears, it fails and points at the code that should start using it.
+What survives and is pinned here:
 
-Everything else follows from one rule — **an unproven tier is billed as the VALUE tier.**
-Billing premium requires evidence; absence of evidence is not evidence of premium.
+* the engine still reports NOTHING about which voice ran (`ENGINE_REPORTS_TTS_MODEL` is a
+  true capability fact, not a billing lever any more);
+* the TTS rate is one scalar and metering stamps every call onto the plan's BASE overage
+  rung, so `tier_usage` and the usage panel still agree to the paisa.
 """
 
 from __future__ import annotations
@@ -26,7 +24,6 @@ from uuid import UUID
 import pytest
 from apps.api.billing import rates
 from apps.api.billing import service as billing
-from apps.api.billing.invoice import build_invoice
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.pipeline import _meter
@@ -38,84 +35,52 @@ from tests.smoke_pipeline_test import _seed_tenant
 
 
 def test_the_engine_tells_us_nothing_about_which_voice_ran() -> None:
-    """The evidence behind `tts_tier_source = 'agent_config'`.
+    """`ENGINE_REPORTS_TTS_MODEL` is still a true statement about the engine.
 
-    If this ever fails, the vendor started reporting the synthesizer model and the
-    pipeline should be reading it instead of trusting the agent row.
-    """
+    It no longer guards a bill — there is one voice quality, so a synthesizer we could not
+    identify would price identically anyway — but if this ever fails the vendor started
+    reporting the synthesizer model and the constant should be revisited (D-358)."""
     snapshot_fields = set(ExecutionSnapshot.model_fields)
     cost_fields = set(CostBreakdown.model_fields)
     suspects = {"tts_model", "tts_voice", "synthesizer_model", "voice", "tts_chars", "chars"}
     assert not suspects & (snapshot_fields | cost_fields), (
-        "the engine now reports the voice or a character count — meter the MEASURED "
-        "tier instead of the configured one, and revisit rates.ENGINE_REPORTS_TTS_MODEL"
+        "the engine now reports the voice or a character count — revisit "
+        "rates.ENGINE_REPORTS_TTS_MODEL"
     )
     assert rates.ENGINE_REPORTS_TTS_MODEL is False
 
 
-# --- the rate card (D-35/D-36, TRD §10.1) --------------------------------------
+# --- the single rate card (TRD §10.1) ------------------------------------------
 
 
-def test_the_rate_card_is_d36s_and_is_numeric() -> None:
-    assert rates.TTS_INR_PER_10K_CHARS["premium"] == Decimal("30.0000")
-    assert rates.TTS_INR_PER_10K_CHARS["value"] == Decimal("15.0000")
-    # The 2:1 ratio is the one thing about the ladder that needs no unmeasured
-    # character-per-minute assumption to state.
-    assert rates.TTS_INR_PER_10K_CHARS["value"] * 2 == rates.TTS_INR_PER_10K_CHARS["premium"]
-    for rate in rates.TTS_INR_PER_10K_CHARS.values():
-        assert isinstance(rate, Decimal) and not isinstance(rate, float)
+def test_the_rate_card_is_one_numeric_scalar() -> None:
+    """One voice quality, one rate — a scalar, not a per-tier mapping."""
+    assert Decimal("30.0000") == rates.TTS_INR_PER_10K_CHARS
+    assert isinstance(rates.TTS_INR_PER_10K_CHARS, Decimal)
+    assert not isinstance(rates.TTS_INR_PER_10K_CHARS, float)
 
 
-def test_the_value_tier_costs_exactly_half_of_the_premium_tier() -> None:
-    premium = rates.tts_cost_inr("premium", 10_000)
-    value = rates.tts_cost_inr("value", 10_000)
-    assert premium == Decimal("30.0000")
-    assert value == Decimal("15.0000")
-    assert value * 2 == premium
-    assert isinstance(value, Decimal)
+def test_tts_cost_takes_only_a_character_count() -> None:
+    assert rates.tts_cost_inr(10_000) == Decimal("30.0000")
+    assert rates.tts_cost_inr(5_000) == Decimal("15.0000")
+    assert isinstance(rates.tts_cost_inr(10_000), Decimal)
+    # The old `TtsTier` argument is gone; there is nothing to select.
+    with pytest.raises(TypeError):
+        rates.tts_cost_inr("premium", 10_000)  # type: ignore[call-arg]
 
 
 def test_a_negative_character_count_is_refused_rather_than_priced() -> None:
-    """A negative count would price to a NEGATIVE cost, and a negative cost recorded as
-    a usage event is a credit issued by an arithmetic accident.
-
-    `unit_cost_paid` is what the margin report and the invoice both read, so a sign
-    error there does not announce itself — it just makes a client's month cheaper and
-    our margin wrong, in a row that looks exactly like every other row. The count comes
-    from a vendor usage export (`record_tier_correction`'s only source today), which is
-    precisely the kind of input that arrives negative after a reconciliation.
-
-    Zero is NOT an error, and the distinction is deliberate: a call that synthesized
-    nothing costs nothing, and refusing it would fail a legitimate correction.
-    """
+    """A negative count would price to a NEGATIVE cost, and a negative cost recorded as a
+    usage event is a credit issued by an arithmetic accident. Zero is NOT an error — a call
+    that synthesized nothing costs nothing."""
     with pytest.raises(ValueError, match="negative"):
-        rates.tts_cost_inr("premium", -1)
+        rates.tts_cost_inr(-1)
     with pytest.raises(ValueError):
-        rates.tts_cost_inr("value", -10_000)
-
-    assert rates.tts_cost_inr("premium", 0) == Decimal("0.0000")
-
-
-# --- the honesty rule: unproven is billed as value -----------------------------
+        rates.tts_cost_inr(-10_000)
+    assert rates.tts_cost_inr(0) == Decimal("0.0000")
 
 
-def test_a_configured_voice_maps_to_its_catalog_tier() -> None:
-    assert rates.billable_tier("bulbul:v3") == ("premium", "agent_config")
-    assert rates.billable_tier("bulbul:v2") == ("value", "agent_config")
-
-
-def test_an_unknown_or_missing_voice_is_billed_as_value_never_premium() -> None:
-    """The whole point. A call we cannot attribute is a call that does not get charged
-    the premium rate."""
-    assert rates.billable_tier(None) == ("value", "unproven")
-    assert rates.billable_tier("") == ("value", "unproven")
-    assert rates.billable_tier("Bulbul:V3") == ("value", "unproven"), (
-        "case-normalised guessing is how a value call gets billed premium"
-    )
-    assert rates.billable_tier("cartesia:sonic") == ("value", "unproven")
-
-
-# --- metering records the tier -------------------------------------------------
+# --- metering stamps the base rung ---------------------------------------------
 
 
 def _snapshot(*, duration_s: int = 120, tts_inr: str = "2.0000") -> ExecutionSnapshot:
@@ -177,41 +142,32 @@ async def _usage_rows(tenant_id: UUID, call_id: UUID) -> list[dict[str, Any]]:
     ]
 
 
-async def test_every_usage_row_records_the_tier_that_ran() -> None:
-    tenant_id, call_id = await _tenant_with_call("premium", voice="bulbul:v3")
+async def test_every_usage_row_records_the_base_rung_and_the_voice() -> None:
+    tenant_id, call_id = await _tenant_with_call("v3", voice="bulbul:v3")
     await _meter(tenant_id, call_id, _snapshot())
     rows = await _usage_rows(tenant_id, call_id)
     assert rows, "the call metered something"
     for row in rows:
-        assert row["meta"]["tts_tier"] == "premium"
+        # One voice quality → the plan's base overage rung on every call.
+        assert row["meta"]["tts_tier"] == billing.BASE_OVERAGE_RUNG
         assert row["meta"]["tts_voice"] == "bulbul:v3"
-        # Provenance, stated: this is the CONFIGURED voice, not a measurement.
-        assert row["meta"]["tts_tier_source"] == "agent_config"
+        # `tts_tier_source` is gone: there is no honesty rule left to record.
+        assert "tts_tier_source" not in row["meta"]
 
 
-async def test_a_value_tier_call_is_metered_as_value() -> None:
-    tenant_id, call_id = await _tenant_with_call("value", voice="bulbul:v2")
-    await _meter(tenant_id, call_id, _snapshot())
-    rows = await _usage_rows(tenant_id, call_id)
-    assert {row["meta"]["tts_tier"] for row in rows} == {"value"}
-    assert {row["meta"]["tts_tier_source"] for row in rows} == {"agent_config"}
-
-
-async def test_a_call_with_no_configured_voice_is_metered_as_value_not_premium() -> None:
-    """An agent row that was never given a voice is the degraded case in the wild: we
-    have no idea what spoke, so the client gets the cheaper rate."""
+async def test_a_call_with_no_configured_voice_still_meters_on_the_base_rung() -> None:
+    """An agent row that was never given a voice still bills at the one rate — the rung is
+    a constant now, not a function of the (absent) voice."""
     tenant_id, call_id = await _tenant_with_call("novoice", voice=None)
     await _meter(tenant_id, call_id, _snapshot())
     rows = await _usage_rows(tenant_id, call_id)
-    assert {row["meta"]["tts_tier"] for row in rows} == {"value"}
-    assert {row["meta"]["tts_tier_source"] for row in rows} == {"unproven"}
+    assert {row["meta"]["tts_tier"] for row in rows} == {billing.BASE_OVERAGE_RUNG}
     assert all(row["meta"]["tts_voice"] is None for row in rows)
 
 
 async def test_tier_metering_does_not_change_what_the_call_cost() -> None:
-    """Attribution is meta. The money on the row is still the money the engine
-    reported — the margin panel must not move because a tier label appeared."""
-    tenant_id, call_id = await _tenant_with_call("nomove", voice="bulbul:v2")
+    """The money on the row is the money the engine reported — a rung label is meta."""
+    tenant_id, call_id = await _tenant_with_call("nomove", voice="bulbul:v3")
     await _meter(tenant_id, call_id, _snapshot())
     async with tenant_session(tenant_id) as session:
         total = (
@@ -230,43 +186,20 @@ async def test_tier_metering_does_not_change_what_the_call_cost() -> None:
 # --- the split both panels read ------------------------------------------------
 
 
-async def test_the_tier_split_counts_minutes_and_cost_by_tier() -> None:
-    tenant_id, premium_call = await _tenant_with_call("split", voice="bulbul:v3")
-    await _meter(tenant_id, premium_call, _snapshot(duration_s=60))
-
-    # A second call on the same tenant, on the value voice.
-    async with tenant_session(tenant_id) as session:
-        agent_id = (
-            await session.execute(
-                text("SELECT agent_id FROM calls WHERE id = :c"), {"c": premium_call}
-            )
-        ).scalar()
-        await session.execute(
-            text("UPDATE agents SET tts_voice = 'bulbul:v2' WHERE id = :a"), {"a": agent_id}
-        )
-        value_call = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                "to_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, 'outbound', "
-                "'+919876500002', 'completed', now(), now())"
-            ),
-            {"i": value_call, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:8]}"},
-        )
-    await _meter(tenant_id, value_call, _snapshot(duration_s=180))
+async def test_the_split_counts_minutes_and_cost_on_the_base_rung() -> None:
+    tenant_id, call_id = await _tenant_with_call("split", voice="bulbul:v3")
+    await _meter(tenant_id, call_id, _snapshot(duration_s=180))
 
     async with tenant_session(tenant_id) as session:
         split = await billing.tier_usage(session, tenant_id=tenant_id)
 
-    assert split["minutes_premium"] == Decimal("1.00")
-    assert split["minutes_value"] == Decimal("3.00")
+    # All minutes land on the base (premium) rung; the value rung is dormant.
+    assert split["minutes_premium"] == Decimal("3.00")
+    assert split["minutes_value"] == Decimal("0.00")
     assert split["minutes_unattributed"] == Decimal("0.00")
     assert split["cost_premium_inr"] > Decimal("0")
-    assert split["cost_value_inr"] > Decimal("0")
-    assert isinstance(split["cost_value_inr"], Decimal)
+    assert isinstance(split["cost_premium_inr"], Decimal)
 
-    # The margin panel's single cost figure is these buckets added — one ledger, two
-    # readings, no arithmetic that can drift.
     async with tenant_session(tenant_id) as session:
         margin = await billing.margin_for_tenant(session, tenant_id=tenant_id)
     assert (
@@ -275,10 +208,10 @@ async def test_the_tier_split_counts_minutes_and_cost_by_tier() -> None:
     )
 
 
-async def test_a_row_with_no_tier_is_reported_separately_and_billed_as_value() -> None:
-    """Rows written before tier attribution existed carry no tier. They are NOT
-    relabelled (hard rule 4) and they are NOT counted as premium: the split reports
-    them as unattributed and the billable side treats them as value."""
+async def test_a_row_with_no_rung_is_reported_separately_and_billed_as_the_cheaper_side() -> None:
+    """Rows written before rung attribution existed carry no rung. They are NOT relabelled
+    (hard rule 4): the split reports them as unattributed and the billable side folds them
+    into the cheaper slot, never the dearer one."""
     tenant_id, call_id = await _tenant_with_call("legacy", voice="bulbul:v3")
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -292,15 +225,12 @@ async def test_a_row_with_no_tier_is_reported_separately_and_billed_as_value() -
         split = await billing.tier_usage(session, tenant_id=tenant_id)
 
     assert split["minutes_unattributed"] == Decimal("2.00")
-    assert split["minutes_premium"] == Decimal("0.00")
     assert split["minutes_billable_premium"] == Decimal("0.00")
-    assert split["minutes_billable_value"] == Decimal("2.00"), "unproven bills as value"
+    assert split["minutes_billable_value"] == Decimal("2.00"), "unattributed bills as the cheaper"
 
 
 async def test_the_split_totals_agree_with_the_usage_panel() -> None:
-    """The panels must not disagree: the tier split's minutes add up to the same
-    `minutes_used` the client is billed on."""
-    tenant_id, call_id = await _tenant_with_call("agree", voice="bulbul:v2")
+    tenant_id, call_id = await _tenant_with_call("agree", voice="bulbul:v3")
     await _meter(tenant_id, call_id, _snapshot(duration_s=150))
     async with tenant_session(tenant_id) as session:
         summary = await billing.usage_summary(session, tenant_id=tenant_id)
@@ -309,257 +239,11 @@ async def test_the_split_totals_agree_with_the_usage_panel() -> None:
     assert total == summary["minutes_used"] == Decimal("2.50")
 
 
-async def test_the_tier_split_never_leaks_across_tenants() -> None:
+async def test_the_split_never_leaks_across_tenants() -> None:
     a_tenant, a_call = await _tenant_with_call("iso-a", voice="bulbul:v3")
-    b_tenant, b_call = await _tenant_with_call("iso-b", voice="bulbul:v2")
+    b_tenant, b_call = await _tenant_with_call("iso-b", voice="bulbul:v3")
     await _meter(a_tenant, a_call, _snapshot(duration_s=60))
-    await _meter(b_tenant, b_call, _snapshot(duration_s=60))
+    await _meter(b_tenant, b_call, _snapshot(duration_s=120))
     async with tenant_session(a_tenant) as session:
         a_split = await billing.tier_usage(session, tenant_id=a_tenant)
     assert a_split["minutes_premium"] == Decimal("1.00")
-    assert a_split["minutes_value"] == Decimal("0.00")
-
-
-# --- correcting a mis-tiered call (hard rule 4) --------------------------------
-
-
-async def test_a_mis_tiered_call_is_corrected_by_a_compensating_entry() -> None:
-    """Hard rule 4: the wrong row STAYS. The fix is a new row carrying the delta, and
-    the margin panel picks it up because it sums qty * unit_cost_paid."""
-    tenant_id, call_id = await _tenant_with_call("correct", voice="bulbul:v3")
-    await _meter(tenant_id, call_id, _snapshot())
-    before = await _usage_rows(tenant_id, call_id)
-
-    async with tenant_session(tenant_id) as session:
-        delta = await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            chars=10_000,
-            billed_tier="premium",
-            actual_tier="value",
-            ref="ops-1",
-        )
-    # ₹30 was assumed, ₹15 is what a value-tier call costs: a ₹15 credit.
-    assert delta == Decimal("-15.0000")
-
-    after = await _usage_rows(tenant_id, call_id)
-    originals = [row for row in after if row["meta"].get("kind") != "tts_tier_correction"]
-    assert originals == before, "an append-only ledger is never edited in place"
-
-    corrections = [row for row in after if row["meta"].get("kind") == "tts_tier_correction"]
-    assert len(corrections) == 1
-    correction = corrections[0]
-    assert correction["qty"] == Decimal("1.0000")
-    assert correction["unit_cost_paid"] == Decimal("-15.0000")
-    assert correction["meta"]["billed_tier"] == "premium"
-    assert correction["meta"]["actual_tier"] == "value"
-    assert correction["meta"]["tts_tier"] == "value", "the row asserts the tier that RAN"
-
-
-async def test_the_same_correction_is_never_applied_twice() -> None:
-    tenant_id, call_id = await _tenant_with_call("twice", voice="bulbul:v3")
-    await _meter(tenant_id, call_id, _snapshot())
-    async with tenant_session(tenant_id) as session:
-        first = await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            chars=10_000,
-            billed_tier="premium",
-            actual_tier="value",
-            ref="ops-2",
-        )
-        second = await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            chars=10_000,
-            billed_tier="premium",
-            actual_tier="value",
-            ref="ops-2",
-        )
-    assert first == Decimal("-15.0000")
-    assert second is None, "a replayed correction is not a second credit"
-    rows = await _usage_rows(tenant_id, call_id)
-    assert sum(1 for r in rows if r["meta"].get("kind") == "tts_tier_correction") == 1
-
-
-async def test_a_correction_that_changes_nothing_writes_nothing() -> None:
-    tenant_id, call_id = await _tenant_with_call("noop", voice="bulbul:v2")
-    await _meter(tenant_id, call_id, _snapshot())
-    async with tenant_session(tenant_id) as session:
-        delta = await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            chars=10_000,
-            billed_tier="value",
-            actual_tier="value",
-            ref="ops-3",
-        )
-    assert delta is None
-    rows = await _usage_rows(tenant_id, call_id)
-    assert not [r for r in rows if r["meta"].get("kind") == "tts_tier_correction"]
-
-
-async def test_a_prepaid_wallet_does_not_move_when_the_tier_was_wrong() -> None:
-    """D-373. A prepaid client is charged `self_serve_inr_per_min x minutes` and the TTS
-    rung is not an input to that price, so a tier correction owes them NOTHING.
-
-    THE DEFECT THIS PINS. This assertion used to read the other way — the wallet was
-    credited `-delta`, OUR supplier cost difference between the rungs — on the strength of
-    a comment ("the call was debited at metered cost") that P1.1/P1.3 had already made
-    false. The fixture below is the measurement: a 120-second call debits ₹12.00 at the
-    ₹6.00/min list price, and the old code then credited ₹15.00 back for a premium→value
-    correction over 10,000 characters. The client ended a mis-tiered call ₹3.00 RICHER
-    than if it had never been placed, out of a supplier cost they never paid and cannot
-    see. The reverse correction is the same error pointed at the client: a value→premium
-    finding DEBITED ₹15.00 for a rate they were never on.
-
-    The correction still happens — on the cost ledger, which is where the mis-statement
-    was — and the assertions below check that both halves are true at once, because
-    "nothing moved" is also what a correction that silently did nothing looks like.
-    """
-    tenant_id, call_id = await _tenant_with_call("wallet", voice="bulbul:v3")
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
-            {"t": tenant_id},
-        )
-        await billing.record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("500.00"), reason="topup", ref="rzp_tier"
-        )
-    await _meter(tenant_id, call_id, _snapshot())
-
-    async with tenant_session(tenant_id) as session:
-        before = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
-        delta = await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            chars=10_000,
-            billed_tier="premium",
-            actual_tier="value",
-            ref="ops-4",
-        )
-        after = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
-
-    # The call itself: two minutes at the ₹6.00/min list price, and not one paisa of the
-    # ₹15.00 rung difference. Spelled as the debit rather than as "500 minus something",
-    # so a change to `self_serve_inr_per_min` fails this line loudly instead of quietly.
-    assert before == Decimal("500.00") - Decimal("12.0000"), (
-        "a prepaid call is debited at the LIST PRICE, which is what makes the rung "
-        "irrelevant to this wallet"
-    )
-    assert after == before, (
-        "a TTS rung is not an input to a prepaid client's price, so a rung correction "
-        "owes them nothing — crediting our supplier cost hands them money they never paid"
-    )
-
-    async with tenant_session(tenant_id) as session:
-        adjustments = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM credit_ledger WHERE tenant_id = :t "
-                    "AND reason = 'adjustment'"
-                ),
-                {"t": tenant_id},
-            )
-        ).scalar()
-    assert adjustments == 0
-
-    # …and the correction DID happen, on the ledger it belongs to. Without this the test
-    # above would also pass against a `record_tier_correction` that had stopped working.
-    assert delta == Decimal("-15.0000")
-    corrections = [
-        row
-        for row in await _usage_rows(tenant_id, call_id)
-        if row["meta"].get("kind") == "tts_tier_correction"
-    ]
-    assert len(corrections) == 1
-
-
-async def test_a_correction_reprices_a_managed_month_onto_the_rung_that_ran() -> None:
-    """D-372. The CLIENT-facing half of a tier correction, which nothing used to move.
-
-    A managed plan quotes two overage rates, and `priced_overage` splits the month by the
-    rung each call's `telephony_s` row is attributed to. A correction cannot append a
-    second `telephony_s` row — `ux_usage_events_tenant_call_unit` forbids one — so the
-    original row keeps the rung it was MIS-metered on, and before `_CORRECTED_TIER_SQL`
-    existed nothing else moved it either: the client went on being charged the premium
-    rate for minutes that ran on the value voice, on every re-render of the invoice, for
-    ever. The correction fixed our margin sheet and left the bill exactly as wrong as it
-    was, which is the precise inverse of what SURFACES §2b asks for.
-
-    The fixture: one 120-second call (2.00 min) metered premium, on a plan with no
-    included minutes, ₹30.00/min premium and ₹6.00/min value. Priced on the rung it was
-    metered on that is ₹60.00; on the rung that RAN it is ₹12.00.
-    """
-    tenant_id, call_id = await _tenant_with_call("reprice", voice="bulbul:v3")
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "INSERT INTO plans (id, tenant_id, included_min, overage_rate, "
-                "overage_rate_value, created_at, updated_at) VALUES (:i, :t, 0, "
-                "30.0000, 6.0000, now(), now())"
-            ),
-            {"i": uuid7(), "t": tenant_id},
-        )
-    await _meter(tenant_id, call_id, _snapshot())
-
-    async with tenant_session(tenant_id) as session:
-        before = await billing.usage_summary(session, tenant_id=tenant_id)
-    assert before["overage_cost_inr"] == Decimal("60.00"), (
-        "the fixture must start on the premium rung or this test proves nothing"
-    )
-
-    async with tenant_session(tenant_id) as session:
-        await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            chars=10_000,
-            billed_tier="premium",
-            actual_tier="value",
-            ref="ops-reprice",
-        )
-        after = await billing.usage_summary(session, tenant_id=tenant_id)
-        invoice = await build_invoice(session, tenant_id=tenant_id)
-
-    assert after["overage_minutes_premium"] == Decimal("0.00")
-    assert after["overage_minutes_value"] == Decimal("2.00")
-    assert after["overage_cost_inr"] == Decimal("12.00"), (
-        "the corrected call's minutes are still priced on the rung it was mis-metered "
-        "on, so the client is being overcharged ₹48.00 by a correction that claimed to "
-        "put it right"
-    )
-    # The invoice is the document the client actually receives, and it is a separate
-    # reader of the same rungs — a fix that moved the panel and not the statement would
-    # be the two-numbers-for-one-month defect this repo keeps closing.
-    amounts = [line["amount_inr"] for line in invoice["line_items"]]
-    assert amounts == [Decimal("12.00")]
-    assert "value voice" in invoice["line_items"][0]["description"]
-
-
-async def test_a_managed_client_wallet_is_untouched_by_a_correction() -> None:
-    """Managed clients are invoiced against a retainer, not a wallet (D-39) — the
-    correction belongs on the cost ledger only."""
-    tenant_id, call_id = await _tenant_with_call("managed", voice="bulbul:v3")
-    await _meter(tenant_id, call_id, _snapshot())
-    async with tenant_session(tenant_id) as session:
-        await billing.record_tier_correction(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            chars=10_000,
-            billed_tier="premium",
-            actual_tier="value",
-            ref="ops-5",
-        )
-        entries = (
-            await session.execute(
-                text("SELECT count(*) FROM credit_ledger WHERE tenant_id = :t"), {"t": tenant_id}
-            )
-        ).scalar()
-    assert entries == 0

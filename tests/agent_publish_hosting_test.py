@@ -239,6 +239,67 @@ async def test_the_dial_context_carries_the_floor_only_where_the_engine_needs_it
     )
 
 
+async def test_the_dial_prompt_merges_the_leads_variables_where_the_engine_carries_it() -> None:
+    """The DIAL-TIME `{{ }}` merge, on the one shape that carries the prompt per call.
+
+    The test above pins the compose-or-None decision; this one pins what happens to the
+    composed prompt when the caller supplies a lead's values — the `if merge_values:` arm
+    of `_call_prompt_for`, which `start_outbound_call` always takes (it passes
+    `lead_name`/`phone`). A resolved field is substituted into the body, and an unresolved
+    one collapses to nothing rather than reaching a live call as literal `{{ }}` — the
+    agent speaking the template is the worst possible tell that a human did not write it.
+    Exercised only on `external_deployment`, because a `control_plane` engine returns None
+    before the merge (its engine does its own substitution)."""
+    from apps.api.agents.service import _call_prompt_for
+
+    created = await admin_service.create_organization(
+        name="Merge Clinic",
+        slug=f"mrg-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    agent_id = uuid.UUID(str(created["agent_id"]))
+    async with tenant_session(tenant_id) as session:
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            # One resolvable field ({{ lead_name }}) and one this dial cannot fill
+            # ({{ appointment }}), so the test proves both halves of `substitute_variables`.
+            body=(
+                "[IDENTITY]\nYou are calling {{ lead_name }} for Merge Clinic about "
+                "{{ appointment }}.\n"
+            ),
+            notes=None,
+            created_by=None,
+        )
+        row = await _load_agent(session, tenant_id, agent_id)
+
+    deployed = FakeEngine(capabilities=EXTERNAL_DEPLOYMENT_CAPABILITIES)
+    prompt = _call_prompt_for(
+        deployed,
+        tenant_id,
+        row,
+        merge_values={"lead_name": "Ravi Kumar", "phone": "+915550000000"},
+    )
+    assert prompt is not None
+    assert "calling Ravi Kumar for Merge Clinic" in prompt, (
+        "the lead's name was not merged into the per-call prompt, so the agent would open "
+        "on a literal {{ lead_name }} — the template spoken aloud"
+    )
+    assert "{{" not in prompt and "}}" not in prompt, (
+        "an unresolved {{ }} field survived into the dial prompt; it must collapse to "
+        "nothing, never be spoken as the template"
+    )
+    assert "about .\n" in prompt or "about ." in prompt, (
+        "the unfillable {{ appointment }} did not collapse cleanly — the sentence around a "
+        "removed field must still read"
+    )
+
+
 async def test_the_console_is_told_before_it_offers_the_button(
     externally_deployed_engine: FakeEngine,
 ) -> None:

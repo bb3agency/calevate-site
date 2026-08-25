@@ -87,8 +87,10 @@ describe("the event catalogue", () => {
     await screen.findByText("Send events to a Google Sheet");
     expect(calls.filter((c) => c.path === EVENTS_PATH)).toHaveLength(1);
     // Two events offered, twice — once per form — and nothing else. A hardcoded list would
-    // still be showing `lead.updated` and `call.completed` here.
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(4);
+    // still be showing `lead.updated` and `call.completed` here. Plus the webhook form's
+    // three `call.completed` opt-in checkboxes (recording / transcript / raw transcript),
+    // which live only on that form: 2 + 2 + 3 = 7.
+    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(7);
     expect(container.textContent).not.toContain("lead.updated");
     expect(container.textContent).not.toContain("call.completed");
   });
@@ -155,7 +157,10 @@ describe("the event catalogue", () => {
     });
 
     await screen.findByText("Send events to a Google Sheet");
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    // One recognised event (`lead.created`) as a checkbox on each form, and NOT
+    // `call.transferred` — plus the webhook form's three `call.completed` opt-ins:
+    // 1 + 1 + 3 = 5. A faked checkbox for the unknown event would push this to 6.
+    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(5);
     expect(container.textContent).toContain("call.transferred");
     expect(container.textContent).toContain("cannot subscribe to yet");
   });

@@ -180,6 +180,38 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "VALUES (:i, :t, '+919000000003', 'all', now())",
                 {},
             ),
+            (
+                "gap_id",
+                "knowledge_gaps",
+                "(id, tenant_id, agent_id, topic_key, topic_label, "
+                " example_question_redacted, example_answer_redacted, top_signal, "
+                " first_seen_at, last_seen_at) "
+                "VALUES (:i, :t, :a, 'pricing', 'Pricing', 'q', 'a', 'dont_know', "
+                " now(), now())",
+                {},
+            ),
+            (
+                # The Actions tab's per-agent in-call tool. `{tool_id}` names one, so a
+                # neighbour's real tool id drives the actions edit/delete/test routes.
+                "tool_id",
+                "action_tools",
+                "(id, tenant_id, agent_id, kind, name, description, config, params) "
+                "VALUES (:i, :t, :a, 'custom_api', 'adversarial_tool', 'Adversarial', "
+                "CAST('{}' AS jsonb), CAST('[]' AS jsonb))",
+                {},
+            ),
+            (
+                # A saved, envelope-encrypted integration credential. `{credential_id}`
+                # names one; the sealed columns are empty bytea here because this test
+                # never decrypts it — it only proves the neighbour's id is 404 (hard rule 1).
+                "credential_id",
+                "integration_credentials",
+                "(id, tenant_id, kind, label, ciphertext, nonce, dek_wrapped, dek_nonce, "
+                " kek_version) "
+                "VALUES (:i, :t, 'custom_api', 'Adversarial credential', "
+                "'\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, '\\x00'::bytea, 1)",
+                {},
+            ),
         )
         for key, table, clause, extra in rows:
             row_id = uuid.uuid4()
@@ -284,6 +316,12 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("GET", "/v1/compliance/deletion-requests/{request_id}", {}, {}),
     ("GET", "/v1/kb/sources/{source_id}/preview", {}, {}),
+    # The D-46x knowledge-gap surface: two `{gap_id}` mutations in the client space. Both
+    # resolve the gap through `_load_gap`, whose `WHERE g.id = :id` runs under the caller's
+    # RLS scope — so a neighbour's id is invisible and the answer is a row-not-found 404,
+    # not a handler comparison. Swept so that stays true.
+    ("POST", "/v1/knowledge-gaps/{gap_id}/dismiss", {}, {}),
+    ("POST", "/v1/knowledge-gaps/{gap_id}/teach", {"answer": "It is 500 rupees."}, {}),
     (
         "POST",
         "/v1/leads/{lead_id}/call",
@@ -295,6 +333,52 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # list above never addressed, and the one with the most to lose — it answers with the
     # unredacted body we POSTed to a CRM, from a table with no RLS policy on it.
     ("GET", "/v1/integrations/deliveries/{delivery_id}/payload", {}, {}),
+    # The call-script builder lane. `{agent_id}` names an agents row; every one resolves it
+    # under the caller's RLS (`script_builder._agent_or_404`, `publishing._load`) so a
+    # neighbour's agent is invisible → 404. `assist` used to spend the founder's Azure
+    # rupees and write an audit row against `{agent_id}` WITHOUT loading it first — it now
+    # asserts the agent is visible before the quota gate, so a stranger cannot bill or audit
+    # against another business's agent (hard rule 1).
+    ("GET", "/v1/agents/{agent_id}/script", {}, {}),
+    ("PUT", "/v1/agents/{agent_id}/script", {"script": {}}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/preview", {"script": {}}, {}),
+    (
+        "POST",
+        "/v1/agents/{agent_id}/script/assist",
+        {"description": "draft a friendly clinic reception script"},
+        {},
+    ),
+    ("POST", "/v1/agents/{agent_id}/script/apply", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/undo", {}, {}),
+    # The Actions lane. The `{agent_id}` routes all gate on `_assert_agent` (RLS) first, so
+    # even the `{tool_id}` ones refuse a neighbour's agent at 404 before the tool is touched;
+    # the tool is seeded anyway so the neighbour's real tool id drives the path.
+    ("GET", "/v1/agents/{agent_id}/actions", {}, {}),
+    ("PUT", "/v1/agents/{agent_id}/actions/enabled", {"enabled": False}, {}),
+    (
+        "POST",
+        "/v1/agents/{agent_id}/actions",
+        {"kind": "custom_api", "name": "sweep_tool", "description": "d", "config": {}},
+        {},
+    ),
+    (
+        "PUT",
+        "/v1/agents/{agent_id}/actions/{tool_id}",
+        {"kind": "custom_api", "name": "sweep_tool", "description": "d", "config": {}},
+        {},
+    ),
+    ("PUT", "/v1/agents/{agent_id}/actions/{tool_id}/enabled", {"enabled": False}, {}),
+    ("DELETE", "/v1/agents/{agent_id}/actions/{tool_id}", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/actions/{tool_id}/test", {}, {}),
+    # Saved integration credentials. RLS makes a neighbour's row invisible to the UPDATE /
+    # DELETE, so both answer 404 (`credentials.rotate_credential` / `delete_credential`).
+    (
+        "POST",
+        "/v1/integrations/credentials/{credential_id}/rotate",
+        {"secret": "x", "expected_version": 1},
+        {},
+    ),
+    ("DELETE", "/v1/integrations/credentials/{credential_id}", {}, {}),
 )
 
 

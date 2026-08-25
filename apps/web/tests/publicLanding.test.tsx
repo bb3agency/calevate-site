@@ -27,10 +27,32 @@ import { stubApi } from "./harness";
  * migration `f1a7c39d5be2` dropped the column (SURFACES §2c). A test is the only thing
  * that notices when one is quietly reintroduced.
  */
+/**
+ * The whole page's text, MINUS the ROI calculator (section 03).
+ *
+ * The calculator is the one section that deliberately shows a price — Calevate's published
+ * self-serve rate, as the input to a comparison the buyer drives (see `roiCalculator.tsx`).
+ * Its own positive assertions live in "the ROI calculator" describe below. Everywhere ELSE
+ * the no-price / no-percent bans stay in full force, so they run against this subtracted
+ * text rather than being deleted. Scoping is NOT weakening: the guard still fails the
+ * instant a price, plan or stray percentage appears in any other section, which is the
+ * surface those bans exist to protect. The calculator is found by the marker its component
+ * renders, so a rename of the section heading cannot silently pull it back under the ban.
+ */
+function textOutsideCalculator(container: HTMLElement): string {
+  const calc = container.querySelector("[data-roi-calculator]");
+  const full = container.textContent ?? "";
+  if (!calc) return full;
+  const inside = calc.textContent ?? "";
+  // The calculator's text is one contiguous run in the DOM order `textContent` walks, so
+  // removing that substring leaves exactly the rest of the page.
+  return full.replace(inside, "");
+}
+
 describe("the landing page's claims", () => {
-  it("names no price, plan or fee", () => {
+  it("names no price, plan or fee outside the ROI calculator", () => {
     const { container } = render(<Home />);
-    const text = container.textContent ?? "";
+    const text = textOutsideCalculator(container);
     expect(text).not.toContain("₹");
     expect(text).not.toMatch(/\bRs\.?\b/);
     expect(text).not.toMatch(/\/mo\b|per month|per minute|\bfree\b|\btrial\b/i);
@@ -50,9 +72,13 @@ describe("the landing page's claims", () => {
 
   it("claims no uptime, accuracy or answer-rate figure", () => {
     const { container } = render(<Home />);
-    const text = container.textContent ?? "";
-    expect(text).not.toMatch(/\d+(\.\d+)?\s*%/);
-    expect(text).not.toMatch(/uptime|99\.9|accuracy|instantly|milliseconds/i);
+    // The percentage ban is scoped off the calculator (attrition and conversion-rate are
+    // legitimate, adjustable inputs there); the uptime/accuracy word bans stay over the
+    // WHOLE page, since none of those words belong in a cost tool either.
+    expect(textOutsideCalculator(container)).not.toMatch(/\d+(\.\d+)?\s*%/);
+    expect(container.textContent ?? "").not.toMatch(
+      /uptime|99\.9|accuracy|instantly|milliseconds/i,
+    );
   });
 
   /**
@@ -344,5 +370,82 @@ describe("the footer's legal links", () => {
     // the link count is what stops an empty labelled nav from satisfying it.
     const nav = screen.getByRole("navigation", { name: "Legal" });
     expect(nav.querySelectorAll("a").length).toBe(LEGAL_DOCUMENTS.length);
+  });
+});
+
+/**
+ * The ROI calculator — the one priced section, whose honesty is the whole point.
+ *
+ * The negative bans above are scoped OFF this section (`textOutsideCalculator`), so these
+ * positive assertions are what hold the line here: it must show the published self-serve
+ * rate, recompute live as the buyer changes an input, and expose the assumptions.
+ */
+describe("the ROI calculator", () => {
+  function calc(container: HTMLElement): HTMLElement {
+    const el = container.querySelector<HTMLElement>("[data-roi-calculator]");
+    expect(el, "the calculator did not render").not.toBeNull();
+    return el as HTMLElement;
+  }
+
+  it("shows the published self-serve rate as its Calevate input", () => {
+    const { container } = render(<Home />);
+    // ₹5.00/min must appear, and it must be inside the calculator (never leaking into the
+    // rest of the page, which the no-price bans still guard).
+    expect(calc(container).textContent).toContain("₹5.00/min");
+  });
+
+  it("computes headcount and recomputes live when call volume changes", () => {
+    const { container } = render(<Home />);
+    // Two controls share the "Calls a day" name (a number field and a slider); the
+    // spinbutton is the one a buyer types into.
+    const callsField = screen.getByRole("spinbutton", { name: "Calls a day" });
+
+    // 200 calls ÷ 100/agent = 2 telecallers by default. (The rendered text runs the count
+    // straight into the word, so the assertions allow zero spacing.)
+    expect(calc(container).textContent).toMatch(/hire\s*2\s*telecallers/);
+
+    fireEvent.change(callsField, { target: { value: "500" } });
+    // 500 ÷ 100 = 5, live.
+    expect(calc(container).textContent).toMatch(/hire\s*5\s*telecallers/);
+    // And the singular is handled: 90 ÷ 100 rounds up to one telecaller — singular, so the
+    // word must NOT be followed by an "s".
+    fireEvent.change(callsField, { target: { value: "90" } });
+    expect(calc(container).textContent).toMatch(/hire\s*1\s*telecaller(?!s)/);
+  });
+
+  it("recomputes the Calevate monthly figure as inputs change", () => {
+    const { container } = render(<Home />);
+    // Default 200 × 26 × 2 min × ₹5 = ₹52,000.00.
+    expect(calc(container).textContent).toContain("₹52,000.00");
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Calls a day" }), {
+      target: { value: "100" },
+    });
+    // 100 × 26 × 2 × ₹5 = ₹26,000.00.
+    expect(calc(container).textContent).toContain("₹26,000.00");
+  });
+
+  it("exposes an assumptions disclosure, closed by default and labelled illustrative", () => {
+    const { container } = render(<Home />);
+    const details = [...calc(container).querySelectorAll("details")];
+    expect(details.length).toBeGreaterThan(0);
+    const disclosure = details[0];
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.querySelector("summary")?.textContent).toMatch(/how we calculate/i);
+    // The honesty note the brief requires: the numbers are framed as illustrative and
+    // adjustable, not asserted as fact.
+    expect(disclosure.textContent).toMatch(/illustrative and\s*fully adjustable/i);
+  });
+
+  it("offers the missed-lead value as an opt-in, off by default", () => {
+    const { container } = render(<Home />);
+    const toggle = screen.getByRole("checkbox", {
+      name: /value of the leads at stake/i,
+    });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    // The conversion-rate input is only present once the option is turned on.
+    expect(screen.queryByRole("spinbutton", { name: "Conversion rate" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("spinbutton", { name: "Conversion rate" })).not.toBeNull();
+    expect(calc(container).textContent).toMatch(/converted-lead value/i);
   });
 });

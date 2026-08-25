@@ -61,6 +61,23 @@ class OutboundWebhook(PKMixin, TimestampMixin, Base):
     mapping: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
+    # Per-endpoint opt-ins for `call.completed` (migration c3a9f1b48e70). All default
+    # FALSE: the base contract is summary-and-outcome only, and each of these lets a
+    # client ask for more against their OWN endpoint — a fact recorded in the config row
+    # rather than assumed. `include_raw_transcript` is the unredacted transcript and is
+    # gated at the registration route with the same role control as a raw read
+    # (`calls:read_raw`); every delivery that carries it writes an `audit_log` row
+    # (hard rule 5). See `integrations.service.call_completed_payload`.
+    include_recording_url: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    include_transcript: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    include_raw_transcript: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+
 
 class WebhookDelivery(PKMixin, Base):
     """Forensic trail (SEC-COMP §4 breach forensics). Not tenant-RLS'd: engine

@@ -292,7 +292,7 @@ async def test_adding_contacts_counts_malformed_and_duplicate_rather_than_guessi
             },
         )
     assert response.status_code == 200, response.text
-    assert response.json() == {"added": 2, "malformed": 1, "duplicate": 1}
+    assert response.json() == {"added": 2, "malformed": 1, "duplicate": 1, "foreign": 0}
 
     async with tenant_session(tenant_id) as session:
         stored = (

@@ -90,6 +90,19 @@ from apps.api.compliance.service import IST
 CLIENT_NOTIFICATION_HOURS: Final = 48
 # Rule 7(2): the detailed report to the Board, from AWARENESS.
 BOARD_REPORT_HOURS: Final = 72
+# CERT-In Direction 20(3)/2022 (issued 28 Apr 2022 under s.70B(6) of the IT Act 2000):
+# a NOTIFIED cyber incident must be reported to CERT-In within SIX HOURS of noticing it,
+# and ICT logs kept 180 days within Indian jurisdiction (LEGAL-SURFACE §9 row S-7,
+# LEGAL-OPS-PLAYBOOK §12.1). This is a SEPARATE regime from DPDP Rule 7: it binds Calevate
+# as a "body corporate" directly and its clock is far tighter, so a breach procedure built
+# only around the 48/72 clocks would blow the tightest deadline in the whole incident.
+#
+# ⚠ WHETHER A GIVEN BREACH IS "IN SCOPE" of the Directions (a notified cyber incident vs a
+# non-cyber personal-data breach) is an advocate question, not one this module answers
+# (LEGAL-OPS-PLAYBOOK §20) — the timeline STATES the 6-hour clock and marks it conditional
+# rather than asserting it applies. And the reporting CHANNEL is external and not yet
+# established (runbook §7), so no value is fabricated for it here.
+CERT_IN_HOURS: Final = 6
 # Rule 7(1) and the first leg of 7(2). Not a number — the rule says "without delay", and
 # turning that into an hour count here would be inventing a deadline the rule does not set
 # and quietly licensing every hour below it.
@@ -160,6 +173,12 @@ class BreachFacts:
         """Rule 7(2)'s 72 hours, from awareness."""
         return self.aware_at + timedelta(hours=BOARD_REPORT_HOURS)
 
+    def cert_in_report_due(self) -> datetime:
+        """CERT-In's 6 hours, from awareness — the tightest clock in the incident, IF the
+        breach is a notified cyber incident in scope of the 2022 Directions (an advocate
+        question; see `CERT_IN_HOURS`)."""
+        return self.aware_at + timedelta(hours=CERT_IN_HOURS)
+
     def client_notification_due(self) -> datetime:
         """Our own DPA commitment, from awareness."""
         return self.aware_at + timedelta(hours=CLIENT_NOTIFICATION_HOURS)
@@ -199,7 +218,11 @@ def _timeline(facts: BreachFacts) -> str:
     return (
         f"Reference: {facts.reference}\n"
         f"We became aware: {_stamp(facts.aware_at)}\n"
-        f"Board report due (72 hours from awareness): {_stamp(facts.board_report_due())}"
+        f"CERT-In report due (within {CERT_IN_HOURS} hours of awareness, IF this is a "
+        f"notified cyber incident in scope of the CERT-In Directions 2022 — an advocate "
+        f"question, s.70B IT Act): {_stamp(facts.cert_in_report_due())}\n"
+        f"Board report due ({BOARD_REPORT_HOURS} hours from awareness): "
+        f"{_stamp(facts.board_report_due())}"
     )
 
 
@@ -360,6 +383,7 @@ def board_report(facts: BreachFacts) -> str:
 
 __all__ = [
     "BOARD_REPORT_HOURS",
+    "CERT_IN_HOURS",
     "CLIENT_NOTIFICATION_HOURS",
     "WITHOUT_DELAY",
     "BreachFacts",

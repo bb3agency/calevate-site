@@ -132,6 +132,9 @@ class AddContactsOut(Strict):
     added: int
     malformed: int
     duplicate: int
+    # Well-formed but non-Indian (+91) numbers, dropped at upload under the India-only
+    # freeze (LEGAL-OPS-PLAYBOOK §14/§18) rather than stored as un-dialable contacts.
+    foreign: int = 0
 
 
 class BlockerOut(Strict):

@@ -18,8 +18,14 @@ a placeholder GSTIN on a document an accountant files is worse than no document.
   inter-State supply (46(n)). A missing particular is what blocks the recipient's
   input tax credit, which is the whole reason a B2B client wants this document.
 - **Rule 46(b)** also caps the serial number at SIXTEEN CHARACTERS, unique for a
-  financial year. See the note in `invoice.py` — our number is 19 and that is an open
-  finding this slice deliberately does not invent a fix for.
+  financial year. `invoice.py` now emits a sixteen-character number (the length half is
+  fixed); the CONSECUTIVE-series half of 46(b) remains open and is blocked on the stateful
+  issued-invoice registry, per the note there.
+- **Rule 49, CGST Rules 2017** — a supplier who is not registered (or supplies only exempt
+  goods/services) issues a **bill of supply**, NOT a tax invoice: no CGST/SGST/IGST line,
+  and it confers no input tax credit. This is the document `invoice.py` produces while
+  `supplier.is_registered` is false — `gst_inr` is zero, `tax_components` is empty, and a
+  note states in words that no tax is charged (LEGAL-OPS-PLAYBOOK §4.4).
 - **Section 12(2), IGST Act 2017** — place of supply of a service when both parties are
   in India: to a REGISTERED person it is the location of that person; to anyone else it
   is the address on record, and the location of the SUPPLIER when there is none.

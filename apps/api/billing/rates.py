@@ -1,65 +1,32 @@
-"""The TTS tier rate card, and the rule that decides which rung a call is billed on.
+"""The TTS rate card (one voice quality) and the in-call / dashboard LLM cost model.
 
-SURFACES §2b names the pattern we hold ourselves to: "if a premium voice is unavailable
-the call runs on the cheaper voice and is **billed at the cheaper rate**, never silently
-upgraded." D-36 makes the ladder real — Bulbul v3 default at ₹30/10,000 chars, v2 as the
-value tier at ₹15 (D-35 corrected D-20's "v2 is discontinued"; TRD §10.1 carries both
-rates). This module is the money half of that ladder; `apps/api/agents/voices.py` is the
-catalog half, and it is the single source of which voice sits on which rung.
+ONE VOICE QUALITY (the single-tier voice decision, superseding D-36/D-35/D-34)
+-----------------------------------------------------------------------------
+This module used to be the money half of a two-rung VOICE ladder — Bulbul v3 "premium" at
+₹30/10,000 chars beside a Bulbul v2 "value" rung at ₹15, with an honesty rule
+(`billable_tier`) that billed the cheaper rung whenever a premium voice could not be
+proven. The founder-approved single-tier decision withdrew the v2 rung entirely: there is
+one voice quality now (Sarvam Bulbul v3), so there is one TTS rate and nothing to select
+or fall back to. The `TtsTier` type, `billable_tier`, `tier_of_voice`, `tier_correction_inr`
+and the cross-rung correction have all been DELETED rather than left unreachable —
+`apps/api/agents/voices.py` is the (now single-quality, persona-carrying) catalog half.
 
-WHAT WE CAN AND CANNOT KNOW — read this before trusting a tier
---------------------------------------------------------------
-**The engine does not report which voice actually synthesized a call.**
-`ExecutionSnapshot` (packages/shared/src/calevate_shared/engine.py) carries no TTS model
-and no character count; `CostBreakdown` carries a synthesizer LEG COST in rupees and
-nothing else, and the Bolna adapter parses no model field out of the execution payload.
-A leg cost alone cannot identify a rung either — the two rates differ 2:1 but the
-character count that would divide them out is exactly what is missing.
+`SURFACES §2b`'s "never silently upgrade a degraded call" rule survives only where it still
+has meaning: the PLAN's two overage-rate slots (`plans.overage_rate` /
+`overage_rate_value`) in `billing/service.py`. Those are a founder pricing lever, not a
+voice quality, and `overage_rate_value` is NULL on every plan today.
 
-**AND THE VENDOR DOES PUBLISH BOTH — WITH ONE CAVEAT THAT DECIDES HOW FAR TO TRUST IT
-(D-358).** This paragraph used to end "because none is documented (TRD §5: Bolna publishes
-no OpenAPI spec)", which was wrong twice over: they publish a spec, and it defines a
-`usage_breakdown` block carrying `synthesizer_model` and `synthesizer_characters` — the
-model that spoke and the characters it spoke — beside `transcriber_model`,
-`transcriber_duration`, `llm_tokens` and a per-model token map.
-
-THE CAVEAT, and it is why this is not filed as VERIFIED-OAS: in the pinned spec
-`ExecutionUsageBreakdown` is an **orphan schema**. It is declared in `components.schemas`
-and referenced by NOTHING — `AgentExecution` does not carry it, and no path response
-does. What attaches it to the execution payload is the vendor's PROSE
-(`references/execution-payload.md`, which lists `usage_breakdown` among the top-level
-fields and shows a populated example). So:
-
-* the FIELD NAMES and their types are VERIFIED-OAS;
-* the claim that an execution actually CARRIES the block is VERIFIED-VENDOR-REPO — prose,
-  which the vendor's own precedence rule ranks below the spec, and here the spec is not
-  contradicting it but is silent.
-
-An orphan schema is exactly the shape of a field the server dropped and the spec never
-cleaned up, so this one needs the live capture more than most, not less.
-
-Either way the hole below is OURS before it is the vendor's: `ExecutionSnapshot` has no
-field to carry these and the adapter reads none. Turning the tier from an assumption about
-intent into a MEASUREMENT is a change to the normalized model, the adapter and this module
-together — D-358 — gated on one captured payload showing the block populated on a live
-account (OPERATIONS §2 gate 7), because a spec is what the vendor says the server does.
-
-So the tier on a usage row is **the voice the agent was CONFIGURED with when the call was
-metered**. That is an assumption about intent, not a measurement of what spoke, and every
-row says which it is in `tts_tier_source`. If the engine silently fell back to a cheaper
-voice — the precise scenario SURFACES §2b describes — we would not see it, and the client
-would be billed premium for a call that did not get it. Closing that hole is a VENDOR
-QUESTION, not a code change: *does the execution payload expose the synthesizer model (and
-ideally the character count) that actually served the call?* Until it is answered,
-`ENGINE_REPORTS_TTS_MODEL` stays False and the honesty rule below carries the weight.
-
-THE HONESTY RULE
-----------------
-`billable_tier` returns **value** for anything it cannot prove is premium — no voice
-configured, a voice outside the catalog, a string that differs in case. Billing the
-premium rate requires evidence; the absence of evidence is not evidence of premium. The
-asymmetry is deliberate and it always favours the client, which is the only direction an
-unproven charge is allowed to be wrong in.
+WHAT THE ENGINE STILL DOES NOT REPORT
+-------------------------------------
+**The engine does not report which voice actually synthesized a call**, and that fact is
+unchanged by the collapse — `ExecutionSnapshot` carries no TTS model and no character
+count, and the Bolna adapter parses none. It no longer threatens a BILL (there is one rate,
+so a silent fallback could only be to the same voice at the same price), but it remains a
+true, greppable engine-capability fact: `ENGINE_REPORTS_TTS_MODEL` stays False. The vendor
+DOES publish a `usage_breakdown` block (`synthesizer_model`, `synthesizer_characters`) in
+its spec, but as an ORPHAN schema referenced by no path — VERIFIED-VENDOR-REPO prose, not
+VERIFIED-OAS — so `ExecutionSnapshot` still has no field for it and D-358 (a live capture on
+OPERATIONS §2 gate 7) is still what would turn a synthesizer count into a measurement.
 
 Money is NUMERIC INR (hard rule 7): no float ever appears here, and the one rounding
 decision is ROUND_HALF_UP at NUMERIC(12,4), the storage precision of `unit_cost_paid`.
@@ -82,7 +49,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
-from typing import Final, Literal
+from typing import Final
 
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -90,39 +57,36 @@ from calevate_shared.engine import (
     SELECTABLE_LLM_MODELS,
 )
 
-from apps.api.agents.voices import VoiceTier, get_voice
 from apps.api.billing.models import MONEY
 
-# Same two rungs as the voice catalog, by import rather than by restatement: a third
-# tier added to D-36's ladder must not be able to appear in one file and not the other.
-TtsTier = VoiceTier
-
-# How we came to believe the tier. `agent_config` = the voice on the agent row when the
-# call was metered (an assumption); `unproven` = nothing to go on, billed as value.
-# There is deliberately no `engine_reported` member: nothing reports it (see the module
-# docstring), and a value the code cannot produce would be a lie waiting to be told.
-TierSource = Literal["agent_config", "unproven"]
-
-# The vendor question, as a constant so it is greppable and testable rather than a note
-# in a doc. Flip it only when an engine payload actually names the synthesizer model —
-# `tests/tts_tier_metering_test.py` fails the moment such a field appears.
-ENGINE_REPORTS_TTS_MODEL = False
-
-# Sarvam's published rate card, read live on 11 Aug 2026 (D-35, TRD §10.1). Per 10,000
-# characters, INR. NUMERIC, never floats.
+# Sarvam's published Bulbul v3 rate, TRD §10.1. Per 10,000 characters, INR. NUMERIC,
+# never a float.
+#
+# **ONE RATE, because there is one voice quality (the single-tier voice decision, which
+# supersedes D-36/D-35/D-34's premium/value ladder).** This used to be a
+# `Mapping[TtsTier, Decimal]` with a ₹30 premium (v3) and a ₹15 value (v2) rung, and the
+# tier-honesty machinery that decided which rung a call was billed on lived beside it.
+# With one voice there is nothing to decide: every call is Bulbul v3 at this rate, so the
+# mapping, the `TtsTier` type, `billable_tier` and the cross-rung correction have all been
+# deleted rather than left unreachable.
 #
 # THIS IS THE HOME OF THE RATE, and TRD §10.1 is the doc that states it.
 # `scripts/check_docs_drift.py` §4b diffs the two in both directions and also checks
-# §10.1's two spellings of each rate (₹/10,000 in the Sarvam card, ₹/1,000 in the
+# §10.1's two spellings of the rate (₹/10,000 in the Sarvam card, ₹/1,000 in the
 # per-call-minute table) against each other. Before that check existed, a vendor price
 # move could land in the doc and not here — the shape D-102/D-103/D-105 each paid for,
 # on the axis where it moves money.
-TTS_INR_PER_10K_CHARS: Mapping[TtsTier, Decimal] = MappingProxyType(
-    {
-        "premium": Decimal("30.0000"),  # Bulbul v3 — D-36's default
-        "value": Decimal("15.0000"),  # Bulbul v2 — live at half the v3 rate (D-35)
-    }
-)
+TTS_INR_PER_10K_CHARS: Final[Decimal] = Decimal("30.0000")  # Bulbul v3
+
+# Whether the engine's execution payload names the synthesizer model that served a call.
+# A greppable capability constant (the honesty device `scripts/check_docs_drift.py` §5 and
+# `tests/capability_claim_guard_test.py` verify against prose), discovered by AST, not a
+# hand-listed registry. It NO LONGER guards a bill — there is one voice quality, so a
+# synthesizer we could not identify would price identically anyway — but it stays False
+# because it is still a true statement about the engine (see the module docstring: the
+# `usage_breakdown` block is an orphan schema our snapshot has no field for). Flip it only
+# when a captured payload proves the model is reported (D-358, OPERATIONS §2 gate 7).
+ENGINE_REPORTS_TTS_MODEL = False
 
 # THE OPEN VENDOR QUESTION ON THIS CARD, recorded here rather than left to be rediscovered
 # — **REPORTED, NOT READ** (`billing/payments.py`'s three-rung ladder; `sarvam.ai` and
@@ -131,21 +95,17 @@ TTS_INR_PER_10K_CHARS: Mapping[TtsTier, Decimal] = MappingProxyType(
 #
 # Aug 2026 search summaries report that Sarvam has shipped **Bulbul v4** and describe it
 # as the current TTS model, **at the same ₹30 / 10,000 chars**. So the MONEY above is
-# unaffected and nothing here is wrong today. What is exposed is the IDENTIFIER: D-36
-# names v3 as the premium rung and `apps/api/agents/voices.py` is the catalog that pins
-# which voice sits on it. D-105 is the precedent for why that matters more than it looks
-# — Sarvam retired an LLM identifier under us and requests naming it began to FAIL, with
-# the symptom appearing at post-call time as "extraction is empty".
+# unaffected and nothing here is wrong today. What is exposed is the IDENTIFIER: the
+# single-tier decision names Bulbul v3 as the one voice and `apps/api/agents/voices.py`
+# is the catalog that pins it. D-105 is the precedent for why that matters more than it
+# looks — Sarvam retired an LLM identifier under us and requests naming it began to FAIL,
+# with the symptom appearing at post-call time as "extraction is empty".
 #
 # Closing it needs two things NEITHER of which is a code change from here: a first-party
 # read of the pricing and model pages (a vendor account, or an egress route to
-# `docs.sarvam.ai`), and D-36's own decision about whether the canonical stack moves to
+# `docs.sarvam.ai`), and a founder decision about whether the canonical stack moves to
 # v4. Until both exist this stays a marked assumption, not a silent premise.
 ENGINE_TTS_MODEL_GENERATION_VERIFIED = False
-
-# The rung an unproven call is billed on. Named rather than inlined because three
-# call sites depend on it being the CHEAP one and that is the whole pattern.
-UNPROVEN_TIER: TtsTier = "value"
 
 _CHARS_UNIT = Decimal("10000")
 
@@ -604,14 +564,17 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     return (total / Decimal(minutes)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-def tts_rate_inr_per_char(tier: TtsTier) -> Decimal:
+def tts_rate_inr_per_char() -> Decimal:
     """Exact, unquantized: ₹30/10,000 is ₹0.003 and dividing is where precision is lost
-    if it is done twice. Callers multiply by a character count and quantize once."""
-    return TTS_INR_PER_10K_CHARS[tier] / _CHARS_UNIT
+    if it is done twice. Callers multiply by a character count and quantize once.
+
+    No tier argument — there is one voice quality (the single-tier decision), so there is
+    one rate and nothing to select."""
+    return TTS_INR_PER_10K_CHARS / _CHARS_UNIT
 
 
-def tts_cost_inr(tier: TtsTier, chars: int) -> Decimal:
-    """What `chars` characters of speech cost us on this rung.
+def tts_cost_inr(chars: int) -> Decimal:
+    """What `chars` characters of Bulbul v3 speech cost us.
 
     A CHARACTER COUNT IS REQUIRED — there is no default and no estimate. TRD §10.1's
     "360-540 chars per call-minute" is explicitly an unmeasured assumption (pilot gate
@@ -620,32 +583,30 @@ def tts_cost_inr(tier: TtsTier, chars: int) -> Decimal:
     """
     if chars < 0:
         raise ValueError("character count cannot be negative")
-    return (tts_rate_inr_per_char(tier) * Decimal(chars)).quantize(MONEY_Q, rounding=ROUNDING)
+    return (tts_rate_inr_per_char() * Decimal(chars)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-def tier_of_voice(voice_id: str | None) -> TtsTier | None:
-    """The catalog's tier for this voice id, or None if we do not recognise it.
-
-    Exact match, no normalisation — `get_voice` is deliberately strict for the same
-    reason: `agents.tts_voice` is pasted into the vendor request verbatim, so a string
-    we had to "fix" to recognise is not the string the call ran on.
-    """
-    if not voice_id:
-        return None
-    voice = get_voice(voice_id)
-    return voice.tier if voice else None
-
-
-def billable_tier(voice_id: str | None) -> tuple[TtsTier, TierSource]:
-    """(tier, provenance) for a call whose agent was configured with `voice_id`.
-
-    THE honesty rule (SURFACES §2b): anything unrecognised bills as the VALUE tier and
-    says `unproven`, so a call we cannot attribute is never charged the premium rate.
-    """
-    tier = tier_of_voice(voice_id)
-    if tier is None:
-        return UNPROVEN_TIER, "unproven"
-    return tier, "agent_config"
+#: THE BLENDED ALL-IN COST OF ONE SELF-SERVE CALL-MINUTE, used to MODEL MARGIN — never to
+#: bill. This is the per-minute figure the prepaid credit-pack margin guard
+#: (`billing/credit_packs.py`, `tests/credit_packs_test.py`) checks every pack's effective
+#: rate against, so that no volume bonus can be set deep enough to sell minutes below a 20%
+#: gross margin.
+#:
+#: ⚠ **EVIDENCE CLASS: ESTIMATE (pilot gate 12), founder-approved for margin modelling.**
+#: It is TRD §10.3's launch blend (platform + STT + TTS + LLM + telephony ≈ ₹3.26-3.76/min),
+#: taken at ₹3.70 — the founder-approved cost floor for the credit-pack rate card (Aug 2026).
+#: The platform and telephony legs inside that blend are UNVERIFIED estimates and no check
+#: can say otherwise (TRD §10, `scripts/check_docs_drift.py`), so this is deliberately a
+#: single documented constant rather than a sum assembled from those unverified legs dressed
+#: as if measured. It is NOT `unit_cost_paid` and reaches no bill (hard rule 7 is about the
+#: billed figure): a pilot measurement or a real invoice is what would replace it.
+#:
+#: ⚠ **SENSITIVITY.** At the TOP of the launch band (₹3.76) the two deepest packs dip just
+#: under 20% (≈19.4% and ≈18.8%); the ₹3.70 floor is the founder's approved basis and is
+#: what the deepest bonus (8%) was capped against. If the measured cost lands above ₹3.70 the
+#: guard will fail and the ₹24,999/₹50,000 bonuses must come down — which is the guard
+#: working, not a bug.
+SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = Decimal("3.70")
 
 
 #: The plan tiers whose every minute is charged at a published list price, with no
@@ -662,7 +623,7 @@ def prepaid_billed_inr(*, minutes: Decimal, self_serve_rate: Decimal) -> Decimal
     THE DEFECT THIS EXISTS FOR (P1.1/P1.3). `charge_for_call` was debiting the prepaid
     wallet with `cost.total_inr` — the engine's charge to US, ~₹2/min — while the runway
     framing on the client's own screen priced the same minute at `self_serve_inr_per_min`
-    (₹6.00). The balance drained at a third of the advertised rate and Calevate booked
+    (₹5.00). The balance drained at a third of the advertised rate and Calevate booked
     zero gross margin on the entire self-serve motion. `spend_state.spend_used` had the
     same two-numbers-in-one-column problem one layer up, where it is the ceiling a client
     sets for themselves and the figure we print for them.
@@ -772,9 +733,9 @@ def is_surchargeable_llm_model(model: str | None) -> bool:
     **TOTAL AND NEVER RAISING**, including on an identifier this repository no longer prices.
     A model read back off a historical `usage_events` row is exactly what `llm_inr_per_ktok`
     refuses, and a month that cannot be re-priced is not an acceptable answer for a statement.
-    An unknown model is therefore NOT surcharged — the same asymmetry `billable_tier` applies
-    to the TTS rung, and for the same reason: the absence of evidence is never evidence of the
-    dearer thing.
+    An unknown model is therefore NOT surcharged — the same client-favouring asymmetry the
+    overage rung reader applies to a call with no stamped rung, and for the same reason: the
+    absence of evidence is never evidence of the dearer thing.
 
     **PRICED FROM THE CATALOGUE REFERENCE, NOT FROM THE ATTESTATION.** Which models are
     upgrades is a property of the rate card a plan was written against, and it must not change
@@ -801,8 +762,8 @@ def llm_surcharge_applies(*, model: str | None, source: str | None) -> bool:
 
     * an unrecognised, absent or base-rate `model` is not an upgrade (see above). A row
       written before D-454 stamped the model carries neither key and bills as base, which
-      is the same asymmetry `billable_tier` applies to the TTS rung — the absence of
-      evidence is never evidence of the dearer thing;
+      is the same client-favouring asymmetry the overage rung reader applies to an
+      unattributed call — the absence of evidence is never evidence of the dearer thing;
     * a `source` outside `CLIENT_CHOSEN_LLM_SOURCES` means the client did not choose it.
 
     **PRICED FROM THE STAMP, NEVER FROM `agents.llm_model`.** Both columns behind that
@@ -862,16 +823,6 @@ def llm_surcharge_billed_inr(*, minutes: Decimal, surcharge: Decimal | None) -> 
     return (surcharge * minutes).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-def tier_correction_inr(*, chars: int, billed_tier: TtsTier, actual_tier: TtsTier) -> Decimal:
-    """What must be ADDED to the ledger so the TTS leg reads at the tier that ran.
-
-    Negative when a call was billed premium and ran on value — the usual direction, and
-    the one SURFACES §2b cares about. Zero when the tiers agree, which the caller reads
-    as "there is nothing to compensate for" rather than writing a ₹0 row.
-    """
-    return tts_cost_inr(actual_tier, chars) - tts_cost_inr(billed_tier, chars)
-
-
 __all__ = [
     "BASE_RATE_LLM_MODEL",
     "CLIENT_CHOSEN_LLM_SOURCES",
@@ -883,14 +834,11 @@ __all__ = [
     "PRICED_LLM_MODELS",
     "REFERENCE_CALL",
     "ROUNDING",
+    "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "TTS_INR_PER_10K_CHARS",
-    "UNPROVEN_TIER",
     "LlmPriceAttestation",
     "LlmPriceAttestationReader",
-    "TierSource",
-    "TtsTier",
     "attested_llm_prices",
-    "billable_tier",
     "install_llm_price_attestations",
     "is_surchargeable_llm_model",
     "llm_cost_inr_per_minute",
@@ -901,8 +849,6 @@ __all__ = [
     "llm_surcharge_billed_inr",
     "prepaid_billed_inr",
     "surchargeable_models_are_dearer",
-    "tier_correction_inr",
-    "tier_of_voice",
     "tts_cost_inr",
     "tts_rate_inr_per_char",
 ]

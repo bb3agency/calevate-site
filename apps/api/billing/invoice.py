@@ -63,6 +63,18 @@ from .service import overage_rungs, to_paise, usage_summary
 # the same shape). It moves when the Council moves it, in a diff with a citation.
 GST_RATE_PCT = Decimal("18")
 
+# The statement that makes an unregistered supplier's document a compliant BILL OF SUPPLY
+# rather than a tax invoice missing its tax. CGST s.32 forbids an unregistered person from
+# collecting tax and CGST Rule 49 governs the bill of supply an unregistered (or
+# exempt-only) supplier issues instead — no tax component, and no input tax credit for the
+# recipient (LEGAL-OPS-PLAYBOOK §4.4). Stated in words on the document's face because "no
+# CGST/SGST line" is the absence of something, and a reader needs the presence of a
+# sentence telling them the absence is deliberate and lawful, not an omission.
+BILL_OF_SUPPLY_TAX_NOTE = (
+    "Bill of supply. Calevate is not registered for GST, so no tax is charged on this "
+    "document and no input tax credit is available (CGST Act s.32; CGST Rules r.49)."
+)
+
 # THE TAX ON THIS DOCUMENT IS STATED IN PAISE, AND CGST s.170 SAYS IT IS ROUNDED TO THE
 # NEAREST RUPEE. That is an OPEN finding (D-256), recorded here beside the rate rather
 # than acted on, for the same reason the Rule 46(b) serial below is.
@@ -89,8 +101,8 @@ GST_RATE_PCT = Decimal("18")
 # **WHAT CLOSES IT:** the GST registration (ROADMAP M0) plus a first-party read or an
 # accountant's confirmation of the per-invoice, per-head reading.
 
-# THE INVOICE NUMBER IS NOT YET RULE 46(b) COMPLIANT, and this note is the honest half of
-# a slice that fixed the rest.
+# THE INVOICE NUMBER'S LENGTH IS NOW RULE 46(b)-COMPLIANT; its CONSECUTIVENESS is not, and
+# this note is the honest account of which half is fixed and which is blocked.
 #
 # **THE RULE, RE-VERIFIED Aug 2026 — REPORTED, NOT READ** (`billing/payments.py`'s three-
 # rung evidence ladder). taxinformation.cbic.gov.in is not reachable from this network, so
@@ -102,13 +114,15 @@ GST_RATE_PCT = Decimal("18")
 #      slash symbolised as '-' and '/' respectively, and any combination thereof, unique
 #      for a financial year"
 #
-# Measured against `CAL-202608-0192f0aa`:
+# Measured against the number this module now emits, `CAL2608<9-char base36>` (16 chars):
 #
-#   length        over the sixteen-character ceiling                              FAILS
+#   length        exactly sixteen characters, asserted at the build site           ok
+#                 (was nineteen; this slice shortened it — base-36 keeps the
+#                 suffix's ~46.6 bits inside the ceiling)
 #   consecutive   a per-tenant-month digest; no series, no successor               FAILS
 #   unique per FY holds NOW — see `_tenant_serial_suffix`, which is where it       ok
 #                 did not, until this reading actually tested it
-#   charset       alphanumerics and a hyphen, both permitted                       ok
+#   charset       alphanumerics only, all permitted                               ok
 #
 # **WHAT THE VERIFICATION CHANGED: "in one or multiple series" is in the rule itself.** A
 # registered person may run several series (per unit, division or billing type) as long as
@@ -120,15 +134,19 @@ GST_RATE_PCT = Decimal("18")
 # so the design below uses ONE series and does not lean on the concession.
 #
 # --------------------------------------------------------------------------------
-# WHY IT IS STILL NOT FIXED HERE, and what would fix it
+# WHY THE CONSECUTIVE HALF IS STILL NOT FIXED HERE, and what would fix it
 # --------------------------------------------------------------------------------
+#
+# The LENGTH half is fixed in `build_invoice`: the serial is now sixteen characters and the
+# build site asserts it. What remains is the CONSECUTIVE-series requirement, below.
 #
 # **The blocking half is external and is not ours to code around.** Rule 46 binds a
 # REGISTERED PERSON issuing a tax invoice. There is no legal entity and no GST registration
 # (ROADMAP M0), `supplier.is_registered` is false in every deployment, and this document
-# therefore says `proforma` — which 46(b) does not govern. Nothing is out of compliance
-# today; what exists is a scheme that WOULD be, the moment the four `GST_SUPPLIER_*` values
-# are set. The named external blocker is the GST registration itself.
+# therefore says `proforma` (a bill of supply — see `BILL_OF_SUPPLY_TAX_NOTE`) — which
+# 46(b) does not govern. Nothing is out of compliance today; what exists is a scheme whose
+# CONSECUTIVENESS would still need building the moment the four `GST_SUPPLIER_*` values are
+# set. The named external blocker is the GST registration itself.
 #
 # **The engineering half is designed, not written, because writing it decides something
 # only the founder can decide: it contradicts D-46.** A consecutive series is a STATEFUL
@@ -212,18 +230,38 @@ GST_RATE_PCT = Decimal("18")
 # invoices — is accepted against D-46's "recompute, never store". Everything above follows
 # from a yes; nothing above is safe to build on a no.
 #
-# `tests/invoice_gst_test.py` pins BOTH failing halves so neither can be half-fixed: a
-# sixteen-character serial that is still a hash fails there, and so does a consecutive
-# series that is still nineteen characters.
+# `tests/invoice_gst_test.py` now pins the LENGTH as fixed (the serial is sixteen
+# characters and unique per tenant-month) and pins the CONSECUTIVE half as still open — a
+# hash-suffixed number is not a successor series, and the test that asserts so stays red
+# against any claim of full 46(b) compliance until the `issue_invoice` registry lands.
 RULE_46B_MAX_SERIAL_CHARS = 16
 
 
-#: Hex characters of digest in the invoice serial's tenant suffix. 48 bits: at ten
-#: thousand tenants the birthday probability of any collision is about 2e-7, against
-#: 1-in-77 for the 32 bits this replaced. Not a uniqueness GUARANTEE — only the
-#: issued-invoice registry above is that — but a bound worth stating rather than a
-#: property that happened to hold in the fixture that was tried.
-_TENANT_SUFFIX_HEX = 12
+#: Base-36 characters of digest in the invoice serial's tenant suffix. Nine base-36
+#: characters carry ~46.6 bits (36**9 ≈ 1.0e14), essentially the 48 bits the twelve-hex
+#: suffix carried before Rule 46(b)'s sixteen-character ceiling forced the number to
+#: shrink — base-36 (alphanumerics, a charset Rule 46(b) permits) packs ~5.17 bits per
+#: character against hex's 4, so the ceiling costs almost none of the collision resistance.
+#: Still NOT a uniqueness GUARANTEE — only the issued-invoice registry described above is
+#: that — but a stated bound rather than a property that happened to hold in one fixture.
+_TENANT_SUFFIX_B36 = 9
+
+#: Rule 46(b) permits alphabets and numerals; lower-case base-36 stays inside that and
+#: reads as an ordinary id. Fixed alphabet so the encoding is stable across Python builds.
+_B36_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def _base36(value: int, *, width: int) -> str:
+    """`value` (mod 36**width) as exactly `width` lower-case base-36 characters.
+
+    Fixed width so the suffix length — and therefore the serial length — is constant, which
+    is what lets the Rule 46(b) sixteen-character ceiling be an assertion rather than a hope.
+    """
+    digits: list[str] = []
+    for _ in range(width):
+        value, remainder = divmod(value, 36)
+        digits.append(_B36_ALPHABET[remainder])
+    return "".join(reversed(digits))
 
 
 def _tenant_serial_suffix(tenant_id: UUID) -> str:
@@ -240,11 +278,12 @@ def _tenant_serial_suffix(tenant_id: UUID) -> str:
     (`tests/invoice_gst_test.py::test_two_tenants_billed_in_one_month_get_different_
     invoice_numbers` is that reproduction, kept.)
 
-    A DIGEST OF THE WHOLE ID, not a different slice of it. `hex[-12:]` would work today —
-    the tail of a uuid7 is random — but it is a claim about the id's internal layout, and
-    the layout is exactly what the last version got wrong. blake2s over all sixteen bytes
-    depends on no such claim: change the id scheme and the suffix stays uniformly
-    distributed.
+    A DIGEST OF THE WHOLE ID, base-36 encoded. `hex[-12:]` would work today — the tail of
+    a uuid7 is random — but it is a claim about the id's internal layout, and the layout is
+    exactly what the last version got wrong. blake2s over all sixteen bytes depends on no
+    such claim: change the id scheme and the suffix stays uniformly distributed. The digest
+    is taken over eight bytes and rendered base-36 so ~46.6 bits fit in the nine characters
+    the sixteen-character serial ceiling leaves for it.
 
     Keyed by nothing, and that is deliberate: this value must be STABLE for the life of
     the tenant (D-46 — regenerating a month must yield the same number, and a number that
@@ -252,7 +291,8 @@ def _tenant_serial_suffix(tenant_id: UUID) -> str:
     confidentiality requirement either; it appears on the client's own document, and the
     tenant id it derives from is already in that document's `organization.id`.
     """
-    return hashlib.blake2s(tenant_id.bytes, digest_size=_TENANT_SUFFIX_HEX // 2).hexdigest()
+    digest = hashlib.blake2s(tenant_id.bytes, digest_size=8).digest()
+    return _base36(int.from_bytes(digest, "big"), width=_TENANT_SUFFIX_B36)
 
 
 #: How each TTS rung is described on a client's statement. The wording lives HERE and
@@ -268,12 +308,15 @@ async def build_invoice(
     """Build one tenant's invoice statement for an IST billing month.
 
     The invoice number is **deterministic on purpose**:
-    ``CAL-{month-without-dash}-{_tenant_serial_suffix(tenant_id)}``. Rebuilding the same
-    month for the same tenant yields the same number, so a regenerated invoice can never
-    silently duplicate — the accountant sees ONE number per tenant-month, however many
-    times the JSON was produced. It is NOT Rule 46(b) compliant and does not claim to be;
-    see the block above `RULE_46B_MAX_SERIAL_CHARS` for what compliance would take, and
-    `_tenant_serial_suffix` for why the suffix is a digest rather than a slice of the id.
+    ``CAL{YYMM}{_tenant_serial_suffix(tenant_id)}`` — exactly sixteen characters, inside
+    Rule 46(b)'s ceiling. Rebuilding the same month for the same tenant yields the same
+    number, so a regenerated invoice can never silently duplicate — the accountant sees ONE
+    number per tenant-month, however many times the JSON was produced. The LENGTH is now
+    46(b)-compliant; the CONSECUTIVE-series half of 46(b) is not, and deliberately so — see
+    the block above `RULE_46B_MAX_SERIAL_CHARS` for why that needs the stateful
+    issued-invoice registry (a founder decision blocked on the GST registration), and
+    `_tenant_serial_suffix` for why the suffix is a base-36 digest rather than a slice of
+    the id.
 
     Line items: the plan fee whenever the tenant has a plan (with a fee), the tenant's
     one-time charges for this month (the onboarding setup fee — `billing/charges.py`),
@@ -290,20 +333,24 @@ async def build_invoice(
     a schedule now and `billing/charges.issue_setup_fee` is the only writer; building a
     statement is a read of the ledgers, start to finish.
 
-    GST: ``GST_RATE_PCT`` (18%) on the subtotal, quantized to paise, then SPLIT across
-    the heads the place of supply puts it under (`billing/gst.py`). The total is the
-    same number it always was; what is new is that the document says whether it is IGST
-    or CGST+SGST, because a recipient credits those to different ledgers and cannot
-    claim tax charged under the wrong one (Rule 46(l)-(m), CGST Rules).
+    GST, when Calevate is REGISTERED: ``GST_RATE_PCT`` (18%) on the subtotal, quantized to
+    paise, then SPLIT across the heads the place of supply puts it under (`billing/gst.py`),
+    so the document says whether it is IGST or CGST+SGST — a recipient credits those to
+    different ledgers and cannot claim tax charged under the wrong one (Rule 46(l)-(m)).
 
-    **What the identity being unconfigured does, and what it deliberately does NOT do.**
-    With no `GST_SUPPLIER_*` values this returns ``document_type = "proforma"`` and lists
-    the missing keys in ``document_blockers``; the heading, not the arithmetic, is what
-    changes. Zeroing the tax was considered and rejected: it is the more literal reading
-    of CGST s.32 (an unregistered person shall not collect tax), but it would mean a
-    deployment that forgot one environment variable silently under-bills every client by
-    18% — a missing config key must never move money. The proforma states in words that
-    no tax may be collected against it, which is what a proforma is for.
+    **When Calevate is NOT registered the document is a BILL OF SUPPLY, and it charges no
+    tax.** With no `GST_SUPPLIER_*` values this returns ``document_type = "proforma"`` (the
+    term the playbook uses beside "bill of supply", §4.4), lists the missing keys in
+    ``document_blockers``, and — the fix in this slice — ``gst_inr`` is ₹0.00,
+    ``tax_components`` is empty, ``total_inr`` equals the subtotal, and ``tax_note`` states
+    in words that no tax is charged and no input tax credit is available (CGST s.32,
+    Rule 49). This SUPERSEDES the earlier choice to compute an 18% line on every document:
+    presenting a collectible CGST+SGST line on a document an unregistered person issues is
+    precisely the tax s.32 forbids collecting, so the "a missing config key must never move
+    money" instinct was reaching for the wrong safety. Money still does not move on a
+    missing key — the client-facing total is the subtotal either way — and ``estimated_*``
+    fields carry what 18% WOULD add once registered, labelled an estimate so nothing renders
+    it as due. The registered tax-invoice path is unchanged.
 
     Must run under a tenant-scoped session — `usage_summary` and `read_kyc` read RLS'd
     tables.
@@ -452,29 +499,70 @@ async def build_invoice(
         item["sac"] = supplier.sac
 
     subtotal = to_paise(sum((item["amount_inr"] for item in line_items), start=Decimal("0")))
-    # THE TAX IS COMPUTED ONCE, IN `gst.split_tax`, AND THE DOCUMENT'S TOTAL IS THE SUM
-    # OF THE HEADS IT PRINTS. This line used to be a SECOND
-    # `to_paise(subtotal * GST_RATE_PCT / 100)` — character for character the expression
-    # `split_tax` opens with — and the components' promise to "sum to `gst_inr` exactly"
-    # was then two identical spellings agreeing rather than one number being published
-    # twice. They agree today; the defect is that nothing makes them, and the next
-    # rounding decision (a rate that is not a whole percent, s.170's round-to-the-rupee
-    # question) would have to be made in both places or the document stops adding up.
-    # Rule 46(l)-(m) requires the heads to be stated separately, so the heads are the
-    # authority and the total is their sum — which is also the arithmetic a recipient
-    # does when they credit CGST and SGST to two different ledgers.
-    components = split_tax(subtotal_inr=subtotal, rate_pct=GST_RATE_PCT, place=place)
-    gst = sum((component.amount_inr for component in components), start=Decimal("0.00"))
-    total = to_paise(subtotal + gst)
+
+    # WHETHER THIS DOCUMENT MAY CHARGE TAX AT ALL is the register/no-register fork, and it
+    # is a LEGAL fork, not a cosmetic one (CGST s.32: a person who is not registered SHALL
+    # NOT collect tax; CGST Rule 49: an unregistered supplier issues a BILL OF SUPPLY with
+    # no tax component and gives no input tax credit — LEGAL-OPS-PLAYBOOK §4.4).
+    #
+    # This USED TO compute an 18% line into `total_inr` on every document, proforma
+    # included, on the stated grounds that "a missing config key must never move money".
+    # That was the wrong horn of the dilemma: presenting a collectible CGST+SGST line on a
+    # document an unregistered person issues is exactly the tax s.32 forbids collecting, so
+    # the "safe" choice was itself non-compliant. The fix keeps money stable WITHOUT
+    # charging tax that may not be charged: the client-facing `total_inr` on a bill of
+    # supply is the subtotal, no tax head is printed, and the words say so — while an
+    # `estimated_*` pair carries what 18% WOULD add once registered, clearly labelled an
+    # estimate so no reader treats it as due. The registered path is untouched.
+    if supplier.is_registered:
+        # THE TAX IS COMPUTED ONCE, IN `gst.split_tax`, AND THE TOTAL IS THE SUM OF THE
+        # HEADS IT PRINTS (Rule 46(l)-(m): the heads are stated separately, so they are the
+        # authority and the total is their sum — the arithmetic a recipient does when they
+        # credit CGST and SGST to two different ledgers).
+        components = split_tax(subtotal_inr=subtotal, rate_pct=GST_RATE_PCT, place=place)
+        gst = sum((component.amount_inr for component in components), start=Decimal("0.00"))
+        total = to_paise(subtotal + gst)
+        tax_components = [
+            {"label": c.label, "rate_pct": c.rate_pct, "amount_inr": c.amount_inr}
+            for c in components
+        ]
+        document_rate = GST_RATE_PCT
+        tax_note: str | None = None
+        estimated_gst_inr: Decimal | None = None
+        estimated_total_inr: Decimal | None = None
+    else:
+        # BILL OF SUPPLY. No tax is charged, no head is printed, and the total is the
+        # subtotal. `document_rate` is 0 because 18% is not applied to this document —
+        # printing the statutory rate beside a zero amount would imply tax is due.
+        gst = Decimal("0.00")
+        total = subtotal
+        tax_components = []
+        document_rate = Decimal("0")
+        tax_note = BILL_OF_SUPPLY_TAX_NOTE
+        # INTERNAL ESTIMATE ONLY (what 18% would add once registered), computed through the
+        # same `split_tax` so its rounding matches a real tax invoice's. Never a collectible
+        # line: it rides in `estimated_*` fields the client-facing total does not include.
+        estimated = split_tax(subtotal_inr=subtotal, rate_pct=GST_RATE_PCT, place=place)
+        estimated_gst_inr = sum((c.amount_inr for c in estimated), start=Decimal("0.00"))
+        estimated_total_inr = to_paise(subtotal + estimated_gst_inr)
+
+    # Rule 46(b): at most sixteen characters (see the block above RULE_46B_MAX_SERIAL_CHARS).
+    # `CAL` + the two-digit year and month + a base-36 tenant suffix, all alphanumerics,
+    # exactly sixteen characters. Still DETERMINISTIC per tenant-month (so a regenerated
+    # month yields one number, D-46) and NOT the consecutive series 46(b) also wants — that
+    # remains the open half, blocked on the stateful issued-invoice registry the block above
+    # specifies and on the GST registration that would make 46(b) bind at all.
+    serial = f"CAL{period[2:4]}{period[5:7]}{_tenant_serial_suffix(tenant_id)}"
+    assert len(serial) <= RULE_46B_MAX_SERIAL_CHARS, "the serial must fit Rule 46(b)"
 
     return {
-        "invoice_number": f"CAL-{period.replace('-', '')}-{_tenant_serial_suffix(tenant_id)}",
+        "invoice_number": serial,
         "month": period,
         "generated_at": datetime.now(UTC).isoformat(),
-        # WHAT THIS DOCUMENT IS. `tax_invoice` only when every Rule 46 identity
-        # particular is configured; otherwise `proforma`, with the environment variables
-        # an operator must set. The console renders the heading from THIS, never from a
-        # literal, so the one place that decides is the one place that knows.
+        # WHAT THIS DOCUMENT IS. `tax_invoice` only when every Rule 46 identity particular
+        # is configured; otherwise `proforma` — a bill of supply in substance (no tax
+        # charged, `tax_note` says so), the term LEGAL-OPS-PLAYBOOK §4.4 uses beside "bill
+        # of supply". The console renders the heading from THIS, never from a literal.
         "document_type": "tax_invoice" if supplier.is_registered else "proforma",
         "document_blockers": list(supplier.missing),
         "supplier": {
@@ -506,20 +594,26 @@ async def build_invoice(
         },
         "line_items": line_items,
         "subtotal_inr": subtotal,
-        "gst_rate_pct": GST_RATE_PCT,
+        # The rate APPLIED to this document: 18% on a tax invoice, 0 on a bill of supply
+        # (no tax is charged, so no rate is applied). The statutory rate a registration
+        # would bring is carried in `estimated_gst_rate_pct` instead.
+        "gst_rate_pct": document_rate,
         "gst_inr": gst,
-        # The same total, itemised by head. `gst_inr` stays the authority and the
-        # components sum to it exactly (`gst.split_tax` makes the second absorb the
-        # remainder), so no screen has to add them up and disagree.
-        "tax_components": [
-            {
-                "label": component.label,
-                "rate_pct": component.rate_pct,
-                "amount_inr": component.amount_inr,
-            }
-            for component in components
-        ],
+        # The heads, itemised (Rule 46(l)-(m)). Empty on a bill of supply, which charges no
+        # tax; on a tax invoice `gst_inr` is the authority and these sum to it exactly
+        # (`gst.split_tax` makes the second absorb the remainder).
+        "tax_components": tax_components,
         "total_inr": total,
+        # The words that make an unregistered document a compliant bill of supply: no tax
+        # charged, no input tax credit (CGST s.32, Rule 49). None on a tax invoice.
+        "tax_note": tax_note,
+        # INTERNAL ESTIMATE, never a collectible amount: what tax and total WOULD be once
+        # Calevate is GST-registered. Present only on a bill of supply, so a screen can show
+        # the client the eventual figure without ever presenting it as due. None on a tax
+        # invoice, where the real `gst_inr`/`total_inr` already carry it.
+        "estimated_gst_rate_pct": GST_RATE_PCT if not supplier.is_registered else None,
+        "estimated_gst_inr": estimated_gst_inr,
+        "estimated_total_inr": estimated_total_inr,
         "usage": {
             "minutes_used": usage["minutes_used"],
             "calls": usage["calls"],

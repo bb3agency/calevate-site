@@ -325,6 +325,7 @@ async def test_contact_upload_dedupes_and_counts_malformed_without_guessing() ->
                 {"phone": "+91 98765 11111", "name": "Ravi again"},  # same number, other format
                 {"phone": "12345"},  # too short to dial
                 {"phone": "5551234567"},  # not an Indian mobile shape
+                {"phone": "+15551234567"},  # well-formed but non-India: dropped under freeze
                 {"phone": "9876522222", "name": "Sita", "city": "Hyderabad"},
             ],
         )
@@ -345,8 +346,8 @@ async def test_contact_upload_dedupes_and_counts_malformed_without_guessing() ->
             )
         ).all()
 
-    assert first == {"added": 2, "malformed": 2, "duplicate": 1}
-    assert second == {"added": 1, "duplicate": 1, "malformed": 0}
+    assert first == {"added": 2, "malformed": 2, "duplicate": 1, "foreign": 1}
+    assert second == {"added": 1, "duplicate": 1, "malformed": 0, "foreign": 0}
     assert [r[0] for r in rows] == ["+919876511111", "+919876522222", "+919876533333"]
     assert rows[1][1] == {"city": "Hyderabad"}, "extra CSV columns ride along for the prompt"
 

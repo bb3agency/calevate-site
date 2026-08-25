@@ -169,6 +169,12 @@ async def _tenant_with_meta_source(
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
+    # Outbound dials (the instant callback this source triggers) now require the client's
+    # DLT PE-TM chain active and a registered number bound to the agent
+    # (LEGAL-OPS-PLAYBOOK §10.8) — supply both so a lawful lead actually dials.
+    from tests.conftest import arm_agent_for_outbound
+
+    await arm_agent_for_outbound(tenant_id, agent_id)
     return tenant_id, agent_id, webhook_id
 
 

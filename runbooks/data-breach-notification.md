@@ -13,17 +13,29 @@ This one exists because `/legal/dpa` §7 promises every client a notification wi
 hours**, and until D-179 there was no template, no Board route and no procedure behind
 that promise — a clock in a contract with nothing on the other side of it.
 
-## 0. The three clocks, and what starts them
+## 0. The clocks, and what starts them
 
-All three run from **AWARENESS** — the moment any Calevate person knows there has been a
+All of them run from **AWARENESS** — the moment any Calevate person knows there has been a
 breach of personal data. Not from the exposure, not from the ticket, not from the fix.
 
 | Who | When | Whose duty | Where it comes from |
 |---|---|---|---|
+| **CERT-In** — *if in scope* | within **6 hours** of awareness | **ours**, as a body corporate | CERT-In Direction 20(3)/2022 (s.70B IT Act) |
 | The affected **client** | within **48 hours** | ours, contractual | `/legal/dpa` §7 |
 | Each affected **Data Principal** | **without delay** | the **client's** for caller data; **ours** for client-account data | DPDP Rules 2025, Rule 7(1) |
 | The **Data Protection Board** — first intimation | **without delay** | same split | Rule 7(2) |
 | The **Board** — detailed report | within **72 hours** of awareness | same split | Rule 7(2) |
+
+**The CERT-In row is the tightest clock and the one most easily missed, because it is a
+DIFFERENT regime from DPDP.** The CERT-In Directions 2022 require a "body corporate" to
+report a *notified cyber incident* within six hours of noticing it, and to keep ICT logs
+for 180 days within Indian jurisdiction (s.70B(6) IT Act; non-compliance is punishable
+under s.70B(7)). **Whether a given breach is IN SCOPE — a notified cyber incident rather
+than, say, a mis-addressed export — is an advocate question and this runbook does not
+answer it** (LEGAL-OPS-PLAYBOOK §20). If it is in scope, the six-hour report goes out
+before anything else; if it is not, the row does not apply. Do not let the uncertainty
+delay the assessment: ask counsel the moment the incident lead is told (§1.5), because six
+hours is not a window in which to start reading the law (§1, step 5).
 
 **The role split decides who sends what, and getting it backwards wastes the window.**
 Calevate is the **Processor** for callers' personal data.
@@ -58,7 +70,10 @@ reviewed any of this** — see §7.
    that is the forensic record, and it is also what proves the scope you are about to
    state. Object-storage keys, `webhook_deliveries` rows and the admin access log are the
    rest of it.
-5. **Tell the incident lead.** One person owns the notifications from here; see §4.
+5. **Tell the incident lead.** One person owns the notifications from here; see §4. The
+   lead's first call, in parallel with containment, is to ask counsel whether this is a
+   **notified cyber incident in scope of the CERT-In Directions 2022** (§0): if it is, the
+   six-hour clock is already running and is the tightest deadline in the incident.
 
 ## 2. Establish the scope — WHOSE data, WHICH categories, HOW MANY
 
@@ -146,6 +161,12 @@ than an incomplete one.
   rendered `principal` draft — they are writing against a clock too, and a draft they can
   edit is worth more than a reminder that it is their job. For client-account data we send
   it ourselves, to the address on the account.
+- **CERT-In** (within 6 hours, *if in scope* — see §0): where counsel confirms this is a
+  notified cyber incident, the report to CERT-In is the FIRST one out, because its clock is
+  the tightest. CERT-In publishes an incident-reporting format and an intake channel; **as
+  with the Board, that channel is not recorded here** — it is one of the two things still
+  to be established (§7), and this file will not carry a guess for it. Report what is known
+  within the six hours and update, exactly as with every other notice here.
 - **The Board**: the first intimation goes without delay and the detailed report within 72
   hours. **The Board's reporting channel is not recorded here on purpose**: the Board's
   own intake — a portal, an address, a form — is not something to look up for the first
@@ -175,6 +196,12 @@ Stated here rather than discovered mid-incident:
 1. **The Data Protection Board's reporting channel.** Nobody has established it. It needs
    one person to look it up from the Board's own notification and write it into §5. It is
    not blocked on anything.
+1a. **CERT-In's reporting channel — not yet established.** The CERT-In Directions 2022 set
+   a six-hour clock for a notified cyber incident (§0), but the intake channel and the
+   incident-reporting format have not been looked up and written into §5, and whether we
+   are in scope has not been put to counsel. Both are cheap and neither is blocked on
+   anything outside the repository; six hours is far too short to establish either mid-
+   incident.
 2. **Counsel's review.** Neither the notice wording here nor the rule summary in
    `apps/api/compliance/breach.py` has been reviewed by an advocate qualified in India,
    and the rule's operative text could not be fetched from this environment (the same

@@ -4,13 +4,14 @@ Three questions were open against `apps/workers/retention.py`, all of them live 
 This file is the answer to each, written so a compliance reviewer can read the test name
 and the assertion message and know what the platform actually does.
 
-**1. Which TTLs are real?** SEC-COMP §4 promises one set of numbers and
-`scripts/seed.DEFAULT_RETENTION_POLICIES` ships another. The running code obeys the
-*rows*, and the rows come from the seed — so the seed is what a client gets and the
-document is what the client was told. That is a policy divergence the doc itself
-declares open and reserves for the founder, so nothing here picks a side; the tests pin
-what ships, and pin the doc's own account of it so the two cannot drift further apart in
-silence. Changing either without the other now fails.
+**1. Which TTLs are real?** SEC-COMP §4 once promised one set of numbers (180 / 730 / 730)
+while `scripts/seed.DEFAULT_RETENTION_POLICIES` shipped another (90 / 365 / 1095). The
+running code obeys the *rows*, the rows come from the seed, and `/legal/privacy` §9
+published the seed's numbers — so the document's §4 table was the only outlier. **D-462
+reconciled it**: §4 now states the enforced-and-published defaults, so doc, seed and notice
+agree. The tests pin what ships and pin the doc's account of it, so the two cannot drift
+apart again in silence; the guard that used to assert the divergence now asserts the
+agreement (see `test_the_document_and_the_seed_now_agree_reconciled_by_d_462`).
 
 **2. Erasure versus the TRAI 90-day recording floor.** These point opposite ways for one
 concrete row: a recording younger than 90 days whose subject has asked to be erased. The
@@ -236,37 +237,46 @@ async def test_a_real_tenant_gets_those_rows_and_the_sweep_reads_them_back() -> 
     }
 
 
-def test_the_document_and_the_seed_still_disagree_and_the_document_still_says_so() -> None:
-    """The tripwire on an unresolved policy question.
+def test_the_document_and_the_seed_now_agree_reconciled_by_d_462() -> None:
+    """The tripwire, fired and then retired — D-462 CLOSED the gap it guarded.
 
-    SEC-COMP §4's retention row is what the client-facing DPA quotes (180 days for
-    recordings, 24 months for transcripts and leads); the seed is what runs (90 / 365 /
-    1095). The doc declares the divergence OPEN and says both places change in the same
-    release. This test is that sentence made executable in both directions: close it in
-    the code without the doc, or in the doc without the code, and this fails and names
-    the other half. It is not asserting that the divergence is *acceptable* — it is
-    asserting that it is still DECLARED.
+    This was a KNOWN-GAP guard: SEC-COMP §4 once quoted 180 days for recordings and 24
+    months for transcripts/leads while the seed shipped 90 / 365 / 1095, and the section
+    declared that divergence OPEN. The guard was written to fail if EITHER half moved
+    without the other — "close it in the code without the doc, or in the doc without the
+    code, and this fails and names the other half." D-462 closed the doc half (§4's row
+    and the narrative now state the seed's enforced-and-published numbers), so the gap is
+    closed and this test now asserts AGREEMENT rather than divergence. It must never be
+    flipped back to assert a disagreement — that would re-open a settled reconciliation.
     """
     document = DOC.read_text(encoding="utf-8")
+    collapsed = " ".join(document.split())
 
-    assert "recording floor 90 days (TRAI), default 180" in document
-    assert "transcripts/leads default 24 months" in document
-    assert "OPEN QUESTION — the retention defaults in this document and the ones in the seed" in (
-        document
-    ), "the divergence below is still live; the doc must still declare it open"
+    # The divergence is no longer DECLARED: the OPEN QUESTION about retention defaults is
+    # gone, replaced by the RESOLVED note that records D-462.
+    open_question = "OPEN QUESTION — the retention defaults in this document and the ones in the"
+    assert open_question not in document, (
+        "the retention-defaults divergence was reconciled by D-462; it must not be re-declared open"
+    )
+    assert "RESOLVED (D-462)" in document, (
+        "the reconciliation must stay recorded, not silently dropped"
+    )
 
-    # The numbers the open question attributes to the seed must BE the seed's numbers,
-    # or the doc is describing a codebase that no longer exists.
-    block = document.split("OPEN QUESTION — the retention defaults")[1].split("**PII redaction")[0]
+    # Every shipped TTL is now named as the default in the reconciled section — the doc
+    # describes the codebase that actually runs.
     for category, ttl in SHIPPED_TTLS.items():
-        assert f"{category} {ttl} days" in block, (
-            f"SEC-COMP's open question no longer describes the shipped {category} TTL"
+        assert f"{category} {ttl} days" in collapsed, (
+            f"SEC-COMP no longer states the shipped {category} TTL of {ttl} days"
         )
 
-    # And the divergence itself: documented 730/730/180 vs shipped 365/1095/90.
-    assert SHIPPED_TTLS["transcript"] != 730, "transcript TTL now matches the DPA — update the doc"
-    assert SHIPPED_TTLS["lead"] != 730, "lead TTL now matches the DPA — update the doc"
-    assert SHIPPED_TTLS["recording"] != 180, "recording TTL now matches the DPA — update the doc"
+    # The stale figures survive ONLY as explicitly-historical quotes (the F-5 note and the
+    # RESOLVED block), never as a live default the doc still promises.
+    for stale in ("default 180", "24 months"):
+        for line in document.splitlines():
+            if stale in line:
+                assert any(
+                    marker in line for marker in ("stale", "once carried", "F-5", "superseded")
+                ), f"a stale retention figure ({stale!r}) reads as a live promise: {line.strip()!r}"
 
 
 async def test_the_ttl_that_runs_is_the_policy_row_not_a_constant_in_the_worker() -> None:

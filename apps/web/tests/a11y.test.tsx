@@ -1270,6 +1270,43 @@ const CLIENT_SCREENS: Screen[] = [
             "The voice platform accepted this publish and did not answer when we read it back, so we cannot confirm it is running it. Publish again to re-check.",
         },
       },
+      // The Actions tab (ACTIONS feature) reads the agent's tools + the tenant's saved
+      // credentials. One tool of each state so the scan covers the configured-action row,
+      // the master switch and the credential list.
+      "/v1/agents/agent-1/actions": {
+        api_actions_enabled: true,
+        calendar_available: false,
+        tools: [
+          {
+            id: "tool-1",
+            agent_id: "agent-1",
+            kind: "custom_api",
+            provider: null,
+            name: "get_order_status",
+            description: "Use when the caller asks about their order.",
+            enabled: true,
+            trigger: "during_call",
+            pre_call_message: "One moment while I check.",
+            credential_id: null,
+            params: [
+              { name: "order_id", source: "ai", type: "string", description: "the order id", required: true },
+            ],
+            config: { method: "GET", url: "https://api.example.com/orders" },
+          },
+        ],
+      },
+      "/v1/integrations/credentials": [
+        {
+          id: "cred-1",
+          kind: "aisensy",
+          label: "Main AiSensy key",
+          last_four: "1234",
+          version: 1,
+          non_secret: null,
+          created_at: "2026-08-12T09:30:00Z",
+          updated_at: "2026-08-12T09:30:00Z",
+        },
+      ],
     },
   },
   {
@@ -1420,6 +1457,9 @@ const CLIENT_SCREENS: Screen[] = [
           events: ["lead.created", "call.completed"],
           active: true,
           secret_fingerprint: "abc12345",
+          include_recording_url: false,
+          include_transcript: false,
+          include_raw_transcript: false,
           created_at: "2026-08-01T10:00:00Z",
         },
       ],
@@ -2227,7 +2267,6 @@ const ADMIN_SCREENS: Screen[] = [
           label: "Anushka",
           provider: "sarvam",
           tts_model: "bulbul:v3",
-          tier: "premium",
           gender: "female",
           languages: ["te-IN", "hi-IN", "en-IN"],
           note: "Warm, unhurried; the default for Telugu receptionists.",

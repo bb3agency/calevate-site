@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The voice catalogue and the one write that uses it (D-36's premium/value ladder).
+ * The voice catalogue and the one write that uses it (one Bulbul v3 quality; personas).
  *
  *   GET   /v1/agents/voices                                     `agents:read`, realm ANY
  *   PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice `agents:write`, realm ADMIN
@@ -66,7 +66,6 @@ type Schemas = components["schemas"];
 
 /** One catalogue entry: the id we send the engine, plus what an operator needs to choose. */
 export type Voice = Schemas["Voice"];
-export type VoiceTier = Voice["tier"];
 
 /**
  * The catalogue AND whether it may be chosen from (D-93).

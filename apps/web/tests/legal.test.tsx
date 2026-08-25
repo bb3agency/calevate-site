@@ -20,6 +20,7 @@ import {
   resolvePlaceholders,
   unresolvedPlaceholders,
 } from "@/lib/legal/placeholders";
+import { SUBPROCESSOR_NAMES } from "@/lib/legal/subprocessors";
 
 import { expectNoA11yViolations } from "./a11y";
 
@@ -320,6 +321,20 @@ describe("what each document must contain", () => {
     }
   });
 
+  it("states the India-only scope and forbids outbound outside India", () => {
+    // The founder froze scope to India-only B2B (docs/legal/LEGAL-OPS-PLAYBOOK.md §0, §2):
+    // India-established clients, calls to Indian recipients, no foreign-destination
+    // outbound. The product enforces it at dispatch (`destination_not_india`); these two
+    // client-facing documents must SAY it, and this keeps the clause from silently
+    // dropping out the way a removed vendor once did. It is a scope limit, not a data-
+    // residency claim, so it does not collide with the "never leaves India" ban above.
+    for (const slug of ["acceptable-use", "terms"]) {
+      const prose = textOf(bySlug(slug));
+      expect(prose, `/legal/${slug}`).toMatch(/outside India/i);
+      expect(prose, `/legal/${slug}`).toMatch(/India-only|non-Indian number|not an Indian/i);
+    }
+  });
+
   /**
    * Every occurrence of `pattern` in `prose` that is NOT inside a denial.
    *
@@ -418,49 +433,80 @@ describe("what each document must contain", () => {
 
   it("keeps the sub-processor register as the only copy of the vendor list", () => {
     /*
+     * The register is the single source of truth for the vendor list (docs/legal/
+     * README.md). This test used to pin two HAND-TYPED vendor arrays — one the DPA must
+     * exclude, one the register must contain — and they had already DRIFTED apart: the
+     * exclusion list named Cartesia, the inclusion list named Cloudflare-but-not-Cartesia.
+     * Two literals maintained by hand is the exact mechanism that let a deleted vendor
+     * (Clerk, D-177) and a replaced one (Vertex → Microsoft, D-449) survive in
+     * client-facing copy after they left the register. So both loops now read ONE derived
+     * inventory, `SUBPROCESSOR_NAMES`, built from the same rows the page renders — a
+     * vendor added to or removed from the register moves through here automatically and
+     * cannot be silently missed.
+     */
+    expect(SUBPROCESSOR_NAMES.length, "the register exports no vendor names").toBeGreaterThan(0);
+
+    /*
      * The DPA's Annex C must LINK rather than restate: two vendor lists is the drift the
-     * change-notification clause cannot survive.
-     *
-     * THE EXCLUSION LIST NAMES VENDORS THAT ARE ON THE REGISTER, which is the change
-     * here. It used to lead with "Clerk", and once Clerk left the register (D-177, and
-     * the client-facing removal that followed) that assertion became vacuously true —
-     * it proved the DPA does not name a company we have nothing to do with. The rule is
-     * about the vendors somebody editing Annex C would plausibly paste IN, so the list
-     * is drawn from the LIVE register and moves with it.
+     * change-notification clause cannot survive. The DPA prose may therefore name NONE of
+     * the register's vendors — every one, not a curated subset that rots out of step.
      */
     const dpa = textOf(bySlug("dpa"));
-    for (const vendor of ["Bolna", "Sarvam", "Microsoft", "Resend", "Cartesia", "Razorpay"]) {
+    for (const vendor of SUBPROCESSOR_NAMES) {
       expect(
         dpa.includes(vendor),
         `the DPA names ${vendor} — vendor names belong on the sub-processor page only, ` +
           `or the two lists will disagree`,
       ).toBe(false);
     }
+
     /*
-     * And the register must NAME them. `Microsoft` replaces `Clerk` rather than merely
-     * dropping it: an assertion list that only ever shrinks stops being a test that the
-     * register is COMPLETE, and Microsoft is the entry D-410 created — Azure OpenAI
-     * carries BOTH language legs, so it is the sub-processor a client reading this page
-     * is most likely to be looking for and the one whose absence would be the real
-     * defect. D-449 moved that account's REGION from South India to East US 2 and left
-     * the vendor alone, which is why this assertion is untouched by that change: the
-     * exclusion above still keeps the vendor name out of the DPA, and the DPA names the
-     * region instead.
+     * And the register must actually RENDER every identity it exports: the constant is the
+     * page's own data, so this proves the derivation still reflects the rendered prose
+     * (e.g. the "Google — Gemini API" row really does say "Google") rather than having
+     * drifted from it.
      */
     const register = textOf(bySlug("subprocessors"));
-    for (const vendor of ["Bolna", "Sarvam", "Microsoft", "Cloudflare", "Resend", "Razorpay"]) {
+    for (const vendor of SUBPROCESSOR_NAMES) {
       expect(register, "sub-processor register").toContain(vendor);
     }
-    // Clerk left the product at D-177 and must not come back as a live row: it was
-    // listed as a Core sub-processor receiving authentication factors and session state
-    // in the United States, which is a declared cross-border transfer of auth data to a
-    // vendor this product does not use. A HISTORICAL mention ("until <date> this row
-    // named …") is legitimate and is why this checks the CORE rows rather than the page.
+
+    /*
+     * GENUINE INVARIANTS, pinned as literals so the two derived loops above cannot decay
+     * into a tautology against their own source. These say what the inventory MUST and
+     * MUST NOT hold whatever shape the rows take:
+     *
+     *  - Microsoft (Azure OpenAI) carries BOTH language legs since D-410, and D-449 left
+     *    the vendor alone when it moved the region to East US 2. It is the sub-processor a
+     *    client reading this page is most likely to be looking for, so its ABSENCE would
+     *    be the real defect — deleting the row fails this line rather than slipping
+     *    through a list that only ever shrinks.
+     *  - Clerk left at D-177 and Vertex was replaced at D-449; "Gemini" is a Google
+     *    PRODUCT the register names in prose but which is NOT a vendor identity (the row's
+     *    identity is "Google"). None may reappear as a canonical name — a re-introduction
+     *    is exactly what those removals guard against.
+     */
+    expect(SUBPROCESSOR_NAMES, "the US language-model vendor must be on the register").toContain(
+      "Microsoft",
+    );
+    for (const gone of ["Clerk", "Vertex", "Gemini"]) {
+      expect(
+        SUBPROCESSOR_NAMES,
+        `${gone} is not a current sub-processor and must not be a register identity`,
+      ).not.toContain(gone);
+    }
+
+    /*
+     * Clerk must also not come back as a live TABLE ROW: it was a Core sub-processor
+     * receiving authentication factors and session state in the United States — a
+     * declared cross-border transfer of auth data to a vendor this product does not use.
+     * A HISTORICAL mention in prose ("until <date> this row named …") is legitimate,
+     * which is why this checks the row first-cells rather than the page text.
+     */
     const rows = vendorRowNames(bySlug("subprocessors"));
     // A `not.toContain` over an empty list passes for the wrong reason, which is the
     // shape `tests/a11y.ts::assertScreenRendered` exists to refuse. The register is a
-    // table of vendors; if it stops being one, this assertion has stopped meaning
-    // anything and should fail rather than go quiet.
+    // table of vendors; if it stops being one, this must fail rather than go quiet.
     expect(rows, "the register has no vendor rows to check").toContain("Bolna");
     expect(rows, "a sub-processor table row still names Clerk").not.toContain("Clerk");
   });

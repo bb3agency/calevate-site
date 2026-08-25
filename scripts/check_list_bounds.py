@@ -165,6 +165,50 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": BoundedByConstruction(
         by="the admin view of the same `fields` — one agent's curated variable list."
     ),
+    # The in-call Actions/tools feature. A tenant mints tools like it mints endpoints, so the
+    # lists are caller-controlled and NOT bounded-by-nature — the bound is a real ceiling:
+    # `actions.service.MAX_TOOLS_PER_AGENT` on the tool count (enforced at create) and
+    # `actions.service.MAX_TOOL_PARAMS` on each tool's param list (the request-model
+    # `max_length`). Every verb answers with the SAME shape read back, which is why the writes
+    # are declared too.
+    "GET /v1/agents/{agent_id}/actions": BoundedByConstruction(
+        by="`tools` is bounded by `actions.service.MAX_TOOLS_PER_AGENT` (100, enforced at "
+        "create) and each `ToolOut.params` by `MAX_TOOL_PARAMS` (50, request-model max_length)."
+    ),
+    "PUT /v1/agents/{agent_id}/actions/enabled": BoundedByConstruction(
+        by="the same `ActionsSettingsOut`, read back after the write — `MAX_TOOLS_PER_AGENT` "
+        "tools, `MAX_TOOL_PARAMS` params each."
+    ),
+    "POST /v1/agents/{agent_id}/actions": BoundedByConstruction(
+        by="one tool's `ToolOut`; `params` is bounded by `actions.service.MAX_TOOL_PARAMS` "
+        "(50), the request-model `max_length` on `ToolIn.params`."
+    ),
+    "PUT /v1/agents/{agent_id}/actions/{tool_id}": BoundedByConstruction(
+        by="one tool's `ToolOut` — the same `MAX_TOOL_PARAMS` bound as its POST above."
+    ),
+    "PUT /v1/agents/{agent_id}/actions/{tool_id}/enabled": BoundedByConstruction(
+        by="one tool's `ToolOut` — the same `MAX_TOOL_PARAMS` bound on `params`."
+    ),
+    "GET /v1/integrations/credentials": BoundedByConstruction(
+        by="one row per saved credential, bounded by `actions.credentials."
+        "MAX_CREDENTIALS_PER_TENANT` (100), enforced at create — not by call volume."
+    ),
+    # The structured call-script builder (D-21). A script is one hand-curated config document
+    # whose every authored list is bounded on the request model by a `max_length` in
+    # `calevate_shared.call_script` (`MAX_SCRIPT_STEPS`/`_FAQS`/`_VARIABLES`/`MAX_END_CALL_RULES`);
+    # `standard_variables` is the `STANDARD_VARIABLES` constant.
+    "GET /v1/agents/{agent_id}/script": BoundedByConstruction(
+        by="one agent's `CallScript`, every list bounded by the `max_length` ceilings in "
+        "`calevate_shared.call_script`; `standard_variables` is the `STANDARD_VARIABLES` constant."
+    ),
+    "POST /v1/agents/{agent_id}/script/assist": BoundedByConstruction(
+        by="one drafted `CallScript`, whose lists carry the same `calevate_shared.call_script` "
+        "`max_length` ceilings as the loaded script above — never a caller's row count."
+    ),
+    "GET /v1/billing/topups/packs": BoundedByConstruction(
+        by="`packs` is one row per member of `billing.credit_packs.PACK_CATALOGUE`, a static "
+        "tuple whose size is a pricing decision, never a caller's row count."
+    ),
     "GET /v1/ops/secrets": BoundedByConstruction(
         by="the vendor-credential registry in `ops/secrets.py` — one row per known key."
     ),

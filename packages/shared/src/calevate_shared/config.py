@@ -293,6 +293,18 @@ class Settings(BaseSettings):
         default="http://localhost:8100", max_length=255, pattern=r"^https?://[^\s]+$"
     )
 
+    # Where Bolna reaches OUR in-call ACTION execution endpoint (the ACTIONS feature). It
+    # is apps/api, NOT voice-runtime: a data-returning action makes a synchronous external
+    # call plus a credential decrypt, which hard rule 3 forbids on the latency-critical
+    # webhook service — so the tool's `value.url` points here and the monolith (which
+    # already holds httpx, the ORM and the engine adapter) runs it. Defaults to the local
+    # apps/api origin; in production this is the public app-API origin Bolna's egress can
+    # reach (e.g. https://app.calevate.tech). Distinct from `webhook_base_url`, which is
+    # the voice-runtime receiver.
+    actions_callback_base_url: str = Field(
+        default="http://localhost:8000", max_length=255, pattern=r"^https?://[^\s]+$"
+    )
+
     # `host:port` of the ORIGIN that terminates TLS for our public hostnames — the nginx
     # on the deployment host, reached from inside a container through the gateway
     # `compose.prod.yml` already wires as `host.docker.internal`.
@@ -510,6 +522,18 @@ class Settings(BaseSettings):
     # value an operator cannot work around; 512 is far above any key and far below the
     # megabyte a jsonb-replicated string could otherwise carry.
     azure_openai_api_key: str | None = Field(default=None, max_length=512)
+
+    # --- Google OAuth (Calendar actions) -------------------------------------------
+    # The PLATFORM's Google Cloud OAuth client — the founder holds one Google project and
+    # all client calendar connections authorize against it. `..._client_secret` is picked
+    # up as a `platform_secrets` value by the "secret" name fragment; the id and redirect
+    # are plain config. All three are None until a Google project exists — an EXTERNAL
+    # blocker (a vendor account), which is why Calendar actions refuse cleanly rather than
+    # half-working when they are unset.
+    google_oauth_client_id: str | None = Field(default=None, max_length=256)
+    google_oauth_client_secret: str | None = Field(default=None, max_length=512)
+    google_oauth_redirect_uri: str | None = Field(default=None, max_length=512)
+
     # The DEPLOYMENT id — what the API actually addresses, and NOT the model name.
     #
     # ITS OWN FIELD BECAUSE AZURE MAKES IT ONE. Elsewhere `model` names a model; on Azure
@@ -1065,18 +1089,24 @@ class Settings(BaseSettings):
     # channels) minus inbound_reserve. Values come from engine verification item 8.
     inbound_reserve_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
-    # Self-serve list price per calling minute, INR (D-34). One number for the whole
-    # motion until per-tier pricing ships — it exists in config so the runway framing
-    # ("about N minutes left") and the top-up flow price from the SAME source, and so
-    # a price change is a deploy, not a code edit. Managed clients never see it: their
-    # price lives in their `plans` row.
+    # Self-serve list price per calling minute, INR (the single-tier voice decision,
+    # superseding D-34/D-35/D-36's ₹6). One number for the whole motion — there is one
+    # voice quality now (Sarvam Bulbul v3), so there is one client rate — and it exists
+    # in config so the runway framing ("about N minutes left") and the top-up flow price
+    # from the SAME source, and so a price change is a deploy, not a code edit. Managed
+    # clients never see it: their price lives in their `plans` row.
+    #
+    # ₹5.00 is a founder-accepted ~22-30% gross margin against an all-in cost of roughly
+    # ₹2.89-4.28/call-minute (TRD §10.1); the dominant unmeasured risk is Telugu/Indic
+    # character density on the TTS leg (pilot gate 12), which can push the cost toward the
+    # ceiling. That risk is knowingly carried, not hedged in this number.
     #
     # BOUNDED FOR THE SAME REASON `usd_inr_rate` IS, one surface closer to the client:
     # `0` is type-valid and would price every self-serve minute at nothing, so the
     # runway framing says "unlimited" and the top-up flow charges zero. Exclusive floor.
     # The ceiling is absurd on purpose — nobody sells a minute for ₹10,000 — and its job
     # is to catch a decimal point in the wrong place before it reaches a wallet.
-    self_serve_inr_per_min: Decimal = Field(default=Decimal("6.00"), gt=0, le=10_000)
+    self_serve_inr_per_min: Decimal = Field(default=Decimal("5.00"), gt=0, le=10_000)
 
     # R-11's kill switch. Self-serve signup is the sharp edge of D-34 (anyone can sign
     # up and dial), so the public intake is OFF unless someone turned it on, and

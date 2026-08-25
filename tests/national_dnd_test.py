@@ -133,6 +133,12 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str, str]:
             text("UPDATE agents SET status = 'live', direction = 'outbound' WHERE id = :a"),
             {"a": agent_id},
         )
+    # A baseline-dialable tenant now needs its DLT PE-TM chain + a registered number bound
+    # to the agent (LEGAL-OPS-PLAYBOOK §10.8), so the DNC/scrub rules are what these tests
+    # measure rather than a missing registration.
+    from tests.conftest import arm_agent_for_outbound
+
+    await arm_agent_for_outbound(tenant_id, agent_id)
     return tenant_id, agent_id, str(slug), f"dev:client:{user_id}"
 
 

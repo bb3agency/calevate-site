@@ -373,6 +373,19 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="accept_with_password",
     ),
+    "POST /v1/actions/invoke/{engine}/{tool_id}": PublicRoute(
+        why=(
+            "The engine (Bolna) calls this mid-call to run an in-call action; it holds no "
+            "Calevate session. Gated exactly like the webhook receiver: the engine's egress "
+            "IP must be on the per-engine allowlist, then the tenant is resolved from the "
+            "injected agent ref through `engine_agent_routes` and the tool is loaded under "
+            "that tenant's RLS. An unallowlisted caller is 401 before a byte of body is "
+            "trusted, and an unknown agent is 401."
+        ),
+        # The source-IP allowlist is the credential — the same authenticity control the
+        # unsigned engine's webhooks use (D-31). The symbol appears in the handler's module.
+        credential="SOURCE_IP_ALLOWLIST_BY_ENGINE",
+    ),
 }
 
 

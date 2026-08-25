@@ -82,6 +82,7 @@ from apps.api.core.settings import (
     settings_scope,
     validate_bootstrap_env,
 )
+from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
@@ -163,6 +164,11 @@ FUNCTIONS: list[Any] = [
         # dropped by arq, and only recovered by the post-call transcript pass minutes
         # later — the exact silent-degradation shape `check_job_wiring` guards.
         record_in_call_optout,
+        # ACTIONS feature. The in-call/after-call action executor acks the caller fast and
+        # queues the audit row here (hard rule 3 — no DB write on the tool path). An
+        # unregistered name would DLQ every action's audit while the tool itself succeeded,
+        # leaving invocations unlogged — the `check_job_wiring` shape.
+        record_action_invocation,
         # D-170. Every one-time secret `apps/api/authn` mints is delivered by this job, so
         # an unregistered one means a reset link that is promised, queued, DLQ'd and never
         # sent — while the sign-in screen truthfully reports that an email was on its way.

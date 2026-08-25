@@ -5,6 +5,7 @@ missing from this list silently escapes migrations AND the guardrail, so keep it
 exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 """
 
+from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
@@ -13,6 +14,7 @@ from apps.api.compliance import models as compliance_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
+from apps.api.insights import models as insights_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
 from apps.api.ops import models as ops_models
@@ -24,6 +26,7 @@ __all__ = [
     "APPEND_ONLY_TABLES",
     "TENANT_TABLES",
     "Base",
+    "actions_models",
     "agents_models",
     "authn_models",
     "billing_models",
@@ -31,6 +34,7 @@ __all__ = [
     "compliance_models",
     "crm_models",
     "flags_models",
+    "insights_models",
     "integrations_models",
     "kb_models",
     "ops_models",
@@ -45,6 +49,10 @@ TENANT_TABLES = [
     "memberships",
     "invitations",
     "agents",
+    # ACTIONS feature: a client's saved integration credentials and their agents' in-call
+    # tool definitions. Both carry tenant_id and get the FORCEd tenant_isolation policy.
+    "integration_credentials",
+    "action_tools",
     "campaigns",
     "campaign_contacts",
     "dlt_templates",
@@ -154,6 +162,14 @@ TENANT_TABLES = [
     # client's own document and the sample names the client's own calls.
     "qa_reports",
     "qa_call_samples",
+    # Knowledge gaps (D-Knowledge-Gaps): the per-(agent, topic) roll-up a client acts on
+    # and the per-call occurrences behind its counts. Both are tenant data derived from a
+    # client's own calls — the quotes are that client's callers' redacted words — and both
+    # get the FORCEd tenant_isolation policy. NOT append-only: both hold derived data
+    # (re-computable from the transcript), and the aggregate is a running tally the client
+    # mutates; the immutable trail of dismiss/teach is `audit_log`.
+    "knowledge_gaps",
+    "knowledge_gap_occurrences",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage

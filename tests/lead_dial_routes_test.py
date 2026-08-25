@@ -113,6 +113,12 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID, str, dict[str, str]]
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
+    # Outbound is now gated on the client's DLT PE-TM chain and a registered number bound
+    # to the agent (LEGAL-OPS-PLAYBOOK §10.8), the same as campaigns — supply both so this
+    # agent lawfully dials, exactly as production would before its first outbound call.
+    from tests.conftest import arm_agent_for_outbound
+
+    await arm_agent_for_outbound(tenant_id, agent_id)
     headers = {"Authorization": f"Bearer dev:client:{user_id}", "X-Org-Slug": slug}
     return tenant_id, agent_id, slug, headers
 

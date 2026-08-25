@@ -79,6 +79,7 @@ from datetime import UTC, datetime
 from typing import NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
+from calevate_shared.call_script import substitute_variables
 from calevate_shared.engine import (
     LLM_MODELS,
     AgentConfig,
@@ -813,7 +814,13 @@ def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:
     )
 
 
-def _call_prompt_for(engine: VoiceEngine, tenant_id: UUID, agent: AgentRow) -> str | None:
+def _call_prompt_for(
+    engine: VoiceEngine,
+    tenant_id: UUID,
+    agent: AgentRow,
+    *,
+    merge_values: dict[str, str | None] | None = None,
+) -> str | None:
     """The prompt this dial must CARRY, or None when the engine already holds it.
 
     THE PRODUCTION WRITER OF `CallContext.system_prompt` (D-282), and the reason the field
@@ -837,7 +844,15 @@ def _call_prompt_for(engine: VoiceEngine, tenant_id: UUID, agent: AgentRow) -> s
     """
     if engine.capabilities.hosts_agents():
         return None
-    return compose_engine_prompt(_to_config(tenant_id, agent))
+    prompt = compose_engine_prompt(_to_config(tenant_id, agent))
+    if merge_values:
+        # DIAL-TIME merge of the structured builder's `{{ }}` fields, applied to the
+        # composed prompt so the platform-rules block underneath is substituted too (it
+        # holds no `{{ }}`, so this is a no-op there, but running it over the whole string
+        # means there is one substitution pass, not one per section). Unresolved fields are
+        # removed, never spoken — `keep_unresolved` defaults False.
+        prompt = substitute_variables(prompt, merge_values)
+    return prompt
 
 
 async def _reclaim_orphan(engine: VoiceEngine, agent_id: UUID, ref: str, reason: str) -> None:
@@ -1114,6 +1129,21 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             remediation="Restore the agent first, then try again.",
         )
     config = _to_config(tenant_id, agent)
+    # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
+    # renders, so publish is where a tool change reaches live calls (the "Apply to live
+    # calls" action, same mechanism as a voice or cap change). Empty tuple when the master
+    # switch is off or no during-call tool is enabled, in which case the adapter emits no
+    # `api_tools` at all. Imported here rather than at module top to keep the actions
+    # package off the agents-service import path except where publish actually needs it.
+    from apps.api.actions import service as actions_service
+
+    config = config.model_copy(
+        update={
+            "action_tools": await actions_service.declare(
+                session, agent_id=agent_id, engine=engine.name, direction=agent["direction"]
+            )
+        }
+    )
 
     existing_ref = agent["engine_agent_ref"]
     created = not (isinstance(existing_ref, str) and existing_ref)
@@ -1507,6 +1537,59 @@ _AGENT_CALLER_ID_SQL = (
 )
 
 
+# The client-facing wording of the two ways a non-campaign outbound dial (an instant
+# callback, a D-21 single lead) can lack a header of its own. Kept beside
+# `resolve_caller_id`, whose None result they explain, and phrased for that path — the
+# campaign gate's `UNBOUND_NUMBER_REASON` speaks about a campaign's assigned number,
+# which these callers do not have.
+CALLBACK_NO_REGISTERED_NUMBER_REASON = (
+    "This agent has no DLT-registered calling number, so an outbound call would go out "
+    "from a shared platform number instead of the client's registered header. Assign a "
+    "registered number to this agent before it places calls."
+)
+CALLBACK_NUMBER_NOT_REGISTERED_REASON = (
+    "This agent's calling number is not DLT-registered yet, so it cannot place outbound "
+    "calls. Only a registered number may dial out."
+)
+
+
+async def agent_outbound_number_blocker(
+    session: AsyncSession, *, agent_id: UUID
+) -> tuple[str, str] | None:
+    """`(rule, reason)` if this agent has no DLT-registered number to dial FROM, else None.
+
+    The header a NON-campaign outbound dial presents is resolved from the agent's own
+    bound, DLT-registered number (`resolve_caller_id`, D-420). Until this gate existed the
+    single-lead and instant-callback paths let that resolution fall back to the engine's
+    shared pool number — which LEGAL-OPS-PLAYBOOK §10.8 forbids: a requested callback is
+    regulated outbound and must present the client's registered header, not a platform
+    one. Enforced HERE, at the dial gate, so the refusal is a decision the UI can render
+    (SURFACES §2b) rather than a surprise at dial time.
+
+    The CAMPAIGN path proves the same property against the campaign's assigned number
+    (`campaigns.service._channel_blockers`: registered, right series, bound to the
+    campaign's agent). This is the single-lead twin of that check, not a second copy of
+    the campaign rule — the campaign has a `number_id`; a callback has only the agent.
+
+    Reuses the existing blocker codes. `number_not_bound_to_agent` when the agent carries
+    no number at all; `number_not_registered` when it has one that is not `registered`.
+    Ambiguity (more than one registered number) is deliberately NOT judged here — it is a
+    real refusal, but `resolve_caller_id` raises it at dial time with the remediation, and
+    the gate only needs to know whether a lawful header EXISTS.
+    """
+    rows = (
+        await session.execute(
+            text("SELECT dlt_status FROM phone_numbers WHERE agent_id = :aid"),
+            {"aid": agent_id},
+        )
+    ).all()
+    if not rows:
+        return ("number_not_bound_to_agent", CALLBACK_NO_REGISTERED_NUMBER_REASON)
+    if not any(str(row[0]) == "registered" for row in rows):
+        return ("number_not_registered", CALLBACK_NUMBER_NOT_REGISTERED_REASON)
+    return None
+
+
 async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | None:
     """The number this agent's calls must present to the callee, or None (D-420).
 
@@ -1522,14 +1605,18 @@ async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | N
     and they are two halves of one claim: the gate proves the campaign's approved number is
     the one bound to the campaign's agent, and this resolves the header FROM that binding.
 
-    **NONE IS A LEGITIMATE ANSWER AND MUST STAY ONE.** An agent with no registered header
-    dials on the engine's own number, which is what happens today for every call and is
-    fine for the paths where it is fine: a D-21 "call this lead" click, a CRM callback, an
-    account whose DLT paperwork is still in flight. Refusing those would be a self-inflicted
-    outage on a rule that governs CAMPAIGNS. What must never happen is a campaign dial
-    resolving to None, and that is closed on the campaign side — a campaign cannot launch
-    or tick without a registered number bound to its own agent — rather than by a guess here
-    about which caller this is.
+    **NONE IS A LOW-LEVEL ANSWER, NO LONGER A DIALLABLE ONE FOR OUTBOUND.** This function
+    still returns None when an agent has no registered header — it does not itself decide
+    policy — but the pool-number fallback it used to describe as "fine" for a D-21 "call
+    this lead" click or a CRM callback is now DISALLOWED: LEGAL-OPS-PLAYBOOK §10.8 makes a
+    requested callback regulated outbound, so every outbound path is gated. The refusal
+    lives at the dial gate — `agent_outbound_number_blocker`, called by
+    `compliance.service.check_dispatch` — which returns `number_not_bound_to_agent` /
+    `number_not_registered` before this resolver is reached, exactly as the campaign side
+    refuses a campaign with no registered number bound to its own agent. So on the outbound
+    paths a caller that reaches here has already been cleared to have a header; None
+    surviving to here would be a bug in that gate, not a pool-number dial. Inbound never
+    calls this — it presents nothing — which is why the type stays `str | None`.
 
     **MORE THAN ONE REGISTERED HEADER IS A REFUSAL, NOT A CHOICE**, and this is the one
     place the honest answer is unwelcome. An agent may legitimately end up bound to a
@@ -1698,7 +1785,19 @@ async def dispatch_call(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name,
                 context_note=context_note,
-                system_prompt=_call_prompt_for(engine, tenant_id, agent),
+                # The per-call prompt with `{{ }}` merge fields resolved from THIS lead's
+                # data (structured builder, D-script). Only the values known at dial time
+                # are supplied; an unfilled field collapses to nothing rather than being
+                # spoken as a literal `{{ }}` (see `substitute_variables`). On a
+                # control-plane engine (Bolna) this returns None — the prompt is agent
+                # state and the engine does its own variable substitution — so this merge
+                # only runs on engines that carry the prompt per call.
+                system_prompt=_call_prompt_for(
+                    engine,
+                    tenant_id,
+                    agent,
+                    merge_values={"lead_name": lead_name, "phone": phone_e164},
+                ),
                 from_e164=from_e164,
             ),
         )
@@ -1905,6 +2004,7 @@ __all__ = [
     "ArmToPublish",
     "DialUnconfirmedError",
     "InboundRouting",
+    "agent_outbound_number_blocker",
     "dial_was_not_placed",
     "dispatch_call",
     "effective_call_cap",

@@ -21,6 +21,17 @@ and are all closed by two non-code actions: the Engine Verification Session
    taxonomy, testing structure.
 5. **SECURITY-COMPLIANCE.md** — TRAI/DLT/DPDP obligations mapped to features; call-level
    and campaign gates; threat model; compliance calendar.
+   - **legal/LEGAL-OPS-PLAYBOOK.md** (the legal SOURCE OF TRUTH, read with it) — the
+     founder's decision-complete scenario (24 Aug 2026): **India-only B2B, no foreign
+     clients**, sole proprietor, **Model B** numbers (client owns the connection, Calevate is
+     Telemarketer), **no GST at launch**, inbound-without-TM but **outbound gated on TM-ID +
+     Active PE–TM chain + correct number series**. It DECIDES the entity/geography/number
+     questions the audits left open, and its freeze parks all foreign-client work. Wins over
+     stale assumptions elsewhere. Background: `legal/phone-number-research.md`,
+     `legal/comet-legal-research.md` (the latter's US/FEMA/export material is parked).
+   - **LEGAL-SURFACE.md** (the obligation audit, read with it) — every legal obligation
+     mapped to the code that creates it, and the findings where we fall short. Read the
+     playbook for the DECISION, LEGAL-SURFACE for the code map.
    - **PLATFORM-CONFIG.md** (read with it) — the `admin.calevate.tech/ops` console:
      where core config lives, where SECRETS live (envelope encryption in Postgres, KEK
      in the environment and nowhere else), the six bootstrap keys that may never move

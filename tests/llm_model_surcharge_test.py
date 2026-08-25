@@ -896,3 +896,24 @@ def test_the_total_is_unquantized_so_its_two_callers_can_round_once_each() -> No
         llm_surcharge_inr=Decimal("0.0000"),
     )
     assert answer == Decimal("0.0003"), "the fraction survives the addition"
+
+
+@pytest.fixture(autouse=True)
+def _gst_registered_supplier(monkeypatch: pytest.MonkeyPatch):
+    """Register a specimen GST supplier for this suite.
+
+    These tests assert the TAX-INVOICE arithmetic (18% GST split into heads), which is only
+    lawful once Calevate is GST-registered. An UNregistered supplier now issues a bill of
+    supply with no tax (CGST s.32, Rule 49; billing/invoice.py), so without a registered
+    supplier ``gst_inr`` would be zero and these arithmetic assertions would test nothing.
+    The specimen GSTIN is Telangana (36) so an intra-State supply splits into CGST+SGST.
+    """
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate Technologies Private Limited")
+    monkeypatch.setenv("GST_SUPPLIER_ADDRESS", "Plot 42, Madhapur, Hyderabad 500081")
+    monkeypatch.setenv("GST_SUPPLIER_GSTIN", "36AABCC1234D1Z5")
+    monkeypatch.setenv("GST_SUPPLY_SAC", "998315")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

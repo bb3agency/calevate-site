@@ -1024,9 +1024,10 @@ is §10.1's **₹2.89–4.28**.
 > **§10.1 is the rate card.** Two July readings that survived here after §10.1 corrected
 > them, both stale in the direction that understates what we have built: "the v2 ₹0.60
 > band is likely gone; their docs list only V3 — confirm pricing on account" (D-35 read
-> the card live on 11 Aug 2026: **v2 is live at half the v3 rate**, which is why
-> `billing/rates.py` bills a two-rung ladder and why `plans.overage_rate_value` exists at
-> all), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
+> the card live on 11 Aug 2026 and found v2 live at half the v3 rate; the single-tier voice
+> decision has since WITHDRAWN the v2 rung entirely — `billing/rates.py::TTS_INR_PER_10K_CHARS`
+> is now one scalar, though `plans.overage_rate_value` still exists as a dormant founder
+> pricing lever), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
 > with ₹0.00 (Sarvam 105B, free per token), D-400 replaced that with a real,
 > duration-dependent leg, and **D-410 has repriced that leg onto `gpt-4o-mini`** — same
 > curve, a cheaper vendor price, and an output leg 4x its input leg rather than 8.3x.
@@ -1098,9 +1099,8 @@ the July figures and corrects two of our own doc errors — see the two ⚠ note
 
 | Sarvam API | Published rate |
 |---|---|
-| **Sarvam 105B / 30B (chat LLM)** | ⚠ **Free per token** — *and no longer our LLM leg (D-400, D-410). Kept on the card because it is the disclosed dashboard-assist fallback, because it prices the value rung of §10.3's ladder, and because a rate we walked away from is worth being able to walk back to. Walking back is not free: Sarvam has no member in Bolna's `LLMProvider`, so an in-call return means `provider: "custom"` — the credential path retired gate 16c put in doubt.* |
+| **Sarvam 105B / 30B (chat LLM)** | ⚠ **Free per token** — *and no longer our LLM leg (D-400, D-410). Kept on the card because it is the disclosed dashboard-assist fallback, and because a rate we walked away from is worth being able to walk back to. Walking back is not free: Sarvam has no member in Bolna's `LLMProvider`, so an in-call return means `provider: "custom"` — the credential path retired gate 16c put in doubt.* |
 | Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |
-| Text-to-Speech **Bulbul v2** | ⚠ **₹15 / 10,000 chars — still live, not discontinued** |
 | Speech-to-Text | ₹30 / hour |
 | Speech-to-Text **and Translate** (Saaras) | ₹30 / hour |
 | STT with diarization | ₹45 / hour |
@@ -1108,8 +1108,12 @@ Plans: pay-as-you-go with **no minimum**; ₹1,000 free credits; credits never e
 universal across APIs. **Rate limits are the real constraint, not price** — 60 rpm (Starter) /
 200 rpm (Pro ₹10k) / 1,000 rpm (Business ₹50k).
 
-> ⚠ **Corrects D-20**, which recorded Bulbul v2 as "appears discontinued." It is live at
-> **half** the v3 rate. ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — Sarvam's LLM is genuinely free per token, which made a paid LLM leg avoidable on COST grounds; the founder took one anyway, first on Vertex and then on Azure OpenAI — South India at D-410, `eastus2` since D-449 — for the reasons in D-400, D-410 and D-449. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
+> ⚠ **The single-tier voice decision (superseding D-36/D-35/D-34) WITHDREW the Bulbul v2
+> "value" rung.** There is one voice quality now — Sarvam Bulbul v3 — so there is one TTS
+> rate (₹30 / 10,000 chars) and one client price (₹5.00/min, `self_serve_inr_per_min`).
+> Bulbul v2 was live at half the v3 rate (which corrected D-20's "appears discontinued");
+> it is simply no longer offered, so it and its cost rows are gone from this card.
+> ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — Sarvam's LLM is genuinely free per token, which made a paid LLM leg avoidable on COST grounds; the founder took one anyway, first on Vertex and then on Azure OpenAI — South India at D-410, `eastus2` since D-449 — for the reasons in D-400, D-410 and D-449. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
 
 **Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
 ~900 characters/minute of speech → **360–540 TTS characters per call-minute**. That ratio is
@@ -1119,13 +1123,12 @@ unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
 | TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | **₹1.08–1.62** |
-| TTS — Bulbul **v2** | ₹1.50 / 1,000 chars | **₹0.54–0.81** |
 | LLM — **`gpt-4o-mini` on Azure OpenAI `eastus2`** (D-410 default; region per D-449) | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
 | LLM — `gemini-2.5-flash-lite` on Google Gemini Developer API *(the cheapest leg we offer, and cheaper than the platform default — so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
 | LLM — `gemini-2.5-flash` on Google Gemini Developer API *(the vendor's own production recommendation; thinking budget zeroed by the engine)* | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |
 | LLM — `gpt-5.4-mini` on OpenAI direct `us` *(the engine's own voice recommendation, and the dearest thing we offer)* | $0.75/$4.50 per 1M tok | **₹0.54 (1 min) / ₹0.85 (5 min) / ₹1.24 (10 min)** |
-| LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and §10.3's value rung)* | free per token | ₹0.00 |
+| LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback)* | free per token | ₹0.00 |
 
 ⚠ **Every LLM rate above is the vendor's published LIST price and none of them is what a
 bill is computed from.** The authoritative billing figure is an **operator attestation** —
@@ -1150,60 +1153,62 @@ Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt
 |---|---|
 | **Bulbul v3 + `gpt-4o-mini`** (D-410 default) | **₹1.74–2.28** |
 | Bulbul v3 + `gpt-4.1-mini` *(the switch — what it costs, stated where the choice is made)* | ₹2.02–2.56 |
-| Bulbul v3 + Sarvam LLM *(what runs today)* | ₹1.58–2.12 |
-| Bulbul v2 + `gpt-4o-mini` | ₹1.20–1.47 |
-| **Bulbul v2 + Sarvam LLM** (cheapest verified) | **₹1.04–1.31** |
+| **Bulbul v3 + Sarvam LLM** *(what runs today; cheapest verified stack)* | **₹1.58–2.12** |
 
 | Remaining legs | Per call-minute | Status |
 |---|---|---|
 | Telephony (Exotel/Vobiz class) | ₹0.35–0.50 *(estimate)* | **UNVERIFIED** |
 | Engine platform fee (Bolna BYOK) | target ≤₹1.50 | **UNVERIFIED — pilot gate 12** |
-| **All-in, rented engine** | **₹2.89–4.28** | v2+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. **The floor did not move at D-410** — its combination has a free LLM leg — but it was WRONG, by ₹1.00, from the first commit of this document until 20 Aug 2026: it read **₹1.89**. See the ⚠ below. The CEILING fell ₹0.20, from D-400's ₹4.48. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** — above where the Gemini leg left it |
+| **All-in, rented engine** | **₹3.43–4.28** | v3+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. The floor rose from the retired v2 combination (₹2.89) because the single-tier voice decision made Bulbul v3 the ONLY voice — there is no cheaper rung to floor against any more. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** |
 
-> ⚠ **THE FLOOR SAID ₹1.89 AND THAT WAS ARITHMETIC, NOT A DIFFERENT ASSUMPTION.** Both ends
-> of this row add the same three things: a BYOK model subtotal from the table above, a
+> ⚠ **BOTH ENDS ADD THE SAME THREE THINGS:** a BYOK model subtotal from the table above, a
 > telephony estimate from the row above, and the engine platform fee. Written out:
 >
 > ```
-> floor    = 1.04 (Bulbul v2 + Sarvam LLM, low end)  + 0.35 (telephony, low)  + 1.50 (fee) = 2.89
+> floor    = 1.58 (Bulbul v3 + Sarvam LLM, low end)  + 0.35 (telephony, low)  + 1.50 (fee) = 3.43
 > ceiling  = 2.28 (Bulbul v3 + gpt-4o-mini, high, 5m) + 0.50 (telephony, high) + 1.50 (fee) = 4.28
 > ceiling@10m = 2.36 + 0.50 + 1.50 = 4.36      gpt-4.1-mini: 2.56/2.77 + 0.50 + 1.50 = 4.56 / 4.77
 > ```
 >
-> **₹1.89 implied a platform fee of ₹0.50 on the floor and ₹1.50 on the ceiling — one row
-> of one table, two different fees — while the row directly above states one target,
-> ≤₹1.50.** Nothing in the document ever asserted ₹0.50; it is the ceiling's arithmetic run
-> once correctly and once with a dropped rupee. Three independent places already carried the
-> right number and were never reconciled against this cell: `docs/README.md` ("floor
-> **₹2.9** on Bulbul v2 + Sarvam LLM"), ROADMAP §6 D-36 ("verified floor ₹2.9 on v2+Sarvam"),
-> and §10.2, which quoted "the ₹2.98–4.32 above" — a digit transposition of the same ₹2.89,
-> propagated into every row of its effective-cost table and corrected there too.
-> **The fee target is right and the floor was wrong**, and it is corrected here rather than
-> left as two numbers that cannot both be true.
->
 > What the floor is NOT: it is not a price we have been quoted. The platform fee is
 > **UNVERIFIED** (pilot gate 12) and the dashboard reading of ~₹1.76/min in
 > `docs/PRODUCTION-READINESS.md` §A1 is a screen, not a commercial term — at ₹1.76 this
-> floor is ₹3.15 and the ceiling ₹4.54. The ladder is written against the TARGET because
+> floor is ₹3.69 and the ceiling ₹4.54. The ladder is written against the TARGET because
 > that is the number the pricing decisions were made on; gate 12 is what replaces it.
 
-The quality/cost trade is now explicit and ours to choose per tier: **v2+Sarvam LLM is ~42% cheaper per minute than v3+`gpt-4o-mini`** (and ~49% cheaper than v3+`gpt-4.1-mini`) — and D-400 moved the DEFAULT to the expensive end of that ladder deliberately, so the ladder itself is the margin lever it was designed to be rather than a note about one. **D-410 narrowed the gap rather than closing it**: the spread was ~47% against the Gemini leg and is ~42% against `gpt-4o-mini`, because the premium rung got cheaper while the free rung did not move. **Flipping `azure_openai_model` widens it straight back to ~49%**, which is the honest way to read that switch — it is a quality bet costing 2.67x the default LLM leg, not a free upgrade. Bulbul v3 vs v2 Telugu quality is an **ear test at
-the pilot**, not a spec decision — and it is exactly the lever that lets us build a
-value/premium ladder (see §10.3).
+**CLIENT PRICE AND MARGIN (the single-tier voice decision, superseding D-34's ₹6).** The
+self-serve client rate is **₹5.00/min** (`self_serve_inr_per_min`) — one voice quality,
+one client rate. Against the all-in cost band above (₹3.43–4.28/call-minute) the founder
+knowingly accepted a **~22–30% gross margin**: comfortable on the default stack at typical
+call lengths, thin at the ceiling. **The dominant risk is UNMEASURED and it is on the TTS
+leg: Telugu/Indic character density.** §10.1's whole cost model rests on the assumption of
+360–540 TTS characters per call-minute (pilot gate 12); Indic scripts can run denser than
+that, and because TTS is the largest single leg, a higher real character count pushes the
+cost toward — or past — the ceiling and compresses the margin below the accepted band. This
+is carried deliberately, not hedged in the price; the pilot's character-count measurement
+is what confirms or reprices it. `gpt-4.1-mini` remains a client-chosen upgrade billed as a
+plan surcharge (D-455), not a change to this base rate.
 
 **Self-orchestrated comparison (phase 2).** Same BYOK subtotal + telephony, no platform
 fee, plus ~₹0.15–0.30/min compute (2 vCPU/4 GB node ≈ ₹2,112/mo, ~8–9 concurrent):
 **≈ ₹2.20–3.14/min** (re-derived at D-410 from the ₹1.70–2.34 BYOK constant above; it read
 ₹2.23–3.12 against the Gemini leg, so this one barely moved — the LLM change lands almost
-entirely inside the subtotal's own rounding). *(This is the **v3 premium rung across the
-whole 1–10 minute LLM curve**, which is why it sits above §10's blended phase-2 band of
-≈₹1.9–2.6: that one is mid-ladder, and the v2 rung takes ₹0.54–0.81 off the TTS line. Two
-different questions, both stated, neither an adjustment of the other.)* The delta is therefore still **≈ ₹0.9–1.5/min**,
+entirely inside the subtotal's own rounding). *(This is **Bulbul v3 — the one voice quality
+— across the whole 1–10 minute LLM curve**. The older blended phase-2 band of ≈₹1.9–2.6
+assumed a cheaper v2 TTS rung that the single-tier voice decision withdrew, so that band no
+longer applies.)* The delta is therefore still **≈ ₹0.9–1.5/min**,
 which is simply the platform fee: **both sides carry the identical BYOK leg, so a cheaper
 model moves the two totals together and the delta by nothing** — consistent with the
 ~2k min/month break-even already stated above.
 
 ### 10.3 Reconstructing Outpero's economics (why their ₹3/₹5/₹7 tiers work)
+
+> ⚠ **SUPERSEDED where it proposes a voice-quality ladder.** The single-tier voice
+> decision (superseding D-36/D-35/D-34) collapsed our own voice offering to ONE quality
+> (Bulbul v3) at ONE client rate (₹5.00/min). The competitor reconstruction below is kept
+> as analysis, but any "Bulbul v2 → Bulbul v3 → Cartesia" ladder it sketches for US is no
+> longer the plan — v2 is withdrawn and there is no cheaper voice rung to sell. The v2 cost
+> figures here are retained only as the historical inputs the reconstruction was built on.
 
 With the verified Sarvam rate card, their pricing reconciles cleanly — and the reconstruction
 is instructive because **they buy the same inputs we do.** Confidence is marked per line.

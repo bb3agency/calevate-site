@@ -104,7 +104,6 @@ function storedVoice(id: TtsModel, label: string): NonNullable<PendingState["voi
       label,
       provider: "sarvam",
       tts_model: id,
-      tier: "premium",
       gender: null,
       languages: ["te-IN"],
       note: "",
@@ -112,6 +111,14 @@ function storedVoice(id: TtsModel, label: string): NonNullable<PendingState["voi
       verified: false,
     },
   };
+}
+
+/** A voice the catalogue no longer describes — a legacy/stale live value, rendered by its
+ *  raw id. There is one voice quality now, so divergence between the configured voice and
+ *  what the engine still holds is shown with one of these rather than a second catalogue
+ *  entry. */
+function legacyVoice(voiceId: string): NonNullable<PendingState["voice"]["live"]> {
+  return { voice_id: voiceId, provider: "sarvam", catalog: null };
 }
 
 /** No staged edit, and the engine holds the voice the row names: the state an agent spends
@@ -128,10 +135,10 @@ function settled(over: Partial<PendingState> = {}): PendingState {
     worst_case_call_cost_inr: "65.00",
     precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
     voice: {
-      configured: storedVoice("bulbul:v3", "Bulbul v3 — premium"),
-      live: storedVoice("bulbul:v3", "Bulbul v3 — premium"),
+      configured: storedVoice("bulbul:v3", "Bulbul v3"),
+      live: storedVoice("bulbul:v3", "Bulbul v3"),
       republish_required: false,
-      headline: "Callers hear Bulbul v3 — premium.",
+      headline: "Callers hear Bulbul v3.",
     },
     engine_verification: {
       state: "applied",
@@ -208,6 +215,10 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/agents/agent-1/pending": settled(),
     "/v1/kb/sources": [],
     "/v1/organization/llm-defaults": LLM_DEFAULTS,
+    // The Actions tab's reads, so the panel renders rather than raising its own alert —
+    // these tests are about the pending/voice surface, not actions.
+    "/v1/agents/agent-1/actions": { api_actions_enabled: false, calendar_available: false, tools: [] },
+    "/v1/integrations/credentials": [],
     ...over,
   };
 }
@@ -299,16 +310,16 @@ describe("which script callers are actually hearing", () => {
 describe("which voice callers are actually hearing", () => {
   /**
    * A voice is TWO facts once it can be changed without being published, and this screen is
-   * where a client finds out which one their callers get. They are entitled to it: D-36's
-   * ladder is a PRICE ladder — the premium and value rungs bill at different per-minute
-   * rates and `usage_events.meta.tts_tier` records which one each call ran on. Changing it
-   * stays ours (D-21), so there is no control here.
+   * where a client finds out which one their callers get. They are entitled to it even
+   * though there is one voice quality now (the single-tier voice decision): which persona
+   * their agent speaks in is theirs to know. Changing it stays ours (D-21), so there is no
+   * control here.
    */
   it("shows one voice when the calling system is holding the configured one", async () => {
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Voice callers hear");
-    expect(factValue("Voice callers hear")).toBe("Bulbul v3 — premium");
+    expect(factValue("Voice callers hear")).toBe("Bulbul v3");
     expect(container.textContent).not.toContain("New voice waiting");
   });
 
@@ -322,18 +333,18 @@ describe("which voice callers are actually hearing", () => {
       routes({
         "/v1/agents/agent-1/pending": settled({
           voice: {
-            configured: storedVoice("bulbul:v2", "Bulbul v2 — value"),
-            live: storedVoice("bulbul:v3", "Bulbul v3 — premium"),
+            configured: storedVoice("bulbul:v3", "Bulbul v3"),
+            live: legacyVoice("bulbul:legacy"),
             republish_required: true,
-            headline: "Callers still hear Bulbul v3 — premium.",
+            headline: "Callers still hear bulbul:legacy.",
           },
         }),
       }),
     );
 
     await screen.findByText("Voice callers hear");
-    expect(factValue("Voice callers hear")).toBe("Bulbul v3 — premium");
-    expect(factValue("New voice waiting")).toBe("Bulbul v2 — value");
+    expect(factValue("Voice callers hear")).toBe("bulbul:legacy");
+    expect(factValue("New voice waiting")).toBe("Bulbul v3");
   });
 
   it("says a published agent's voice is unknown rather than claiming it is the configured one", async () => {
@@ -345,7 +356,7 @@ describe("which voice callers are actually hearing", () => {
       routes({
         "/v1/agents/agent-1/pending": settled({
           voice: {
-            configured: storedVoice("bulbul:v2", "Bulbul v2 — value"),
+            configured: storedVoice("bulbul:v3", "Bulbul v3"),
             live: null,
             republish_required: true,
             headline: "Callers hear whatever voice was last published.",
@@ -356,8 +367,8 @@ describe("which voice callers are actually hearing", () => {
 
     await screen.findByText("Voice callers hear");
     expect(factValue("Voice callers hear")).toBe("We cannot say from here");
-    expect(container.textContent).not.toContain("Voice callers hearBulbul v2");
-    expect(factValue("New voice waiting")).toBe("Bulbul v2 — value");
+    expect(container.textContent).not.toContain("Voice callers hearBulbul v3");
+    expect(factValue("New voice waiting")).toBe("Bulbul v3");
   });
 
   it("says an unpublished agent has no voice in force at all", async () => {
@@ -371,7 +382,7 @@ describe("which voice callers are actually hearing", () => {
           published: false,
           agent_status: "draft",
           voice: {
-            configured: storedVoice("bulbul:v2", "Bulbul v2 — value"),
+            configured: storedVoice("bulbul:v3", "Bulbul v3"),
             live: null,
             republish_required: false,
             headline: "This agent is not on the voice platform yet.",

@@ -36,6 +36,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.ops.service import TM_REGISTRATION_MISSING_REASON, read_tm_registration
+
 
 @dataclass(frozen=True, slots=True)
 class PeRegistration:
@@ -160,11 +162,45 @@ async def pe_registration_blocker(
     return None
 
 
+async def outbound_entity_blockers(
+    session: AsyncSession, *, tenant_id: UUID
+) -> list[tuple[str, str]]:
+    """WHO may place an outbound call: Calevate's TM registration live AND this client's
+    DLT Principal Entity registration + TM link active.
+
+    SEC-COMP §3's first bullet, both halves, and LEGAL-OPS-PLAYBOOK §10.8/§16-C's rule
+    that ALL regulated outbound — a bulk campaign, a single "call this lead", an instant
+    requested callback — is off until the TM-ID exists and that client's PE-TM chain is
+    Active. It is the platform+tenant half of outbound eligibility and knows nothing
+    about any campaign, so the ONE implementation is read by the campaign launch/dispatch
+    gate (`campaigns.service._entity_blockers`) AND the per-dial gate
+    (`compliance.service.check_dispatch`) for the single-lead/callback paths — the two
+    gates cannot drift into asking it two different ways.
+
+    Returns a LIST rather than short-circuiting because the campaign launch preview must
+    be able to show BOTH that Calevate's TM registration is down (nothing to do at the
+    client's end) AND that their own PE chain is incomplete: a client who fixes their PE
+    during our TM outage should see that progress. `check_dispatch`, which renders a
+    single disabled-button reason, takes the first. Ours comes first because it is not a
+    fact about this client at all — one row in `platform_state`, false for everybody at
+    once — and a call placed while it is down is Calevate dialling as an unregistered
+    telemarketer, not a client with a paperwork gap.
+    """
+    blockers: list[tuple[str, str]] = []
+    if not (await read_tm_registration(session)).is_live:
+        blockers.append(("tm_registration_missing", TM_REGISTRATION_MISSING_REASON))
+    pe = await pe_registration_blocker(session, tenant_id=tenant_id)
+    if pe is not None:
+        blockers.append(pe)
+    return blockers
+
+
 __all__ = [
     "NOT_RECORDED",
     "PE_MISSING_REASON",
     "TM_LINK_REASON",
     "PeRegistration",
+    "outbound_entity_blockers",
     "pe_registration_blocker",
     "read_pe_registration",
 ]

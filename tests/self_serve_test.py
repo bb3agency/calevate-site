@@ -728,12 +728,16 @@ async def test_a_signed_body_that_is_not_a_capture_envelope_is_acked_not_500ed()
     matter (`payment.captured`) are answered by the tests above.
     """
     tenant_id, _ = await _self_serve_tenant()
-    for label, raw in (
-        ("not JSON at all", b"{ not json"),
-        ("a JSON list, not an envelope", b'["payment.captured"]'),
-        ("a bare JSON string", b'"payment.captured"'),
-        ("an object with no event", b"{}"),
-        ("an event this deployment ignores", b'{"event": "payment.failed"}'),
+    # Each is correctly signed and moves no money. Most are `ignored`; `payment.failed` is
+    # acked as `failed` (a handled non-money event — an operator sees it, the provider stops
+    # retrying), which is still the property this test guards: 200, and no ledger row.
+    for label, raw, expected in (
+        ("not JSON at all", b"{ not json", "ignored"),
+        ("a JSON list, not an envelope", b'["payment.captured"]', "ignored"),
+        ("a bare JSON string", b'"payment.captured"', "ignored"),
+        ("an object with no event", b"{}", "ignored"),
+        ("an event this deployment ignores", b'{"event": "payment.authorized"}', "ignored"),
+        ("a failed payment, acked", b'{"event": "payment.failed"}', "failed"),
     ):
         signature = hmac.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
         async with _client() as http:
@@ -746,7 +750,7 @@ async def test_a_signed_body_that_is_not_a_capture_envelope_is_acked_not_500ed()
                 },
             )
         assert response.status_code == 200, f"{label}: {response.text}"
-        assert response.json()["status"] == "ignored", label
+        assert response.json()["status"] == expected, label
 
     assert await _ledger(tenant_id) == []
 

@@ -150,6 +150,12 @@ const NOT_TENANT_DATA: Record<string, string> = {
     "when someone edits the environment, which is why the hook also sets " +
     "`staleTime: Infinity`. Keying it per org would mint one cache entry per tenant for " +
     "one platform fact. NOT CLOSEABLE: it is correct as it stands.",
+  'lib/api/billing.ts — ["billing", "credit-packs"]':
+    "The prepaid credit-pack rate card. It is a PLATFORM fact, not tenant data — the " +
+    "static catalogue priced at the deployment's list rate (`self_serve_inr_per_min`), " +
+    "identical for every tenant and changing only when the catalogue or that rate does, " +
+    "which is why the hook sets `staleTime: Infinity`. Keying it per org would mint one " +
+    "cache entry per tenant for one shared answer. NOT CLOSEABLE: correct as it stands.",
 };
 
 describe("client-realm query keys", () => {
