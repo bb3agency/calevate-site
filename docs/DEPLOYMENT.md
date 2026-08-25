@@ -311,7 +311,7 @@ and nothing in this repo pins a core count. Move when the trigger fires, not bef
 |---|---|---|---|
 | vCPU / RAM | **1 / 4 GB** | 2 / 8 GB | ≥4 / ≥8 GB |
 | Disk | 50 GB NVMe | 100 GB | 100 GB+ |
-| `voice-runtime --workers` | **1** | 2 | 4 |
+| `voice-runtime --workers` (`VOICE_RUNTIME_WORKERS` in `.env`) | **1** | 2 | 4 |
 | Supported peak in-flight | ~1–20 (test + first client) | ~100 (pilot) | 250+ (§2a) |
 | `DB_POOL_SIZE` | **6** | 12 | 12–16 (§2a table) |
 | Postgres `max_connections` | **100** | 200 | 200 |
@@ -615,7 +615,9 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    is a real preflight rather than a plan printout.
    Two host facts are checked here as well, both stated as rules by this document and
    neither previously verified anywhere: **`VOICE_RUNTIME_WORKERS ≤ nproc`** (§2a — a
-   refusal; oversubscribing cores is paid out of the 500ms ack budget) and **2GB of swap
+   refusal; oversubscribing cores is paid out of the 500ms ack budget), resolved the same
+   way compose resolves it — shell first, then the project `.env`, then the default 4, so
+   the number the check judges is the number the container gets and **2GB of swap
    when `web` is in the plan** (§2 — a warning, since a large-RAM box legitimately needs
    none, and because the OOM killer takes `next build` with no error at all). With
    `NGINX_AUTO_RELOAD=1`, also: nginx installed, both target directories present, the
