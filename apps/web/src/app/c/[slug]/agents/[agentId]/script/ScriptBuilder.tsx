@@ -636,7 +636,19 @@ function CompiledPrompt({ text, onClose }: { text: string; onClose: () => void }
         This is exactly what the calling system runs — your opening, your script, and the
         platform rules the agent must always follow, which you cannot remove.
       </p>
-      <pre className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border border-line bg-black/[0.03] p-3 text-xs text-ink dark:bg-white/[0.03]">
+      {/* Focusable for the same reason every `ScrollRegion` is, on the other axis:
+          `max-h-[28rem]` makes this a VERTICALLY scrolling container, and no key scrolls a
+          non-focusable element, so a keyboard reader could see the first 28rem of the
+          compiled prompt and no more. Not `ScrollRegion` itself — that component is the
+          sideways case and hardcodes `overflow-x-auto` (its waiver's argument is written
+          there); this matches the integrations screen's delivered-payload `<pre>`. */}
+      <pre
+        role="region"
+        aria-label="Compiled prompt"
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
+        tabIndex={0}
+        className="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-md border border-line bg-black/[0.03] p-3 text-xs text-ink dark:bg-white/[0.03]"
+      >
         {text}
       </pre>
     </Card>

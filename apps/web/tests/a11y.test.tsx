@@ -37,6 +37,7 @@ import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
+import AgentScriptPage from "@/app/c/[slug]/agents/[agentId]/script/page";
 import NewAgentPage from "@/app/c/[slug]/agents/new/page";
 import AgentsPage from "@/app/c/[slug]/agents/page";
 import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
@@ -449,6 +450,70 @@ const AGENT_STATS = [
     last_call_at: "2026-08-20T11:05:00Z",
   },
 ];
+
+/**
+ * One OPEN knowledge gap — a question a live agent could not answer, found from a redacted
+ * transcript. Populated so the per-agent `KnowledgeGaps` card renders its full markup (the
+ * count badge, the quote, and the Teach/Dismiss controls) rather than its empty state,
+ * which is where the labelling risk this sweep is for actually lives.
+ */
+const KNOWLEDGE_GAP = {
+  id: "0192f0aa-5555-7000-8000-000000000001",
+  agent_id: "agent-1",
+  agent_name: "Front desk",
+  call_count: 3,
+  example_answer: "I'm not certain about that — let me have the team call you back.",
+  example_question: "Do you do root canal treatment?",
+  first_seen_at: "2026-08-10T06:00:00Z",
+  last_seen_at: "2026-08-13T04:30:00Z",
+  occurrence_count: 5,
+  signal: "dont_know",
+  status: "open",
+  topic_key: "root_canal",
+  topic_label: "Root canal treatment",
+  kb_source_id: null,
+  resolution: null,
+  resolved_at: null,
+  resolved_by: null,
+};
+
+/**
+ * A populated structured call script (`GET /v1/agents/{id}/script`), so the builder renders
+ * its full authoring surface — opening line, ordered steps, FAQ pairs with a fallback, end-
+ * call rules, declared merge variables and the AI-assist panel — rather than an empty form.
+ * That is the state with the labelling risk (every step and FAQ is its own labelled control
+ * pair), which is what this sweep exists to scan.
+ */
+const SCRIPT = {
+  script: {
+    opening_line:
+      "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is recorded.",
+    steps: [
+      { instruction: "Confirm the caller's name and why they are calling." },
+      { instruction: "Offer the next available appointment slot." },
+    ],
+    faqs: [
+      {
+        question: "What are your consultation charges?",
+        answer: "Our consultation fee is {{ consultation_fee }}.",
+      },
+    ],
+    faq_fallback:
+      "I'm not certain about that — our team will call you back with the details.",
+    end_call_extra_rules: ["Always thank the caller before ending the call."],
+    variables: [
+      { key: "consultation_fee", label: "Consultation fee", example: "₹500" },
+    ],
+    raw_override: null,
+  },
+  version: 4,
+  is_freeform: false,
+  has_pending: false,
+  standard_variables: [
+    { key: "business_name", label: "Business name" },
+    { key: "caller_name", label: "Caller name" },
+  ],
+};
 
 const LEAD = {
   id: "lead-a",
@@ -1006,6 +1071,14 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/dashboard": DASHBOARD,
       "/v1/usage": USAGE,
       "/v1/calls?limit=6": [CALL],
+      // The dashboard-home `KnowledgeGaps` card (all agents). One OPEN gap so the sweep
+      // covers its populated markup — the count badge, the quote, the agent name and the
+      // Teach/Dismiss controls — rather than the empty state.
+      "/v1/knowledge-gaps?status=open&limit=20": {
+        items: [KNOWLEDGE_GAP],
+        open_count: 1,
+        total: 1,
+      },
     },
   },
   {
@@ -1307,6 +1380,29 @@ const CLIENT_SCREENS: Screen[] = [
           updated_at: "2026-08-12T09:30:00Z",
         },
       ],
+      // The `KnowledgeGaps` card scoped to this agent — one OPEN gap so the sweep covers
+      // the count badge, the quote and the Teach/Dismiss controls, not the empty state.
+      "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
+        items: [KNOWLEDGE_GAP],
+        open_count: 1,
+        total: 1,
+      },
+    },
+  },
+  {
+    // The structured call-script builder. Swept with a populated script so axe sees the
+    // real authoring surface — labelled fields for the opening line, each step and FAQ, the
+    // variable inserts, and the AI-assist panel — the state where a missing label bites.
+    file: "c/[slug]/agents/[agentId]/script/page.tsx",
+    realm: "client",
+    element: () => (
+      <AgentScriptPage
+        params={Promise.resolve({ slug: "acme", agentId: "agent-1" })}
+      />
+    ),
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents/agent-1/script": SCRIPT,
     },
   },
   {

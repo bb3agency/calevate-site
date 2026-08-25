@@ -67,12 +67,20 @@ export interface Benchmark {
  */
 export const TELECALLER: {
   callsPerAgentPerDay: Benchmark;
+  talkHoursPerDay: Benchmark;
   basePerAgentInr: Benchmark;
   loadedPerAgentInr: Benchmark;
   attritionPctPerYear: Benchmark;
   replacementCostInr: Benchmark;
 } = {
   callsPerAgentPerDay: { default: 100, min: 60, max: 140, step: 5 },
+  // Productive TALK hours in a shift — the second, harder ceiling on how many calls one
+  // agent can take. A 5.5–6.5 hour shift is not 6 hours of talk: dialling, ringing,
+  // no-answers, wrap-up and breaks eat into it, so ~5h of actual talk is a generous
+  // upper bound (many report 3–4h). This is what makes headcount rise with call length —
+  // a fixed "calls per agent" pretends one person can talk for impossible hours on long
+  // calls, which is the single thing that made this comparison read wrong at 4-min calls.
+  talkHoursPerDay: { default: 5, min: 3, max: 6.5, step: 0.5 },
   basePerAgentInr: { default: 21_240, min: 15_000, max: 30_000, step: 500 },
   loadedPerAgentInr: { default: 32_000, min: 20_000, max: 45_000, step: 500 },
   attritionPctPerYear: { default: 40, min: 20, max: 60, step: 1 },
@@ -108,8 +116,10 @@ export interface RoiInputs {
   workingDays: number;
   /** Calevate price in paise/min — defaults to {@link CALEVATE_PAISE_PER_MIN}. */
   calevatePaisePerMin?: number;
-  /** Calls one telecaller handles per day. */
+  /** Dial ceiling: the most calls one telecaller can start in a day (dialling/wrap-limited). */
   callsPerAgentPerDay: number;
+  /** Productive talk hours per agent per day — the talk-time ceiling on daily calls. */
+  talkHoursPerDay: number;
   /** Advertised base pay per agent per month, in whole rupees. */
   basePerAgentInr: number;
   /** Fully loaded cost per agent per month, in whole rupees. */
@@ -129,7 +139,14 @@ export interface RoiInputs {
 export interface RoiResult {
   /** Calls per month = callsPerDay × workingDays. */
   callsPerMonth: number;
-  /** Telecallers needed = ceil(callsPerDay / callsPerAgentPerDay). */
+  /**
+   * Calls ONE agent can actually handle a day at this call length = the smaller of the
+   * dial ceiling and the talk-time ceiling (floor(talkHours×60 / avgMinutes)). This is
+   * what falls as calls get longer, so headcount rises with duration just as Calevate's
+   * per-minute cost does — the honest apples-to-apples the fixed "100 calls" hid.
+   */
+  effectiveCallsPerAgentPerDay: number;
+  /** Telecallers needed = ceil(callsPerDay / effectiveCallsPerAgentPerDay). */
   headcount: number;
   /** Fleet base pay (headcount × base), in paise. */
   humanBasePaise: number;
@@ -179,8 +196,19 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
     (callsPerMonth * minuteHundredths * calevatePaisePerMin) / 100,
   );
 
-  // Telecaller headcount and cost.
-  const perAgent = Math.floor(nonNeg(inputs.callsPerAgentPerDay));
+  // Telecaller headcount. A human's day is bounded BOTH ways: a dial ceiling (dialling,
+  // ringing, no-answers, wrap-up between calls) AND raw talk-time. At short calls the dial
+  // ceiling binds; as calls get longer the talk-time ceiling takes over, because one
+  // person cannot talk for more hours than a shift holds. Taking the SMALLER of the two is
+  // what makes headcount — and so the human bill — rise with call length, instead of
+  // pretending 100 four-minute calls (≈6.7h of pure talk) fit in a shift.
+  const dialCeiling = Math.floor(nonNeg(inputs.callsPerAgentPerDay));
+  const talkMinutesPerDay = nonNeg(inputs.talkHoursPerDay) * 60;
+  const talkCeiling =
+    minuteHundredths > 0
+      ? Math.floor((talkMinutesPerDay * 100) / minuteHundredths)
+      : dialCeiling;
+  const perAgent = Math.max(0, Math.min(dialCeiling, talkCeiling));
   const headcount = perAgent > 0 ? Math.ceil(callsPerDay / perAgent) : 0;
 
   const baseInr = Math.round(nonNeg(inputs.basePerAgentInr));
@@ -215,6 +243,7 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
 
   return {
     callsPerMonth,
+    effectiveCallsPerAgentPerDay: perAgent,
     headcount,
     humanBasePaise,
     humanUpliftPaise,

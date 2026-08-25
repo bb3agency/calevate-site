@@ -19,6 +19,7 @@ const BASE: RoiInputs = {
   avgMinutes: 2,
   workingDays: 26,
   callsPerAgentPerDay: 100,
+  talkHoursPerDay: 5,
   basePerAgentInr: 21_240,
   loadedPerAgentInr: 32_000,
   attritionPctPerYear: 40,
@@ -68,6 +69,26 @@ describe("computeRoi — telecaller headcount", () => {
     expect(computeRoi({ ...BASE, callsPerDay: 300, callsPerAgentPerDay: 60 }).headcount).toBe(5);
     expect(computeRoi({ ...BASE, callsPerDay: 300, callsPerAgentPerDay: 140 }).headcount).toBe(3);
   });
+
+  it("caps a short call at the DIAL ceiling, a long call at the TALK ceiling", () => {
+    // 2-min calls, 5h talk = 150 talk-slots, but the dial ceiling of 100 is smaller.
+    const short = computeRoi({ ...BASE, avgMinutes: 2 });
+    expect(short.effectiveCallsPerAgentPerDay).toBe(100);
+    expect(short.headcount).toBe(2); // ceil(200 / 100)
+
+    // 4-min calls: 5h talk ÷ 4 = 75 slots now BELOW the dial ceiling, so it binds and
+    // headcount rises with duration — the honest fix for "one agent = 100 calls" pretending
+    // a person can talk 6.7 hours. 100 four-minute calls is physically impossible.
+    const long = computeRoi({ ...BASE, avgMinutes: 4 });
+    expect(long.effectiveCallsPerAgentPerDay).toBe(75); // floor(300 / 4)
+    expect(long.headcount).toBe(3); // ceil(200 / 75), was 2 under the old fixed model
+  });
+
+  it("never lets talk-time exceed the dial ceiling on very short calls", () => {
+    // 0.5-min calls would allow 600 talk-slots, but nobody dials more than the ceiling.
+    const r = computeRoi({ ...BASE, avgMinutes: 0.5, callsPerAgentPerDay: 100 });
+    expect(r.effectiveCallsPerAgentPerDay).toBe(100);
+  });
 });
 
 describe("computeRoi — loaded cost and attrition", () => {
@@ -105,10 +126,11 @@ describe("computeRoi — loaded cost and attrition", () => {
     const r = computeRoi(BASE);
     // ₹74,000 − ₹52,000 = ₹22,000 in Calevate's favour.
     expect(r.deltaPaise).toBe(2_200_000);
-    // At high minutes-per-call filling a single agent, the fixed-cost headcount can beat
-    // pay-per-minute; the model must not hide it. 100 calls/day (still one agent) × 26 ×
-    // 10 min × ₹5 = ₹1,30,000 vs one telecaller at ₹37,000.
-    const lopsided = computeRoi({ ...BASE, callsPerDay: 100, avgMinutes: 10 });
+    // At high minutes-per-call, a single agent's fixed cost can beat pay-per-minute; the
+    // model must not hide it. With the duration-aware ceiling, a 10-min call lets one agent
+    // handle only floor(5h×60 / 10) = 30 calls/day, so 30 calls/day is still exactly one
+    // telecaller: 30 × 26 × 10 min × ₹5 = ₹39,000 of Calevate vs one telecaller at ₹37,000.
+    const lopsided = computeRoi({ ...BASE, callsPerDay: 30, avgMinutes: 10 });
     expect(lopsided.headcount).toBe(1);
     expect(lopsided.deltaPaise).toBeLessThan(0);
   });
