@@ -1,0 +1,87 @@
+# WHO MAY REACH THIS ORIGIN AT ALL — and why it is not `allow`/`deny`.
+#
+# THE DEFECT THIS FILE FIXES, found on the first host that ever proxied traffic. The
+# origin snippet paired every Cloudflare range as
+#
+#     set_real_ip_from  103.21.244.0/22;
+#     allow             103.21.244.0/22;
+#
+# which reads as "trust this address and accept a connection from it", and does not work.
+# nginx's own documentation for ngx_http_realip is explicit: `set_real_ip_from` "changes
+# the client address for all places where the client address is used, INCLUDING THE ACCESS
+# MODULE" (see also nginx trac #1418, "Allow/Deny don't correctly work with
+# realip_module"). realip runs in the post-read/pre-access phases, so by the time
+# `allow`/`deny` is evaluated, `$remote_addr` has already been replaced with the VISITOR's
+# address out of `CF-Connecting-IP`. The Cloudflare ranges therefore match nothing, and the
+# closing `deny all` refuses every proxied request.
+#
+# It fails in the direction that looks like a working lock. Direct-to-IP is refused —
+# correct — and every real visitor is refused too, with the identical 403, so the config
+# reads as "origin locked" right up until the moment somebody tries to use the product.
+# `admin.calevate.tech` returned 403 to its own first administrator holding a valid
+# single-use setup link.
+#
+# THE ADDRESS TO TEST IS `$realip_remote_addr`, which is the one realip preserves: the
+# peer that actually opened the connection, i.e. Cloudflare's edge. `allow` cannot take a
+# variable, so the decision moves to `geo` + a `map` here at http scope, and the snippet
+# turns it into a refusal inside each server block.
+#
+# WHY THE LOOPBACK TEST IS SEPARATE AND READS `$remote_addr`. A local request carries no
+# `CF-Connecting-IP`, so nothing is rewritten. Rather than depend on what
+# `$realip_remote_addr` holds when no replacement happened — which the documentation does
+# not settle and which this deployment must not be the place to find out — loopback is
+# asked about the variable that is unconditionally the peer. The deploy's own health poll
+# and any on-box curl go through this arm.
+#
+# --- HOW TO REFRESH -------------------------------------------------------------
+# Cloudflare's authoritative list is https://www.cloudflare.com/ips-v4 and /ips-v6.
+# `scripts/vps-deploy.sh::check_cloudflare_ip_age` FAILS the deploy when the stamp below
+# is older than CLOUDFLARE_IPS_MAX_AGE_DAYS (180): a stale allowlist does not degrade, it
+# either blocks real traffic or trusts an address Cloudflare has released.
+#
+# CLOUDFLARE_IPS_UPDATED: 2026-06-29
+# Source: cloudflare.com/ips. If a range here disagrees with that page, that page is right.
+# --------------------------------------------------------------------------------
+#
+# Substituted variables: none. Kept as a `.template` so `render_nginx` stages every
+# conf.d file the same way and `install_nginx`'s byte-comparison covers this one too.
+
+geo $realip_remote_addr $calevate_from_cloudflare {
+    default 0;
+
+    173.245.48.0/20 1;
+    103.21.244.0/22 1;
+    103.22.200.0/22 1;
+    103.31.4.0/22 1;
+    141.101.64.0/18 1;
+    108.162.192.0/18 1;
+    190.93.240.0/20 1;
+    188.114.96.0/20 1;
+    197.234.240.0/22 1;
+    198.41.128.0/17 1;
+    162.158.0.0/15 1;
+    104.16.0.0/13 1;
+    104.24.0.0/14 1;
+    172.64.0.0/13 1;
+    131.0.72.0/22 1;
+
+    2400:cb00::/32 1;
+    2606:4700::/32 1;
+    2803:f800::/32 1;
+    2405:b500::/32 1;
+    2405:8100::/32 1;
+    2a06:98c0::/29 1;
+    2c0f:f248::/32 1;
+}
+
+geo $remote_addr $calevate_from_loopback {
+    default 0;
+    127.0.0.1 1;
+    ::1 1;
+}
+
+# 1 only when BOTH are 0 — not from Cloudflare and not from this box.
+map "$calevate_from_cloudflare$calevate_from_loopback" $calevate_origin_denied {
+    default 0;
+    "00" 1;
+}
