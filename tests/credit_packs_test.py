@@ -317,6 +317,55 @@ async def test_the_bonus_survives_a_direct_replay_via_the_ledger_ref() -> None:
     ]
 
 
+async def test_a_direct_second_grant_of_a_pack_bonus_is_a_no_op() -> None:
+    """The defense-in-depth guard inside `_grant_pack_bonus` itself.
+
+    `credit_captured_payment` short-circuits on the paid `topup` replay (its own
+    `find_topup` guard) and returns before it ever re-enters `_grant_pack_bonus`, so the
+    replay tests above never exercise the bonus leg's OWN idempotency. This one does:
+    it drives `_grant_pack_bonus` directly a second time — the state a manual replay or a
+    future caller that bypasses the outer guard would produce — and asserts the second
+    call finds the existing `bonus` row by ref and returns it, appending no second bonus
+    ledger entry. Same check-then-write-under-lock discipline the paid leg uses, proven
+    against the branch that carries it."""
+    tenant_id, _ = await _self_serve_tenant()
+    payment_id = _payment_id("BONUS-DIRECT")
+    payment = payments.CapturedPayment(
+        payment_id=payment_id,
+        tenant_id=tenant_id,
+        amount_inr=Decimal("50000.00"),
+        currency="INR",
+        pack_id="max",
+    )
+    pack = pack_by_id("max")
+    assert pack is not None
+    async with tenant_session(tenant_id) as session:
+        first = await payments.credit_captured_payment(session, payment=payment)
+    assert first.bonus_entry_id is not None
+    assert first.bonus_inr == Decimal("4000.0000")  # 8% of 50000
+
+    # A SECOND, DIRECT grant — the paid topup and the bonus both already exist. The outer
+    # `credit_captured_payment` would never reach here (it short-circuits on the paid row),
+    # so this is the only vehicle for the branch.
+    async with tenant_session(tenant_id) as session:
+        replay = await payments._grant_pack_bonus(
+            session,
+            payment=payment,
+            pack=pack,
+            paid_entry_id=first.entry_id,
+            ip=None,
+        )
+
+    assert replay.recorded is True
+    assert replay.bonus_entry_id == first.bonus_entry_id  # the existing row, not a new one
+    assert replay.bonus_inr == Decimal("4000.0000")
+    # Still exactly one topup and one bonus row — the second grant wrote nothing.
+    assert await _ledger(tenant_id) == [
+        ("topup", Decimal("50000.0000"), payment_id),
+        ("bonus", Decimal("4000.0000"), payment_id),
+    ]
+
+
 async def test_a_plain_topup_grants_no_bonus() -> None:
     """No pack in the notes → one `topup` row and nothing else."""
     tenant_id, _ = await _self_serve_tenant()
