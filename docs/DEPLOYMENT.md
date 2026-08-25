@@ -1331,6 +1331,33 @@ second file because Next reads `.env*` from the PACKAGE directory and inlines ev
 a console whose API base is the visitor's own localhost, behind a page that answers the
 health poll 200.
 
+### 9.5 note — the origin lock is `geo` + `map`, never `allow`/`deny`
+
+The obvious construction pairs each Cloudflare range as `set_real_ip_from X; allow X;`
+inside one snippet, on the reasoning that a single list cannot drift from itself. **It
+refuses every visitor.** nginx's realip documentation says `set_real_ip_from` "changes the
+client address for all places where the client address is used, including the access
+module", and realip runs before the access phase — so `allow`/`deny` compares Cloudflare's
+ranges against the address out of `CF-Connecting-IP`, i.e. the VISITOR's, which never
+matches, and the closing `deny all` takes everything (nginx trac #1418).
+
+It fails in the shape of a working lock: direct-to-IP is refused, which is what the config
+promises, and so is every real request, with the identical 403. On this deployment it was
+found by the first administrator clicking a valid single-use setup link.
+
+So the decision is `geo` on **`$realip_remote_addr`** — the peer realip preserves — in
+`infra/nginx/origin-trust.conf.template` at http scope (`geo` and `map` are not valid in a
+snippet), and `snippets/calevate-origin.conf` keeps only the real-ip restoration plus
+`if ($calevate_origin_denied) { return 403; }`. Loopback is judged separately on
+`$remote_addr`, because a local request rewrites nothing and what `$realip_remote_addr`
+holds in that case is not settled by the documentation — the deploy's own health poll goes
+through that arm and is not the place to find out.
+
+Both files carry the ranges and both carry a `CLOUDFLARE_IPS_UPDATED` stamp;
+`check_cloudflare_ip_age` reads each, and `tests/nginx_origin_trust_test.py` fails if the
+two lists diverge. That is the guarantee the paired-lines layout was reaching for, kept
+somewhere it works.
+
 ### 9.5a Step 5 in full — the certificate order, which is not the obvious one
 
 The obvious order deadlocks: `certbot certonly --webroot` needs nginx serving

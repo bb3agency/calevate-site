@@ -570,7 +570,13 @@ check_dev_compose_cannot_collide() {
 }
 
 check_cloudflare_ip_age() {
-  local conf="$ROOT/infra/nginx/snippets/calevate-origin.conf" stamp age_days
+  # BOTH FILES CARRY THE RANGES NOW and both carry the stamp: `origin-trust.conf` decides
+  # who may connect, `snippets/calevate-origin.conf` decides whose `CF-Connecting-IP` to
+  # trust. Checking only one would let the other go stale silently — and the stale one
+  # would be the security control either way round.
+  local conf stamp age_days
+  for conf in "$ROOT/infra/nginx/origin-trust.conf.template" \
+              "$ROOT/infra/nginx/snippets/calevate-origin.conf"; do
   [[ -f "$conf" ]] || die "missing $conf"
   # `if grep`, not `grep || true`. The header of this file says there is no `|| true` in
   # it and none should be added; there was one, here, and it made that sentence false in
@@ -587,7 +593,8 @@ check_cloudflare_ip_age() {
     "Cloudflare IP ranges in $conf were last refreshed $stamp (${age_days} days ago).
      Refresh from https://www.cloudflare.com/ips-v4 and /ips-v6, update the stamp, commit,
      and redeploy. A stale list either blocks live traffic or trusts a released address."
-  log "cloudflare ranges refreshed $stamp (${age_days}d ago, limit ${CLOUDFLARE_IPS_MAX_AGE_DAYS}d)"
+  log "cloudflare ranges in $(basename "$conf") refreshed $stamp (${age_days}d ago, limit ${CLOUDFLARE_IPS_MAX_AGE_DAYS}d)"
+  done
 }
 
 # --- 2. get to the commit CI validated ----------------------------------------------
@@ -1059,6 +1066,10 @@ render_nginx() {
   envsubst "$subst" < "$ROOT/infra/nginx/calevate.conf.template"     > "$staging/calevate-site.conf"
   envsubst "$subst" < "$ROOT/infra/nginx/000-default.conf.template"  > "$staging/000-default.conf"
   envsubst "$subst" < "$ROOT/infra/nginx/rate-zones.conf.template"   > "$staging/calevate-rate-zones.conf"
+  # http-scope, and it must be a conf.d file rather than a snippet: `geo` and `map` are
+  # only valid there, which is the whole reason the origin decision could not stay in
+  # `snippets/calevate-origin.conf` (see that file, and origin-trust.conf.template).
+  envsubst "$subst" < "$ROOT/infra/nginx/origin-trust.conf.template"  > "$staging/calevate-origin-trust.conf"
 
   # An unsubstituted placeholder means a variable was added to a template and not to the
   # list above. nginx would accept the literal `${FOO}` in many positions and fail in
