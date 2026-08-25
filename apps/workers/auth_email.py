@@ -61,33 +61,20 @@ from typing import Any
 from arq import Retry
 
 from apps.api.core.alerting import alert
-from apps.api.core.console_links import (
-    CONSOLE_BASE,
-    accept_invitation_link,
-    admin_bootstrap_link,
-    password_reset_link,
-)
+from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.workers.email_render import SUBJECTS as _SUBJECTS
+from apps.workers.email_render import render
 from apps.workers.transport import _domain, get_transport
 
 log = get_logger(__name__)
 
-#: Subject lines, keyed by the `kind` `authn/service._enqueue_auth_email` sends. A closed
-#: mapping rather than a formatted string, so an unknown kind is a loud failure rather than
-#: an email with a blank subject.
-_SUBJECTS: dict[str, str] = {
-    "password_reset": "Reset your Calevate password",
-    "otp_email_verify": "Your Calevate verification code",
-    "otp_login_challenge": "Your Calevate sign-in code",
-    "otp_step_up": "Your Calevate authorization code",
-    "invite_password": "You have been invited to Calevate",
-    # The operator setup link, for the FIRST administrator (`scripts/bootstrap_admin`) and
-    # for every one a superadmin adds afterwards (`authn/operators.create_operator`). One
-    # kind because it is one act — set the first password on an `admin_users` row — and
-    # `authn/service.enqueue_admin_setup_email` argues why it is not two.
-    "admin_bootstrap": "Set up your Calevate administrator account",
-}
+#: RE-EXPORTED from `email_render`, which owns both halves of every message. It lived
+#: here as its own literal while the bodies lived here too; splitting the subject from
+#: the body it belongs to is how a kind ends up with one and not the other.
+_SUBJECTS = _SUBJECTS
+
 
 #: `CONSOLE_BASE` is RE-EXPORTED, not defined here. `workers/notifications.py` imports it
 #: from this module to link a hot-lead alert back to the lead it is about, and that import
@@ -109,56 +96,13 @@ def _retry_after(attempt: int) -> float:
 
 
 def _body(kind: str, realm: str, secret: str) -> str:
-    """The message. Plain text, because a transactional secret does not need HTML and an
-    HTML mail is one more thing that can render wrong in a client we have never seen.
+    """The plain-text part, for the callers and tests that only want that.
 
-    Every URL comes from `core/console_links`, which is the only place that knows what a
-    console page is called. This function composed them itself until two of the three
-    named pages that are not served — see that module's docstring.
+    Delegates to `email_render`, which composes text and HTML from the same inputs so the
+    two cannot say different things. This function used to BE the composer and held every
+    URL as a literal — which is how two of the three named pages nobody serves.
     """
-    if kind == "password_reset":
-        return (
-            "Someone asked to reset the password for this Calevate account.\n\n"
-            f"{password_reset_link(realm, secret)}\n\n"
-            "This link works once and expires in one hour. If this was not you, you can "
-            "ignore this email — your password has not changed."
-        )
-    if kind == "invite_password":
-        # `/auth/accept-invitation`, NOT `/invite`. Both reach the same page — `/invite`
-        # survives as a client-side redirect for links already sitting in inboxes — but
-        # D-177's rule is that newly minted links name the surviving page directly, and
-        # this template mints them. It pointed at the legacy path while nothing sent it;
-        # D-190 made it the only way an invitation reaches anybody, which is what turned a
-        # stale string into a live extra hop.
-        return (
-            "You have been invited to a Calevate workspace.\n\n"
-            f"{accept_invitation_link(secret)}\n\n"
-            "This link works once and expires in 72 hours. If you were not expecting it, "
-            "you can ignore this email — nothing happens until you open it."
-        )
-    if kind == "admin_bootstrap":
-        # The admin console page that POSTs this token to
-        # `/v1/auth/admin/bootstrap/confirm`. It said `/bootstrap` here, and
-        # `scripts/bootstrap_admin` said `/bootstrap` too, and the guard that compared them
-        # compared them to EACH OTHER — so a page nobody serves passed as agreed. One
-        # composer now, checked against the route tree.
-        return (
-            "You have been given an administrator account on a Calevate deployment.\n\n"
-            f"Set your password:\n\n{admin_bootstrap_link(secret)}\n\n"
-            "This link works once and expires in one hour. If it expires, ask the "
-            "administrator who added you to send another."
-        )
-    # OTP kinds. One code, one sentence about what it is for.
-    if kind == "otp_login_challenge":
-        what = "sign in"
-    elif kind == "otp_step_up":
-        what = "authorize this action"
-    else:
-        what = "confirm your email address"
-    return (
-        f"Your Calevate code to {what} is:\n\n    {secret}\n\n"
-        "It expires in 10 minutes. If you did not ask for it, you can ignore this email."
-    )
+    return render(kind, realm, secret).text
 
 
 async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -183,9 +127,10 @@ async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         # first attempt with a message that names the defect.
         raise ValueError(f"auth email payload is not deliverable (kind={kind!r})")
 
+    message = render(kind, realm, secret)
     transport = get_transport()
     delivered = await asyncio.to_thread(
-        lambda: transport.send(to=to, subject=subject, body=_body(kind, realm, secret))
+        lambda: transport.send(to=to, subject=message.subject, body=message.text, html=message.html)
     )
     if not delivered:
         # Domain only — never the mailbox (hard rule 6), never the secret.

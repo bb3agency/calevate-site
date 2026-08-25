@@ -147,7 +147,13 @@ RESEND_POOL_TIMEOUT_S = 1.0
 class Transport(Protocol):
     name: str
 
-    def send(self, *, to: str, subject: str, body: str) -> bool: ...
+    #: `html` is the ALTERNATIVE part, never the only one. `body` stays required and stays
+    #: the text a screen reader, a terminal client and an inbox preview pane read; a
+    #: transport that received html and dropped the text would be sending a message some
+    #: readers cannot open. Default None so the OTP mails — austere by decision, see
+    #: `email_render` — need not pass it, and so `alerting._deliver` and every other
+    #: non-auth caller is unchanged.
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool: ...
 
 
 def _domain(address: str) -> str:
@@ -190,7 +196,7 @@ class ResendTransport:
         self._api_key = api_key
         self._sender = sender
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         # IMPORTED HERE, NOT AT MODULE SCOPE, and it is load-bearing rather than a style
         # choice. `alerting._deliver` imports this module on a daemon thread inside
         # `apps/voice-runtime`, whose ack budget is 500ms and whose import surface is
@@ -204,7 +210,17 @@ class ResendTransport:
         # `to` as a one-element ARRAY rather than a bare string. Both are schema-valid
         # (READ AT SOURCE), and the array is the shape that does not change meaning if a
         # caller ever passes an address containing a comma.
-        payload = {"from": self._sender, "to": [to], "subject": subject, "text": body}
+        payload: dict[str, Any] = {
+            "from": self._sender,
+            "to": [to],
+            "subject": subject,
+            "text": body,
+        }
+        # BOTH PARTS, and `text` is not optional when `html` is present. Resend sends a
+        # multipart/alternative when it receives both; given only `html` it sends an
+        # HTML-only message, which is the one a plain-text client shows as nothing at all.
+        if html is not None:
+            payload["html"] = html
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -384,12 +400,18 @@ class SmtpTransport:
         self._sender = sender
         self._use_tls = use_tls
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         message = EmailMessage()
         message["From"] = self._sender
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
+        # `add_alternative` after `set_content` is what makes this multipart/alternative
+        # with the text part FIRST — the order is the standard's, and it is what decides
+        # which part a client that understands both chooses to show (the last one) and
+        # which a client that understands neither falls back to (the first).
+        if html is not None:
+            message.add_alternative(html, subtype="html")
         try:
             with smtplib.SMTP(self._host, self._port, timeout=SMTP_TIMEOUT_S) as smtp:
                 if self._use_tls:
@@ -453,11 +475,15 @@ class ConsoleTransport:
 
     name = "console"
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         extra: dict[str, Any] = {
             "recipient_domain": _domain(to),
             "subject": subject,
             "chars": len(body),
+            # The TEXT is what gets logged, deliberately, even when html exists: a
+            # developer reading a terminal wants the link, not 4KB of table markup. The
+            # flag is here so "did the branded version render?" is answerable without it.
+            "has_html": html is not None,
         }
         if get_settings().app_env == "local":
             # The delivery itself. A sink that reports success while discarding the
@@ -486,7 +512,7 @@ class NullTransport:
     def __init__(self, reason: str = "unconfigured") -> None:
         self.reason = reason
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         log.warning(
             "email_no_transport",
             extra={"recipient_domain": _domain(to), "reason": self.reason},
