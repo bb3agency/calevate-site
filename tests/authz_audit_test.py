@@ -335,6 +335,12 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
     "/v1/compliance/messaging-consent/lookup": (
         "'May we message this number?' — the same shape and the same reason as `/v1/dnc/check`"
     ),
+    "/v1/agents/{agent_id}/script/preview": (
+        "compiles a (possibly unsaved) structured script into the exact engine prompt and "
+        "writes nothing — `script_builder.compiled_preview` only runs the composer. It is a "
+        "POST because the whole `CallScript` travels in the body, not because it mutates, so "
+        "it keeps `agents:read` (the reader scope) rather than a manage permission"
+    ),
     "/v1/compliance/subject-export": (
         "a DPDP §11 access request: it reads one data principal's record, and the "
         "identifier that selects it is the personal data itself"

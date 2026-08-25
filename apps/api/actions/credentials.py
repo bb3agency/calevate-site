@@ -51,6 +51,13 @@ from apps.api.db.result import rowcount_of
 log = get_logger(__name__)
 
 
+# A per-tenant ceiling so the credential list a tenant can mint (and that
+# `GET /v1/integrations/credentials` materialises in full) cannot grow without bound
+# (`scripts/check_list_bounds.py`, D-302). Generous vs any real account's set of BSP keys
+# and calendar connections; a request past it is misuse, not a shape we serve.
+MAX_CREDENTIALS_PER_TENANT = 100
+
+
 def credential_context(tenant_id: UUID, credential_id: UUID) -> str:
     """The AAD one integration credential is sealed under. ONE definition.
 
@@ -139,6 +146,15 @@ async def create_credential(
     """
     _refuse_bad_kind(kind)
     _refuse_empty(secret)
+    existing = (
+        await session.execute(text("SELECT count(*) FROM integration_credentials"))
+    ).scalar_one()
+    if existing >= MAX_CREDENTIALS_PER_TENANT:
+        raise ProblemError.business_rule(
+            "integration_credential_limit",
+            f"An account may keep at most {MAX_CREDENTIALS_PER_TENANT} saved credentials.",
+            remediation="Delete an unused credential before saving another.",
+        )
     if not label.strip():
         raise ProblemError(
             kind="validation",

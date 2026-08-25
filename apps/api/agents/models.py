@@ -229,6 +229,14 @@ class Agent(PKMixin, TimestampMixin, Base):
     max_call_duration_s: Mapped[int | None] = mapped_column(Integer)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    # THE PER-AGENT MASTER SWITCH for in-call Actions/tools (migration
+    # e1f7a3c920b4). Default FALSE: an agent nobody configured actions for makes no
+    # mid-call external calls. Read by `actions/service.actions_enabled` and written
+    # by the Actions tab's master-switch route; the adapter only ships `api_tools`
+    # when this is on. Server-default keeps a row created outside this path safe.
+    api_actions_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     # THE LEGACY BUNDLE (migration f4a1d0b6e29c, D-163). Both notices joined, whatever
     # the toggles say — see `compliance/disclosure.bundled_disclosure_line` for why it
     # deliberately does NOT track what is spoken. Written, no longer read by the publish

@@ -38,6 +38,15 @@ from apps.api.integrations.egress_guard import assert_public_http_url
 # snake_case e.g. get_order_status").
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 
+# Ceilings on the caller-controlled counts this feature exposes in a response. A tenant mints
+# tools (like endpoints or knowledge sources), and `ActionsSettingsOut.tools` /
+# `ToolOut.params` echo the stored rows in full — so the counts get a stated bound rather
+# than trusting that operators keep them small (`scripts/check_list_bounds.py`, D-302). Both
+# are generous relative to any real agent; a request past them is misuse, not a shape we
+# materialise. `MAX_TOOL_PARAMS` also bounds the request model in `actions/routes.py`.
+MAX_TOOLS_PER_AGENT = 100
+MAX_TOOL_PARAMS = 50
+
 # The WhatsApp providers the WhatsApp kind may use, and the calendar providers the calendar
 # kind may use. Derived from the shared enum so a new provider is added in one place.
 _WHATSAPP_PROVIDERS = ("aisensy", "meta_cloud", "interakt", "custom")
@@ -259,6 +268,20 @@ async def create_tool(
         params_raw=params,
         config_raw=config,
     )
+    # A per-agent ceiling so the tool list a tenant can mint (and that every Actions-tab read
+    # materialises) cannot grow without bound. Counted under RLS, so it is this tenant's own
+    # tools for this agent. Checked before the INSERT rather than trusting the UI.
+    existing = (
+        await session.execute(
+            text("SELECT count(*) FROM action_tools WHERE agent_id = :aid"), {"aid": agent_id}
+        )
+    ).scalar_one()
+    if existing >= MAX_TOOLS_PER_AGENT:
+        raise ProblemError.business_rule(
+            "action_tool_limit",
+            f"An agent may have at most {MAX_TOOLS_PER_AGENT} actions.",
+            remediation="Remove an unused action before adding another.",
+        )
     if isinstance(parsed_config, CustomApiConfig):
         # SSRF-vet the external URL before the row exists — and again at execution, because
         # the tenant owns that name's DNS (egress_guard's TOCTOU argument).

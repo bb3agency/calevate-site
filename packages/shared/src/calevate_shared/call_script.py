@@ -161,6 +161,19 @@ GUARDRAILS_BLOCK: Final = (
 )
 
 
+#: Ceilings on the authored lists inside one `CallScript`. A script is a hand-curated config
+#: document, not a data feed — but every list field here is still CALLER-CONTROLLED, and a
+#: response that echoes the stored script (the builder's load/preview/assist reads) is
+#: materialised in full, so the count needs a stated bound rather than "authors keep scripts
+#: short" (`scripts/check_list_bounds.py`, D-302). These are generous relative to any real
+#: script and enforced by `max_length` on the fields below, so the bound is a property of the
+#: request model rather than of a reviewer.
+MAX_SCRIPT_STEPS: Final = 100
+MAX_SCRIPT_FAQS: Final = 200
+MAX_SCRIPT_VARIABLES: Final = 100
+MAX_END_CALL_RULES: Final = 100
+
+
 class ScriptVariable(BaseModel):
     """One `{{ }}` merge field the author has declared, with the label the UI shows.
 
@@ -240,11 +253,11 @@ class CallScript(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     opening_line: str = Field(default="", max_length=1000)
-    steps: list[ScriptStep] = Field(default_factory=list)
-    faqs: list[FaqEntry] = Field(default_factory=list)
+    steps: list[ScriptStep] = Field(default_factory=list, max_length=MAX_SCRIPT_STEPS)
+    faqs: list[FaqEntry] = Field(default_factory=list, max_length=MAX_SCRIPT_FAQS)
     faq_fallback: str = Field(default=DEFAULT_FAQ_FALLBACK, min_length=1, max_length=500)
-    end_call_extra_rules: list[str] = Field(default_factory=list)
-    variables: list[ScriptVariable] = Field(default_factory=list)
+    end_call_extra_rules: list[str] = Field(default_factory=list, max_length=MAX_END_CALL_RULES)
+    variables: list[ScriptVariable] = Field(default_factory=list, max_length=MAX_SCRIPT_VARIABLES)
     #: The raw escape hatch. `None` = structured mode. A string (including "") = raw mode:
     #: the compiler returns it unchanged. Legacy freeform prompts live here.
     raw_override: str | None = Field(default=None, max_length=20000)

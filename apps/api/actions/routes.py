@@ -23,7 +23,6 @@ import json
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from calevate_shared.client_address import client_ip
 from calevate_shared.config import SOURCE_IP_ALLOWLIST_BY_ENGINE
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -69,11 +68,11 @@ async def invoke_action(engine: str, tool_id: UUID, request: Request) -> dict[st
     structured payload (not a 5xx) so the agent can relay them to the caller rather than the
     call hearing dead air.
     """
-    source_ip = client_ip(
-        request.client.host if request.client else None,
-        request.headers,
-        app_env=get_settings().app_env,
-    )
+    # The trusted-proxy predicate, not the raw socket peer — behind nginx the peer is the
+    # edge (SEC-COMP §5, D-131). `client_request_ip` is the one door to that judgement in
+    # `apps/api` (`scripts/check_audit_ip.py`), and it is the same `client_ip` call the
+    # webhook receiver authenticates an unsigned engine with.
+    source_ip = client_request_ip(request)
     resolver = SOURCE_IP_ALLOWLIST_BY_ENGINE.get(engine)
     if resolver is None or source_ip is None or source_ip not in resolver(get_settings()):
         # Same posture as the webhook receiver: an unrecognised or unallowlisted caller is
@@ -292,7 +291,11 @@ class ToolIn(Strict):
     trigger: Literal["during_call", "after_call"] = "during_call"
     pre_call_message: str | None = Field(default=None, max_length=500)
     credential_id: UUID | None = None
-    params: list[ParamIn] = Field(default_factory=list)
+    # A tool's parameters are a hand-authored binding list, but still caller-controlled, and
+    # `ToolOut.params` echoes them in full — so the count is bounded on the request model
+    # rather than left to grow (`scripts/check_list_bounds.py`, D-302). Generous vs any real
+    # action; a request past it is a misuse, not a shape we materialise.
+    params: list[ParamIn] = Field(default_factory=list, max_length=service.MAX_TOOL_PARAMS)
     config: dict[str, Any]
 
 
@@ -588,11 +591,11 @@ class CalendarConnectOut(Strict):
 @router.get(
     "/actions/calendar/connect",
     response_model=CalendarConnectOut,
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("org:read"),
     summary="Begin Google Calendar OAuth — returns the consent URL",
 )
 async def calendar_connect(
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(requires("org:read")),
 ) -> CalendarConnectOut:
     """Start the OAuth flow. `state` carries the tenant so the callback can attribute the
     refresh token; it is signed context, not a bearer — the callback re-checks it.
