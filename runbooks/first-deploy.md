@@ -22,8 +22,15 @@ getting either wrong is expensive to undo.
 
 Nothing below can be improvised, and each is somebody else's to provide:
 
-- [ ] Root or sudo on a VPS: **≥4 vCPU, ≥4GB RAM** (§2a sizes 4 voice-runtime workers to
-      vCPU; `next build` peaks over 2GB), Ubuntu 22.04 or 24.04.
+- [ ] Root or sudo on a VPS running **Ubuntu 24.04 LTS**, sized by DEPLOYMENT §2b.
+      The STARTER profile is **1 vCPU / 4 GB / 50 GB** and is what a launch and the first
+      client need; §2a's ≥4 vCPU is the PRODUCTION profile, for 250 concurrent in-flight
+      deliveries, and Hostinger resizes in place when §2b's trigger fires. On the starter,
+      two §2b settings are load-bearing before you begin: **4 GB of swap** (not the §2
+      baseline's 2 — `next build` peaks over 2 GB and the image is built on the box) and
+      **`DB_POOL_SIZE=6`** (not the default 16 — §2a's pools assume 7 processes; you run 3).
+      24.04 rather than 22.04: it ships the Python 3.12 the host scripts need, and it is the
+      only archive the restore drill has ever been exercised against (DEPLOYMENT §1).
 - [ ] `calevate.tech` in a Cloudflare account you control.
 - [ ] Cloudflare R2: a recordings bucket, **and a separate backup bucket with its own
       scoped token**. One token must not be able to do both jobs (DEPLOYMENT §7).

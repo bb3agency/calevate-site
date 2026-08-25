@@ -63,7 +63,23 @@ Edge: **Cloudflare proxied (orange), Full (strict)** (D-27).
 
 ## 1. Target topology
 
-One dedicated VPS (do not share with client production sites — isolation), Ubuntu 22.04:
+One dedicated VPS (do not share with client production sites — isolation), **Ubuntu 24.04
+LTS** (D-472). Sizing is §2b — the STARTER is 1 vCPU / 4 GB and scales up in place.
+
+> **Why 24.04 and not 22.04**, which this line used to say. Three reasons, in the order
+> they would cost. **(1) Python.** `requires-python = ">=3.12,<3.13"`; 24.04 ships 3.12,
+> 22.04 ships 3.10. §2's "Python is NOT needed on the host" is false — D-188 found
+> `scripts/backup/app-python.sh` and `scripts/bootstrap_admin.py` both need it, and the
+> backup script DELIBERATELY refuses to fall back to a system interpreter without the
+> app's venv. On 22.04 that venv needs a non-default interpreter before backups can alarm.
+> **(2) The restore drill only ever ran on 24.04.** Every `docs/evidence/restore-drill-*`
+> preflight records `postgres 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)` — the disaster-recovery
+> path, the one thing that must work on the worst day, has been exercised on that archive
+> and no other. **(3) nginx is NOT a reason either way**, and it is worth saying so: the
+> config needs `http2 on;` (1.25.1+), 22.04 ships 1.18 and 24.04 ships 1.24, so BOTH are
+> below the floor and the nginx.org repository is required on either — `preflight_plan`
+> refuses below `NGINX_MIN_VERSION` before anything is built.
+
 
 ```
 Cloudflare (proxied, Full strict, origin locked)
@@ -244,6 +260,60 @@ that, so **set `max_connections = 200` on the VPS** alongside the §2 baseline �
 the pools, but do the arithmetic first and re-check it whenever a worker count changes.
 A pool exhausted at the receiver is not a slow ack: it is a 503 at the durable deadline
 and a call that waits for the 10-minute poller.
+
+## 2b. Host profiles (D-472) — the box we START on, and the trigger to leave it
+
+§2a sizes the box for PRODUCTION concurrency and is unchanged. This section names the
+smaller box the product LAUNCHES on, because "4 vCPU" was the only number written down and
+that is not what the first months need. **Scaling up is a resize, not a migration** —
+Hostinger resizes a KVM plan in place, the topology below is identical on every profile,
+and nothing in this repo pins a core count. Move when the trigger fires, not before.
+
+| | **STARTER (KVM1)** | KVM2 | PRODUCTION |
+|---|---|---|---|
+| vCPU / RAM | **1 / 4 GB** | 2 / 8 GB | ≥4 / ≥8 GB |
+| Disk | 50 GB NVMe | 100 GB | 100 GB+ |
+| `voice-runtime --workers` | **1** | 2 | 4 |
+| Supported peak in-flight | ~1–20 (test + first client) | ~100 (pilot) | 250+ (§2a) |
+| `DB_POOL_SIZE` | **6** | 12 | 12–16 (§2a table) |
+| Postgres `max_connections` | **100** | 200 | 200 |
+| Postgres `shared_buffers` | **768 MB** | 2 GB | 2 GB |
+| Swap (`/etc/fstab`) | **4 GB** | 2 GB | 2 GB |
+| GitHub Actions runner on-box | **NO** | no | no |
+
+**Why the starter is honest and not a corner cut.** §2a's 500 ms breach is a CONCURRENCY
+failure, not a baseline one: its own measured table gives one worker **63–85 ms at 25
+in-flight** and only reaches 531–589 ms at 150. Bringing the site online, onboarding and
+testing never approach that. What the starter cannot do is absorb a campaign whose calls
+hang up together — which is the trigger below, and is a resize away.
+
+**Two settings on the starter are not optional, and neither is about traffic.**
+
+1. **4 GB of swap, not 2.** `next build` peaks over 2 GB (§1) and the image is built ON
+   the box, beside a resident Postgres, Redis and three containers. On 4 GB of RAM the
+   build is what OOMs, on the first deploy, before a single call exists. NVMe is cheap and
+   there are 50 GB.
+2. **`DB_POOL_SIZE=6`, not the default 16.** §2a's pools are sized for 7 processes; the
+   starter runs 3. At the default that is 48 idle Postgres backends costing RAM the build
+   spike needs — the pool is not free memory just because it is idle.
+
+**Better than either: stop building on the box.** Build the image in GitHub-hosted CI,
+push it to a registry, and have the VPS pull. Then `docker build` and `next build` never
+run beside a live call and 4 GB stops being tight — which also removes the reason §1 wants
+the Actions runner co-located. This is the recommended starter shape; the swap and pool
+figures above are what makes on-box building survivable if you keep it.
+
+**THE TRIGGER TO SCALE UP — read it off the instrument, do not guess.** `X-Ack-Ms` is on
+every voice-runtime response and `webhook_ack_ms` is the metric (§2a). Resize when EITHER:
+
+- `webhook_ack_ms` p95 goes above **250 ms** — half the hard-rule-3 budget, spent; or
+- a client starts running outbound CAMPAIGNS rather than taking inbound calls, because a
+  campaign is the burst §2a sizes for.
+
+Then: resize the plan, raise `--workers` to match the new vCPU (**never more workers than
+vCPU**), and re-measure `T` on the new host before quoting any concurrency number. §2a's
+`T ≈ 250 acks/s` was measured on 4 vCPU and does not transfer down — it is a CPU rate.
+
 
 ## 3. CI/CD (raghava model, adapted)
 
