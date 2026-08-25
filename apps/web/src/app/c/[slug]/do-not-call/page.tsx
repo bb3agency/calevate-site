@@ -27,6 +27,7 @@ import {
   type NoticeTone,
   PRIMARY_BUTTON_SM,
 } from "@/components/ui";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import {
   DNC_LIST_LIMIT,
   MAX_NUMBERS_PER_ADD,
@@ -160,6 +161,29 @@ export default function DoNotCallPage() {
   const entries = useDncList(session);
   const add = useAddDncNumbers(session);
   const remove = useRemoveDncEntry(session);
+
+  /**
+   * The entry a client has asked to un-suppress, held until they confirm it. 🔒
+   *
+   * "Remove" used to call `remove.mutate(entry.id)` on one click, and the consequence is
+   * that agents will dial that person again — this screen's own header says the list is
+   * checked live before every single call, so a removal takes effect just as immediately
+   * as an addition does. Under TCCCPR a wrongly-removed suppression is a call that should
+   * not have happened.
+   *
+   * The friction on this lane was inverted before this: `/data-rights` makes a client type
+   * the word ERASE, so destroying a person's data was harder than putting a person back in
+   * the dial pool. This does not equalise them — a typed keyword is still the heavier
+   * ceremony, and erasure deserves it — but it stops the consequential action being the
+   * cheaper one.
+   *
+   * A modal rather than an inline two-step row swap, which was the other candidate: this
+   * console has exactly one dialog idiom (`components/confirmDialog.tsx`, focus-trapped
+   * per the WAI-ARIA APG), and a bespoke per-row interaction would be a second answer to
+   * "how does this product ask are-you-sure" — the drift CLAUDE.md's one-way-per-problem
+   * rule is about. The dialog names the number, so it confirms target as well as intent.
+   */
+  const [unsuppressing, setUnsuppressing] = useState<DncEntry | null>(null);
   const check = useCheckDncNumber(session);
 
   /**
@@ -412,7 +436,9 @@ export default function DoNotCallPage() {
         }
         bodyClassName="p-2"
       >
-        {remove.error != null && (
+        {/* While the dialog is open the refusal belongs INSIDE it, where the decision is
+            being made — rendering it here as well would say the same failure twice. */}
+        {remove.error != null && unsuppressing == null && (
           <div className="mb-3 px-4 pt-2">
             <ProblemNotice error={remove.error} />
           </div>
@@ -440,7 +466,7 @@ export default function DoNotCallPage() {
                 entry={entry}
                 canSuppress={write.allowed}
                 removing={remove.isPending && remove.variables === entry.id}
-                onRemove={() => remove.mutate(entry.id)}
+                onRemove={() => setUnsuppressing(entry)}
               />
             ))}
           </ul>
@@ -451,6 +477,42 @@ export default function DoNotCallPage() {
           />
         )}
       </Card>
+
+      {/* The consequence, not a restatement of the command (NN/g, *Preventing User
+          Errors*, read 25 Aug 2026). Closes only on success: a failed removal leaves the
+          number suppressed, and closing would imply it no longer was. */}
+      {unsuppressing && (
+        <ConfirmDialog
+          title="Let agents call this number again?"
+          confirmLabel="Un-suppress this number"
+          pendingLabel="Removing…"
+          cancelLabel="Keep it suppressed"
+          pending={remove.isPending}
+          error={remove.error}
+          onCancel={() => {
+            remove.reset();
+            setUnsuppressing(null);
+          }}
+          onConfirm={() =>
+            remove.mutate(unsuppressing.id, { onSuccess: () => setUnsuppressing(null) })
+          }
+        >
+          <p>
+            <MonoValue className="tabular-nums text-ink">
+              {unsuppressing.phone_e164}
+            </MonoValue>{" "}
+            comes off your do-not-call list.
+          </p>
+          <p>
+            This list is checked live before every single call, so the change takes effect
+            straight away:{" "}
+            <strong className="font-semibold text-ink">
+              your agents will be able to ring this person again
+            </strong>
+            . Only do this if you know they are happy to be called.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

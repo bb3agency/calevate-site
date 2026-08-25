@@ -673,12 +673,26 @@ function Choice({
   onChange: () => void;
   label: string;
 }) {
+  /*
+   * WCAG 2.4.7 Focus Visible (AA), failure technique F78 — the same fix, and the same
+   * reasoning, as `components/llmModelPicker.tsx`'s model rows, which is where it is
+   * written out in full. The input below is `sr-only`, so the browser's own ring is gone
+   * and the label styled only `checked` and `hover`: a keyboard user could not see which
+   * of "Agreed" / "Refused" they were on.
+   *
+   * This one is 🔒 compliance-visible. The record this radio produces is the client's
+   * evidence under TCCCPR that a person agreed to be messaged — the screen says so — so a
+   * keyboard user unable to see which answer is focused is a keyboard user who can record
+   * the wrong one about a real person.
+   */
+  const FOCUS_RING =
+    "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app";
   return (
     <label
       className={
         checked
-          ? "cursor-pointer rounded-md border border-brand-strong bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white"
-          : "cursor-pointer rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+          ? `cursor-pointer rounded-md border border-brand-strong bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white ${FOCUS_RING}`
+          : `cursor-pointer rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5 ${FOCUS_RING}`
       }
     >
       <input type="radio" name={name} checked={checked} onChange={onChange} className="sr-only" />

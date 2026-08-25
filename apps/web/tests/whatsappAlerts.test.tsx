@@ -349,3 +349,36 @@ describe("the operator's record of a client's opt-in", () => {
     expect(screen.queryByRole("button", { name: /Record that the owner agreed/ })).toBeNull();
   });
 });
+
+/**
+ * ALERT-1 🔒 — withdrawal must not be visually punished.
+ *
+ * `WithdrawControl`'s own docstring states the principle: consent that can be given more
+ * easily than it can be taken back is not consent. The code then made withdrawal the only
+ * red button on the screen while GRANTING consent was a friendly brand-green primary —
+ * red is a deterrent signal, so the privacy-protective choice was the one that looked
+ * dangerous. It also broke `DANGER_BUTTON`'s stated contract in `components/ui.tsx`
+ * ("something a person cannot undo") on an action this same component describes, one line
+ * below the button, as fully reversible.
+ *
+ * A class assertion rather than a rendered-colour one, for the reason every style guard in
+ * this suite gives: jsdom applies no Tailwind, so the class string IS the decision.
+ */
+describe("granting and withdrawing consent sit in the same weight class", () => {
+  it("does not style withdrawal as a destructive action", async () => {
+    await renderClientPage(
+      <AlertsPage />,
+      clientRoutes(
+        optIn({ status: "granted", messageable: true, captured_at: "2026-08-12T09:00:00Z" }),
+        ME,
+      ),
+    );
+
+    const stop = await screen.findByRole("button", { name: /Stop sending me/ });
+    // `bg-rose-600` is `DANGER_BUTTON`, reserved for what cannot be undone.
+    expect(stop.className).not.toContain("rose-");
+    // …and it is still a real, reachable button, not a link or a footnote: a 🔒 control
+    // may be made more prominent and never less.
+    expect((stop as HTMLButtonElement).disabled).toBe(false);
+  });
+});

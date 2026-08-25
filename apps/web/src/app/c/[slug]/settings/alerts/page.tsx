@@ -4,11 +4,11 @@ import { BellOff, BellRing, CircleAlert, Info, Lock, ShieldCheck } from "lucide-
 
 import {
   Card,
-  DANGER_BUTTON,
   MonoValue,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -280,11 +280,27 @@ function WithdrawControl({
 }) {
   return (
     <div className="space-y-3">
+      {/*
+       * `SECONDARY_BUTTON`, NOT `DANGER_BUTTON` — and the docstring above is why.
+       *
+       * This button used to be the only red one on the screen while GRANTING consent was
+       * a friendly brand-green primary, which inverts the principle this component states
+       * in its own header: consent that can be given more easily than it can be taken
+       * back is not consent. Red is a deterrent signal, and pointing it at the
+       * privacy-protective choice makes the safe answer look like the dangerous one.
+       *
+       * It also broke `DANGER_BUTTON`'s stated contract (`components/ui.tsx`): that
+       * constant is reserved for "something a person cannot undo", and the sentence
+       * directly below this button says the opposite — you can turn WhatsApp back on here
+       * whenever you like. Grant and withdraw now sit in the same weight class, which is
+       * what makes them an equal pair of choices rather than a nudge; nothing is hidden,
+       * collapsed or made harder to reach.
+       */}
       <button
         type="button"
         disabled={!allowed || pending}
         onClick={onWithdraw}
-        className={DANGER_BUTTON}
+        className={SECONDARY_BUTTON}
       >
         <BellOff aria-hidden className="h-4 w-4" />
         {pending ? "Saving…" : "Stop sending me WhatsApp alerts"}

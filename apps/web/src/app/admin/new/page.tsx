@@ -131,7 +131,21 @@ import { WIZARD_LANGUAGES } from "./languages";
  * readable — a two-colour pair that the next person to add an option will get wrong. A
  * ring changes nothing about the text.
  */
-const CHOICE_CARD = "relative block cursor-pointer rounded-card border p-3 transition-colors";
+/*
+ * The FOCUS ring, on the card rather than on the input.
+ *
+ * The `<input type="radio">` inside each of these cards is `sr-only`, which deletes the
+ * browser's own focus indicator — WCAG 2.4.7 Focus Visible (AA), failure technique F78,
+ * exactly. `has-[:focus-visible]` puts it back on the label that hides it, so a keyboard
+ * user tabbing into the group can see where they are; `focus-visible` rather than `focus`
+ * so a mouse click does not leave a ring behind. `ring-offset-2` separates it from
+ * `CHOICE_ON`'s selection ring, so "focused" and "chosen" stay two readable states.
+ * `tests/contrast.test.ts` guards this at the source, because axe cannot evaluate a focus
+ * indicator and jsdom has no layout to evaluate one in.
+ */
+const CHOICE_CARD =
+  "relative block cursor-pointer rounded-card border p-3 transition-colors " +
+  "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app";
 const CHOICE_ON = "border-brand ring-1 ring-brand bg-surface";
 const CHOICE_OFF = "border-line bg-surface hover:border-ink-faint";
 

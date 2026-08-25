@@ -60,6 +60,13 @@ and are all closed by two non-code actions: the Engine Verification Session
     (events we sign and send, signature verification and delivery rules; lead ingest,
     field mapping, consent and the dry-run tester), written against the shipping code —
     the concrete form of SURFACES §2b/§3's integration doctrine.
+9b. **UX-DOCTRINE.md** — the CONSTRUCTION MANUAL for `apps/web`, the front-end twin of
+    BACKEND-PATTERNS (read before building or restructuring any screen): the one-primary-
+    job hierarchy rule and when a `Card` is the wrong container, the frequency × consequence
+    disclosure test, task-oriented IA, action hierarchy, the per-file size budget, the
+    shared-primitive contract, the WCAG-referenced accessibility floor (including which
+    compliance controls may never be disclosed), and what "maximum control, minimum
+    complexity" does and does not license. Reference implementation: `/c/[slug]/agents`.
 10. **DEPLOYMENT.md** — VPS deployment + CI/CD blueprint (adapted from the
     raghava-organics production playbook): topology, self-hosted-runner CD, nginx/TLS/
     Cloudflare, secrets tiers, backups/DR, go-live order, lessons-not-to-relearn.

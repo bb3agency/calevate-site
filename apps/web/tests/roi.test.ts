@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   CALEVATE_PAISE_PER_MIN,
   computeRoi,
+  computeTwoStage,
   formatPaiseINR,
+  TWO_STAGE,
   type RoiInputs,
+  type TwoStageInputs,
 } from "@/lib/roi";
 
 /**
@@ -226,6 +229,166 @@ describe("computeRoi — edge cases", () => {
     // 5,200 calls × 10% × ₹5,000 = ₹26,00,000.00.
     expect(r.pipelineValuePaise).toBe(26_00_000 * 100);
     expect(formatPaiseINR(r.pipelineValuePaise as number)).toBe("₹26,00,000.00");
+  });
+});
+
+/**
+ * The two-stage funnel — the comparison that is honest once a call is long enough to be a
+ * sales conversation. The single-stage showdown above compares Calevate against a
+ * telecaller on the SAME calls; this one compares a team that works the whole list against
+ * a team that works only the qualified share of it, with Calevate holding the short first
+ * call with everybody.
+ *
+ * The property that matters most here is the last describe: it must be able to LOSE. A
+ * model that cannot come out behind is a sales asset, not a calculator.
+ */
+const TWO: TwoStageInputs = {
+  ...BASE,
+  // Six minutes is the case the whole mode exists for — long enough that the call is a
+  // conversation, and the length at which the old head-to-head comparison stopped being
+  // a comparison of alternatives.
+  avgMinutes: 6,
+  qualifiedPct: TWO_STAGE.qualifiedPct.default,
+  qualifyMinutes: TWO_STAGE.qualifyMinutes.default,
+};
+
+describe("computeTwoStage — the worked example the page shows", () => {
+  it("prices 200 calls a day at 6-minute conversations, to the paise", () => {
+    const r = computeTwoStage(TWO);
+
+    // A — people call all 5,200. One person manages floor(5h×60 ÷ 6) = 50 a day, so four
+    // salespeople: base 4×₹21,240 = ₹84,960, uplift 4×₹10,760 = ₹43,040, attrition
+    // 4×₹1,50,000×40% ÷ 12 = ₹20,000. Total ₹1,48,000.
+    expect(r.allHuman.headcount).toBe(4);
+    expect(r.allHuman.humanTotalPaise).toBe(14_800_000);
+    expect(formatPaiseINR(r.allHuman.humanTotalPaise)).toBe("₹1,48,000.00");
+
+    // B, stage 1 — Calevate's 2-minute call to every one of the 5,200: ₹52,000.
+    expect(r.qualificationPaise).toBe(5_200_000);
+
+    // B, stage 2 — 30% of 200 = 60 conversations a day, still 50 per person, so TWO
+    // salespeople rather than four: ₹42,480 + ₹21,520 + ₹10,000 = ₹74,000.
+    expect(r.qualifiedCallsPerDay).toBe(60);
+    expect(r.qualifiedCallsPerMonth).toBe(1_560);
+    expect(r.humans.headcount).toBe(2);
+    expect(r.humans.humanTotalPaise).toBe(7_400_000);
+
+    // Together ₹1,26,000 — ₹22,000 a month less than ₹1,48,000.
+    expect(r.blendedTotalPaise).toBe(12_600_000);
+    expect(formatPaiseINR(r.blendedTotalPaise)).toBe("₹1,26,000.00");
+    expect(r.deltaPaise).toBe(2_200_000);
+    expect(formatPaiseINR(r.deltaPaise)).toBe("₹22,000.00");
+  });
+
+  it("counts the calls that never reach a person, and the hours that buys back", () => {
+    const r = computeTwoStage(TWO);
+    // 5,200 − 1,560 = 3,640 calls a month settled by the first call alone; at the 6-minute
+    // conversation they would each have cost, that is 21,840 minutes — 364 hours.
+    expect(r.triagedAwayPerMonth).toBe(3_640);
+    expect(r.humanMinutesReleased).toBe(21_840);
+    expect(Math.round(r.humanMinutesReleased / 60)).toBe(364);
+  });
+
+  it("keeps released minutes exact on a fractional conversation length", () => {
+    // 2.5 min is the case a naive `count * minutes` in floating point rounds wrong.
+    const r = computeTwoStage({
+      ...TWO,
+      callsPerDay: 100,
+      workingDays: 20,
+      avgMinutes: 2.5,
+      qualifiedPct: 50,
+    });
+    expect(r.triagedAwayPerMonth).toBe(1_000);
+    expect(r.humanMinutesReleased).toBe(2_500);
+  });
+});
+
+describe("computeTwoStage — composition and the qualified share", () => {
+  it("reports option A as exactly the single-stage human side of the same inputs", () => {
+    // One cost model, run twice — so the two sides of the comparison can never disagree
+    // about what a telecaller costs.
+    const r = computeTwoStage(TWO);
+    expect(r.allHuman).toEqual(computeRoi(TWO));
+  });
+
+  it("rounds the qualified share UP — a part-lead is still a conversation", () => {
+    expect(computeTwoStage({ ...TWO, callsPerDay: 101, qualifiedPct: 30 }).qualifiedCallsPerDay)
+      .toBe(31); // ceil(30.3)
+    expect(computeTwoStage({ ...TWO, callsPerDay: 1, qualifiedPct: 5 }).qualifiedCallsPerDay)
+      .toBe(1);
+  });
+
+  it("drives human headcount off the QUALIFIED volume, not the raw list", () => {
+    const thin = computeTwoStage({ ...TWO, qualifiedPct: 10 }); // 20 conversations a day
+    expect(thin.humans.headcount).toBe(1);
+    expect(thin.allHuman.headcount).toBe(4);
+  });
+
+  it("prices the first call at the qualification length, over the WHOLE list", () => {
+    // The first call goes to everyone — the qualified share must not shrink it.
+    const a = computeTwoStage({ ...TWO, qualifiedPct: 10 });
+    const b = computeTwoStage({ ...TWO, qualifiedPct: 90 });
+    expect(a.qualificationPaise).toBe(b.qualificationPaise);
+    // And it scales with the first call's length, not the conversation's.
+    expect(computeTwoStage({ ...TWO, qualifyMinutes: 4 }).qualificationPaise).toBe(
+      2 * a.qualificationPaise,
+    );
+  });
+
+  it("staffs every covered shift on both sides of the comparison", () => {
+    const r = computeTwoStage({ ...TWO, coverageHours: 24 });
+    expect(r.allHuman.shifts).toBe(3);
+    // 200 ÷ 3 = 67 a shift, ceil(67/50) = 2 per shift → 6.
+    expect(r.allHuman.headcount).toBe(6);
+    // 60 ÷ 3 = 20 a shift, one person each → 3. The qualified list still has to be worked
+    // in every window the buyer says they cover.
+    expect(r.humans.headcount).toBe(3);
+  });
+});
+
+describe("computeTwoStage — it has to be able to lose, and not to NaN", () => {
+  it("goes NEGATIVE when everything on the list is worth a conversation", () => {
+    // Nothing for a first call to filter out, so it is an extra call on top of the same
+    // team. The verdict copy is required to say so; this is the number it says it from.
+    const r = computeTwoStage({ ...TWO, qualifiedPct: 100 });
+    expect(r.qualifiedCallsPerDay).toBe(200);
+    expect(r.humans.humanTotalPaise).toBe(r.allHuman.humanTotalPaise);
+    expect(r.blendedTotalPaise).toBe(r.allHuman.humanTotalPaise + r.qualificationPaise);
+    expect(r.deltaPaise).toBe(-5_200_000);
+    expect(r.triagedAwayPerMonth).toBe(0);
+    expect(r.humanMinutesReleased).toBe(0);
+  });
+
+  it("clamps a share above 100 rather than inventing leads that are not there", () => {
+    const over = computeTwoStage({ ...TWO, qualifiedPct: 150 });
+    expect(over.qualifiedCallsPerDay).toBe(200);
+    expect(over.triagedAwayPerMonth).toBe(0);
+  });
+
+  it("treats a negative or non-finite share as none qualified", () => {
+    const none = computeTwoStage({ ...TWO, qualifiedPct: Number.NaN });
+    expect(none.qualifiedCallsPerDay).toBe(0);
+    expect(none.humans.headcount).toBe(0);
+    // Only the first call is billed, and the whole list is triaged away.
+    expect(none.blendedTotalPaise).toBe(none.qualificationPaise);
+    expect(none.triagedAwayPerMonth).toBe(5_200);
+  });
+
+  it("returns zeros for zero calls, and never NaN", () => {
+    const r = computeTwoStage({ ...TWO, callsPerDay: 0 });
+    expect(r.allHuman.humanTotalPaise).toBe(0);
+    expect(r.qualificationPaise).toBe(0);
+    expect(r.blendedTotalPaise).toBe(0);
+    expect(r.deltaPaise).toBe(0);
+    expect(r.triagedAwayPerMonth).toBe(0);
+    expect(Number.isNaN(r.humanMinutesReleased)).toBe(false);
+  });
+
+  it("keeps its defaults inside the ranges the sliders clamp to", () => {
+    for (const bound of [TWO_STAGE.qualifiedPct, TWO_STAGE.qualifyMinutes]) {
+      expect(bound.default).toBeGreaterThanOrEqual(bound.min);
+      expect(bound.default).toBeLessThanOrEqual(bound.max);
+    }
   });
 });
 

@@ -220,7 +220,23 @@ export function ModelPicker({
     return (
       <label
         key={choice.value ?? "__inherit__"}
-        className={`flex flex-wrap items-start justify-between gap-3 rounded-card border p-3 transition-colors ${
+        /*
+         * `has-[:focus-visible]` — WCAG 2.4.7 Focus Visible (AA), and the failure this
+         * fixes is technique F78 verbatim: the `<input type="radio">` below is `sr-only`,
+         * which removes the browser's own focus ring, and the label styled only `checked`
+         * and `hover`. So a keyboard user tabbing into this group saw NOTHING move. On a
+         * native radio group arrowing moves the selection too, which hides the defect —
+         * until the group is disabled, or the user tabs in without arrowing, and then
+         * there is no indicator at all. On the control that picks which model the client
+         * pays for.
+         *
+         * `focus-visible` rather than `focus`, so a mouse click on a row does not leave a
+         * ring behind it. The ring is `ring-brand` on `ring-offset-app` — the same
+         * treatment `components/actionButton.tsx` already uses — so the two focus styles
+         * in this console are one style. axe cannot evaluate a focus indicator and jsdom
+         * has no layout, so `tests/contrast.test.ts` guards this at the source instead.
+         */
+        className={`flex flex-wrap items-start justify-between gap-3 rounded-card border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app ${
           checked ? "border-brand bg-brand-soft" : "border-line bg-surface"
         } ${
           disabled || blocked

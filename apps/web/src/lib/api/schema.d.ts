@@ -9753,6 +9753,33 @@ export interface components {
             qualify_rate_pct: number | null;
         };
         /**
+         * PlanMarginOut
+         * @description The gross margin of a committed-volume bundle's rates at our cost floor (D-469).
+         *
+         *     Returned on every plan the operator reads or writes, so the margin of a bundle is a
+         *     number on the screen that sets it — not something discovered when a client reconciles.
+         *     The effective committed rate is `monthly_fee / included_min`; both it and the overage
+         *     rate are judged against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `MIN_GROSS_MARGIN`
+         *     (`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact
+         *     strings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.
+         */
+        PlanMarginOut: {
+            /** Below Target Margin */
+            below_target_margin: string[];
+            /** Committed Gross Margin */
+            committed_gross_margin: string | null;
+            /** Cost Floor Inr Per Min */
+            cost_floor_inr_per_min: string;
+            /** Effective Committed Rate Inr Per Min */
+            effective_committed_rate_inr_per_min: string | null;
+            /** Min Gross Margin */
+            min_gross_margin: string;
+            /** Overage Gross Margin */
+            overage_gross_margin: string | null;
+            /** Overage Rate Inr Per Min */
+            overage_rate_inr_per_min: string | null;
+        };
+        /**
          * PlanRowOut
          * @description One dated agreement, as an operator reads it. Money as exact strings throughout.
          */
@@ -9785,6 +9812,7 @@ export interface components {
             included_minutes: number | null;
             /** Llm Model Surcharge Inr */
             llm_model_surcharge_inr: string | null;
+            margin: components["schemas"]["PlanMarginOut"];
             /** Monthly Fee Inr */
             monthly_fee_inr: string | null;
             /** Overage Rate Inr */
@@ -10137,6 +10165,7 @@ export interface components {
         RecordTermsOut: {
             /** Changed */
             changed: boolean;
+            margin: components["schemas"]["PlanMarginOut"];
             /**
              * Plan Id
              * Format: uuid

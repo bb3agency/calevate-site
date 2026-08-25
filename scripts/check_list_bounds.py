@@ -105,6 +105,14 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/admin/tenants/{tenant_id}/feature-flags": BoundedByConstruction(
         by="the flag registry in `flags/service.py` — one row per DECLARED flag."
     ),
+    "POST /v1/admin/tenants/{tenant_id}/commercial-terms": BoundedByConstruction(
+        by=(
+            "`margin.below_target_margin` names the RATES a bundle sets, and "
+            "`rates.CommittedPlanMargin._judged` enumerates exactly two of them "
+            "('committed', 'overage') — so the list is at most 2 entries, whatever the "
+            "terms say."
+        )
+    ),
     "GET /v1/ops/config": BoundedByConstruction(
         by="the console-managed field registry in `core/platform_config.py`."
     ),

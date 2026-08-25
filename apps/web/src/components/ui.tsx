@@ -11,6 +11,7 @@
  */
 
 import clsx from "clsx";
+import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
@@ -63,6 +64,228 @@ export function Card({
           single column's min-content is 288px and the padded box left it 238px). */}
       <div className={bodyClassName ?? "p-4 sm:p-6"}>{children}</div>
     </section>
+  );
+}
+
+/**
+ * The label over a block INSIDE a card, with the medallion the design puts on a marker.
+ *
+ * Hoisted out of `c/[slug]/agents/panels.tsx`, which had written "it belongs in
+ * `components/ui.tsx` the moment a screen outside `/agents` wants one" — and had already
+ * been imported across the route boundary by `agents/Actions.tsx` in the meantime, which
+ * is the same signal one file later. UX-DOCTRINE §7: a primitive is added here, never
+ * duplicated per route.
+ *
+ * `h3` and not a prop, deliberately. This marks a block within a `Card`, whose title is
+ * the `h2` — so the level is a property of where the primitive is allowed to be used, not
+ * a decision each call site re-takes. WCAG 2.4.6 Headings and Labels is about headings
+ * being descriptive; 1.3.1 Info and Relationships is about the structure being real
+ * rather than a font size, which is what makes this an `h3` and not a styled `<span>`
+ * (w3.org/WAI/WCAG22/Understanding/info-and-relationships, read 25 Aug 2026).
+ */
+export function SectionHeading({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
+        {icon}
+      </span>
+      {children}
+    </h3>
+  );
+}
+
+/**
+ * One labelled fact. `dt`/`dd` because that is exactly what these are.
+ *
+ * The GOV.UK Design System's Summary list makes the same call and states the constraint
+ * this component is held to: the summary list "uses the description list (`<dl>`) HTML
+ * element, so only use it to present information that has a key and at least one value",
+ * and not for tabular data or a plain list
+ * (github.com/alphagov/govuk-design-system `src/components/summary-list/index.md`, read
+ * 25 Aug 2026). Every caller here pairs one key with one value, so the element is the
+ * honest one — and a `<dl>` is what tells a screen reader the pairing exists at all.
+ *
+ * Hoisted from `agents/panels.tsx` with `SectionHeading`, for the same reason.
+ */
+export function Fact({
+  label,
+  hint,
+  icon,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <dt className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        {icon && (
+          <span aria-hidden className="shrink-0 text-brand">
+            {icon}
+          </span>
+        )}
+        {label}
+      </dt>
+      <dd className="mt-1 text-sm font-semibold text-ink">{children}</dd>
+      {hint && <dd className="mt-0.5 text-xs text-ink-muted">{hint}</dd>}
+    </div>
+  );
+}
+
+/**
+ * A switch, and the sentence that says what it moves.
+ *
+ * ## Why this is one component and not six copies of a class string
+ *
+ * The identical 400-character `peer-checked:` expression was written out three times in
+ * this codebase — the two opening-notice switches, every extraction variable's "Required",
+ * and the Actions master switch — and the copies had already diverged: two carried
+ * `peer-disabled:opacity-50` and the third did not, so a switch mid-request looked live.
+ * "One way per problem, and migrate rather than accumulate" (CLAUDE.md); all three callers
+ * moved onto this in the same change.
+ *
+ * ## Why a native checkbox with `role="switch"` and not a styled `<div>`
+ *
+ * It is keyboard-operable with no JS, it announces its own state, and it is reachable by
+ * the a11y sweep. The painted switch is drawn entirely from the input's own `peer` state,
+ * so what is on screen and what is checked cannot disagree. The label WRAPS the input
+ * (implicit association) rather than carrying an `id`: two editors of two agents on one
+ * screen would collide on any id scheme, and the wrapping label is what keeps the axe
+ * sweep green without one.
+ *
+ * `note` is rendered under the switch and is where a caller says what OFF does not do —
+ * the sentence that turns a setting into an honest one rather than a trap.
+ */
+export function ToggleSwitch({
+  label,
+  hint,
+  checked,
+  disabled,
+  onChange,
+  children,
+  className,
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+  /** Anything shown under the control — a quoted sentence, a warning about OFF. */
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          role="switch"
+          className="peer sr-only"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span aria-hidden className={SWITCH_TRACK} />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-ink">{label}</span>
+          {hint && <span className="block text-xs text-ink-muted">{hint}</span>}
+        </span>
+      </label>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The painted track and knob. A constant rather than inline so the one place it is
+ * written is beside the component that owns it — and so a caller that genuinely needs a
+ * bare switch (no label block) still gets the same pixels rather than a fourth copy.
+ */
+const SWITCH_TRACK =
+  "relative mt-0.5 h-5 w-9 shrink-0 rounded-full border border-line bg-surface transition-colors peer-checked:border-brand peer-checked:bg-brand peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-brand peer-focus-visible:ring-offset-2 after:absolute after:left-0.5 after:top-0.5 after:h-3.5 after:w-3.5 after:rounded-full after:bg-ink-faint after:transition-transform peer-checked:after:translate-x-4 peer-checked:after:bg-white";
+
+/**
+ * A section a reader opens when they want it — the console's ONE disclosure mechanism.
+ *
+ * ## Why native `<details>` and not a built accordion
+ *
+ * It is keyboard-operable, it announces its expanded state, it survives a JavaScript
+ * failure open-able, and it needs no focus management of our own. The marketing FAQ, the
+ * leads column chooser, the admin lifecycle screen and the data-rights screen had each
+ * already reached for `<details>` independently; this is that shape hoisted so the fifth
+ * caller does not restyle it. (`components/marketing/faq.tsx` argues the same case.)
+ *
+ * ## When a caller may use it — this is a rule, not a taste
+ *
+ * The GOV.UK Design System is explicit and this component is held to it: "Do not use the
+ * details component to hide information that the majority of your users will need", and
+ * its own research records "evidence that some users avoid clicking the link to show more
+ * details" (github.com/alphagov/govuk-design-system `src/components/details/index.md`,
+ * read 25 Aug 2026). So a disclosure is for the rare and the reference — never for a
+ * compliance obligation, never for the screen's primary job, and never for something a
+ * first-time owner has to find. UX-DOCTRINE §3 carries the decision test.
+ *
+ * `summary` is the whole control, so it carries `touch:min-h-11` for SC 2.5.8's target
+ * size; `subtitle` lets the closed state say what is inside without the reader opening it,
+ * which is the "information scent" that makes a disclosure findable at all.
+ */
+export function Disclosure({
+  title,
+  subtitle,
+  icon,
+  defaultOpen = false,
+  children,
+  className,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  icon?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className={clsx(
+        "group rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+        className,
+      )}
+    >
+      {/* The title is a REAL `h2` inside the `summary`, which the HTML spec allows and
+          which is what GOV.UK's accordion does with its section headings. It costs nothing
+          visually and it is the difference between a disclosed panel a screen-reader user
+          can jump to from the heading list and one they can only find by tabbing. WCAG 2.2
+          1.3.1 / 2.4.6 — the level is fixed at 2 for `Disclosure`'s reason above `Card`:
+          a disclosed panel is a peer of a card, never nested inside one. */}
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-4 touch:min-h-11 sm:px-6 [&::-webkit-details-marker]:hidden">
+        {icon && (
+          <span
+            aria-hidden
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+          >
+            {icon}
+          </span>
+        )}
+        <span className="min-w-0 flex-1">
+          <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+          {subtitle && <span className="block text-xs text-ink-muted">{subtitle}</span>}
+        </span>
+        {/* The affordance, in words as well as a chevron: an icon alone is what GOV.UK's
+            research says people fail to notice. `group-open:` swaps the pair. */}
+        <span className="shrink-0 text-xs font-medium text-brand-strong">
+          <span className="group-open:hidden">Show</span>
+          <span className="hidden group-open:inline">Hide</span>
+        </span>
+        <ChevronDown
+          aria-hidden
+          className="h-4 w-4 shrink-0 text-ink-faint transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="border-t border-line p-4 sm:p-6">{children}</div>
+    </details>
   );
 }
 
@@ -407,6 +630,21 @@ export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
  */
 export const PRIMARY_BUTTON =
   "inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
+
+/**
+ * The primary button at HERO size — the one action a screen exists for.
+ *
+ * A third size rather than a `size` prop, because these are class strings and not
+ * components (see the block above for why). It exists so a screen can express primacy
+ * with size as well as position and colour, which is the whole of what "primary" means
+ * visually — GOV.UK's Button guidance puts the rule the other way round and it is the
+ * same rule: "Avoid using multiple default buttons on a single page. Having more than one
+ * main call to action reduces their impact"
+ * (github.com/alphagov/govuk-design-system `src/components/button/index.md`, read
+ * 25 Aug 2026). One of these per screen. UX-DOCTRINE §4.
+ */
+export const PRIMARY_BUTTON_LG =
+  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-3 text-base font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 
 /** The same buttons at the size an inline action wants. */
 export const PRIMARY_BUTTON_SM =

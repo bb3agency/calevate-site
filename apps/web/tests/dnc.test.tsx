@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
@@ -75,6 +75,25 @@ function entry(over: Partial<DncEntry> = {}): DncEntry {
  */
 function removeButtons(): HTMLElement[] {
   return screen.queryAllByRole("button", { name: /^Remove / });
+}
+
+/**
+ * Answer the un-suppress confirmation, having first checked that the row's own press
+ * sent NOTHING.
+ *
+ * The order is the assertion. A helper that only clicked through would pass just as well
+ * against a screen that fired the DELETE on the first press and put a dialog up
+ * afterwards, which is the defect this dialog exists to fix.
+ */
+async function confirmUnsuppress(calls: { method: string }[]): Promise<void> {
+  const dialog = await screen.findByRole("dialog");
+  expect(
+    calls.filter((call) => call.method === "DELETE"),
+    "the row's Remove button must open the dialog and send nothing",
+  ).toEqual([]);
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Un-suppress this number" }),
+  );
 }
 
 async function renderList(entries: DncEntry[], me: Me = ME) {
@@ -178,6 +197,10 @@ describe("what the list says may be undone", () => {
 
     await screen.findByText(PHONE);
     fireEvent.click(removeButtons()[0]);
+    // Un-suppressing is confirmed now (🔒 DNC-1): the press opens the dialog and the
+    // DELETE is the SECOND press. `confirmUnsuppress` asserts the first press sent
+    // nothing, so this test still fails if the confirmation is ever removed.
+    await confirmUnsuppress(calls);
 
     const deletes = () => calls.filter((call) => call.method === "DELETE");
     await waitFor(() => expect(deletes()).toHaveLength(1));
@@ -397,5 +420,90 @@ describe("checking a number", () => {
     // can. Flattening the two would send a client looking for a row they cannot remove.
     expect(container.textContent).toContain("it cannot be removed from this account");
     expect(container.textContent).not.toContain("It was added to your account's list.");
+  });
+});
+
+/**
+ * DNC-1 🔒 — putting a person back in the dial pool is a decision, not a click.
+ *
+ * "Remove" used to call the DELETE straight out of `onClick`. The consequence is that
+ * agents will ring that person again, immediately: this screen's own header says the list
+ * is checked live before every single call, which is as true of a removal as it is of an
+ * addition. Under TCCCPR a wrongly-removed suppression is a call that should not have
+ * happened, and the friction on this lane was inverted before this — `/data-rights` makes
+ * a client type the word ERASE to destroy a person's data, while returning a person to the
+ * dial pool cost one press.
+ *
+ * The tests are about the ORDER of effects, because that is the whole of the fix: nothing
+ * may leave the browser until the second press.
+ */
+describe("un-suppressing is confirmed before it happens", () => {
+  it("sends nothing on the first press, and names the number in the dialog", async () => {
+    const { calls } = await renderList([entry()]);
+
+    await screen.findByText(PHONE);
+    fireEvent.click(removeButtons()[0]);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(calls.filter((call) => call.method === "DELETE")).toEqual([]);
+    // Target, not merely intent: a confirmation that cannot say WHICH number confirms
+    // that a removal was meant and says nothing about whose.
+    expect(within(dialog).getByText(PHONE)).toBeTruthy();
+    // …and the consequence, in the client's terms rather than as a restatement of the
+    // command (NN/g, *Preventing User Errors*).
+    expect(dialog.textContent).toContain("able to ring this person again");
+  });
+
+  it("leaves the number suppressed when the client backs out", async () => {
+    const { calls } = await renderList([entry()]);
+
+    await screen.findByText(PHONE);
+    fireEvent.click(removeButtons()[0]);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it suppressed" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls.filter((call) => call.method === "DELETE")).toEqual([]);
+    // The row is still there, still offering the control — cancelling is not a state the
+    // screen has to be reloaded out of.
+    expect(removeButtons()).toHaveLength(1);
+  });
+
+  it("is a real modal: labelled, and focus is inside it", async () => {
+    // `aria-modal` without a focus trap is the half of the contract that leaves a
+    // keyboard user typing into the page behind the dialog. `useFocusTrap` is the shared
+    // implementation and this is the assertion that this dialog actually uses it.
+    await renderList([entry()]);
+
+    await screen.findByText(PHONE);
+    fireEvent.click(removeButtons()[0]);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it("stays open, showing the server's refusal, when the delete fails", async () => {
+    // A dialog that closed on a failure would say the number is no longer suppressed
+    // when it still is — a compliance claim made about a request that was refused.
+    const { calls } = await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": ME,
+      [LIST_PATH]: [entry()],
+      "/v1/dnc/0192f0aa-4444-7000-8000-000000000001": problem(422, {
+        title: "Request rejected by a business rule",
+        detail: "This number recorded a consumer opt-out and cannot be removed.",
+        kind: "business_rule",
+      }),
+    });
+
+    await screen.findByText(PHONE);
+    fireEvent.click(removeButtons()[0]);
+    await confirmUnsuppress(calls);
+
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(dialog.textContent).toContain("recorded a consumer opt-out"),
+    );
   });
 });

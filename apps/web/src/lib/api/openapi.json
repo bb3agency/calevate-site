@@ -1802,6 +1802,7 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 100,
             "title": "End Call Extra Rules",
             "type": "array"
           },
@@ -1816,6 +1817,7 @@
             "items": {
               "$ref": "#/components/schemas/FaqEntry"
             },
+            "maxItems": 200,
             "title": "Faqs",
             "type": "array"
           },
@@ -1841,6 +1843,7 @@
             "items": {
               "$ref": "#/components/schemas/ScriptStep"
             },
+            "maxItems": 100,
             "title": "Steps",
             "type": "array"
           },
@@ -1848,6 +1851,7 @@
             "items": {
               "$ref": "#/components/schemas/ScriptVariable"
             },
+            "maxItems": 100,
             "title": "Variables",
             "type": "array"
           }
@@ -11213,6 +11217,82 @@
         "title": "PerformanceOut",
         "type": "object"
       },
+      "PlanMarginOut": {
+        "additionalProperties": false,
+        "description": "The gross margin of a committed-volume bundle's rates at our cost floor (D-469).\n\nReturned on every plan the operator reads or writes, so the margin of a bundle is a\nnumber on the screen that sets it \u2014 not something discovered when a client reconciles.\nThe effective committed rate is `monthly_fee / included_min`; both it and the overage\nrate are judged against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `MIN_GROSS_MARGIN`\n(`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact\nstrings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.",
+        "properties": {
+          "below_target_margin": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Below Target Margin",
+            "type": "array"
+          },
+          "committed_gross_margin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Committed Gross Margin"
+          },
+          "cost_floor_inr_per_min": {
+            "title": "Cost Floor Inr Per Min",
+            "type": "string"
+          },
+          "effective_committed_rate_inr_per_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Committed Rate Inr Per Min"
+          },
+          "min_gross_margin": {
+            "title": "Min Gross Margin",
+            "type": "string"
+          },
+          "overage_gross_margin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Gross Margin"
+          },
+          "overage_rate_inr_per_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Inr Per Min"
+          }
+        },
+        "required": [
+          "effective_committed_rate_inr_per_min",
+          "committed_gross_margin",
+          "overage_rate_inr_per_min",
+          "overage_gross_margin",
+          "below_target_margin",
+          "min_gross_margin",
+          "cost_floor_inr_per_min"
+        ],
+        "title": "PlanMarginOut",
+        "type": "object"
+      },
       "PlanRowOut": {
         "additionalProperties": false,
         "description": "One dated agreement, as an operator reads it. Money as exact strings throughout.",
@@ -11321,6 +11401,9 @@
             ],
             "title": "Llm Model Surcharge Inr"
           },
+          "margin": {
+            "$ref": "#/components/schemas/PlanMarginOut"
+          },
           "monthly_fee_inr": {
             "anyOf": [
               {
@@ -11386,7 +11469,8 @@
           "effective_from",
           "effective_to",
           "created_at",
-          "states_pricing"
+          "states_pricing",
+          "margin"
         ],
         "title": "PlanRowOut",
         "type": "object"
@@ -12299,6 +12383,9 @@
             "title": "Changed",
             "type": "boolean"
           },
+          "margin": {
+            "$ref": "#/components/schemas/PlanMarginOut"
+          },
           "plan_id": {
             "format": "uuid",
             "title": "Plan Id",
@@ -12325,7 +12412,8 @@
           "plan_id",
           "changed",
           "superseded_plan_id",
-          "state"
+          "state",
+          "margin"
         ],
         "title": "RecordTermsOut",
         "type": "object"
@@ -15920,6 +16008,7 @@
             "items": {
               "$ref": "#/components/schemas/ParamIn"
             },
+            "maxItems": 50,
             "title": "Params",
             "type": "array"
           },
@@ -17682,7 +17771,7 @@
         "tags": [
           "actions"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/actions/invoke/{engine}/{tool_id}": {

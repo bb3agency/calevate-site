@@ -19,8 +19,8 @@ read an operator can reach, including the raw transcript BACKEND-PATTERNS §7 na
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Annotated, Any, Literal
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin import intake, service
 from apps.api.agents import service as agents_service
 from apps.api.authn.service import enqueue_invitation_email
+from apps.api.billing import rates as billing_rates
 from apps.api.billing import service as billing
 from apps.api.billing import terms as billing_terms
 from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND_INR
@@ -48,11 +49,14 @@ from apps.api.core.impersonation import (
     mint_grant,
     renewable_grant,
 )
+from apps.api.core.logging import get_logger
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -1963,6 +1967,39 @@ class CommercialTermsIn(BaseModel):
         return self
 
 
+class PlanMarginOut(BaseModel):
+    """The gross margin of a committed-volume bundle's rates at our cost floor (D-469).
+
+    Returned on every plan the operator reads or writes, so the margin of a bundle is a
+    number on the screen that sets it — not something discovered when a client reconciles.
+    The effective committed rate is `monthly_fee / included_min`; both it and the overage
+    rate are judged against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and `MIN_GROSS_MARGIN`
+    (`billing/rates.py`, the same floor the prepaid packs use). Money and ratios are exact
+    strings (hard rule 7); `null` where a rate is unset, never a zero standing in for it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: `monthly_fee / included_min`, per minute, quantized for display. `null` when the
+    #: bundle sets no committed rate (no `monthly_fee`, or no positive `included_min`).
+    effective_committed_rate_inr_per_min: str | None
+    #: Gross margin of that committed rate as a fraction (`"0.9630"`). `null` when there is
+    #: no committed rate to judge.
+    committed_gross_margin: str | None
+    #: The overage rate as set, and its gross margin. Both `null` when overage is unset.
+    overage_rate_inr_per_min: str | None
+    overage_gross_margin: str | None
+    #: Which of the set rates are at/above cost but under the target margin — surfaced
+    #: LOUDLY and allowed (a thin-margin pilot is a deliberate founder call), never a
+    #: silent below-target sale. A below-COST rate is refused at the write path and never
+    #: reaches this list. Names are `"committed"` / `"overage"`.
+    below_target_margin: list[str]
+    #: The target and the cost basis, so the screen can label the numbers above without a
+    #: second copy of either constant.
+    min_gross_margin: str
+    cost_floor_inr_per_min: str
+
+
 class PlanRowOut(BaseModel):
     """One dated agreement, as an operator reads it. Money as exact strings throughout."""
 
@@ -1991,6 +2028,8 @@ class PlanRowOut(BaseModel):
     # Does this row actually say what the client pays? False for the cap-only row the
     # client's own stop button mints — in effect for every reader, agreeing no price.
     states_pricing: bool
+    # The margin of this bundle's committed and overage rates at our cost floor (D-469).
+    margin: PlanMarginOut
 
 
 class CommercialTermsOut(BaseModel):
@@ -2019,11 +2058,58 @@ class RecordTermsOut(BaseModel):
     changed: bool
     superseded_plan_id: UUID | None
     state: str
+    # The margin of the terms just submitted, at our cost floor (D-469). Carries
+    # `below_target_margin` so the console can warn loudly on a below-target bundle that
+    # was accepted; a below-COST bundle never reaches here — it is refused with a 422.
+    margin: PlanMarginOut
+
+
+#: Gross margins are published as a FRACTION (`"0.2400"`), the same unit as
+#: `min_gross_margin` in the very same payload, so an operator compares two numbers rather
+#: than a percent against a fraction. Four places because `MIN_GROSS_MARGIN` is two and a
+#: bundle's margin lands between the printed steps often enough that two would round the
+#: comparison itself.
+_MARGIN_Q: Final[Decimal] = Decimal("0.0001")
+
+
+def _ratio(value: Decimal | None) -> str | None:
+    """A gross-margin fraction as exact digits, or absent when there is no rate to judge."""
+    return None if value is None else str(value.quantize(_MARGIN_Q, rounding=ROUND_HALF_UP))
+
+
+def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
+    """The margin verdict on one set of commercial terms (D-469).
+
+    Built from `rates.committed_plan_margin`, which owns the arithmetic and the two
+    founder-approved constants; this function only formats. The effective committed rate is
+    published through `billing.rate_to_display` — it is a RATE, not a rupee amount, and
+    `monthly_fee / included_min` divides exactly as often as it does not (₹9,999/2,000 is
+    ₹4.9995), so rounding it to paise here would print a rate that does not reproduce the
+    fee it came from.
+    """
+    verdict = billing_rates.committed_plan_margin(
+        monthly_fee=terms.monthly_fee,
+        included_min=terms.included_min,
+        overage_rate=terms.overage_rate,
+    )
+    rate = verdict.effective_committed_rate
+    return PlanMarginOut(
+        effective_committed_rate_inr_per_min=(
+            None if rate is None else str(billing.rate_to_display(rate))
+        ),
+        committed_gross_margin=_ratio(verdict.committed.margin if verdict.committed else None),
+        overage_rate_inr_per_min=_amount(terms.overage_rate),
+        overage_gross_margin=_ratio(verdict.overage.margin if verdict.overage else None),
+        below_target_margin=list(verdict.below_target()),
+        min_gross_margin=str(billing_rates.MIN_GROSS_MARGIN),
+        cost_floor_inr_per_min=str(billing_rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN),
+    )
 
 
 def _plan_out(record: billing_terms.PlanRecord) -> PlanRowOut:
     terms = record.terms
     return PlanRowOut(
+        margin=_margin_out(terms),
         id=record.id,
         setup_fee_inr=_amount(terms.setup_fee),
         monthly_fee_inr=_amount(terms.monthly_fee),
@@ -2207,6 +2293,51 @@ async def record_commercial_terms(
                 )
             step_up.require(x_confirm_action, spend_ceiling_confirmation(tenant_id))
 
+        # THE MARGIN GUARD (D-469). A committed-volume bundle sells minutes exactly as a
+        # prepaid pack does, so it answers to the same floor — but the pack catalogue is
+        # code a reviewer sees and CI scores, while these terms are typed into a console at
+        # onboarding. That is the whole reason the check has to be here: the pack guard's
+        # protection is code review, and this path has none.
+        #
+        # REFUSE below cost, WARN below target. The split is not a hedge — the two say
+        # genuinely different things. A rate under `SELF_SERVE_COST_FLOOR_INR_PER_MIN` loses
+        # money on every minute the client uses, so the harder they use it the worse it
+        # gets; nobody intends that, and it is the one shape an operator cannot talk
+        # themselves into at 6pm on an onboarding call. A rate above cost but under the 20%
+        # target is a thin deal, which a founder may genuinely choose (a lighthouse client,
+        # a competitive displacement) — refusing it would put this route in the way of a
+        # decision that is legitimately theirs. So that one is allowed and SAID: logged for
+        # an operator, and returned in `margin.below_target_margin` for the console to show.
+        margin = billing_rates.committed_plan_margin(
+            monthly_fee=terms.monthly_fee,
+            included_min=terms.included_min,
+            overage_rate=terms.overage_rate,
+        )
+        if below_cost := margin.below_cost():
+            # Named rates and the floor itself: an operator who is refused has to know
+            # WHICH number to move and what it has to clear.
+            raise ProblemError.business_rule(
+                "plan_below_cost",
+                "These terms price a minute below what it costs us to deliver: "
+                f"{', '.join(below_cost)}. Our cost floor is "
+                f"₹{billing_rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN}/min.",
+                remediation=(
+                    "Raise the overage rate, or raise the monthly fee / lower the included "
+                    "minutes so the committed rate clears the floor."
+                ),
+            )
+        if below_target := margin.below_target():
+            # Allowed, never silent. Ids and rate NAMES only — an amount here would put a
+            # client's commercial terms in the log (hard rule 6's neighbouring concern).
+            log.warning(
+                "plan_margin_below_target",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "rates": list(below_target),
+                    "min_gross_margin": str(billing_rates.MIN_GROSS_MARGIN),
+                },
+            )
+
         result = await billing_terms.record_terms(scoped, tenant_id=tenant_id, terms=terms)
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
 
@@ -2243,6 +2374,10 @@ async def record_commercial_terms(
         changed=result.changed,
         superseded_plan_id=result.superseded.id if result.superseded else None,
         state=view.state,
+        # The terms as SUBMITTED, which is what the operator is looking at. On an
+        # idempotent no-op (`changed=False`) these are also the terms in effect, so the
+        # figure is right either way.
+        margin=_margin_out(terms),
     )
 
 
