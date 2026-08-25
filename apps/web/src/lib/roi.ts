@@ -98,6 +98,31 @@ export const USAGE: {
   workingDays: { default: 26, min: 1, max: 31, step: 1 },
 };
 
+/**
+ * How long a single human shift covers, in hours. A voice-process shift is ~8–9 hours
+ * gross (of which only {@link TELECALLER.talkHoursPerDay} is actual talk); 9 is used so a
+ * "business hours" line is exactly ONE shift and the everyday case never inflates the human
+ * side. Coverage windows longer than this need more shifts STAFFED — the honest, and
+ * usually decisive, difference between a person and an always-on agent.
+ */
+export const SHIFT_HOURS = 9;
+
+/**
+ * The coverage lever: how many hours a day the line must actually be answered.
+ *
+ * This is the one advantage a pure per-minute-vs-salary showdown hides. A telecaller works
+ * one shift; a Calevate agent answers whenever the phone rings, at the SAME per-minute
+ * price whether the call is at 11am or 2am. So to compare like with like, the human side
+ * has to staff every shift the buyer needs covered — `ceil(coverageHours / SHIFT_HOURS)`
+ * teams — while Calevate's cost does not move. Default is one shift, so the comparison only
+ * widens when the buyer says out loud that they need the evenings or the nights too.
+ */
+export const COVERAGE: readonly { hours: number; shifts: number; label: string; caption: string }[] = [
+  { hours: 9, shifts: 1, label: "Business hours", caption: "≈9 hrs · one shift" },
+  { hours: 15, shifts: 2, label: "Into the evening", caption: "≈15 hrs · two shifts" },
+  { hours: 24, shifts: 3, label: "Around the clock", caption: "24 hrs · three shifts" },
+];
+
 /** The optional missed-lead-value inputs (advanced, off by default). */
 export const LEAD_VALUE: {
   convertedLeadInr: Benchmark;
@@ -114,6 +139,14 @@ export interface RoiInputs {
   avgMinutes: number;
   /** Working days per month. */
   workingDays: number;
+  /**
+   * Hours a day the line must be answered. Optional; omit for a single business-hours
+   * shift. Longer windows need more human shifts staffed (see {@link COVERAGE}); Calevate's
+   * cost is unaffected because it answers at the same rate around the clock.
+   */
+  coverageHours?: number;
+  /** Hours one human shift covers — defaults to {@link SHIFT_HOURS}. */
+  shiftHours?: number;
   /** Calevate price in paise/min — defaults to {@link CALEVATE_PAISE_PER_MIN}. */
   calevatePaisePerMin?: number;
   /** Dial ceiling: the most calls one telecaller can start in a day (dialling/wrap-limited). */
@@ -146,7 +179,19 @@ export interface RoiResult {
    * per-minute cost does — the honest apples-to-apples the fixed "100 calls" hid.
    */
   effectiveCallsPerAgentPerDay: number;
-  /** Telecallers needed = ceil(callsPerDay / effectiveCallsPerAgentPerDay). */
+  /**
+   * Shifts the human side must staff to cover the requested window =
+   * `clamp(ceil(coverageHours / shiftHours), 1..3)`. 1 for a business-hours line; 3 for
+   * around-the-clock. Calevate needs none of this — it is the same price at every hour.
+   */
+  shifts: number;
+  /**
+   * Telecallers needed. For one shift this is `ceil(callsPerDay / perAgent)` as before; for
+   * a wider window it is `shifts × max(1, ceil((callsPerDay / shifts) / perAgent))` — every
+   * staffed shift needs at least one person on the phone even when its share of the volume
+   * is light, which is exactly the cost an always-on human rota carries and an agent does
+   * not.
+   */
   headcount: number;
   /** Fleet base pay (headcount × base), in paise. */
   humanBasePaise: number;
@@ -209,7 +254,21 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
       ? Math.floor((talkMinutesPerDay * 100) / minuteHundredths)
       : dialCeiling;
   const perAgent = Math.max(0, Math.min(dialCeiling, talkCeiling));
-  const headcount = perAgent > 0 ? Math.ceil(callsPerDay / perAgent) : 0;
+
+  // Coverage: a person works ONE shift, so answering a wider window means staffing more
+  // shifts. Calevate answers every hour at the same rate, so this multiplies the human side
+  // and leaves Calevate untouched — the honest core of "always on" that a per-minute-only
+  // comparison hides. Volume is spread across the staffed shifts (an even split is the
+  // conservative, human-favourable assumption), but every staffed shift still needs at
+  // least one agent on the phone, which is what an always-on human rota really costs.
+  const shiftHours = nonNeg(inputs.shiftHours ?? 0) > 0 ? nonNeg(inputs.shiftHours ?? 0) : SHIFT_HOURS;
+  const coverageHours =
+    nonNeg(inputs.coverageHours ?? 0) > 0 ? nonNeg(inputs.coverageHours ?? 0) : shiftHours;
+  const shifts = Math.min(3, Math.max(1, Math.ceil(coverageHours / shiftHours)));
+  const headcount =
+    perAgent > 0 && callsPerDay > 0
+      ? shifts * Math.max(1, Math.ceil(callsPerDay / shifts / perAgent))
+      : 0;
 
   const baseInr = Math.round(nonNeg(inputs.basePerAgentInr));
   const loadedInr = Math.round(nonNeg(inputs.loadedPerAgentInr));
@@ -244,6 +303,7 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
   return {
     callsPerMonth,
     effectiveCallsPerAgentPerDay: perAgent,
+    shifts,
     headcount,
     humanBasePaise,
     humanUpliftPaise,
