@@ -14,9 +14,11 @@ and this file is one of the reasons it is honest about that.
 from __future__ import annotations
 
 import ast
+import contextlib
 import inspect
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -471,3 +473,101 @@ def test_the_http_budget_equals_the_number_three_other_places_were_sized_against
     assert two_attempts <= FLUSH_TIMEOUT_S, (
         "the host-side backup relay would report a delivered alert as undelivered"
     )
+
+
+@contextlib.contextmanager
+def caplog_at_info():  # type: ignore[no-untyped-def]
+    """`caplog` is a fixture and this module's non-fixture tests cannot take it."""
+    import logging as _logging
+
+    records: list[_logging.LogRecord] = []
+
+    class _Sink(_logging.Handler):
+        def emit(self, record: _logging.LogRecord) -> None:
+            records.append(record)
+
+    sink = _Sink()
+    logger = transport_module.log
+    logger.addHandler(sink)
+    previous = logger.level
+    logger.setLevel(_logging.INFO)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(sink)
+        logger.setLevel(previous)
+
+
+# --- the branded alternative, at the wire --------------------------------------
+#
+# `Transport.send` gained `html` so the client-facing mail can carry the branded part
+# (`workers/email_render`). These test the ADAPTERS, because an interface change verified
+# only at the composer is a change that may never have reached a provider.
+#
+# The shared property, and the one worth stating once: html is an ALTERNATIVE, never a
+# replacement. A message sent as HTML alone renders as nothing in a text client, nothing
+# in a screen reader, and nothing in the inbox preview pane — and the mail this now
+# carries includes the link a person needs to set their first password.
+
+
+def test_resend_sends_both_parts_when_html_is_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _install(monkeypatch, _Response(200, {"id": "m_1"}))
+    transport = ResendTransport(api_key="re_test_key", sender="support@calevate.tech")
+
+    assert (
+        transport.send(to=RECIPIENT, subject="Set up", body="plain line", html="<p>rich line</p>")
+        is True
+    )
+
+    (call,) = calls
+    assert call["json"]["text"] == "plain line", (
+        "the text part is missing from the payload. Resend given only `html` sends an "
+        "HTML-only message, which is the one a plain-text client shows as empty."
+    )
+    assert call["json"]["html"] == "<p>rich line</p>"
+
+
+def test_smtp_builds_multipart_with_the_text_part_first() -> None:
+    """ORDER IS THE STANDARD'S AND IT DECIDES WHAT RENDERS.
+
+    In multipart/alternative the LAST part a client understands is the one it shows, and
+    the FIRST is what a client that understands neither falls back to. `set_content` then
+    `add_alternative` produces text-then-html; the reverse would show plain text in every
+    modern client and make the branded half dead weight.
+
+    Built without a server: `EmailMessage` assembly is the part this adapter owns, and a
+    live SMTP conversation would be testing smtplib.
+    """
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["Subject"] = "Set up"
+    message.set_content("plain line")
+    message.add_alternative("<p>rich line</p>", subtype="html")
+
+    assert message.get_content_type() == "multipart/alternative"
+    parts = [part.get_content_type() for part in message.iter_parts()]
+    assert parts == ["text/plain", "text/html"], parts
+
+    # And the adapter really does assemble it this way round.
+    source = Path(transport_module.__file__).read_text(encoding="utf-8")
+    set_at = source.index("message.set_content(body)")
+    add_at = source.index('message.add_alternative(html, subtype="html")')
+    assert set_at < add_at, (
+        "SmtpTransport adds the html alternative BEFORE the text part, so the text "
+        "becomes the preferred rendering and the branded part is never shown"
+    )
+
+
+def test_the_console_sink_logs_the_text_and_flags_the_branded_part() -> None:
+    """A developer reading a terminal wants the link, not 4KB of table markup — so the
+    text is what is logged. `has_html` is there so "did the branded version render?" is
+    answerable without dumping it."""
+    import logging as _logging
+
+    transport = ConsoleTransport()
+    with caplog_at_info() as records:
+        assert transport.send(to=RECIPIENT, subject="s", body="plain", html="<p>x</p>") is True
+    (record,) = [r for r in records if r.msg == "email_console"]
+    assert _extra(record, "has_html") is True
+    assert _logging.getLevelName(record.levelno) == "INFO"
