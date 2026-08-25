@@ -425,9 +425,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # NO `version:` HERE ON PURPOSE. With it, this job installed whatever `10.x` the
+      # registry served that morning — an unpinned dependency on the tool that resolves
+      # every other dependency, which is the one place hard rule 9 can least afford one.
+      # `pnpm/action-setup` reads `packageManager` from the root package.json when no
+      # version is given, and corepack verifies the tarball against the sha512 baked into
+      # that string. Passing both is an error ("Multiple versions of pnpm specified"), so
+      # the pin lives in ONE place and the VPS build reads the same one.
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4.3.0 (@v4 tip)
-        with:
-          version: 10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22

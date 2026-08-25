@@ -108,11 +108,20 @@ Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location h
 ## 2. VPS baseline (once per VPS — raghava §2 verbatim)
 
 Packages: Docker Engine + Compose plugin (v2.24+ for `!reset`), **nginx ≥1.25.1**, certbot,
-PostgreSQL 16 (pgvector optional — D-28 contingency), Node 22 (for web builds + pm2;
-see §7a — prefer building in CI), ~~Python is NOT needed on the
+PostgreSQL 16 (pgvector optional — D-28 contingency), Node 22 **plus pnpm via corepack**
+(for web builds + pm2; see §7a — prefer building in CI), ~~Python is NOT needed on the
 host (api/workers run containerized; builds happen in Docker)~~ — **struck by D-188, see
 below**, jq, `systemd-timesyncd`
 (webhook ±5-min skew checks depend on it).
+
+> **pnpm is installed with corepack, never `npm i -g pnpm`.** Node 22 ships corepack, and
+> the root `package.json` pins `packageManager` to an exact version WITH its sha512 — so
+> `corepack enable && corepack prepare --activate` in the checkout installs that exact
+> tarball and verifies it. A global `npm i -g pnpm` pulls whatever the registry serves
+> that minute, which makes the tool that resolves every other dependency the one unpinned
+> dependency in the tree (hard rule 9). `.github/workflows/ci.yml` deliberately passes NO
+> `version:` to `pnpm/action-setup` for the same reason: it reads the same pin, so the
+> VPS and CI build with the same bytes.
 
 > **"Python is NOT needed on the host" is false, and believing it costs backup alerting
 > (D-188).** It is true of the three SERVICES — api, voice-runtime and workers all run
