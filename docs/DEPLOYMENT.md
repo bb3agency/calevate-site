@@ -1301,10 +1301,19 @@ Break it with the certificate that needs no ACME:
    challenge for all four names:
 
    ```sh
-   certbot certonly --webroot -w /var/www/certbot \
+   certbot certonly --webroot -w /var/www/certbot --cert-name calevate.tech \
+     -d calevate.tech -d www.calevate.tech \
      -d admin.calevate.tech -d app.calevate.tech -d api.calevate.tech -d hooks.calevate.tech \
      --deploy-hook "systemctl reload nginx"
    ```
+
+   **Six names, and `--cert-name` is not cosmetic.** `TLS_LIVE_DIR` is
+   `/etc/letsencrypt/live/calevate.tech`; without the flag certbot names the lineage
+   after the FIRST `-d` and the rendered config points at a directory that never exists.
+   The apex and `www` are in the same lineage rather than served from the Cloudflare
+   Origin CA cert that also covers them: that certificate exists for one job (a certless
+   `default_server` is Cloudflare 525), and using it for a second is two mechanisms for
+   one problem — one certificate, one renewal, one hook.
 
    `certonly`, never `--nginx` — that plugin rewrites templated config (§5). The
    `--deploy-hook` is part of issuance rather than a later step because a later step is

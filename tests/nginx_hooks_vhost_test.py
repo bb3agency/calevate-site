@@ -57,13 +57,29 @@ def _server_blocks(config: str) -> list[str]:
 
 
 def _block_for(server_name_fragment: str, *, listening_on_443: bool = True) -> str:
+    """The one server block serving `server_name_fragment`.
+
+    MATCHES ON THE server_name TOKEN LIST, not on a substring of the block. A substring
+    match cannot express "the bare apex": `${ROOT_DOMAIN}` is a suffix of
+    `www.${ROOT_DOMAIN}` and of every service hostname, so the apex's own block is
+    indistinguishable from five others. A fragment ending in `.` is a hostname PREFIX
+    (`app.`); anything else must equal a whole token.
+    """
     config = TEMPLATE.read_text(encoding="utf-8")
-    candidates = [
-        block
-        for block in _server_blocks(config)
-        if re.search(rf"server_name[^;]*\b{re.escape(server_name_fragment)}", block)
-        and (("listen 443" in block) == listening_on_443)
-    ]
+    candidates = []
+    for block in _server_blocks(config):
+        names = re.search(r"server_name([^;]*);", block)
+        if names is None:
+            continue
+        tokens = names.group(1).split()
+        matched = any(
+            token.startswith(server_name_fragment)
+            if server_name_fragment.endswith(".")
+            else token == server_name_fragment
+            for token in tokens
+        )
+        if matched and (("listen 443" in block) == listening_on_443):
+            candidates.append(block)
     assert len(candidates) == 1, (
         f"expected exactly one server block for {server_name_fragment} "
         f"(listen 443 = {listening_on_443}), found {len(candidates)}"
@@ -148,6 +164,13 @@ REALM_REFUSALS = (
     # (hostname fragment, prefix it must refuse, what is behind that prefix)
     ("app.", "/admin", "the operator console, including its sign-in page"),
     ("admin.", "/c/", "every client dashboard"),
+    # The apex proxies to the SAME Next.js process as both consoles, so it reopens the
+    # hole on a third hostname unless it refuses both trees. `_block_for` matches on a
+    # server_name TOKEN, which is what distinguishes the bare apex from `www.` and from
+    # every subdomain — a substring match cannot, since the apex is a suffix of all of
+    # them.
+    ("${ROOT_DOMAIN}", "/admin", "the operator console, on the PUBLIC hostname"),
+    ("${ROOT_DOMAIN}", "/c/", "every client dashboard, on the PUBLIC hostname"),
 )
 
 
@@ -273,7 +296,12 @@ def _tls_blocks() -> list[tuple[str, str]]:
         names = re.search(r"server_name([^;]*);", block)
         assert names is not None
         found.append((names.group(1).split()[0], block))
-    assert len(found) == 4, [name for name, _ in found]
+    # Six: the apex, www, and the four service hostnames. A COUNT rather than a lower
+    # bound, because a vhost added without the block below noticing is exactly how the
+    # apex shipped with no server_name at all — `calevate.tech` landed on the certless
+    # default_server and got `return 444`, i.e. the product's front door closed the
+    # connection on every visitor.
+    assert len(found) == 6, [name for name, _ in found]
     return found
 
 
