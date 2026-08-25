@@ -4,7 +4,8 @@ THE DEFECT THIS FILE PINS. `run_assist` runs two provider legs IN SERIES — Azu
 the disclosed Sarvam fallback — and both used `EXTRACTION_TIMEOUT_S` (30s). That is ~60s
 of provider wait before the route's own idempotency claim, quota gate, transcript load,
 metering and audit write, behind `location /` on the `api.` vhost, whose effective
-`proxy_read_timeout` comes from `infra/nginx/snippets/calevate-proxy.conf` and is 60s. The
+`proxy_read_timeout` comes from the api vhost in `infra/nginx/calevate.conf.template`
+and is 60s. The
 edge gave up first, so the client got a 504 INSTEAD OF the fallback's answer — the one
 outcome the fallback exists to prevent — while a pooled Postgres connection was held for
 the whole minute.
@@ -33,9 +34,7 @@ from apps.workers.extraction import (
 )
 from calevate_shared.extraction import ExtractionSchemaSpec
 
-SNIPPET = (
-    Path(__file__).resolve().parents[1] / "infra" / "nginx" / "snippets" / "calevate-proxy.conf"
-)
+TEMPLATE = Path(__file__).resolve().parents[1] / "infra" / "nginx" / "calevate.conf.template"
 
 #: `proxy_read_timeout 60s;` -> "60s". nginx accepts a bare number as seconds and a suffix
 #: for other units; only the two forms we actually write are parsed, and anything else
@@ -43,19 +42,44 @@ SNIPPET = (
 _READ_TIMEOUT = re.compile(r"^\s*proxy_read_timeout\s+(\d+)(s|m)?\s*;", re.MULTILINE)
 
 
-def _proxy_read_timeout_s() -> float:
-    """The `proxy_read_timeout` every API location inherits from the shared snippet.
+def _api_server_block() -> str:
+    """The `api.` TLS server block, by brace depth."""
+    config = TEMPLATE.read_text(encoding="utf-8")
+    for match in re.finditer(r"\bserver\s*\{", config):
+        depth, index = 0, match.end() - 1
+        while index < len(config):
+            if config[index] == "{":
+                depth += 1
+            elif config[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    body = config[match.end() : index]
+                    if "server_name api." in body and "listen 443" in body:
+                        return body
+                    break
+            index += 1
+    raise AssertionError("no api. TLS server block in calevate.conf.template")
 
-    THE SNIPPET AND NOT THE VHOST, deliberately. `include` is textual, so these three
-    lines land at LOCATION scope in every block that includes them and beat anything the
-    enclosing `server` says — which is the sibling defect `tests/nginx_hooks_vhost_test.py`
-    pins. For the `api.` vhost there is no restatement at all, so the snippet's value IS
-    the deadline the assist route runs under.
+
+def _proxy_read_timeout_s() -> float:
+    """The `proxy_read_timeout` the api vhost's locations run on.
+
+    THE VHOST AND NO LONGER THE SNIPPET. It used to be read out of
+    `snippets/calevate-proxy.conf`, on the argument that an `include` is textual so the
+    snippet's value lands at LOCATION scope and beats the server block. That was true,
+    and it is why the snippet no longer sets a timeout at all: the hooks vhost restated a
+    tighter value after the same include, which is two `proxy_connect_timeout` at one
+    level — `nginx: [emerg] directive is duplicate`, a config that will not load. The
+    timeouts moved to server scope in each vhost, so the api vhost's own trio is what
+    every location under it inherits, and that is the number this deadline must fit
+    inside.
     """
-    matches = _READ_TIMEOUT.findall(SNIPPET.read_text(encoding="utf-8"))
+    block = _api_server_block()
+    matches = _READ_TIMEOUT.findall(block)
     assert len(matches) == 1, (
-        f"expected exactly one proxy_read_timeout in {SNIPPET.name}, found {len(matches)}: "
-        "the assist budget is computed against it and cannot be computed against two"
+        f"expected exactly one proxy_read_timeout in the api vhost, found {len(matches)}: "
+        f"{matches}. More than one is a duplicate nginx refuses; none means the block "
+        "inherits nginx's 60s global default and this budget is measuring nothing."
     )
     value, unit = matches[0]
     return float(value) * (60.0 if unit == "m" else 1.0)
@@ -65,7 +89,7 @@ def test_two_assist_legs_and_the_route_reserve_fit_inside_the_edge_deadline() ->
     """The headline arithmetic: `2 * leg + reserve < proxy`.
 
     FAILS IF: `ASSIST_TIMEOUT_S` is raised, `ASSIST_ROUTE_RESERVE_S` is raised, or
-    `proxy_read_timeout` in `calevate-proxy.conf` is lowered — any of which puts the
+    the api vhost's `proxy_read_timeout` is lowered — any of which puts the
     two-leg path back over the edge deadline and turns the disclosed Sarvam fallback into
     a 504.
     """
