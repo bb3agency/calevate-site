@@ -206,88 +206,157 @@ def test_the_two_realms_are_not_sharing_one_server_block() -> None:
         )
 
 
-# --- the timeout tightening the include used to undo --------------------------
+# --- the timeout section: what nginx actually does with a duplicated directive ---
 #
-# The hooks vhost sets `proxy_connect_timeout 2s; proxy_send_timeout 15s;
-# proxy_read_timeout 15s` at SERVER scope, with a comment saying a callback waiting 60s is
-# a call already lost. Its `location /` then includes `calevate-proxy.conf`, whose last
-# three lines are 5s/60s/60s. nginx does not merge levels: a directive set at the current
-# level replaces the enclosing one entirely, and `include` is textual, so those three
-# landed at LOCATION scope and won. The latency-critical vhost ran on the browser realms'
-# numbers, and `client_max_body_size 10m` kept working — the snippet does not define it —
-# which is exactly what made it invisible.
+# THE PREVIOUS SHAPE HERE WAS A CONFIG NGINX REFUSES TO LOAD, and these tests pinned it.
+#
+# `calevate-proxy.conf` ended with `proxy_connect_timeout 5s; proxy_send_timeout 60s;
+# proxy_read_timeout 60s`, and the hooks `location /` RESTATED 2s/15s/15s immediately
+# after including it — documented as "nginx takes the last occurrence at a level". It
+# does not. A second `proxy_connect_timeout` at the same level is
+#
+#     nginx: [emerg] "proxy_connect_timeout" directive is duplicate in
+#     /etc/nginx/conf.d/calevate-site.conf:287
+#
+# and the WHOLE config is rejected, every vhost with it. Found by `nginx -t` on the first
+# host that ever loaded this file — not by these tests, which asserted the restatement was
+# present and required it to be the tight value.
+#
+# The premise that produced it was half right: an `include` IS textual, so a timeout in
+# the snippet does land at location scope and does shadow the server block. The fix is
+# therefore not a restatement but an ABSENCE — the snippet sets no timeout at all, and
+# each vhost states its own trio at server scope, where nothing shadows it.
+#
+# The properties below are what that costs and what protects it: every TLS vhost must
+# set all three (a new one that forgets gets nginx's global 60s silently), the hooks
+# numbers must stay tighter than the browser realms', and NO directive the shared snippet
+# sets may be restated in a block that includes it — which is the general form of the
+# defect, not just the three names it happened to hit.
 
-SNIPPET = (
+PROXY_SNIPPET = (
     Path(__file__).resolve().parents[1] / "infra" / "nginx" / "snippets" / "calevate-proxy.conf"
 )
 
-#: `proxy_read_timeout 15s;` -> ("proxy_read_timeout", "15s")
 _TIMEOUT = re.compile(r"\b(proxy_(?:connect|send|read)_timeout)\s+(\S+?)\s*;")
 
 _TIMEOUT_NAMES = ("proxy_connect_timeout", "proxy_send_timeout", "proxy_read_timeout")
 
-
-def _hooks_catch_all() -> str:
-    """The body of the hooks vhost's `location / { ... }`."""
-    block = _block_for("hooks.")
-    bodies = re.findall(r"location\s+/\s*\{([^}]*)\}", block)
-    assert len(bodies) == 1, f"expected one catch-all on the hooks vhost, found {len(bodies)}"
-    return bodies[0]
+#: `proxy_set_header Host $host;` -> "proxy_set_header". Directive NAMES only, comments
+#: stripped by the caller, so a name quoted in prose is not mistaken for a setting.
+_DIRECTIVE = re.compile(r"^\s*([a-z_]+)\s", re.MULTILINE)
 
 
-def test_the_proxy_snippet_still_sets_timeouts_at_whatever_level_it_is_included_in() -> None:
-    """The premise the rest of this section rests on.
+def _uncommented(text: str) -> str:
+    return re.sub(r"#[^\n]*", "", text)
 
-    FAILS IF: somebody deletes the three timeout lines from `calevate-proxy.conf`. That is
-    a legitimate change — it is the other fix for this defect — but it makes the
-    restatements below load-bearing in a different way, so the pair should be re-read
-    together rather than one of them quietly becoming decoration.
+
+def _server_scope(block: str) -> str:
+    """A server block's own directives — everything above its first `location`.
+
+    COMMENTS ARE STRIPPED FIRST, and that ordering is the whole correctness of this
+    helper. The prose above these trios explains why they are not at location scope, so
+    it contains the words "location scope"; slicing at the first literal `location ` in
+    the RAW block cuts above the directives and reports every vhost as setting none.
     """
-    found = dict(_TIMEOUT.findall(SNIPPET.read_text(encoding="utf-8")))
-    assert set(found) == set(_TIMEOUT_NAMES), (
-        "calevate-proxy.conf no longer sets all three proxy timeouts; the hooks vhost's "
-        f"server-scope values may now be effective on their own. Found: {sorted(found)}"
+    clean = _uncommented(block)
+    at = clean.find("location ")
+    return clean[: at if at != -1 else len(clean)]
+
+
+def _tls_blocks() -> list[tuple[str, str]]:
+    """Every `(hostname, body)` for the TLS server blocks, port-80 redirect excluded."""
+    config = TEMPLATE.read_text(encoding="utf-8")
+    found = []
+    for block in _server_blocks(config):
+        if "listen 443" not in block:
+            continue
+        names = re.search(r"server_name([^;]*);", block)
+        assert names is not None
+        found.append((names.group(1).split()[0], block))
+    assert len(found) == 4, [name for name, _ in found]
+    return found
+
+
+def test_the_shared_proxy_snippet_sets_no_timeout_at_all() -> None:
+    """The premise the rest of this section rests on, and the actual fix.
+
+    FAILS IF: somebody puts the three lines back in the snippet "as defaults". That is
+    what makes every vhost's server-scope trio dead again, and the first block that then
+    restates one is a config that will not load.
+    """
+    found = _TIMEOUT.findall(_uncommented(PROXY_SNIPPET.read_text(encoding="utf-8")))
+    assert not found, (
+        "calevate-proxy.conf sets a proxy timeout again. An include is textual, so this "
+        f"lands at LOCATION scope in every block that pulls it in: {found}"
     )
 
 
 @pytest.mark.parametrize("directive", _TIMEOUT_NAMES)
-def test_the_hooks_catch_all_restates_every_timeout_after_the_include(directive: str) -> None:
-    """The fix, stated as the property rather than as the diff.
+def test_every_tls_vhost_states_every_timeout_at_server_scope(directive: str) -> None:
+    """The cost of the fix, made a red build rather than a silent 60s.
 
-    FAILS IF: any of the three restatements is removed from `location /`, or moved ABOVE
-    the `include` line — either way the snippet's 5s/60s/60s becomes the effective value
-    on the vhost whose entire ack budget is 500ms and whose vendor never retries (D-31).
+    With the snippet no longer supplying a default, a vhost that states nothing runs on
+    nginx's global 60s — which on `hooks.` is a call already lost, and on the api vhost
+    is the budget `tests/assist_deadline_test` measures against.
     """
-    body = _hooks_catch_all()
-    include_at = body.find("include /etc/nginx/snippets/calevate-proxy.conf")
-    assert include_at != -1, "the hooks catch-all no longer includes the proxy snippet"
-    restated = [m for m in _TIMEOUT.finditer(body) if m.group(1) == directive]
-    assert restated, (
-        f"{directive} is not restated inside the hooks `location /`, so the value that "
-        "actually applies is the snippet's browser-realm default, not the server block's"
-    )
-    assert restated[-1].start() > include_at, (
-        f"{directive} is set BEFORE the include that overrides it — nginx takes the last "
-        "occurrence at a level, so this restatement governs nothing"
-    )
+    for host, block in _tls_blocks():
+        assert re.search(rf"\b{directive}\s+\S+;", _server_scope(block)), (
+            f"{host} does not set {directive} at server scope, so it silently runs on "
+            "nginx's 60s global default"
+        )
 
 
 @pytest.mark.parametrize("directive", _TIMEOUT_NAMES)
-def test_the_hooks_vhost_actually_runs_on_its_own_tighter_numbers(directive: str) -> None:
-    """Not just "a value is restated" but "the restated value is the tight one".
+def test_the_hooks_vhost_is_tighter_than_the_browser_realms(directive: str) -> None:
+    """Not merely "a value is set" but "the value is the tight one".
 
-    FAILS IF: someone reconciles the duplication by copying the snippet's 60s into the
-    location, which would make the test above pass while restoring the exact defect.
+    FAILS IF: someone reconciles the vhosts by copying 60s everywhere, which would keep
+    every test above green while restoring the defect the tightening exists for — the
+    webhook vhost has 500ms to ack and its vendor never retries (D-31).
     """
-    # The FIRST occurrence in the block, which is the server-scope one: `dict(findall(...))`
-    # would keep the LAST, i.e. the location's own value, and compare it to itself.
-    server_value = next(
-        m.group(2) for m in _TIMEOUT.finditer(_block_for("hooks.")) if m.group(1) == directive
-    )
-    location_value = [m for m in _TIMEOUT.finditer(_hooks_catch_all()) if m.group(1) == directive][
-        -1
-    ].group(2)
-    assert location_value == server_value, (
-        f"the hooks vhost declares {directive} {server_value} at server scope but runs on "
-        f"{location_value}: the two must agree, because only the location one is effective"
-    )
+
+    def seconds(block: str) -> float:
+        match = re.search(rf"\b{directive}\s+(\d+)(s|m)?\s*;", _server_scope(block))
+        assert match is not None, directive
+        return float(match.group(1)) * (60.0 if match.group(2) == "m" else 1.0)
+
+    blocks = dict(_tls_blocks())
+    hooks = seconds(blocks["hooks.${ROOT_DOMAIN}"])
+    for host in ("admin.${ROOT_DOMAIN}", "app.${ROOT_DOMAIN}", "api.${ROOT_DOMAIN}"):
+        assert hooks < seconds(blocks[host]), (
+            f"hooks {directive} ({hooks}s) is not tighter than {host}. An engine callback "
+            "waiting a browser realm's timeout is a call already lost."
+        )
+
+
+def test_no_block_restates_a_directive_the_shared_snippet_already_sets() -> None:
+    """THE GENERAL FORM OF THE DEFECT, and the only test here that would have caught it.
+
+    nginx refuses a duplicate directive at one level, and `include` is textual — so any
+    name this snippet sets, restated inside a `location` that includes it, is
+    `[emerg] directive is duplicate` and the entire config is rejected. The three
+    timeouts are simply the names it happened to be true of; `proxy_set_header` and
+    `proxy_http_version` are one careless line away from the same outcome.
+
+    `proxy_set_header` is exempt because nginx explicitly allows several of them at one
+    level — they are a list, not a scalar.
+    """
+    settable = {
+        name
+        for name in _DIRECTIVE.findall(_uncommented(PROXY_SNIPPET.read_text(encoding="utf-8")))
+        if name != "proxy_set_header"
+    }
+    assert settable, "the proxy snippet sets nothing — this guard is blind"
+
+    config = TEMPLATE.read_text(encoding="utf-8")
+    for block in _server_blocks(config):
+        for body in re.findall(r"location\s+[^{]*\{((?:[^{}]|\{[^{}]*\})*)\}", block, re.DOTALL):
+            if "calevate-proxy.conf" not in body:
+                continue
+            clean = _uncommented(body)
+            for name in sorted(settable):
+                assert not re.search(rf"^\s*{name}\s+\S", clean, re.MULTILINE), (
+                    f"a location restates `{name}` after including calevate-proxy.conf, "
+                    "which already sets it at that level. nginx rejects the duplicate and "
+                    "refuses the whole config — set it at server scope instead."
+                )
