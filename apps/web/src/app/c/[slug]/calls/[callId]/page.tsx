@@ -300,7 +300,7 @@ export default function CallDetailPage({
             <p className="text-sm text-ink">{detail.summary}</p>
             {detail.lead_id && (
               <Link
-                href={href(`/c/${slug}/leads`)}
+                href={href(`/c/${slug}/leads/${detail.lead_id}`)}
                 className="mt-3 inline-block text-sm font-medium text-brand-strong hover:underline"
               >
                 View the lead this call created

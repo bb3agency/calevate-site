@@ -11,13 +11,16 @@ import {
   Clock,
   Database,
   FileAudio,
+  Filter,
   Globe,
   GraduationCap,
+  Handshake,
   Languages,
   ListChecks,
   Lock,
   Megaphone,
   PhoneCall,
+  PhoneOutgoing,
   PhoneIncoming,
   Rows3,
   ShieldCheck,
@@ -148,6 +151,63 @@ const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[
     body:
       "Upload your price list or FAQs. Nothing an agent says from it goes live until " +
       "somebody approves it, and we check the published copy still matches ours.",
+  },
+];
+
+/**
+ * The qualification layer — the positioning this page leads its cost argument with.
+ *
+ * WHY THIS SECTION EXISTS. The cost calculator below used to make one comparison only:
+ * Calevate taking the SAME calls a telecaller would. That is honest for a receptionist
+ * workload and dishonest for a sales one, because a long call is a sales conversation and
+ * nobody's alternative to their closer is a cheaper closer. The comparison that is
+ * like-for-like is the split every sales organisation already runs — one person qualifies,
+ * another closes; the industry names are SDR and account executive, marketing-qualified
+ * and sales-qualified lead, top-of-funnel triage. Calevate is the first half of it.
+ *
+ * EVERY CARD IS A SHIPPED SURFACE, per this file's rule. In order:
+ *  - the first call to every lead: `apps/api/ingest/service.py:1` (webhook-in → lead →
+ *    compliance gate → outbound) and `apps/api/campaigns/service.py:1` (list campaigns);
+ *    the form→dial gap is timed by `apps/api/core/alerting.py:611::record_speed_to_lead`;
+ *  - sorted and written down: `packages/shared/.../extraction.py::ExtractionSchemaSpec`
+ *    drives the columns (`apps/api/crm/columns.py:16`), the lead statuses are the fixed
+ *    enum in `apps/api/crm/schemas.py:29`, and the hot-lead alert fires off the extracted
+ *    fields (`apps/workers/pipeline.py:135::HOT_LEAD_FIELD_TRIGGERS`);
+ *  - the funnel the owner reads it back on: `apps/api/crm/performance.py:16,46`
+ *    (Calls → Connected → Qualified, qualified = the lead moved past `new`).
+ *
+ * NO CONVERSION STATISTIC APPEARS HERE, and that is deliberate rather than an omission.
+ * The figures this play is usually sold with (a percentage lift from calling in the first
+ * minute, a multiple on reaching a decision maker within the hour) trace back to sources
+ * this repository could not read and therefore may not repeat — hard rule 11, and
+ * `docs/POSITIONING-QUALIFICATION-LAYER.md` names each one and why it was refused. The
+ * argument is made with arithmetic the buyer drives in the calculator instead.
+ */
+const QUALIFICATION: { icon: typeof Filter; title: string; body: string }[] = [
+  {
+    icon: PhoneOutgoing,
+    title: "Everyone on the list gets the first call",
+    body:
+      "Not the ones your team got to before the day ran out — all of them, in the order " +
+      "they came in. A web enquiry becomes an outgoing call without waiting for someone " +
+      "to notice it, and the gap between the form and the dial is timed on every one.",
+  },
+  {
+    icon: Filter,
+    title: "They come back sorted, not just recorded",
+    body:
+      "Each call lands as a row with the things you said you needed to know filled in, " +
+      "and the lead marked — contacted, interested, hot. Someone who says they want to " +
+      "book reaches you as an alert while they are still thinking about it.",
+  },
+  {
+    icon: Handshake,
+    title: "Your people open the day on a shortlist",
+    body:
+      "The long conversation happens with someone who has already been spoken to and " +
+      "already said they are interested. Nobody spends their morning finding out who is " +
+      "not. Your dashboard reads it back as a funnel: calls, the ones that became " +
+      "conversations, and the ones that turned into a qualified lead.",
   },
 ];
 
@@ -500,6 +560,57 @@ export default function Home() {
             </div>
           </section>
 
+          {/* --- Qualification layer ------------------------------------------------ */}
+          {/*
+           * The reframe the cost section then puts numbers to: not "AI instead of your
+           * staff", but "AI does the triage your staff should never have been doing".
+           * See `QUALIFICATION` above for the shipped surface behind each card and for
+           * why no conversion statistic appears anywhere in it.
+           */}
+          <section id="qualify" className="scroll-mt-20 border-t border-line">
+            <div className={`${SHELL} py-20 sm:py-24`}>
+              <Reveal>
+                <Eyebrow index="03">Where your team&apos;s time goes</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  Your salespeople should be closing, not finding out who is interested
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                  Most of a telecalling day is spent on people who were never going to buy —
+                  and you only know which ones those were after the call. Sales teams that
+                  can afford it split the job in two: one person qualifies, another closes.
+                  Calevate is the first half. It takes the first call to every enquiry and
+                  every name on your list, works out who is worth a conversation, and hands
+                  your people the shortlist.
+                </p>
+              </Reveal>
+              <div className="mt-12 grid gap-4 lg:grid-cols-3">
+                {QUALIFICATION.map(({ icon: Icon, title, body }, index) => (
+                  <Reveal
+                    as="section"
+                    key={title}
+                    delay={index * 0.08}
+                    className="rounded-2xl border border-line bg-surface p-6"
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
+                      <Icon aria-hidden className="h-5 w-5" />
+                    </span>
+                    <h3 className="mt-5 text-[17px] font-semibold text-ink">{title}</h3>
+                    <p className="mt-1.5 text-sm text-ink-muted">{body}</p>
+                  </Reveal>
+                ))}
+              </div>
+              <Reveal delay={0.2}>
+                <p className="mt-8 max-w-2xl text-sm text-ink-faint">
+                  This is not your team replaced. It is the part of their day that was never
+                  selling. What stays theirs is the conversation where somebody decides —
+                  and after that, the only thing holding you back is how fast you can look
+                  after the customers you have won. The section below lets you put your own
+                  numbers on that.
+                </p>
+              </Reveal>
+            </div>
+          </section>
+
           {/* --- ROI calculator ---------------------------------------------------- */}
           {/*
            * The one place a price appears (see `roiCalculator.tsx` for why the page's
@@ -510,14 +621,17 @@ export default function Home() {
           <section id="cost" className="scroll-mt-20 border-t border-line">
             <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <Eyebrow index="03">What it costs</Eyebrow>
+                <Eyebrow index="04">What it costs</Eyebrow>
                 <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   Do the maths against hiring, with your own numbers
                 </h2>
                 <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
                   A telecaller costs far more than the salary in the job ad, and a desk sits
                   idle on a quiet day. Put in what your line handles and see the comparison —
-                  every assumption on both sides is yours to change.
+                  every assumption on both sides is yours to change. Two comparisons, and
+                  which one is honest depends on the call: Calevate answering the calls
+                  outright, or Calevate taking the first call so your team only holds the
+                  conversations worth holding.
                 </p>
               </Reveal>
               <RoiCalculator />
@@ -528,7 +642,7 @@ export default function Home() {
           <section id="verticals" className="scroll-mt-20 border-t border-line bg-surface/40">
             <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <Eyebrow index="04">Made for your line of work</Eyebrow>
+                <Eyebrow index="05">Made for your line of work</Eyebrow>
                 <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   It starts with the questions your line of work actually asks
                 </h2>
@@ -592,7 +706,7 @@ export default function Home() {
             <div className={`${SHELL} py-20 sm:py-24`}>
               <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
                 <Reveal>
-                  <Eyebrow index="05">Telugu-first</Eyebrow>
+                  <Eyebrow index="06">Telugu-first</Eyebrow>
                   <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                     Telugu first, and not as a setting somebody remembered at the end
                   </h2>
@@ -667,7 +781,7 @@ export default function Home() {
               <div className="flex items-center justify-between gap-8">
                 <Reveal className="min-w-0 flex-1">
                   <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-bright uppercase">
-                    <span className="font-mono text-white/70">06</span>
+                    <span className="font-mono text-white/70">07</span>
                     <span aria-hidden className="h-px w-6 bg-white/40" />
                     Built for the Indian rules
                   </p>
@@ -708,7 +822,7 @@ export default function Home() {
             <div className={`${SHELL} py-20 sm:py-24`}>
               <div className="flex items-center justify-between gap-6">
                 <Reveal className="min-w-0 flex-1">
-                  <Eyebrow index="07">Your customers&apos; data</Eyebrow>
+                  <Eyebrow index="08">Your customers&apos; data</Eyebrow>
                   <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                     Where it runs, and who can see what
                   </h2>
@@ -796,7 +910,7 @@ export default function Home() {
           <section id="quality" className="scroll-mt-20 border-t border-line bg-surface/40">
             <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <Eyebrow index="08">Held to a report</Eyebrow>
+                <Eyebrow index="09">Held to a report</Eyebrow>
                 <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   We test your agent, and you read the same report we do
                 </h2>
@@ -830,7 +944,7 @@ export default function Home() {
           <section id="faq" className="scroll-mt-20 border-t border-line">
             <div className={`${SHELL} py-20 sm:py-24`}>
               <Reveal>
-                <Eyebrow index="09">Questions</Eyebrow>
+                <Eyebrow index="10">Questions</Eyebrow>
                 <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   Questions people ask us first
                 </h2>

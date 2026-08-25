@@ -295,6 +295,53 @@ describe("the verticals section", () => {
   });
 });
 
+/**
+ * THE QUALIFICATION-LAYER SECTION — positioning, held to the same rule as every other
+ * claim on this page: name a behaviour the product already performs, or leave it out.
+ *
+ * The three cards map to shipped surfaces (`apps/api/ingest/service.py`'s webhook-in →
+ * gate → dial, the per-agent extraction schema driving `crm/columns.py`, the fixed lead
+ * status enum in `crm/schemas.py:29`, `pipeline.py::HOT_LEAD_FIELD_TRIGGERS`, and
+ * `crm/performance.py`'s Calls → Connected → Qualified funnel). What this test guards is
+ * the thing a positioning section attracts like nothing else: a borrowed conversion
+ * statistic. Every number this play is usually sold with traces back to a study this
+ * repository could not read (hbr.org and the rest are egress-blocked here), so hard rule
+ * 11 forbids repeating them, and the page argues with the buyer's own arithmetic in the
+ * calculator instead. `docs/POSITIONING-QUALIFICATION-LAYER.md` names each refused figure.
+ */
+describe("the qualification-layer section", () => {
+  it("makes the argument without a statistic, and without promising a replacement", () => {
+    const { container } = render(<Home />);
+    const heading = screen.getByRole("heading", {
+      name: /Your salespeople should be closing/i,
+    });
+    const section = heading.closest("section");
+    expect(section).not.toBeNull();
+    const text = section?.textContent ?? "";
+
+    // The reframe itself, in as many words: augmentation, not replacement.
+    expect(text).toContain("This is not your team replaced");
+    // No borrowed research: no multiples, no lifts, no "studies show", no percentages.
+    // (The page-wide percentage ban is scoped off the calculator only; this section is
+    // inside its reach anyway, so this is a second, narrower guard on the exact shapes a
+    // conversion claim takes.)
+    expect(text).not.toMatch(/\d+(\.\d+)?\s*%/);
+    expect(text).not.toMatch(/\b\d+(\.\d+)?\s*x\b/i);
+    expect(text).not.toMatch(/stud(y|ies)|research|survey|report(s|ed)? that|on average/i);
+    expect(text).not.toMatch(/\b(more|higher|faster|better) (conversions?|conversion rate)/i);
+
+    // And no speed claim the product does not measure. "Instantly" is already banned over
+    // the whole page; the shipped fact is that the gap is TIMED
+    // (`core/alerting.py:611::record_speed_to_lead`), which is what the card says.
+    expect(text).toMatch(/the gap between the form and the dial is timed/i);
+
+    // Three cards, each a heading and a body — the same shape as every other card grid.
+    const cards = [...(section?.querySelectorAll("h3") ?? [])];
+    expect(cards).toHaveLength(3);
+    expect(container.textContent).toContain("Where your team's time goes");
+  });
+});
+
 describe("the questions section", () => {
   it("answers every question it asks", () => {
     const { container } = render(<Home />);
@@ -440,6 +487,98 @@ describe("the ROI calculator", () => {
     // The honesty note the brief requires: the benchmarks are framed as illustrative and
     // adjustable, not asserted as fact.
     expect(disclosure!.textContent).toMatch(/pre-filled with illustrative benchmarks/i);
+  });
+
+  /**
+   * THE TWO-STAGE MODE — the comparison that is honest once a call is a sales
+   * conversation rather than an enquiry being written down.
+   *
+   * The head-to-head mode compares Calevate against a telecaller on the SAME calls, which
+   * at six minutes compares two things nobody was ever choosing between: the alternative
+   * to a closer is not a cheaper closer. The second mode compares a team working the whole
+   * list against a team working only the qualified share of it. These assertions pin the
+   * default (the head-to-head, because the default call length here is two minutes), the
+   * shape of the extra controls, the worked arithmetic, and — the load-bearing one — that
+   * the verdict still admits a loss.
+   */
+  function chooseTwoStage() {
+    fireEvent.click(screen.getByRole("radio", { name: /Calevate calls first/i }));
+  }
+
+  it("defaults to the head-to-head comparison and offers the two-stage one", () => {
+    render(<Home />);
+    const group = screen.getByRole("radiogroup", { name: "What you want Calevate to do" });
+    expect(group).not.toBeNull();
+    const answers = screen.getByRole("radio", { name: /Calevate answers the calls/i });
+    const qualifies = screen.getByRole("radio", { name: /Calevate calls first/i });
+    expect(answers.getAttribute("aria-checked")).toBe("true");
+    expect(qualifies.getAttribute("aria-checked")).toBe("false");
+    // The two-stage inputs are progressive disclosure: absent until the mode is chosen, so
+    // the everyday buyer is never handed five sliders they did not ask for.
+    expect(screen.queryByRole("spinbutton", { name: "Leads worth a real conversation" })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Calevate's first call" })).toBeNull();
+  });
+
+  it("reveals exactly two extra controls in the two-stage mode, both labelled", () => {
+    render(<Home />);
+    chooseTwoStage();
+    expect(screen.getByRole("radio", { name: /Calevate calls first/i }).getAttribute("aria-checked")).toBe("true");
+    // Labelled number field AND slider for each, the same pair every other input uses.
+    expect(screen.getByRole("spinbutton", { name: "Leads worth a real conversation" })).not.toBeNull();
+    expect(screen.getByRole("slider", { name: "Leads worth a real conversation" })).not.toBeNull();
+    expect(screen.getByRole("spinbutton", { name: "Calevate's first call" })).not.toBeNull();
+    expect(screen.getByRole("slider", { name: "Calevate's first call" })).not.toBeNull();
+    // And the call-length control is renamed, because in this mode it is the SALESPERSON's
+    // conversation rather than the agent's call — the same number meaning a different thing
+    // is the bug this rename exists to prevent.
+    expect(
+      screen.getByRole("spinbutton", { name: "How long a real sales conversation runs" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Average call length" })).toBeNull();
+  });
+
+  it("shows the worked two-stage arithmetic at 200 calls a day and 6-minute conversations", () => {
+    const { container } = render(<Home />);
+    chooseTwoStage();
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "How long a real sales conversation runs" }),
+      { target: { value: "6" } },
+    );
+    const text = calc(container).textContent ?? "";
+    // Four salespeople on the whole list at ₹1,48,000 …
+    expect(text).toMatch(/hire\s*4\s*salespeople/);
+    expect(text).toContain("₹1,48,000.00");
+    // … versus ₹52,000 of first calls plus two salespeople at ₹74,000 = ₹1,26,000.
+    expect(text).toContain("₹52,000.00");
+    expect(text).toContain("₹74,000.00");
+    expect(text).toContain("₹1,26,000.00");
+    expect(text).toContain("₹22,000.00");
+    // The capacity line — the actual argument, and pure arithmetic off the buyer's inputs.
+    expect(text).toMatch(/3,640[^]*never reach a person/);
+    expect(text).toMatch(/364[^]*hours a month/);
+  });
+
+  it("says so plainly when the two-stage funnel costs MORE", () => {
+    const { container } = render(<Home />);
+    chooseTwoStage();
+    // Everything on the list worth a conversation = nothing for a first call to filter, so
+    // it is an extra call on top of the same team. A calculator that cannot lose is a
+    // brochure; this is the branch that proves it can.
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Leads worth a real conversation" }), {
+      target: { value: "100" },
+    });
+    expect(calc(container).textContent).toMatch(/costs\s*₹[\d,]+\.\d\d\s*more a month, not less/);
+  });
+
+  it("points a long-call buyer at the two-stage mode instead of losing the argument", () => {
+    const { container } = render(<Home />);
+    // At six minutes the head-to-head comparison is not a comparison of alternatives. The
+    // page must name that rather than quietly showing a losing number.
+    expect(calc(container).textContent).not.toMatch(/is a sales conversation/);
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Average call length" }), {
+      target: { value: "6" },
+    });
+    expect(calc(container).textContent).toMatch(/6-minute call is a\s*sales conversation/);
   });
 
   it("offers the missed-lead value as an opt-in, off by default", () => {

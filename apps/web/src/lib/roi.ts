@@ -123,6 +123,39 @@ export const COVERAGE: readonly { hours: number; shifts: number; label: string; 
   { hours: 24, shifts: 3, label: "Around the clock", caption: "24 hrs · three shifts" },
 ];
 
+/**
+ * The two-stage (qualification-layer) inputs.
+ *
+ * WHY A SECOND SHAPE OF COMPARISON EXISTS AT ALL. The showdown above — Calevate answering
+ * the SAME calls a telecaller would — is the honest one for a receptionist workload, where
+ * a call is short because the job is "find out what they want and write it down". It stops
+ * being honest as the call gets long, because a six-minute call is a SALES CONVERSATION,
+ * and nobody sensibly replaces their closer with a per-minute agent. Run at six minutes the
+ * old comparison quietly compares two things that are not alternatives, and loses.
+ *
+ * The comparison that IS like-for-like at that length is the split the sales world already
+ * has a vocabulary for (SDR → AE; top-of-funnel triage; MQL → SQL): the first touch
+ * qualifies the whole list, and the expensive conversation happens only with the share that
+ * came back qualified. So the two options here are
+ *
+ *   A. people call the WHOLE list, every one at the full conversation length; versus
+ *   B. Calevate calls the whole list at a short qualification length, and people hold the
+ *      full conversation only with the qualified share.
+ *
+ * Both figures below are assumptions about the BUYER'S list, not measurements of anything,
+ * and neither is sourced — nobody can tell a stranger what share of their leads are real.
+ * They are defaults to be dragged, and the UI says so in the same words it uses for the
+ * telecaller benchmarks. 30% is a deliberately unflattering middle: the arithmetic still
+ * comes out ahead there, and a buyer who knows their list is thinner moves it down.
+ */
+export const TWO_STAGE: {
+  qualifiedPct: Benchmark;
+  qualifyMinutes: Benchmark;
+} = {
+  qualifiedPct: { default: 30, min: 5, max: 100, step: 5 },
+  qualifyMinutes: { default: 2, min: 0.5, max: 5, step: 0.5 },
+};
+
 /** The optional missed-lead-value inputs (advanced, off by default). */
 export const LEAD_VALUE: {
   convertedLeadInr: Benchmark;
@@ -312,6 +345,101 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
     calevatePaise,
     deltaPaise,
     pipelineValuePaise,
+  };
+}
+
+export interface TwoStageInputs extends RoiInputs {
+  /**
+   * Share of the raw list worth a full human conversation, as a percentage (e.g. 30 for
+   * 30%). Clamped to 0..100.
+   */
+  qualifiedPct: number;
+  /** How long Calevate's qualification call runs, in minutes (may be fractional). */
+  qualifyMinutes: number;
+}
+
+export interface TwoStageResult {
+  /** Option A: people call the whole list at the full conversation length. */
+  allHuman: RoiResult;
+  /** Qualified calls a day = `ceil(callsPerDay × qualifiedPct ÷ 100)`, capped at the list. */
+  qualifiedCallsPerDay: number;
+  /** Full human conversations a month, after the triage pass. */
+  qualifiedCallsPerMonth: number;
+  /** Calls a month that never reach a person, because the first call settled them. */
+  triagedAwayPerMonth: number;
+  /**
+   * Option B's human half: the SAME cost model, run at the qualified volume only. Its
+   * `headcount` is the closers you staff; its `calevatePaise` is meaningless here and is
+   * not read.
+   */
+  humans: RoiResult;
+  /** Option B's Calevate half: the qualification pass over the WHOLE list, in paise. */
+  qualificationPaise: number;
+  /** Option B's total = `qualificationPaise + humans.humanTotalPaise`, in paise. */
+  blendedTotalPaise: number;
+  /** A − B. Positive means the two-stage funnel is cheaper. May be negative — it must be. */
+  deltaPaise: number;
+  /**
+   * Human talk-minutes a month that stop being spent on the leads the first call settled
+   * = `triagedAwayPerMonth × avgMinutes`. This, not the rupee delta, is the argument: it
+   * is selling time, and it is the number the buyer can check on the back of an envelope.
+   */
+  humanMinutesReleased: number;
+}
+
+/**
+ * The two-stage comparison, composed from {@link computeRoi} rather than re-derived.
+ *
+ * Both options are priced by the SAME model at different volumes and lengths, which is the
+ * whole reason this is a composition and not a second copy of the headcount arithmetic:
+ * the talk-time ceiling, the per-shift staffing floor, the loaded-cost split and the
+ * attrition line are defined once, so the two sides of the comparison can never drift into
+ * disagreeing about what a telecaller costs.
+ *
+ * It does NOT stack the deck. At `qualifiedPct = 100` option B is option A plus a
+ * qualification bill, so `deltaPaise` goes negative and the UI is required to say so —
+ * exactly as the single-stage verdict already admits a close or losing case.
+ */
+export function computeTwoStage(inputs: TwoStageInputs): TwoStageResult {
+  // A: the whole list, by people, at the full conversation length.
+  const allHuman = computeRoi(inputs);
+
+  // B, first stage: Calevate calls EVERY lead, at the short qualification length. Priced
+  // by the same module so a rate change moves both surfaces at once.
+  const qualificationPaise = computeRoi({
+    ...inputs,
+    avgMinutes: inputs.qualifyMinutes,
+  }).calevatePaise;
+
+  // B, second stage: people, at the full length, but only over the qualified share.
+  // `ceil` because a fractional lead is still a conversation somebody has to hold — the
+  // same rounding direction as headcount, and the one that favours the human side.
+  const callsPerDay = Math.floor(nonNeg(inputs.callsPerDay));
+  const qualifiedPct = Math.min(100, Math.round(nonNeg(inputs.qualifiedPct)));
+  const qualifiedCallsPerDay = Math.ceil((callsPerDay * qualifiedPct) / 100);
+  const humans = computeRoi({ ...inputs, callsPerDay: qualifiedCallsPerDay });
+
+  const workingDays = Math.floor(nonNeg(inputs.workingDays));
+  const qualifiedCallsPerMonth = qualifiedCallsPerDay * workingDays;
+  const triagedAwayPerMonth = Math.max(0, allHuman.callsPerMonth - qualifiedCallsPerMonth);
+
+  // Minutes are carried as an integer count of hundredths and divided once, for the reason
+  // the module header gives: `3640 * 6.5` is fine, but `3640 * 0.1` is not.
+  const minuteHundredths = Math.round(nonNeg(inputs.avgMinutes) * 100);
+  const humanMinutesReleased = Math.round((triagedAwayPerMonth * minuteHundredths) / 100);
+
+  const blendedTotalPaise = qualificationPaise + humans.humanTotalPaise;
+
+  return {
+    allHuman,
+    qualifiedCallsPerDay,
+    qualifiedCallsPerMonth,
+    triagedAwayPerMonth,
+    humans,
+    qualificationPaise,
+    blendedTotalPaise,
+    deltaPaise: allHuman.humanTotalPaise - blendedTotalPaise,
+    humanMinutesReleased,
   };
 }
 
