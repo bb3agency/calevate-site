@@ -1409,7 +1409,7 @@ connection.
 
 **What it does (D-171):** creates the `admin_users` row with NO password and mails a
 **single-use setup link that expires in 60 minutes**. The operator opens
-`https://admin.calevate.tech/bootstrap?token=…`, sets a password, and is then a working
+`https://admin.calevate.tech/auth/admin/bootstrap?token=…`, sets a password, and is then a working
 administrator. **The link is also printed to stdout**, deliberately — a deployment whose
 mail provider is not configured yet must still be able to acquire its first operator, and
 the mail credentials are themselves stored by an operator, in the console. No password is

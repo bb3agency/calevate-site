@@ -162,6 +162,12 @@ records it as pending.
 ## TRAPS
 
 **1. The printed link 404s as printed. Fix the path by hand.**
+**RESOLVED 25 Aug 2026 — the finding below is the defect as found, kept for the record.**
+Both composers now delegate to `apps/api/core/console_links`, and
+`tests/auth_email_delivery_test` resolves every mailed link against the Next.js route
+tree on disk rather than against the other composer. The password-reset link was wrong
+the same way and was fixed in the same change.
+
 The script and the email template both compose `https://admin.calevate.tech/bootstrap?token=…`
 (`scripts/bootstrap_admin.py:76-77`, `apps/workers/auth_email.py:142-150`). The page the
 web app actually serves is **`/auth/admin/bootstrap`**
