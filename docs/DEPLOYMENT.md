@@ -114,6 +114,35 @@ host (api/workers run containerized; builds happen in Docker)~~ — **struck by 
 below**, jq, `systemd-timesyncd`
 (webhook ±5-min skew checks depend on it).
 
+> **NODE ITSELF IS NOT ON THIS LIST BY ACCIDENT — IT WAS NEVER INSTALLED, AND THE FIRST
+> DEPLOY FOUND OUT.** `scripts/vps-deploy.sh --all` aborted at `preflight (plan-scoped)`
+> with "pnpm is not installed", and the real cause was one level down: no `node`, so no
+> `corepack`, so no `pnpm`. Install it from nodejs.org's own tarball and CHECK THE
+> CHECKSUM — not `apt install nodejs` (Ubuntu 24.04 ships a Node too old for this repo),
+> and not a `curl | bash` from a third-party apt repo:
+>
+> ```sh
+> V=v22.23.2   # LTS "Jod", released 2026-07-28
+> cd /tmp && curl -fLO "https://nodejs.org/dist/$V/node-$V-linux-x64.tar.xz"
+> curl -fsSL "https://nodejs.org/dist/$V/SHASUMS256.txt" | grep "node-$V-linux-x64.tar.xz" | sha256sum -c -
+> sudo tar -xJf "node-$V-linux-x64.tar.xz" -C /opt && sudo ln -sfn "/opt/node-$V-linux-x64" /opt/node22
+> for b in node npm npx corepack; do sudo ln -sfn "/opt/node22/bin/$b" "/usr/local/bin/$b"; done
+> ```
+>
+> The `sha256sum -c` is what makes this different from `curl | bash`: it proves the bytes
+> match what nodejs.org publishes alongside the release. It does NOT prove nodejs.org was
+> not itself compromised — for that, verify `SHASUMS256.txt.asc` against a Node release
+> key. Worth doing; not a substitute for the line above, which catches the far likelier
+> case of a truncated or MITM'd download.
+>
+> **pm2 is pinned too, and NOT to `latest`.** `npm i -g pm2` on the day this was written
+> would have installed 7.0.4, published **one day** earlier — the exact window
+> `minimumReleaseAge` quarantines every other dependency in this tree for. A global
+> install sits outside that policy, so the discipline has to be manual:
+> `sudo npm i -g pm2@7.0.3` (released 2026-06-29). Then
+> `sudo env PATH=$PATH:/usr/local/bin pm2 startup systemd -u calevate --hp /home/calevate`
+> so a reboot resurrects the saved list.
+
 > **pnpm is installed with corepack, never `npm i -g pnpm`.** Node 22 ships corepack, and
 > the root `package.json` pins `packageManager` to an exact version WITH its sha512 — so
 > `corepack enable && corepack prepare --activate` in the checkout installs that exact
