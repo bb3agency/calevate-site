@@ -58,6 +58,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
+from apps.workers.email_render import from_text
 from apps.workers.redaction import redact
 from apps.workers.transport import get_transport
 from apps.workers.whatsapp import enqueue_hot_lead_whatsapp
@@ -400,8 +401,22 @@ async def _send_email(to: str, subject: str, body: str) -> bool:
     lead, in the same transaction, that a blocking send "would park the loop … and stall
     every other job on the same worker". D-159 fixed the same class in `storage.py`.
     """
+    # BRANDED, and the text is untouched. `_compose_body` is what `redact()` runs through
+    # and what `tests/hot_lead_channels_test` asserts on; `from_text` wraps that exact
+    # string rather than composing a second one, so nothing reaches an inbox that the
+    # redaction did not see. The console link in it becomes the button — this alert has a
+    # two-minute SLO and its reader is on a phone.
+    message = from_text(
+        subject=subject,
+        preheader="A lead your AI receptionist marked hot is waiting for a call back.",
+        heading="A lead is waiting for you",
+        text=body,
+        cta="Open the lead",
+    )
     transport = get_transport()
-    return await asyncio.to_thread(lambda: transport.send(to=to, subject=subject, body=body))
+    return await asyncio.to_thread(
+        lambda: transport.send(to=to, subject=subject, body=message.text, html=message.html)
+    )
 
 
 def _json(value: Any) -> str:

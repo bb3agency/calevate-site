@@ -45,7 +45,11 @@ class RecordingTransport:
         self.threads: list[str] = []
         self.arrived = threading.Event()
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+        # `html` accepted because `transport.Transport` declares it (the branded
+        # alternative, `workers/email_render`). A double whose signature has drifted from
+        # the Protocol stops being evidence about the real call — which is what
+        # `tests/auth_email_delivery_test` exists to catch.
         self.sent.append({"to": to, "subject": subject, "body": body})
         self.threads.append(threading.current_thread().name)
         self.arrived.set()
@@ -356,7 +360,7 @@ def test_a_transport_that_alerts_does_not_recurse(
     the alerting path itself trips something that alerts."""
 
     class ReentrantTransport(RecordingTransport):
-        def send(self, *, to: str, subject: str, body: str) -> bool:
+        def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
             alerting.alert("CORE_LOGIC", "raised_from_inside_delivery")
             return super().send(to=to, subject=subject, body=body)
 

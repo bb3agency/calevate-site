@@ -42,6 +42,7 @@ a developer tests and collapses in the two an SMB owner actually uses.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from html import escape
 
@@ -297,4 +298,52 @@ def render(kind: str, realm: str, secret: str) -> Email:
     )
 
 
-__all__ = ["SUBJECTS", "Email", "render"]
+_URL_LINE = re.compile(r"^https?://\S+$")
+
+
+def from_text(
+    *, subject: str, preheader: str, heading: str, text: str, cta: str | None = None
+) -> Email:
+    """Present an ALREADY-COMPOSED plain-text message in the brand frame.
+
+    **WHY WRAPPING RATHER THAN A SECOND COMPOSER**, which is the opposite of the choice
+    made for the auth mails above. Those had no content guard; these two do. The hot-lead
+    alert runs its summary through `redact()` before it is ever a string, and the weekly
+    digest runs `assert_text_carries_no_call_content` over the finished text — both
+    guarding THE TEXT. An HTML twin composed from the same structured inputs would be a
+    second string carrying the same client data past neither check, and the first time
+    that mattered would be a caller's phone number sitting in an inbox.
+
+    So the guarded text IS the content and this only decides how it looks. Every line is
+    escaped, so a value that reached the text legitimately cannot become markup.
+
+    A paragraph that is nothing but a URL becomes the button — which is what turns "Open
+    the lead to see the full number and call back:" followed by a bare link into something
+    a business owner taps on a phone inside the two-minute SLO that alert exists for.
+    """
+    rendered: list[str] = []
+    used_button = False
+    for block in text.strip().split("\n\n"):
+        lines = [line for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if len(lines) == 1 and _URL_LINE.match(lines[0].strip()):
+            url = lines[0].strip()
+            if not used_button:
+                rendered.append(_button(cta or "Open", url))
+                used_button = True
+            rendered.append(_fallback_link(url))
+            continue
+        body = "<br>".join(escape(line) for line in lines)
+        rendered.append(
+            f'<p style="margin:0 0 14px 0;font-family:{brand.FONT_STACK};font-size:15px;'
+            f'line-height:23px;color:{brand.TEXT_MUTED};">{body}</p>'
+        )
+    return Email(
+        subject=subject,
+        text=text,
+        html=_shell(preheader=preheader, body=_heading(heading) + "".join(rendered)),
+    )
+
+
+__all__ = ["SUBJECTS", "Email", "from_text", "render"]

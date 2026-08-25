@@ -1133,7 +1133,11 @@ class _RecordingTransport:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str, str]] = []
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+        # `html` accepted because `transport.Transport` declares it (the branded
+        # alternative, `workers/email_render`). A double whose signature has drifted from
+        # the Protocol stops being evidence about the real call — which is what
+        # `tests/auth_email_delivery_test` exists to catch.
         self.sent.append((to, subject, body))
         return True
 
@@ -1227,7 +1231,7 @@ class _FlakyTransport:
         self.explodes_for = explodes_for
         self.sent: list[str] = []
 
-    def send(self, *, to: str, subject: str, body: str) -> bool:
+    def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         if to == self.explodes_for:
             raise RuntimeError("the mail host closed the connection")
         self.sent.append(to)

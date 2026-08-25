@@ -139,3 +139,94 @@ def test_the_button_uses_the_brand_button_green_and_not_the_resting_one() -> Non
     html = email_render.render("admin_bootstrap", "admin", "tok").html
     assert html is not None
     assert brand.BRAND_STRONG in html
+
+
+# --- the two client-facing worker mails, which are WRAPPED and not recomposed -------
+#
+# `notifications._send_email` and `kb_aggregation._send` now pass an HTML alternative too.
+# Both take the route `from_text` exists for: the plain text is the guarded artefact —
+# `redact()` runs through the hot-lead body, `assert_text_carries_no_call_content` runs
+# over the finished digest — and the HTML is that exact string, escaped and framed. The
+# property below is what makes that safe to say: nothing appears in the markup that is not
+# in the text.
+
+
+def _sample_alert() -> str:
+    return (
+        "A lead was marked hot by your AI receptionist.\n\n"
+        "Name: Ravi\nPhone: +91 98••• ••210\n\n"
+        "Open the lead to see the full number and call back:\n\n"
+        "https://app.calevate.tech/c/sunrise-dental/leads/0192f0aa"
+    )
+
+
+def _visible_words(html: str) -> set[str]:
+    """Words a reader sees, with tags stripped and entities folded back."""
+    text = re.sub(r"<[^>]+>", " ", html)
+    for entity, plain in (("&mdash;", "-"), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">")):
+        text = text.replace(entity, plain)
+    return {word for word in text.split() if word}
+
+
+def test_the_wrapper_adds_no_content_of_its_own() -> None:
+    """THE PROPERTY THE CONTENT GUARDS DEPEND ON. `redact()` and
+    `assert_text_carries_no_call_content` inspect the TEXT; if the HTML could contain a
+    value the text does not, they would be checking the wrong artefact.
+
+    The frame's own words are DERIVED, by rendering the same wrapper around a message with
+    no content, rather than typed out here — a hand-written allowlist of chrome is a list
+    that goes stale the first time the footer changes, and it goes stale by getting
+    LOOSER, which is the direction that stops catching anything.
+    """
+    # The probe carries a URL because the "Or paste this into your browser" line only
+    # exists when there is a link — chrome derived from a linkless render would miss it and
+    # report the frame's own words as an injection.
+    probe = "zzcontrolzz\n\nhttps://zzprobezz.invalid/zz"
+    chrome = _visible_words(
+        email_render.from_text(subject="s", preheader="p", heading="h", text=probe).html or ""
+    ) - _visible_words(probe)
+    message = email_render.from_text(
+        subject="s", preheader="p", heading="A lead is waiting for you", text=_sample_alert()
+    )
+    assert message.html is not None
+    introduced = _visible_words(message.html) - chrome - _visible_words(_sample_alert())
+    introduced -= {"A", "lead", "is", "waiting", "for", "you"}  # the heading, passed in
+    assert not introduced, (
+        f"the wrapper put {sorted(introduced)} in front of a reader, and none of it came "
+        "from the text that redaction and the content guard actually inspected"
+    )
+
+
+def test_a_bare_url_paragraph_becomes_the_button() -> None:
+    """The hot-lead alert has a two-minute SLO and its reader is on a phone. A 60-character
+    console URL as bare text is not something anybody taps in that window."""
+    message = email_render.from_text(
+        subject="s",
+        preheader="p",
+        heading="A lead is waiting for you",
+        text=_sample_alert(),
+        cta="Open the lead",
+    )
+    assert message.html is not None
+    assert "Open the lead</a>" in message.html
+    assert 'href="https://app.calevate.tech/c/sunrise-dental/leads/0192f0aa"' in message.html
+    # And still readable, for the person who does not tap a green button from an email.
+    assert message.html.count("https://app.calevate.tech/c/sunrise-dental/leads/0192f0aa") >= 2
+
+
+def test_the_text_part_is_returned_byte_identical() -> None:
+    """`from_text` must not reflow, trim or re-wrap. The text is what the content guards
+    approved and what `tests/hot_lead_channels_test` asserts on."""
+    text = _sample_alert()
+    assert email_render.from_text(subject="s", preheader="p", heading="h", text=text).text == text
+
+
+def test_a_value_that_looks_like_markup_is_escaped_in_the_wrapper_too() -> None:
+    """A caller name is client data. It reaches the text through redaction, not through
+    an HTML sanitiser, so the escaping has to happen here."""
+    message = email_render.from_text(
+        subject="s", preheader="p", heading="h", text="Name: <img src=x onerror=alert(1)>"
+    )
+    assert message.html is not None
+    assert "<img" not in message.html
+    assert "&lt;img" in message.html

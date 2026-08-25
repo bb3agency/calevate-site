@@ -83,6 +83,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.insights import insights_for_agent, render_digest
 from apps.api.kb.patterns import CallContentLeakError
 from apps.api.quality.sampling import ist_week_start
+from apps.workers.email_render import from_text
 from apps.workers.transport import get_transport
 
 log = get_logger(__name__)
@@ -320,8 +321,19 @@ async def _send(to: str, body: str) -> bool:
     synchronous socket I/O on a timeout budget, and awaiting it inline would park every
     other job in this worker — including the 30-second campaign dispatch tick that hard
     rule 5's DNC deadline is defined against."""
+    # BRANDED, and the text is untouched — `render_digest` is the guarded composer and
+    # `assert_text_carries_no_call_content` has already run over exactly this string. An
+    # HTML twin built from `insights` would carry the same client data past that check.
+    message = from_text(
+        subject=DIGEST_SUBJECT,
+        preheader="A week of what your callers asked, and what your agent could not answer.",
+        heading=DIGEST_SUBJECT,
+        text=body,
+    )
     transport = get_transport()
-    return await asyncio.to_thread(lambda: transport.send(to=to, subject=DIGEST_SUBJECT, body=body))
+    return await asyncio.to_thread(
+        lambda: transport.send(to=to, subject=DIGEST_SUBJECT, body=message.text, html=message.html)
+    )
 
 
 __all__ = [
