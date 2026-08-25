@@ -58,6 +58,11 @@ describe("computeRoi — Calevate cost", () => {
 });
 
 describe("computeRoi — telecaller headcount", () => {
+  it("defaults to a single business-hours shift when coverage is unset", () => {
+    // No coverageHours on BASE — the everyday comparison must not inflate the human side.
+    expect(computeRoi(BASE).shifts).toBe(1);
+  });
+
   it("rounds headcount UP — a partial agent is still a hire", () => {
     expect(computeRoi({ ...BASE, callsPerDay: 200 }).headcount).toBe(2);
     expect(computeRoi({ ...BASE, callsPerDay: 201 }).headcount).toBe(3);
@@ -88,6 +93,56 @@ describe("computeRoi — telecaller headcount", () => {
     // 0.5-min calls would allow 600 talk-slots, but nobody dials more than the ceiling.
     const r = computeRoi({ ...BASE, avgMinutes: 0.5, callsPerAgentPerDay: 100 });
     expect(r.effectiveCallsPerAgentPerDay).toBe(100);
+  });
+});
+
+describe("computeRoi — coverage (shifts), the always-on lever", () => {
+  it("maps a coverage window to whole staffed shifts, capped at three", () => {
+    // 9h shift: business hours = 1, into-the-evening (15h) = 2, around-the-clock = 3, and
+    // nothing asks for more than three even if the hours are pushed past 24.
+    expect(computeRoi({ ...BASE, coverageHours: 9 }).shifts).toBe(1);
+    expect(computeRoi({ ...BASE, coverageHours: 15 }).shifts).toBe(2);
+    expect(computeRoi({ ...BASE, coverageHours: 24 }).shifts).toBe(3);
+    expect(computeRoi({ ...BASE, coverageHours: 48 }).shifts).toBe(3);
+  });
+
+  it("staffs every shift even when a shift's share of the volume is light", () => {
+    // 30 calls/day around the clock: split three ways that is 10 calls a shift, well under
+    // one agent's capacity — but you cannot answer a 2am call with nobody on, so it is
+    // three agents, one per shift. This is the case an always-on human rota really costs
+    // and an agent does not: Calevate charges only for the minutes actually spoken.
+    const r = computeRoi({ ...BASE, callsPerDay: 30, avgMinutes: 3, coverageHours: 24 });
+    expect(r.shifts).toBe(3);
+    expect(r.headcount).toBe(3);
+    // Three loaded agents dwarf a pay-per-minute bill of 30 × 26 × 3 min × ₹5 = ₹11,700.
+    expect(r.calevatePaise).toBe(11_700 * 100);
+    expect(r.deltaPaise).toBeGreaterThan(0); // Calevate is far cheaper here.
+  });
+
+  it("multiplies a busy line's headcount by the shifts it must cover", () => {
+    // The screenshot case: 500 calls/day, 4-min calls. One shift needs ceil(500/75)=7.
+    const oneShift = computeRoi({ ...BASE, callsPerDay: 500, avgMinutes: 4 });
+    expect(oneShift.shifts).toBe(1);
+    expect(oneShift.headcount).toBe(7);
+
+    // Around the clock: 500 spread over 3 shifts = 167 a shift, ceil(167/75)=3 per shift,
+    // ×3 = 9 agents to keep the line answered all day. Calevate's minutes — and so its
+    // bill — are identical to the single-shift case; only the human side grew.
+    const allDay = computeRoi({ ...BASE, callsPerDay: 500, avgMinutes: 4, coverageHours: 24 });
+    expect(allDay.shifts).toBe(3);
+    expect(allDay.headcount).toBe(9);
+    expect(allDay.calevatePaise).toBe(oneShift.calevatePaise);
+    expect(allDay.humanTotalPaise).toBeGreaterThan(oneShift.humanTotalPaise);
+  });
+
+  it("leaves Calevate's cost untouched by the coverage window", () => {
+    const business = computeRoi({ ...BASE, coverageHours: 9 });
+    const roundClock = computeRoi({ ...BASE, coverageHours: 24 });
+    expect(roundClock.calevatePaise).toBe(business.calevatePaise);
+  });
+
+  it("still reports zero headcount for zero calls, whatever the coverage", () => {
+    expect(computeRoi({ ...BASE, callsPerDay: 0, coverageHours: 24 }).headcount).toBe(0);
   });
 });
 

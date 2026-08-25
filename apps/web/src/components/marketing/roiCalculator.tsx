@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 
 import {
+  COVERAGE,
   computeRoi,
   formatPaiseINR,
   LEAD_VALUE,
@@ -169,6 +170,10 @@ export function RoiCalculator() {
   const [callsPerDay, setCallsPerDay] = useState(USAGE.callsPerDay.default);
   const [avgMinutes, setAvgMinutes] = useState(USAGE.avgMinutes.default);
   const [workingDays, setWorkingDays] = useState(USAGE.workingDays.default);
+  // Default to business hours — one shift — so the everyday comparison never overstates the
+  // human side. The advantage widens only when the buyer says they need the line answered
+  // beyond a single shift, which is the honest place for "always on" to show up in rupees.
+  const [coverageHours, setCoverageHours] = useState(COVERAGE[0].hours);
 
   const [callsPerAgentPerDay, setCallsPerAgent] = useState(
     TELECALLER.callsPerAgentPerDay.default,
@@ -191,6 +196,7 @@ export function RoiCalculator() {
         callsPerDay,
         avgMinutes,
         workingDays,
+        coverageHours,
         callsPerAgentPerDay,
         talkHoursPerDay,
         basePerAgentInr,
@@ -203,6 +209,7 @@ export function RoiCalculator() {
       callsPerDay,
       avgMinutes,
       workingDays,
+      coverageHours,
       callsPerAgentPerDay,
       talkHoursPerDay,
       basePerAgentInr,
@@ -221,6 +228,8 @@ export function RoiCalculator() {
     Math.abs(result.deltaPaise) * 10 < result.humanTotalPaise; // within ~10%
 
   const monthlyCalls = result.callsPerMonth.toLocaleString("en-IN");
+  const coverage = COVERAGE.find((c) => c.hours === coverageHours) ?? COVERAGE[0];
+  const singleShift = result.shifts <= 1;
 
   return (
     // `data-roi-calculator`: the marker `publicLanding.test.tsx` uses to scope its
@@ -234,8 +243,8 @@ export function RoiCalculator() {
       <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8">
         <h3 className="text-lg font-semibold text-ink">Your call volume</h3>
         <p className="mt-1.5 text-sm text-ink-muted">
-          Two numbers is all it takes. Everything else is pre-filled with local benchmarks
-          you can adjust later if you want to.
+          Two numbers and how long the phone must be covered. Everything else is pre-filled
+          with local benchmarks you can adjust later if you want to.
         </p>
         <div className="mt-6 space-y-6">
           <Control
@@ -252,6 +261,43 @@ export function RoiCalculator() {
             onChange={setAvgMinutes}
             unit="min"
           />
+
+          {/* Coverage — the honest "always on" lever. A person works one shift; to keep a
+              line answered longer you staff more shifts, and that is where an agent that
+              answers every hour at the same price pulls ahead. Radios, not a slider: three
+              named windows a buyer recognises, keyboard-operable as one group. */}
+          <fieldset className="border-0 p-0">
+            <legend className="text-sm font-medium text-ink">
+              Hours you need the line answered
+            </legend>
+            <div
+              role="radiogroup"
+              aria-label="Hours you need the line answered"
+              className="mt-3 grid grid-cols-3 gap-2"
+            >
+              {COVERAGE.map((c) => {
+                const selected = coverageHours === c.hours;
+                return (
+                  <button
+                    key={c.hours}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setCoverageHours(c.hours)}
+                    className={
+                      "rounded-lg border px-2.5 py-2.5 text-left transition-colors touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong " +
+                      (selected
+                        ? "border-brand-strong bg-brand-soft/60 text-ink dark:bg-brand-strong/15"
+                        : "border-line bg-app text-ink-muted hover:border-brand/50")
+                    }
+                  >
+                    <span className="block text-sm font-semibold text-ink">{c.label}</span>
+                    <span className="mt-0.5 block text-xs text-ink-faint">{c.caption}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
         </div>
 
         <details className="group mt-8 border-t border-line pt-6">
@@ -358,6 +404,15 @@ export function RoiCalculator() {
             </span>{" "}
             a day — talk-time, not dialling, is the limit once calls run long.
           </p>
+          {!singleShift && (
+            <p className="mt-1.5 text-sm text-ink-muted">
+              To answer {coverage.label.toLowerCase()} you staff{" "}
+              <span className="font-semibold text-ink tabular-nums">{result.shifts}</span>{" "}
+              shifts — every shift needs someone on the phone even when it is quiet. Calevate
+              answers all {coverageHours === 24 ? "24 hours" : `${coverageHours} hours`} at
+              the very same per-minute price.
+            </p>
+          )}
 
           <div className="mt-6 space-y-3">
             <CostLine
@@ -428,6 +483,20 @@ export function RoiCalculator() {
             <p className="text-sm text-ink-muted">
               At this volume a small team can match the running cost. What it cannot match is
               the row below — so the comparison is honestly about capability here, not price.
+            </p>
+          )}
+
+          {/* The coverage reveal: when the buyer is comparing a single business-hours shift
+              and the running costs are close, the honest lever is the hours themselves —
+              a human team is priced per shift, Calevate is not. This nudges without faking
+              a gap; extend the hours above and the numbers move on their own. */}
+          {result.humanTotalPaise > 0 && singleShift && !(cheaper && !close) && (
+            <p className="mt-3 border-t border-line pt-3 text-sm text-ink-muted">
+              This is a{" "}
+              <span className="font-medium text-ink">business-hours</span> comparison — one
+              human shift. If your line should be answered into the evening or overnight,
+              set the hours above: a human team is paid per shift, so the cost climbs, while
+              Calevate answers around the clock at the same rate.
             </p>
           )}
 
@@ -534,6 +603,15 @@ export function RoiCalculator() {
                 <span className="font-medium text-ink">Telecallers needed</span> = calls a
                 day ÷ calls one agent handles a day, rounded up. The ~100/day default assumes
                 80–120 dials on a 5.5–6.5 hour productive shift.
+              </li>
+              <li>
+                <span className="font-medium text-ink">Hours covered</span>: a person works
+                one ~9-hour shift, so answering into the evening (≈15h) or around the clock
+                (24h) means staffing two or three shifts — and every staffed shift needs at
+                least one person on the phone, even a quiet night one. We spread your call
+                volume evenly across the shifts you choose, which is the assumption kindest
+                to the human side. Calevate answers at every hour for the same per-minute
+                rate, so widening the hours never changes its figure.
               </li>
               <li>
                 <span className="font-medium text-ink">Loaded vs. base</span>: the advertised
