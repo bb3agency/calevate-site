@@ -70,6 +70,45 @@ python3 -c "import base64,os; print(base64.b64encode(os.urandom(32)).decode())"
 
 ---
 
+## 0a. KVM1 STARTER DELTAS — read this before §1 (DEPLOYMENT §2b, D-472)
+
+The steps below are written for the PRODUCTION profile. On the 1 vCPU / 4 GB / 50 GB
+starter box, **six values change**. None is a shortcut; each is what §2a's arithmetic
+gives when you put 3 processes on 1 core instead of 7 on 4.
+
+| Step | Production says | **On KVM1 use** | Why |
+|---|---|---|---|
+| §1 | 2 GB swap | **4 GB swap** | `next build` peaks >2 GB beside a resident Postgres. On 4 GB RAM the BUILD is what OOMs, at §5, before any call exists. |
+| §2 | `max_connections = 200` | **`100`** | The 200 is for §2a's ~101-connection budget across 7 processes. You run 3 at `DB_POOL_SIZE=6` → ~23. |
+| §2 | (unstated) | **`shared_buffers = 768MB`** | Postgres's default on 4 GB leaves too little for the build spike. |
+| §3 | `DB_POOL_SIZE=16` | **`6`** | 3 services × 16 = 48 idle backends, each costing RAM the build needs. A pool is not free because it is idle. |
+| §6 | 4 voice-runtime workers | **1 worker** | "Never more workers than vCPU" (§2a). 1 vCPU = 1 worker. |
+| §10 | install the Actions runner | **DO NOT** | A build peaking >2 GB on the one shared core, beside a live call, is the worst thing you can put on this box. |
+
+**§5 is the step that will bite, and it is not about traffic.** Before you build:
+
+```sh
+free -h                       # confirm the 4 GB swap from §1 is ACTIVE, not just in fstab
+pm2 stop calevate-web || true # if web is already running, it is holding RAM the build needs
+```
+
+Build, then bring web back with `pm2 start calevate-web`. If it still OOMs, that is the
+signal to stop building on the box at all: build the image in GitHub-hosted CI, push it to
+a registry and have the VPS pull it. That is the better shape on this profile anyway — see
+DEPLOYMENT §2b — and it removes the only reason §10 wanted a runner here.
+
+**What you are NOT giving up.** The starter serves the site, both consoles, onboarding and
+real test calls. §2a's own measured table gives one worker **63–85 ms at 25 in-flight**;
+the 500 ms breach is at 150. You leave this profile when `webhook_ack_ms` p95 passes
+**250 ms**, or when a client starts running outbound CAMPAIGNS — and that is a Hostinger
+resize in place, not a migration. Raise `--workers` to the new vCPU count afterwards.
+
+**Ubuntu 24.04 note for §1**: the nginx.org repository line takes the codename `noble`.
+24.04 ships nginx 1.24, which is below the 1.25.1 floor, so this is required — not
+optional — or `nginx -t` fails and no server block loads.
+
+---
+
 ## 1. Host baseline
 
 Follow DEPLOYMENT §2. The parts people get wrong:
