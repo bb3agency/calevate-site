@@ -196,8 +196,15 @@ describe("what the form promises about the agent it is about to build", () => {
 
     await screen.findByText(/is ready to be written/);
     expect(container.textContent).toContain("It is not on the calling system");
-    expect(container.textContent).toContain("Its script gets written");
-    // The way on to the agent it just built.
+    // "YOU write its script" — the panel used to say an account manager wrote it with you,
+    // which stopped being true when the structured builder became the client's own
+    // authoring surface. The primary way on is therefore the BUILDER: an agent with no
+    // script cannot be switched on at all (`agent_has_no_script`), so step 1 is the next
+    // thing that has to happen (UX-DOCTRINE §4).
+    expect(container.textContent).toContain("You write its script");
+    const write = screen.getByRole("link", { name: /Write its script/ });
+    expect(write.getAttribute("href")).toBe("/c/acme/agents/agent-9/script");
+    // …and the way on to the agent it just built, as the secondary.
     const open = screen.getByRole("link", { name: /Open Front desk/ });
     expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-9");
     // The form is gone: a second press would build a second agent nobody asked for.

@@ -132,7 +132,13 @@ function GapRow({ gap, showAgent }: { gap: KnowledgeGap; showAgent: boolean }) {
           <span className="inline-flex items-center rounded-md bg-brand-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-strong">
             {SIGNAL_BADGE[gap.signal]}
           </span>
-          <h4 className="mt-1.5 truncate text-sm font-semibold text-ink">{gap.topic_label}</h4>
+          {/* `h3`, not `h4`. This row sits inside a `Card`, whose title is the `h2`, so
+              `h4` skips a level — WCAG 2.2 1.3.1 Info and Relationships (Level A), and
+              axe's `heading-order` reports it as soon as a screen renders this card after
+              any other heading. UX-DOCTRINE §2: heading level is a property of where the
+              component is allowed to be used, and this component is only ever used inside
+              a card. */}
+          <h3 className="mt-1.5 truncate text-sm font-semibold text-ink">{gap.topic_label}</h3>
           {showAgent && gap.agent_name ? (
             <p className="text-[12px] text-ink-muted">{gap.agent_name}</p>
           ) : null}

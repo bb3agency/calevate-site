@@ -884,12 +884,26 @@ async function pressable(panel: HTMLElement, name: RegExp): Promise<HTMLElement>
   return button;
 }
 
-/** The card with this heading, so a claim is read off the panel it is about. */
+/**
+ * The panel with this heading, so a claim is read off the panel it is about.
+ *
+ * `section, details` and not `section` alone: after the hierarchy pass (UX-DOCTRINE §3)
+ * the rarely-touched panels — what it is, what it can do during a call, the model it
+ * thinks with — are `<Disclosure>`s, which are a native `<details>` whose `<summary>`
+ * carries the same real `h2` a `Card` header does. The panel is still found by its
+ * heading; only the element around it differs, which is exactly the seam a helper should
+ * absorb rather than every test.
+ *
+ * A closed `<details>` still has its children in the DOM under jsdom, so these tests read
+ * a disclosed panel without opening it. That is a property of the TEST environment, not a
+ * claim that the content is visible to a user — what a person must be able to see without
+ * a click is asserted separately, by the hierarchy tests at the top of this file.
+ */
 function card(title: string): HTMLElement {
   const heading = screen.getByRole("heading", { name: title });
-  const section = heading.closest("section");
-  expect(section, `no <section> around "${title}"`).not.toBeNull();
-  return section as HTMLElement;
+  const panel = heading.closest("section, details");
+  expect(panel, `no <section>/<details> around "${title}"`).not.toBeNull();
+  return panel as HTMLElement;
 }
 
 describe("switching an agent on, off and into the archive (D-440)", () => {
@@ -1190,5 +1204,150 @@ describe("the screen when the agent could not be read", () => {
     // The way back is still there, because a 404 on a bookmarked agent is the case where a
     // person most needs it.
     expect(screen.getByRole("link", { name: /All agents/ })).toBeTruthy();
+  });
+});
+
+/**
+ * THE HIERARCHY ITSELF — the property that a "does it render?" test cannot see.
+ *
+ * The defect these exist for is not a missing control; every control on this screen worked
+ * before. It is that the screen was a flat stack of nine equally-weighted cards in which
+ * the SCRIPT — the most-edited thing an owner owns, and the thing the product actually is
+ * — was a small text link inside the fifth of them. A test that only asserts the link
+ * EXISTS would have passed on the broken screen, so these assert the three things that
+ * distinguish a primary surface from a link: POSITION (first), SIZE (the hero button, and
+ * the only one), and SINGULARITY (nothing else competes).
+ *
+ * See docs/UX-DOCTRINE.md §1 and §3 — this file is that document's executable half for the
+ * agent workspace.
+ */
+describe("the script is the screen's primary surface", () => {
+  it("offers the builder as a link, not a buried note", async () => {
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    const open = screen.getByRole("link", { name: /Open the script builder/ });
+    expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-1/script");
+    // Its own heading, at hero scale, so a first-time owner scanning headings finds it.
+    expect(
+      screen.getByRole("heading", { name: "What it says on a call" }),
+    ).toBeTruthy();
+    expect(container.textContent).toContain("The script is the agent.");
+  });
+
+  it("puts it FIRST — above every panel on the screen", async () => {
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    const headings = [...container.querySelectorAll("h1, h2, h3")].map(
+      (node) => node.textContent ?? "",
+    );
+    // The page's own `h1` is the agent's name; the very next heading is the script.
+    expect(headings[0]).toBe("Reception");
+    expect(headings[1]).toBe("What it says on a call");
+  });
+
+  it("gives it the screen's ONLY hero-sized call to action", async () => {
+    // UX-DOCTRINE §1/§4: primacy is position + size + weight + colour, and a second hero
+    // deletes it. `px-5 py-3 text-base` is `PRIMARY_BUTTON_LG` (components/ui.tsx); every
+    // other primary on this workspace is a form's own submit at body scale.
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    const heroes = [...container.querySelectorAll("a, button")].filter((node) =>
+      node.className.includes("px-5 py-3 text-base"),
+    );
+    expect(heroes).toHaveLength(1);
+    expect(heroes[0].textContent).toContain("Open the script builder");
+  });
+
+  it("says what a change does NOT do — nothing reaches a live call by accident", async () => {
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    expect(container.textContent).toContain(
+      "A change never reaches a live call until you apply it",
+    );
+  });
+
+  it("tells an unpublished agent that the script is what unblocks it", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/agents/agent-1": agent({ status: "draft", published: false }) }),
+    );
+
+    await screen.findByText("Reception");
+    expect(container.textContent).toContain("an agent with none cannot be switched on");
+  });
+});
+
+/**
+ * WHAT IS BEHIND A CLICK AND WHAT IS NOT — the disclosure contract (UX-DOCTRINE §3, §8).
+ *
+ * Two failures these catch, and they fail in opposite directions:
+ *
+ * - a rarely-touched panel drifting back into the foreground, which is how nine equal
+ *   cards happen again; and — far worse —
+ * - a COMPLIANCE control drifting behind a disclosure. A client can switch either opening
+ *   notice off, so the switches and the guarantee they do not reach must be readable with
+ *   no click at all. §8 is absolute about this, and this is what enforces it.
+ */
+describe("progressive disclosure defaults", () => {
+  /** Is this panel inside a `<details>` a reader would have to open? */
+  function disclosed(title: string): boolean {
+    const panel = card(title);
+    const details = panel.closest("details");
+    return details !== null && !details.hasAttribute("open");
+  }
+
+  it("keeps the set-once panels closed by default", async () => {
+    await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    expect(disclosed("What it is")).toBe(true);
+    expect(disclosed("What it can do during a call")).toBe(true);
+    expect(disclosed("The model it thinks with")).toBe(true);
+  });
+
+  it("never hides a compliance control or the script behind one", async () => {
+    await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    // The two opening notices, the truthful-answer guarantee, what callers hear right now,
+    // and switching the agent on and off — none of these may cost a click.
+    expect(disclosed("What it says about itself")).toBe(false);
+    expect(disclosed("What callers hear right now")).toBe(false);
+    expect(disclosed("Switching it on and off")).toBe(false);
+    expect(disclosed("What it captures")).toBe(false);
+    expect(disclosed("What it knows")).toBe(false);
+    // The hero itself is not in a `<details>` at all.
+    const hero = screen.getByRole("heading", { name: "What it says on a call" });
+    expect(hero.closest("details")).toBeNull();
+  });
+
+  it("names what is inside a closed disclosure, so the fact survives the click", async () => {
+    // GOV.UK's own research on the Details component records that some users avoid
+    // clicking a reveal at all (govuk-design-system src/components/details/index.md, read
+    // 25 Aug 2026). A disclosure whose closed state says nothing is a panel nobody opens,
+    // so the FACT stays outside and only the CONTROL goes behind the click.
+    await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    const model = card("The model it thinks with");
+    expect(model.querySelector("summary")?.textContent).toContain("gpt-4o-mini");
+  });
+
+  it("is a native details/summary, so it is keyboard-operable with no JS", async () => {
+    // WCAG 2.1.1 Keyboard (Level A). `<summary>` is focusable and toggles on Enter and
+    // Space in every browser; a hand-rolled `<div onClick>` accordion is none of that,
+    // which is why UX-DOCTRINE §3 names ONE disclosure mechanism for the whole console.
+    await renderClientPage(page, routes());
+
+    await screen.findByText("Reception");
+    const summary = card("What it is").querySelector("summary");
+    expect(summary).not.toBeNull();
+    // The title inside it is a real heading, so it appears in a screen reader's heading
+    // list rather than being reachable only by tabbing.
+    expect(within(summary as HTMLElement).getByRole("heading")).toBeTruthy();
   });
 });

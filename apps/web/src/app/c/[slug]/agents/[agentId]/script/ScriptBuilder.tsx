@@ -19,22 +19,10 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import {
-  Bot,
-  Eye,
-  GripVertical,
-  Plus,
-  Trash2,
-  Undo2,
-  Wand2,
-  X,
-} from "lucide-react";
+import { Eye, Undo2, X } from "lucide-react";
 
 import {
   Card,
-  FIELD,
-  FIELD_HINT,
-  FIELD_LABEL,
   NoticeBox,
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
@@ -47,15 +35,23 @@ import { useClientSession } from "@/lib/api/session";
 import {
   EMPTY_SCRIPT,
   useApplyScript,
-  useAssistScript,
   usePreviewScript,
   useSaveScript,
   useScript,
   useUndoScript,
   type CallScript,
-  type FaqEntry,
-  type ScriptStep,
 } from "@/lib/api/script";
+
+import {
+  EndCallSection,
+  FaqSection,
+  OpeningSection,
+  RawEditor,
+  StepsSection,
+  VariableBar,
+  type Focusable,
+} from "./ScriptSections";
+import { AssistPanel } from "./AssistPanel";
 
 // Soft budget from PROMPT-GUIDE §1: ~2,500 tokens total. We count characters (the client
 // has no tokenizer) and warn past a conservative character equivalent — this is guidance,
@@ -86,8 +82,6 @@ export function ScriptBuilder({ agentId }: { agentId: string }) {
     </div>
   );
 }
-
-type Focusable = HTMLInputElement | HTMLTextAreaElement;
 
 function Editor({
   agentId,
@@ -318,309 +312,6 @@ function ModeToggle({
   );
 }
 
-function VariableBar({
-  standard,
-  custom,
-  onInsert,
-}: {
-  standard: { key: string; label: string }[];
-  custom: { key: string; label: string }[];
-  onInsert: (key: string) => void;
-}) {
-  const all = [...standard, ...custom.filter((c) => !standard.some((s) => s.key === c.key))];
-  return (
-    <div>
-      <span className={FIELD_LABEL}>Insert a merge field</span>
-      <span className={FIELD_HINT}>
-        Click a field to drop it where your cursor is. It is filled in from the lead when the
-        call is placed; if there is no value, it simply disappears.
-      </span>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {all.map((v) => (
-          <button
-            key={v.key}
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            onClick={() => onInsert(v.key)}
-          >
-            <Plus aria-hidden className="h-3 w-3" />
-            {v.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function OpeningSection({
-  value,
-  onChange,
-  trackFocus,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  trackFocus: (el: Focusable | null) => void;
-}) {
-  return (
-    <section>
-      <label className={FIELD_LABEL} htmlFor="opening-line">
-        Opening line
-      </label>
-      <span className={FIELD_HINT}>
-        What the agent says after it introduces itself. The AI/recording notice is spoken
-        first automatically — this follows it.
-      </span>
-      <textarea
-        id="opening-line"
-        className={FIELD}
-        rows={2}
-        value={value}
-        onFocus={(e) => trackFocus(e.currentTarget)}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Namaste! How can I help you today?"
-      />
-    </section>
-  );
-}
-
-function StepsSection({
-  steps,
-  onChange,
-  trackFocus,
-}: {
-  steps: ScriptStep[];
-  onChange: (steps: ScriptStep[]) => void;
-  trackFocus: (el: Focusable | null) => void;
-}) {
-  const dragFrom = useRef<number | null>(null);
-
-  const move = (from: number, to: number) => {
-    if (to < 0 || to >= steps.length) return;
-    const next = [...steps];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item);
-    onChange(next);
-  };
-  const update = (i: number, instruction: string) =>
-    onChange(steps.map((s, idx) => (idx === i ? { instruction } : s)));
-  const remove = (i: number) => onChange(steps.filter((_, idx) => idx !== i));
-  const add = () => onChange([...steps, { instruction: "" }]);
-
-  return (
-    <section>
-      <span className={FIELD_LABEL}>Steps</span>
-      <span className={FIELD_HINT}>
-        A loose outline the agent follows, one thing at a time. Drag the handle to reorder,
-        or use the up/down buttons.
-      </span>
-      <ol className="mt-3 space-y-3">
-        {steps.map((step, i) => (
-          <li
-            key={i}
-            className="flex items-start gap-2 rounded-md border border-line bg-surface p-2"
-            draggable
-            onDragStart={() => (dragFrom.current = i)}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => {
-              if (dragFrom.current !== null) move(dragFrom.current, i);
-              dragFrom.current = null;
-            }}
-          >
-            <span
-              aria-hidden
-              className="mt-2 cursor-grab text-ink-faint"
-              title="Drag to reorder"
-            >
-              <GripVertical className="h-4 w-4" />
-            </span>
-            <span className="mt-2 w-5 shrink-0 text-center text-xs font-semibold text-ink-muted">
-              {i + 1}
-            </span>
-            <textarea
-              className={`${FIELD} mt-0`}
-              rows={2}
-              value={step.instruction}
-              aria-label={`Step ${i + 1}`}
-              onFocus={(e) => trackFocus(e.currentTarget)}
-              onChange={(e) => update(i, e.target.value)}
-              placeholder="Ask what the caller needs and confirm it back."
-            />
-            <div className="mt-1 flex flex-col gap-1">
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                aria-label={`Move step ${i + 1} up`}
-                disabled={i === 0}
-                onClick={() => move(i, i - 1)}
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                aria-label={`Move step ${i + 1} down`}
-                disabled={i === steps.length - 1}
-                onClick={() => move(i, i + 1)}
-              >
-                ↓
-              </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                aria-label={`Remove step ${i + 1}`}
-                onClick={() => remove(i)}
-              >
-                <Trash2 aria-hidden className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </li>
-        ))}
-      </ol>
-      <button type="button" className={`${SECONDARY_BUTTON_SM} mt-3`} onClick={add}>
-        <Plus aria-hidden className="h-3.5 w-3.5" />
-        Add step
-      </button>
-    </section>
-  );
-}
-
-function FaqSection({
-  faqs,
-  fallback,
-  onFaqs,
-  onFallback,
-  trackFocus,
-}: {
-  faqs: FaqEntry[];
-  fallback: string;
-  onFaqs: (faqs: FaqEntry[]) => void;
-  onFallback: (v: string) => void;
-  trackFocus: (el: Focusable | null) => void;
-}) {
-  const update = (i: number, patch: Partial<FaqEntry>) =>
-    onFaqs(faqs.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
-  const remove = (i: number) => onFaqs(faqs.filter((_, idx) => idx !== i));
-  const add = () => onFaqs([...faqs, { question: "", answer: "" }]);
-
-  return (
-    <section>
-      <span className={FIELD_LABEL}>Questions &amp; answers</span>
-      <span className={FIELD_HINT}>
-        The agent answers these ONLY from what you write here. For anything else it uses the
-        don&apos;t-know reply below rather than guessing.
-      </span>
-      <div className="mt-3 space-y-3">
-        {faqs.map((faq, i) => (
-          <div key={i} className="rounded-md border border-line bg-surface p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-ink-muted">Q&amp;A {i + 1}</span>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
-                aria-label={`Remove question ${i + 1}`}
-                onClick={() => remove(i)}
-              >
-                <X aria-hidden className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <input
-              className={FIELD}
-              value={faq.question}
-              aria-label={`Question ${i + 1}`}
-              onFocus={(e) => trackFocus(e.currentTarget)}
-              onChange={(e) => update(i, { question: e.target.value })}
-              placeholder="What are your opening hours?"
-            />
-            <textarea
-              className={FIELD}
-              rows={2}
-              value={faq.answer}
-              aria-label={`Answer ${i + 1}`}
-              onFocus={(e) => trackFocus(e.currentTarget)}
-              onChange={(e) => update(i, { answer: e.target.value })}
-              placeholder="We are open 9 to 6, Monday to Saturday."
-            />
-          </div>
-        ))}
-      </div>
-      <button type="button" className={`${SECONDARY_BUTTON_SM} mt-3`} onClick={add}>
-        <Plus aria-hidden className="h-3.5 w-3.5" />
-        Add question
-      </button>
-      <div className="mt-4">
-        <label className={FIELD_LABEL} htmlFor="faq-fallback">
-          When the agent does not know
-        </label>
-        <textarea
-          id="faq-fallback"
-          className={FIELD}
-          rows={2}
-          value={fallback}
-          onFocus={(e) => trackFocus(e.currentTarget)}
-          onChange={(e) => onFallback(e.target.value)}
-        />
-      </div>
-    </section>
-  );
-}
-
-function EndCallSection({
-  rules,
-  onChange,
-  trackFocus,
-}: {
-  rules: string[];
-  onChange: (rules: string[]) => void;
-  trackFocus: (el: Focusable | null) => void;
-}) {
-  return (
-    <section>
-      <span className={FIELD_LABEL}>Ending a call</span>
-      <span className={FIELD_HINT}>
-        The agent always ends politely once the caller&apos;s need is handled. Add any extra
-        rules of your own, one per line.
-      </span>
-      <textarea
-        className={FIELD}
-        rows={3}
-        value={rules.join("\n")}
-        aria-label="Extra end-call rules, one per line"
-        onFocus={(e) => trackFocus(e.currentTarget)}
-        onChange={(e) => onChange(e.target.value.split("\n"))}
-        placeholder={"Never promise a same-day appointment.\nAlways offer a callback if unsure."}
-      />
-    </section>
-  );
-}
-
-function RawEditor({
-  value,
-  onChange,
-  trackFocus,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  trackFocus: (el: Focusable | null) => void;
-}) {
-  return (
-    <section>
-      <NoticeBox tone="neutral" title="Raw editing" className="mb-3">
-        You are editing the script as plain text. The platform still adds the AI/recording
-        answer underneath — you cannot remove it. Switch back to the structured builder any
-        time.
-      </NoticeBox>
-      <textarea
-        className={`${FIELD} font-mono`}
-        rows={16}
-        value={value}
-        aria-label="Raw script text"
-        onFocus={(e) => trackFocus(e.currentTarget)}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </section>
-  );
-}
-
 function CompiledPrompt({ text, onClose }: { text: string; onClose: () => void }) {
   return (
     <Card
@@ -651,87 +342,6 @@ function CompiledPrompt({ text, onClose }: { text: string; onClose: () => void }
       >
         {text}
       </pre>
-    </Card>
-  );
-}
-
-function AssistPanel({
-  agentId,
-  onDraft,
-  disabled,
-}: {
-  agentId: string;
-  onDraft: (script: CallScript) => void;
-  disabled: boolean;
-}) {
-  const session = useClientSession();
-  const [description, setDescription] = useState("");
-  const [open, setOpen] = useState(false);
-  const assist = useAssistScript(session, agentId);
-
-  const run = () => {
-    assist.mutate(
-      { description },
-      {
-        onSuccess: (r) => onDraft(r.script),
-      },
-    );
-  };
-
-  return (
-    <Card
-      title="Draft with AI"
-      action={
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setOpen((o) => !o)}>
-          {open ? "Hide" : "Open"}
-        </button>
-      }
-    >
-      {open && (
-        <div className="space-y-3">
-          <p className="text-sm text-ink-muted">
-            Describe your business and how you want calls handled. We will draft an opening
-            line, steps and questions for you to review and edit — nothing goes live until you
-            save and apply.
-          </p>
-          <textarea
-            className={FIELD}
-            rows={4}
-            value={description}
-            aria-label="Business description"
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="We are a dental clinic in Hyderabad. Callers usually want to book a check-up or ask about teeth cleaning prices. Book appointments and take a callback number."
-          />
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={assist.isPending || disabled || description.trim().length < 10}
-              onClick={run}
-            >
-              <Wand2 aria-hidden className="h-3.5 w-3.5" />
-              {assist.isPending ? "Drafting…" : "Draft my script"}
-            </button>
-            {disabled && (
-              <span className="text-xs text-ink-faint">
-                Switch to the structured builder to use AI drafting.
-              </span>
-            )}
-            {assist.data && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-ink-muted">
-                <Bot aria-hidden className="h-3.5 w-3.5" />
-                Draft loaded — review and edit below, then Save.
-              </span>
-            )}
-          </div>
-          {assist.data?.disclosure && (
-            <NoticeBox tone="neutral" title="How this draft was written">
-              {assist.data.disclosure}
-            </NoticeBox>
-          )}
-          {assist.error && <ProblemNotice error={assist.error} />}
-        </div>
-      )}
     </Card>
   );
 }

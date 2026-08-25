@@ -401,7 +401,12 @@ describe("how changes take effect", () => {
       }),
     );
 
-    await screen.findByText("How changes take effect");
+    // WAIT FOR THE BODY, NOT THE SUMMARY. "How changes take effect" is now the title of a
+    // `<Disclosure>` (UX-DOCTRINE §3 — platform reference material, read once), and a
+    // disclosure's summary paints immediately while `GET /v1/agents/lanes` is still in
+    // flight. Awaiting the summary would let every assertion below run against an empty
+    // body and pass vacuously, which is worse than failing.
+    await screen.findByText(/capped at 15 minutes per call by default/);
     expect(container.textContent).toContain("capped at 15 minutes per call by default");
     expect(container.textContent).toContain("between 2 minutes and 30 minutes");
     expect(container.textContent).not.toContain("10 minutes");
@@ -429,8 +434,8 @@ describe("how changes take effect", () => {
       }),
     );
 
-    await screen.findByText("How changes take effect");
-    const immediate = screen.getByText("Applies straight away").parentElement;
+    // The disclosure's BODY, for the reason given on the test above.
+    const immediate = (await screen.findByText("Applies straight away")).parentElement;
     expect(immediate?.textContent).toContain("Its voice");
     expect(immediate?.textContent).not.toContain("webhook");
     expect(container.textContent).toContain("Ask your account manager");

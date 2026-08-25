@@ -5,7 +5,7 @@ import { useState } from "react";
 import { BrainCircuit, RotateCcw, Save } from "lucide-react";
 
 import {
-  Card,
+  Disclosure,
   FIELD_HINT,
   NoticeBox,
   PRIMARY_BUTTON,
@@ -76,8 +76,8 @@ import { lookup } from "@/lib/lookup";
  * ## What this panel does when it cannot say
  *
  * It disappears. `agentLlmView` returns `null` when the API build does not report a
- * model, and a missing fact is honest while an invented one is not — `panels.tsx
- * ::VoiceFacts` makes the same call for the same reason. A catalogue read that FAILS is a
+ * model, and a missing fact is honest while an invented one is not —
+ * `panels/publishing.tsx::VoiceFacts` makes the same call for the same reason. A catalogue read that FAILS is a
  * different case: the agent's own state is still known, so the facts stay and only the
  * picker is replaced by the refusal.
  */
@@ -94,7 +94,16 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
   if (view === null) return null;
 
   return (
-    <Card title="The model it thinks with">
+    /* DISCLOSED, not a Card, and the frequency × consequence test says why (UX-DOCTRINE
+       §3): an owner picks a model at most once and then never touches it again, while the
+       consequence is real but bounded and reversible — it is a price per minute, not a
+       phone line. The closed state still names the model in force, so the FACT survives
+       the disclosure and only the picker is a click away. */
+    <Disclosure
+      title="The model it thinks with"
+      subtitle={`Currently ${view.effective}. Changing it changes what a minute of this agent's calls costs you.`}
+      icon={<BrainCircuit className="h-4 w-4" />}
+    >
       <div className="space-y-5">
         <Inheritance view={view} catalogue={catalogue.data} slug={slug} />
 
@@ -114,7 +123,7 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
           <ModelForm agent={agent} view={view} catalogue={catalogue.data} />
         )}
       </div>
-    </Card>
+    </Disclosure>
   );
 }
 
