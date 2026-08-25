@@ -356,6 +356,31 @@ preflight_plan() {
     for tool in pnpm pm2; do
       command -v "$tool" >/dev/null || die "$tool is not installed on this host (DEPLOYMENT §2)"
     done
+
+    # THE pm2 LOG DIRECTORY, and it is here because its absence cost a whole deploy.
+    # `ecosystem.config.cjs` names `/var/log/calevate/web-*.log`, NOTHING in this
+    # repository creates it, and no document listed it as a host prerequisite. pm2 tries
+    # to create it, cannot (that path needs root; this script deliberately holds no
+    # privilege), and fails the ONE step that runs after migrations and all three
+    # container swaps. A half-happened deploy, for a `mkdir`.
+    #
+    # The path is READ OUT OF the ecosystem file rather than repeated here — a second
+    # literal is the drift this project has already paid for twice (D-103/D-105) — and a
+    # write is ATTEMPTED rather than inferred from ownership bits, because "owned by us"
+    # and "writable by us" differ under a sticky bit, a read-only mount or a stray ACL.
+    local log_dir
+    log_dir=$(sed -n 's|.*out_file:[[:space:]]*"\(.*\)/[^/]*",|\1|p' \
+      "$ROOT/apps/web/ecosystem.config.cjs" | head -n 1)
+    [[ -n "$log_dir" ]] || die "could not read out_file from apps/web/ecosystem.config.cjs —
+     this preflight cannot tell whether pm2's log directory exists. Check that file."
+    [[ -d "$log_dir" ]] && touch "$log_dir/.calevate-write-probe" 2>/dev/null || die \
+      "pm2's log directory $log_dir is missing or not writable by $(id -un).
+     apps/web/ecosystem.config.cjs writes web-out.log and web-error.log there, pm2 cannot
+     create it (that path needs root, and this script holds no privilege), and the failure
+     lands on the LAST step of the deploy — after migrations and after every container has
+     been swapped. Create it once, as root:
+       sudo install -d -o $(id -un) -g $(id -gn) -m 0755 $log_dir"
+    rm -f "$log_dir/.calevate-write-probe"
   fi
 
   # The five the nginx step needs. They are NOT in .env and are not Settings fields — this
