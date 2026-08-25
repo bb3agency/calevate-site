@@ -311,6 +311,14 @@ what it says it would do, and only then:
 scripts/vps-deploy.sh --all
 ```
 
+**Expect the nginx step to FAIL the first time, and that is the design.** Unset,
+`NGINX_AUTO_RELOAD` makes the deploy render, compare against what is installed, and
+stop with the exact `install` commands for whatever differs; you run them, then re-run
+the deploy, which then records a deploy that is true. Run the commands **as printed** —
+they name each file, because the staging directory is `mktemp -d` mode 0700 owned by
+the deploy account, so a `*.conf` glob typed from another account expands to nothing
+and `install` fails while everything after it looks like it worked.
+
 Leave `NGINX_AUTO_RELOAD` unset on this first run — the deploy renders the nginx config
 and prints the install commands rather than touching `/etc/nginx`. Step 9 installs it.
 
