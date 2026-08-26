@@ -23,6 +23,8 @@ import {
   X,
 } from "lucide-react";
 
+import { BrandIcon } from "@/components/brand";
+
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
@@ -435,19 +437,24 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
         }`}
       >
         <div className="flex items-center gap-3 overflow-hidden">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-strong text-white">
-            <ShieldCheck className="h-5 w-5" />
-          </span>
-          {!isCollapsed && (
-            <span className="whitespace-nowrap">
-              <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
-                Calevate admin
-              </span>
-              <span className="block text-[11px] font-medium text-ink-muted">
-                Operator console
-              </span>
+          {/* The real mark, and NOT inside the `bg-brand-strong` chip it replaces: the
+              artwork is dark green ink on transparency, so on that chip it would render
+              green on green. See `components/brand.tsx`. */}
+          <BrandIcon size={36} />
+          {/* `sr-only` when collapsed rather than UNMOUNTED, which is what it used to be.
+              Collapsing removed the only text naming this realm from the DOM, so an
+              operator on a screen reader lost "Operator console" — the one string that
+              says which of the two consoles they are in, on hostnames that 404 each
+              other's tree (D-177/P7.3). The mark is decorative precisely because this
+              text is always here to be read. */}
+          <span className={isCollapsed ? "sr-only" : "whitespace-nowrap"}>
+            <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
+              Calevate admin
             </span>
-          )}
+            <span className="block text-[11px] font-medium text-ink-muted">
+              Operator console
+            </span>
+          </span>
         </div>
         <button
           type="button"

@@ -112,13 +112,15 @@ const AA_SMALL_TEXT = 4.5;
  * Files that pair `bg-brand` with `text-white` and are NOT text — keyed by path, with the
  * reason. The list may only shrink; the test below fails on an entry that stops matching.
  */
-const BRAND_FILL_EXEMPT: Record<string, string> = {
-  "src/app/c/[slug]/layout.tsx":
-    "the shell's 36px brand medallion. `text-white` colours a `<Mic>` SVG and no text " +
-    "sits on the fill, so WCAG 1.4.11 Non-text Contrast applies at 3:1 rather than " +
-    "1.4.3's 4.5:1, and #16A05D on white is 3.38:1. Darkening it would make the one " +
-    "brand mark in the console the same green as its buttons.",
-};
+// EMPTY, AND IT GOT THAT WAY THE RIGHT WAY. Its one entry argued for the client shell's
+// 36px brand medallion — `bg-brand` with `text-white` colouring a `<Mic>` glyph, judged
+// against WCAG 1.4.11's 3:1 for non-text rather than 1.4.3's 4.5:1. That medallion no
+// longer exists: the real logo is dark-green ink on transparency and sits on the surface,
+// not in a filled chip (`components/brand.tsx` says why putting it in one would render
+// green on green). No fill, no exemption. The staleness check below is what insisted —
+// this dict cannot outlive the thing it excuses, which is the whole point of keying it by
+// path. Leave the mechanism here for the next argued-for fill.
+const BRAND_FILL_EXEMPT: Record<string, string> = {};
 
 /**
  * The ONE `sr-only`-input label still without a focus ring, and why it is not fixed here.
