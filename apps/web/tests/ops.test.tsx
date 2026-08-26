@@ -28,7 +28,10 @@ import {
   type ConfigField,
   type ConfigList,
 } from "@/lib/api/opsConfig";
-import { OPS_MODEL_PRICES_PATH, type ModelPrices } from "@/lib/api/opsModelPricing";
+import {
+  OPS_MODEL_PRICES_PATH,
+  type ModelPrices,
+} from "@/lib/api/opsModelPricing";
 
 import { formatISTInput, istInputToInstant } from "@/components/ui";
 
@@ -137,7 +140,10 @@ function routes(
  * so a case that fetched the platform row from this screen would fail loudly — which is
  * what keeps the split honest.
  */
-function configRoutes(identity: unknown = SUPERADMIN, extra: Routes = {}): Routes {
+function configRoutes(
+  identity: unknown = SUPERADMIN,
+  extra: Routes = {},
+): Routes {
   return {
     [ADMIN_ME_PATH]: identity,
     [OPS_CONFIG_PATH]: configList(),
@@ -171,6 +177,7 @@ function modelPrices(): ModelPrices {
         reference_input_usd_per_mtok: "0.15",
         reference_output_usd_per_mtok: "0.60",
         reference_verified: true,
+        withheld_reason: null,
       },
     ],
     as_of: "2026-08-23T00:00:00Z",
@@ -303,8 +310,16 @@ function deadLetters(over: Partial<PlatformState["outbox_dead_letters"]> = {}) {
     deferred: 0,
     oldest_at: "2026-08-04T04:15:00Z",
     by_job: [
-      { job: "deliver_outbound_webhook", depth: 6, oldest_at: "2026-08-04T04:15:00Z" },
-      { job: "send_hot_lead_email", depth: 3, oldest_at: "2026-08-11T09:00:00Z" },
+      {
+        job: "deliver_outbound_webhook",
+        depth: 6,
+        oldest_at: "2026-08-04T04:15:00Z",
+      },
+      {
+        job: "send_hot_lead_email",
+        depth: 3,
+        oldest_at: "2026-08-11T09:00:00Z",
+      },
     ],
     ...over,
   };
@@ -355,7 +370,10 @@ function kbDrift(over: Partial<KbDrift> = {}): KbDrift {
 }
 
 /** What the server answers a replay with: the count it moved, and the scope it used. */
-function replayed(count: number, job: string | null = null): OutboxReplayResult {
+function replayed(
+  count: number,
+  job: string | null = null,
+): OutboxReplayResult {
   return { replayed: count, job };
 }
 
@@ -415,13 +433,19 @@ describe("the ops screen when the platform state cannot be read", () => {
     );
 
     // The honest statement, and it is the headline rather than a footnote.
-    await screen.findByText("We do not know whether outbound calling is halted");
+    await screen.findByText(
+      "We do not know whether outbound calling is halted",
+    );
     // The two comfortable defaults, both absent.
     expect(screen.queryByText("Outbound calling is running")).toBeNull();
     expect(screen.queryByText(/Outbound calling is HALTED/)).toBeNull();
     // And no switch to press over a state nobody has read.
-    expect(screen.queryByRole("button", { name: /Halt all outbound calling/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Resume outbound calling/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Halt all outbound calling/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Resume outbound calling/ }),
+    ).toBeNull();
   });
 
   it("says the read failed rather than blaming the operator's permissions", async () => {
@@ -430,8 +454,12 @@ describe("the ops screen when the platform state cannot be read", () => {
       routes(problem(503, { title: "Service unavailable", retryable: true })),
     );
 
-    await screen.findByText("We do not know whether outbound calling is halted");
-    expect(container.textContent).toContain("the current state could not be read");
+    await screen.findByText(
+      "We do not know whether outbound calling is halted",
+    );
+    expect(container.textContent).toContain(
+      "the current state could not be read",
+    );
     // A 503 is not an authorization answer, so the screen must not invent one.
     expect(container.textContent).not.toContain("ops:manage");
   });
@@ -450,7 +478,9 @@ describe("the ops screen when the platform state cannot be read", () => {
       ),
     );
 
-    await screen.findByText("We do not know whether outbound calling is halted");
+    await screen.findByText(
+      "We do not know whether outbound calling is halted",
+    );
     // The refusal in words, beside the disabled control — the plain reason the operator
     // can act on ("ask a superadmin"), NOT the raw permission scope. The scope is engineer
     // vocabulary a non-technical operator cannot use, and a superadmin granting access maps
@@ -459,7 +489,9 @@ describe("the ops screen when the platform state cannot be read", () => {
     expect(container.textContent).toContain("Ask a superadmin");
     // Still no state claim, and still no control.
     expect(screen.queryByText("Outbound calling is running")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Halt all outbound calling/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Halt all outbound calling/ }),
+    ).toBeNull();
   });
 
   it("blames the read, not the operator, when a superadmin's own read fails", async () => {
@@ -467,11 +499,18 @@ describe("the ops screen when the platform state cannot be read", () => {
     // a 503 and a 403 both stopped the read, and only one of them is about the session.
     const { container } = renderAdminPage(
       <OpsPage />,
-      routes(problem(503, { title: "Service unavailable", retryable: true }), SUPERADMIN),
+      routes(
+        problem(503, { title: "Service unavailable", retryable: true }),
+        SUPERADMIN,
+      ),
     );
 
-    await screen.findByText("We do not know whether outbound calling is halted");
-    expect(container.textContent).toContain("the current state could not be read");
+    await screen.findByText(
+      "We do not know whether outbound calling is halted",
+    );
+    expect(container.textContent).toContain(
+      "the current state could not be read",
+    );
     expect(container.textContent).not.toContain("ops:manage");
   });
 });
@@ -480,7 +519,9 @@ describe("the big red switch", () => {
   it("will not fire on one click, and needs the reason the audit log will hold", async () => {
     renderAdminPage(<OpsPage />, routes(platform()));
 
-    const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
+    const halt = await screen.findByRole("button", {
+      name: /Halt all outbound calling/,
+    });
     expect((halt as HTMLButtonElement).disabled).toBe(true);
 
     // A reason alone is not enough.
@@ -491,28 +532,41 @@ describe("the big red switch", () => {
 
     // The wrong word is not enough either — this is the guard against a form submitted
     // by habit from the other direction.
-    fireEvent.change(screen.getByPlaceholderText("HALT"), { target: { value: "RESUME" } });
+    fireEvent.change(screen.getByPlaceholderText("HALT"), {
+      target: { value: "RESUME" },
+    });
     expect((halt as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.change(screen.getByPlaceholderText("HALT"), { target: { value: "HALT" } });
+    fireEvent.change(screen.getByPlaceholderText("HALT"), {
+      target: { value: "HALT" },
+    });
     expect((halt as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("refuses a whitespace reason the server would strip and reject", async () => {
     renderAdminPage(<OpsPage />, routes(platform()));
 
-    const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
+    const halt = await screen.findByRole("button", {
+      name: /Halt all outbound calling/,
+    });
     fireEvent.change(screen.getByPlaceholderText(/spike in complaints/), {
       target: { value: "   " },
     });
-    fireEvent.change(screen.getByPlaceholderText("HALT"), { target: { value: "HALT" } });
+    fireEvent.change(screen.getByPlaceholderText("HALT"), {
+      target: { value: "HALT" },
+    });
     expect((halt as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("says what the click will do BEFORE it is clicked, and sends the step-up header", async () => {
-    const { calls, container } = renderAdminPage(<OpsPage />, routes(platform()));
+    const { calls, container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform()),
+    );
 
-    const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
+    const halt = await screen.findByRole("button", {
+      name: /Halt all outbound calling/,
+    });
     expect(container.textContent).toContain(
       "Halting stops every client's outbound dialling immediately",
     );
@@ -523,11 +577,15 @@ describe("the big red switch", () => {
     fireEvent.change(screen.getByPlaceholderText(/spike in complaints/), {
       target: { value: "  complaints spiking  " },
     });
-    fireEvent.change(screen.getByPlaceholderText("HALT"), { target: { value: "HALT" } });
+    fireEvent.change(screen.getByPlaceholderText("HALT"), {
+      target: { value: "HALT" },
+    });
     fireEvent.click(halt);
 
     await waitFor(() => {
-      expect(calls.some((c) => c.method === "POST" && c.path === PLATFORM)).toBe(true);
+      expect(
+        calls.some((c) => c.method === "POST" && c.path === PLATFORM),
+      ).toBe(true);
     });
     const post = calls.find((c) => c.method === "POST" && c.path === PLATFORM);
     // The confirmation names the TRANSITION (ops/routes.py `platform_confirmation`), not
@@ -552,10 +610,16 @@ describe("the big red switch", () => {
     );
 
     await screen.findByText("Outbound calling is HALTED for every client");
-    expect(container.textContent).toContain("registrar suspension — do not lift without Sri");
+    expect(container.textContent).toContain(
+      "registrar suspension — do not lift without Sri",
+    );
     // The direction flips with the state: the control offered is the one that changes it.
-    expect(screen.getByRole("button", { name: /Resume outbound calling/ })).toBeDefined();
-    expect(screen.queryByRole("button", { name: /Halt all outbound calling/ })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Resume outbound calling/ }),
+    ).toBeDefined();
+    expect(
+      screen.queryByRole("button", { name: /Halt all outbound calling/ }),
+    ).toBeNull();
   });
 
   it("says a halt carries no reason rather than implying it was routine", async () => {
@@ -581,7 +645,9 @@ describe("the big red switch", () => {
     await screen.findByText("Outbound calling is running");
     expect(container.textContent).toContain("constructor");
     expect(container.textContent).not.toContain("native code");
-    expect(container.textContent).toContain("This console has no description for that mode");
+    expect(container.textContent).toContain(
+      "This console has no description for that mode",
+    );
   });
 });
 
@@ -595,8 +661,12 @@ describe("the load-shed mode", () => {
       routes(problem(503, { title: "Service unavailable", retryable: true })),
     );
 
-    await screen.findByText("We do not know whether outbound calling is halted");
-    expect(container.textContent).toContain("The load-shed mode is on that same row");
+    await screen.findByText(
+      "We do not know whether outbound calling is halted",
+    );
+    expect(container.textContent).toContain(
+      "The load-shed mode is on that same row",
+    );
     expect(screen.queryByRole("button", { name: /Switch to/ })).toBeNull();
     expect(screen.queryByPlaceholderText("MAINTENANCE")).toBeNull();
   });
@@ -607,11 +677,17 @@ describe("the load-shed mode", () => {
     // made — which is the same objection `platform_confirmation` makes to an empty one.
     const { container } = renderAdminPage(<OpsPage />, routes(platform()));
 
-    const button = await screen.findByRole("button", { name: /Switch to.*Running normally/ });
+    const button = await screen.findByRole("button", {
+      name: /Switch to.*Running normally/,
+    });
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(container.textContent).toContain("The platform is already in “Running normally”");
+    expect(container.textContent).toContain(
+      "The platform is already in “Running normally”",
+    );
     // And the confirmation box is dead too, so there is nothing to type past.
-    expect((screen.getByPlaceholderText("NORMAL") as HTMLInputElement).disabled).toBe(true);
+    expect(
+      (screen.getByPlaceholderText("NORMAL") as HTMLInputElement).disabled,
+    ).toBe(true);
   });
 
   it("needs the target typed back and a reason the server would not strip away", async () => {
@@ -622,12 +698,16 @@ describe("the load-shed mode", () => {
       target: { value: "maintenance" },
     });
 
-    const button = screen.getByRole("button", { name: /Switch to.*Maintenance/ });
+    const button = screen.getByRole("button", {
+      name: /Switch to.*Maintenance/,
+    });
     expect((button as HTMLButtonElement).disabled).toBe(true);
 
     // Whitespace is not a reason: the server strips it and refuses under three chars, so
     // a button that lights up on "   " teaches the operator that the API is flaky.
-    fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), { target: { value: "   " } });
+    fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), {
+      target: { value: "   " },
+    });
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
       target: { value: "MAINTENANCE" },
     });
@@ -638,7 +718,9 @@ describe("the load-shed mode", () => {
     fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), {
       target: { value: "index build" },
     });
-    fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), { target: { value: "REDUCED" } });
+    fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
+      target: { value: "REDUCED" },
+    });
     expect((button as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
@@ -662,16 +744,27 @@ describe("the load-shed mode", () => {
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
       target: { value: "MAINTENANCE" },
     });
-    fireEvent.change(screen.getByLabelText("Change the mode to"), { target: { value: "reduced" } });
+    fireEvent.change(screen.getByLabelText("Change the mode to"), {
+      target: { value: "reduced" },
+    });
 
-    expect((screen.getByPlaceholderText("REDUCED") as HTMLInputElement).value).toBe("");
     expect(
-      (screen.getByRole("button", { name: /Switch to.*Reduced/ }) as HTMLButtonElement).disabled,
+      (screen.getByPlaceholderText("REDUCED") as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /Switch to.*Reduced/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 
   it("says what the target mode sheds, and sends the header bound to that mode", async () => {
-    const { calls, container } = renderAdminPage(<OpsPage />, routes(platform()));
+    const { calls, container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform()),
+    );
 
     await screen.findByRole("button", { name: /Switch to.*Running normally/ });
     fireEvent.change(screen.getByLabelText("Change the mode to"), {
@@ -681,7 +774,9 @@ describe("the load-shed mode", () => {
     // Blast radius BEFORE the click, and the half that reassures: this console keeps
     // working, so an operator cannot shed themselves out of the switch that undoes it.
     expect(container.textContent).toContain("Client screens go dark");
-    expect(container.textContent).toContain("you can always bring the platform back");
+    expect(container.textContent).toContain(
+      "you can always bring the platform back",
+    );
 
     fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), {
       target: { value: "  planned migration window  " },
@@ -689,10 +784,14 @@ describe("the load-shed mode", () => {
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
       target: { value: "MAINTENANCE" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Switch to.*Maintenance/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Switch to.*Maintenance/ }),
+    );
 
     await waitFor(() => {
-      expect(calls.some((c) => c.method === "POST" && c.path === PLATFORM)).toBe(true);
+      expect(
+        calls.some((c) => c.method === "POST" && c.path === PLATFORM),
+      ).toBe(true);
     });
     const post = calls.find((c) => c.method === "POST" && c.path === PLATFORM);
     expect(post?.headers["X-Confirm-Action"]).toBe("set_load_shed:maintenance");
@@ -738,14 +837,18 @@ describe("the step-up strings", () => {
   });
 
   it("names the transition, and joins both halves halt-first", () => {
-    expect(platformConfirmation({ outboundHalted: true })).toBe("halt_outbound");
-    expect(platformConfirmation({ outboundHalted: false })).toBe("release_outbound");
+    expect(platformConfirmation({ outboundHalted: true })).toBe(
+      "halt_outbound",
+    );
+    expect(platformConfirmation({ outboundHalted: false })).toBe(
+      "release_outbound",
+    );
     expect(platformConfirmation({ loadShedMode: "maintenance" })).toBe(
       "set_load_shed:maintenance",
     );
-    expect(platformConfirmation({ outboundHalted: false, loadShedMode: "normal" })).toBe(
-      "release_outbound+set_load_shed:normal",
-    );
+    expect(
+      platformConfirmation({ outboundHalted: false, loadShedMode: "normal" }),
+    ).toBe("release_outbound+set_load_shed:normal");
   });
 });
 
@@ -772,7 +875,8 @@ async function armReplay(scope = "*"): Promise<HTMLButtonElement> {
   await waitFor(() =>
     expect(
       screen.queryByLabelText(/What to resend/) !== null ||
-        screen.queryByText("We do not know how many messages are stuck") !== null,
+        screen.queryByText("We do not know how many messages are stuck") !==
+          null,
     ).toBe(true),
   );
   // `query` rather than `get`: the select is offered only when the breakdown could be
@@ -781,7 +885,9 @@ async function armReplay(scope = "*"): Promise<HTMLButtonElement> {
   // regex because the label carries its hint text as well as its name.
   const select = screen.queryByLabelText(/What to resend/);
   if (select) fireEvent.change(select, { target: { value: scope } });
-  fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+  fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+    target: { value: "REPLAY" },
+  });
   await waitFor(() => expect(button.disabled).toBe(false));
   return button;
 }
@@ -790,18 +896,26 @@ describe("the outbox dead-letter replay", () => {
   it("is dead WITH the reason for a session that lacks ops:manage", async () => {
     const { container } = renderAdminPage(
       <OpsPage />,
-      routes(problem(403, { title: "Forbidden" }), OPERATOR, { [REPLAY]: replayed(3) }),
+      routes(problem(403, { title: "Forbidden" }), OPERATOR, {
+        [REPLAY]: replayed(3),
+      }),
     );
 
-    const button = await screen.findByRole("button", { name: /Resend stuck messages/ });
+    const button = await screen.findByRole("button", {
+      name: /Resend stuck messages/,
+    });
     // The refusal names the permission AND what it is for, before any click: "change
     // platform-wide switches" would be the wrong description of a dead-letter replay.
     await waitFor(() => {
-      expect(container.textContent).toContain("run the platform recovery tools");
+      expect(container.textContent).toContain(
+        "run the platform recovery tools",
+      );
     });
     expect(container.textContent).toContain("Ask a superadmin");
     // Typing the word must not revive it — the gate is the permission, not the form.
-    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+      target: { value: "REPLAY" },
+    });
     expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -811,15 +925,23 @@ describe("the outbox dead-letter replay", () => {
     // behaving strangely. The halt switch is gone, this one is not.
     const { calls } = renderAdminPage(
       <OpsPage />,
-      routes(problem(503, { title: "Service unavailable", retryable: true }), SUPERADMIN, {
-        [REPLAY]: replayed(4),
-      }),
+      routes(
+        problem(503, { title: "Service unavailable", retryable: true }),
+        SUPERADMIN,
+        {
+          [REPLAY]: replayed(4),
+        },
+      ),
     );
 
-    await screen.findByText("We do not know whether outbound calling is halted");
+    await screen.findByText(
+      "We do not know whether outbound calling is halted",
+    );
     fireEvent.click(await armReplay());
     await waitFor(() => {
-      expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(true);
+      expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(
+        true,
+      );
     });
   });
 
@@ -841,14 +963,24 @@ describe("the outbox dead-letter replay", () => {
     // `find`, not `get`: the panel renders its button immediately and its scope select
     // only once the depth has arrived, so a synchronous query here would be asserting on
     // the millisecond before the read landed.
-    fireEvent.change(await screen.findByLabelText(/What to resend/), { target: { value: "*" } });
-    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "replay" } });
-    await waitFor(() => expect(container.textContent).toContain("Recorded in the activity log"));
+    fireEvent.change(await screen.findByLabelText(/What to resend/), {
+      target: { value: "*" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+      target: { value: "replay" },
+    });
+    await waitFor(() =>
+      expect(container.textContent).toContain("Recorded in the activity log"),
+    );
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
-    expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(false);
+    expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(
+      false,
+    );
 
-    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+      target: { value: "REPLAY" },
+    });
     await waitFor(() => expect(button.disabled).toBe(false));
   });
 
@@ -878,7 +1010,9 @@ describe("the outbox dead-letter replay", () => {
     fireEvent.click(await armReplay());
 
     await waitFor(() => {
-      expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(true);
+      expect(calls.some((c) => c.method === "POST" && c.path === REPLAY)).toBe(
+        true,
+      );
     });
     const post = calls.find((c) => c.method === "POST" && c.path === REPLAY);
     expect(post?.headers["X-Confirm-Action"]).toBe(OUTBOX_REPLAY_CONFIRMATION);
@@ -896,7 +1030,8 @@ describe("the outbox dead-letter replay", () => {
           type: "urn:calevate:error/step_up_required",
           title: "Confirmation required",
           detail: "This action needs an explicit confirmation.",
-          remediation: "Repeat the request with the header X-Confirm-Action: replay_dead_letters",
+          remediation:
+            "Repeat the request with the header X-Confirm-Action: replay_dead_letters",
         }),
       }),
     );
@@ -911,7 +1046,9 @@ describe("the outbox dead-letter replay", () => {
     expect(container.textContent).toContain("Reload this page first");
     // The API's own remediation, verbatim — the operator needs the exact header for the
     // runbook's curl, not this screen's paraphrase of it.
-    expect(container.textContent).toContain("X-Confirm-Action: replay_dead_letters");
+    expect(container.textContent).toContain(
+      "X-Confirm-Action: replay_dead_letters",
+    );
     // And still no count: a refusal is not a result.
     expect(screen.queryByText(/queued to resend/)).toBeNull();
     expect(container.textContent).not.toContain("Nothing was dead-lettered");
@@ -962,7 +1099,10 @@ describe("the outbox dead-letter replay", () => {
  */
 describe("the dead-letter depth, before the click", () => {
   it("shows the size, the mix and the age above the confirmation", async () => {
-    const { container } = renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN));
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN),
+    );
 
     await screen.findByText("9 messages are stuck");
     // The mix, because 9 CRM webhooks and 9 hot-lead emails are different things to
@@ -973,7 +1113,9 @@ describe("the dead-letter depth, before the click", () => {
     // ORDER is the property, not mere presence: a count rendered under the button is a
     // measurement taken after the irreversible act.
     const body = container.textContent ?? "";
-    expect(body.indexOf("9 messages are stuck")).toBeLessThan(body.indexOf("Type REPLAY"));
+    expect(body.indexOf("9 messages are stuck")).toBeLessThan(
+      body.indexOf("Type REPLAY"),
+    );
 
     // And the chosen scope is sized in its own sentence, immediately above the
     // confirmation, so the operator confirms a number rather than a verb.
@@ -981,9 +1123,13 @@ describe("the dead-letter depth, before the click", () => {
       target: { value: "deliver_outbound_webhook" },
     });
     await screen.findByText(/About to resend up to 6 of the 6 stuck/);
-    fireEvent.change(screen.getByLabelText(/What to resend/), { target: { value: "*" } });
+    fireEvent.change(screen.getByLabelText(/What to resend/), {
+      target: { value: "*" },
+    });
     // No stray word where the job name would have been on an unscoped run.
-    await screen.findByText("About to resend up to 9 of the 9 stuck messages, oldest first.");
+    await screen.findByText(
+      "About to resend up to 9 of the 9 stuck messages, oldest first.",
+    );
   });
 
   it("REFUSES to state a depth it could not read, rather than showing zero", async () => {
@@ -1009,7 +1155,9 @@ describe("the dead-letter depth, before the click", () => {
     const button = (await screen.findByRole("button", {
       name: /Resend stuck messages/,
     })) as HTMLButtonElement;
-    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+      target: { value: "REPLAY" },
+    });
     await waitFor(() => expect(button.disabled).toBe(false));
   });
 
@@ -1021,7 +1169,14 @@ describe("the dead-letter depth, before the click", () => {
     const { container } = renderAdminPage(
       <OpsPage />,
       routes(
-        platform({ outbox_dead_letters: { depth: 0, deferred: 0, oldest_at: null, by_job: [] } }),
+        platform({
+          outbox_dead_letters: {
+            depth: 0,
+            deferred: 0,
+            oldest_at: null,
+            by_job: [],
+          },
+        }),
         SUPERADMIN,
       ),
     );
@@ -1030,7 +1185,9 @@ describe("the dead-letter depth, before the click", () => {
     const button = (await screen.findByRole("button", {
       name: /Resend stuck messages/,
     })) as HTMLButtonElement;
-    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+      target: { value: "REPLAY" },
+    });
     await waitFor(() => {
       expect(container.textContent).toContain("so there is nothing to resend");
     });
@@ -1054,7 +1211,12 @@ describe("the dead-letter depth, before the click", () => {
       <OpsPage />,
       routes(
         platform({
-          outbox_dead_letters: { depth: 0, deferred: 214, oldest_at: null, by_job: [] },
+          outbox_dead_letters: {
+            depth: 0,
+            deferred: 214,
+            oldest_at: null,
+            by_job: [],
+          },
         }),
         SUPERADMIN,
       ),
@@ -1078,7 +1240,10 @@ describe("the dead-letter depth, before the click", () => {
     // that showed only the DLQ would tell the operator the incident is over.
     renderAdminPage(
       <OpsPage />,
-      routes(platform({ outbox_dead_letters: deadLetters({ deferred: 31 }) }), SUPERADMIN),
+      routes(
+        platform({ outbox_dead_letters: deadLetters({ deferred: 31 }) }),
+        SUPERADMIN,
+      ),
     );
 
     await screen.findByText("9 messages are stuck");
@@ -1094,8 +1259,12 @@ describe("the dead-letter depth, before the click", () => {
     const button = (await screen.findByRole("button", {
       name: /Resend stuck messages/,
     })) as HTMLButtonElement;
-    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
-    await waitFor(() => expect(container.textContent).toContain("Choose what to resend first"));
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+      target: { value: "REPLAY" },
+    });
+    await waitFor(() =>
+      expect(container.textContent).toContain("Choose what to resend first"),
+    );
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(calls.some((c) => c.method === "POST")).toBe(false);
@@ -1114,27 +1283,38 @@ describe("the dead-letter depth, before the click", () => {
 
     fireEvent.click(await armReplay("deliver_outbound_webhook"));
 
-    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST")).toBe(true),
+    );
     const post = calls.find((c) => c.method === "POST");
     // The scope travels in the query string — it is part of this request's identity, not
     // its content, so it belongs somewhere an access log records.
-    expect(post?.path).toBe("/v1/ops/outbox/replay?job=deliver_outbound_webhook");
+    expect(post?.path).toBe(
+      "/v1/ops/outbox/replay?job=deliver_outbound_webhook",
+    );
     // And the header names the SAME scope. A header saying "replay everything" on a
     // request that replays one job describes an action other than the one performed.
     expect(post?.headers["X-Confirm-Action"]).toBe(
       "replay_dead_letters:deliver_outbound_webhook",
     );
-    expect(post?.headers["X-Confirm-Action"]).not.toBe(OUTBOX_REPLAY_CONFIRMATION);
+    expect(post?.headers["X-Confirm-Action"]).not.toBe(
+      OUTBOX_REPLAY_CONFIRMATION,
+    );
     // The SERVER's scope in the result, not this form's memory of it: a `replayed: 0`
     // under a mistyped job is an operator's typo, and reading it back is what shows that.
-    await waitFor(() => expect(container.textContent).toContain("6 messages queued to resend"));
+    await waitFor(() =>
+      expect(container.textContent).toContain("6 messages queued to resend"),
+    );
   });
 
   it("forgets a confirmation typed for a different scope", async () => {
     // The load-shed panel's rule on a bigger blast radius: the header is bound to the
     // scope, so a word typed for "just the webhooks" must not survive a change to "every
     // job" and authorise the larger act.
-    renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN, { [REPLAY]: replayed(9) }));
+    renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, { [REPLAY]: replayed(9) }),
+    );
 
     const button = (await screen.findByRole("button", {
       name: /Resend stuck messages/,
@@ -1142,12 +1322,18 @@ describe("the dead-letter depth, before the click", () => {
     fireEvent.change(await screen.findByLabelText(/What to resend/), {
       target: { value: "deliver_outbound_webhook" },
     });
-    fireEvent.change(screen.getByPlaceholderText("REPLAY"), { target: { value: "REPLAY" } });
+    fireEvent.change(screen.getByPlaceholderText("REPLAY"), {
+      target: { value: "REPLAY" },
+    });
     await waitFor(() => expect(button.disabled).toBe(false));
 
-    fireEvent.change(screen.getByLabelText(/What to resend/), { target: { value: "*" } });
+    fireEvent.change(screen.getByLabelText(/What to resend/), {
+      target: { value: "*" },
+    });
 
-    expect((screen.getByPlaceholderText("REPLAY") as HTMLInputElement).value).toBe("");
+    expect(
+      (screen.getByPlaceholderText("REPLAY") as HTMLInputElement).value,
+    ).toBe("");
     expect(button.disabled).toBe(true);
   });
 
@@ -1163,9 +1349,9 @@ describe("the dead-letter depth, before the click", () => {
     fireEvent.click(await armReplay());
 
     await waitFor(() => {
-      expect(calls.filter((c) => c.method === "GET" && c.path === PLATFORM).length).toBeGreaterThan(
-        1,
-      );
+      expect(
+        calls.filter((c) => c.method === "GET" && c.path === PLATFORM).length,
+      ).toBeGreaterThan(1);
     });
   });
 });
@@ -1220,7 +1406,9 @@ describe("what the voice platform is running", () => {
     );
 
     await screen.findByText("No agent has been checked yet");
-    expect(container.textContent).not.toContain("Every checked agent is running what we published");
+    expect(container.textContent).not.toContain(
+      "Every checked agent is running what we published",
+    );
     expect(container.textContent).toContain("never");
   });
 
@@ -1230,9 +1418,15 @@ describe("what the voice platform is running", () => {
       routes(problem(503, { title: "Service unavailable" }), SUPERADMIN),
     );
 
-    await screen.findByText("We do not know what the voice platform is running");
-    expect(container.textContent).not.toContain("Every checked agent is running what we published");
-    expect(container.textContent).not.toContain("live agents are running something else");
+    await screen.findByText(
+      "We do not know what the voice platform is running",
+    );
+    expect(container.textContent).not.toContain(
+      "Every checked agent is running what we published",
+    );
+    expect(container.textContent).not.toContain(
+      "live agents are running something else",
+    );
   });
 
   it("treats a payload with no drift field as unreadable, not as an all-clear", async () => {
@@ -1249,18 +1443,27 @@ describe("what the voice platform is running", () => {
       routes(withoutDrift, SUPERADMIN),
     );
 
-    await screen.findByText("We do not know what the voice platform is running");
+    await screen.findByText(
+      "We do not know what the voice platform is running",
+    );
     // And the rest of the screen survived — this panel must never be able to blank the
     // incident levers beside it.
     expect(container.textContent).toContain("Protective slowdown");
   });
 
   it("reports an all-clear only when the sweep has actually run", async () => {
-    const { container } = renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN));
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN),
+    );
 
     await screen.findByText("Every checked agent is running what we published");
-    expect(container.textContent).toContain("What the voice platform is running");
-    expect(container.textContent).not.toContain("No agent has been checked yet");
+    expect(container.textContent).toContain(
+      "What the voice platform is running",
+    );
+    expect(container.textContent).not.toContain(
+      "No agent has been checked yet",
+    );
   });
 });
 
@@ -1287,12 +1490,16 @@ describe("what the voice platform is answering from", () => {
       ),
     );
 
-    await screen.findByText("2 of 10 live agents hold knowledge we did not publish");
+    await screen.findByText(
+      "2 of 10 live agents hold knowledge we did not publish",
+    );
     expect(container.textContent).toContain("Oldest divergence");
     // NO LEVER, and here the reason is stronger than on the panel above: the repair a
     // knowledge drift invites is an irreversible DELETE at the vendor of a document our
     // tables cannot describe.
-    expect(screen.queryByRole("button", { name: /remove|detach|delete/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /remove|detach|delete/i }),
+    ).toBeNull();
   });
 
   it("says nobody is watching when the knowledge sweep has never run", async () => {
@@ -1316,7 +1523,9 @@ describe("what the voice platform is answering from", () => {
     );
 
     await screen.findByText("No agent's knowledge has been checked yet");
-    expect(container.textContent).toContain("Every checked agent is running what we published");
+    expect(container.textContent).toContain(
+      "Every checked agent is running what we published",
+    );
   });
 
   it("says an engine with no knowledge base has nothing to watch, not that the job is dead", async () => {
@@ -1348,7 +1557,9 @@ describe("what the voice platform is answering from", () => {
     await screen.findByText("This engine has no built-in knowledge base");
     // The alarm must be GONE, not merely joined: two notices where one says "nothing to
     // do" and the other says "nobody is watching" is worse than either alone.
-    expect(container.textContent).not.toContain("reconciliation job is not running");
+    expect(container.textContent).not.toContain(
+      "reconciliation job is not running",
+    );
   });
 
   it("REFUSES to state a knowledge count it could not read, rather than showing zero", async () => {
@@ -1357,7 +1568,9 @@ describe("what the voice platform is answering from", () => {
       routes(problem(503, { title: "Service unavailable" }), SUPERADMIN),
     );
 
-    await screen.findByText("We do not know what knowledge the voice platform is holding");
+    await screen.findByText(
+      "We do not know what knowledge the voice platform is holding",
+    );
     expect(container.textContent).not.toContain(
       "Every checked agent is answering from what we published",
     );
@@ -1370,13 +1583,20 @@ describe("what the voice platform is answering from", () => {
     // blank ops console.
     const withoutKbDrift: Record<string, unknown> = { ...platform() };
     delete withoutKbDrift.kb_drift;
-    const { container } = renderAdminPage(<OpsPage />, routes(withoutKbDrift, SUPERADMIN));
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(withoutKbDrift, SUPERADMIN),
+    );
 
-    await screen.findByText("We do not know what knowledge the voice platform is holding");
+    await screen.findByText(
+      "We do not know what knowledge the voice platform is holding",
+    );
     // The rest of the screen survived, including the OTHER drift panel — one missing
     // field must not take the incident levers down with it.
     expect(container.textContent).toContain("Protective slowdown");
-    expect(container.textContent).toContain("Every checked agent is running what we published");
+    expect(container.textContent).toContain(
+      "Every checked agent is running what we published",
+    );
   });
 });
 
@@ -1391,7 +1611,9 @@ async function armVerify(): Promise<HTMLButtonElement> {
 }
 
 describe("the audit chain verification", () => {
-  const verdict = (over: Partial<AuditChainVerdict> = {}): AuditChainVerdict => ({
+  const verdict = (
+    over: Partial<AuditChainVerdict> = {},
+  ): AuditChainVerdict => ({
     ok: true,
     first_bad_entry_id: null,
     checked: "audit_log",
@@ -1422,12 +1644,18 @@ describe("the audit chain verification", () => {
   it("is dead WITH the reason for a session that lacks ops:manage", async () => {
     const { container, calls } = renderAdminPage(
       <OpsPage />,
-      routes(problem(403, { title: "Forbidden" }), OPERATOR, { [VERIFY]: verdict() }),
+      routes(problem(403, { title: "Forbidden" }), OPERATOR, {
+        [VERIFY]: verdict(),
+      }),
     );
 
-    const button = await screen.findByRole("button", { name: /Run the tamper check/ });
+    const button = await screen.findByRole("button", {
+      name: /Run the tamper check/,
+    });
     await waitFor(() => {
-      expect(container.textContent).toContain("run the platform recovery tools");
+      expect(container.textContent).toContain(
+        "run the platform recovery tools",
+      );
     });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     // The refusal arrives BEFORE the click, so the endpoint is never reached — which is
@@ -1455,10 +1683,14 @@ describe("the audit chain verification", () => {
     fireEvent.click(await armVerify());
 
     await screen.findByText("TAMPER CHECK FAILED");
-    expect(container.textContent).toContain("0192f0aa-7777-7000-8000-00000000dead");
+    expect(container.textContent).toContain(
+      "0192f0aa-7777-7000-8000-00000000dead",
+    );
     expect(container.textContent).toContain("Treat this as an incident");
     // The reassuring sentence must be nowhere on the page.
-    expect(screen.queryByText("No tampering found in the entries checked")).toBeNull();
+    expect(
+      screen.queryByText("No tampering found in the entries checked"),
+    ).toBeNull();
   });
 
   it("names EVERY break, not just the first, and dates them", async () => {
@@ -1476,7 +1708,10 @@ describe("the audit chain verification", () => {
           ok: false,
           first_bad_entry_id: "0192f0aa-1111-7000-8000-000000000001",
           breaks: [
-            chainBreak({ entry_id: "0192f0aa-1111-7000-8000-000000000001", kind: "link" }),
+            chainBreak({
+              entry_id: "0192f0aa-1111-7000-8000-000000000001",
+              kind: "link",
+            }),
             chainBreak({
               entry_id: "0192f0aa-2222-7000-8000-000000000002",
               kind: "content",
@@ -1492,8 +1727,12 @@ describe("the audit chain verification", () => {
     await screen.findByText("TAMPER CHECK FAILED");
 
     // BOTH ids, because the second one is the whole point of the change.
-    expect(container.textContent).toContain("0192f0aa-1111-7000-8000-000000000001");
-    expect(container.textContent).toContain("0192f0aa-2222-7000-8000-000000000002");
+    expect(container.textContent).toContain(
+      "0192f0aa-1111-7000-8000-000000000001",
+    );
+    expect(container.textContent).toContain(
+      "0192f0aa-2222-7000-8000-000000000002",
+    );
     // And the two KINDS are distinguished — "edited" and "reordered" are different
     // incidents with different next moves.
     expect(container.textContent).toContain("no longer hash");
@@ -1514,7 +1753,9 @@ describe("the audit chain verification", () => {
         [VERIFY]: verdict({
           ok: false,
           first_bad_entry_id: "0192f0aa-1111-7000-8000-000000000001",
-          breaks: [chainBreak({ entry_id: "0192f0aa-1111-7000-8000-000000000001" })],
+          breaks: [
+            chainBreak({ entry_id: "0192f0aa-1111-7000-8000-000000000001" }),
+          ],
           breaks_found: 47,
         }),
       }),
@@ -1534,7 +1775,12 @@ describe("the audit chain verification", () => {
     const { container } = renderAdminPage(
       <OpsPage />,
       routes(platform(), SUPERADMIN, {
-        [VERIFY]: verdict({ ok: false, first_bad_entry_id: null, breaks: [], breaks_found: 1 }),
+        [VERIFY]: verdict({
+          ok: false,
+          first_bad_entry_id: null,
+          breaks: [],
+          breaks_found: 1,
+        }),
       }),
     );
 
@@ -1548,14 +1794,19 @@ describe("the audit chain verification", () => {
     renderAdminPage(
       <OpsPage />,
       routes(platform(), SUPERADMIN, {
-        [VERIFY]: problem(503, { title: "Service unavailable", retryable: true }),
+        [VERIFY]: problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
       }),
     );
 
     fireEvent.click(await armVerify());
 
     await screen.findByText("Service unavailable");
-    expect(screen.queryByText("No tampering found in the entries checked")).toBeNull();
+    expect(
+      screen.queryByText("No tampering found in the entries checked"),
+    ).toBeNull();
     expect(screen.queryByText("TAMPER CHECK FAILED")).toBeNull();
   });
 
@@ -1593,7 +1844,9 @@ describe("the audit chain verification", () => {
     await screen.findByText(/1,000 entries only/);
 
     expect(container.textContent).not.toContain("Whole log checked");
-    expect(container.textContent).toContain("says nothing about the rest of the log");
+    expect(container.textContent).toContain(
+      "says nothing about the rest of the log",
+    );
   });
 
   it("names the weakly-attested era on an INTACT log, because ok is not the whole answer", async () => {
@@ -1613,7 +1866,9 @@ describe("the audit chain verification", () => {
     fireEvent.click(await armVerify());
 
     await screen.findByText("No tampering found in the entries checked");
-    expect(container.textContent).toContain("812 entries verified under a retired signing key");
+    expect(container.textContent).toContain(
+      "812 entries verified under a retired signing key",
+    );
     // Still intact — the caveat must not be written as a failure.
     expect(container.textContent).toContain("they are not tampered with");
   });
@@ -1651,7 +1906,9 @@ describe("the audit chain verification", () => {
     fireEvent.click(await armVerify());
 
     await screen.findByText("TAMPER CHECK FAILED");
-    expect(container.textContent).toContain("3 entries verified under a retired signing key");
+    expect(container.textContent).toContain(
+      "3 entries verified under a retired signing key",
+    );
   });
 
   it("asks for no typed confirmation, because it writes nothing", async () => {
@@ -1694,17 +1951,26 @@ describe("our own telemarketer registration", () => {
     );
 
     await screen.findByText("NOT LIVE — no client can launch");
-    expect(container.textContent).toContain("NO client can launch an outbound campaign");
+    expect(container.textContent).toContain(
+      "NO client can launch an outbound campaign",
+    );
     expect(screen.queryByText("LIVE — we may lawfully dial")).toBeNull();
   });
 
   it("keeps the registration form dead while the session lacks the permission", async () => {
-    renderAdminPage(<OpsPage />, routes(problem(403, { title: "Forbidden" }), OPERATOR));
+    renderAdminPage(
+      <OpsPage />,
+      routes(problem(403, { title: "Forbidden" }), OPERATOR),
+    );
 
-    await screen.findByText("We do not know whether outbound calling is halted");
+    await screen.findByText(
+      "We do not know whether outbound calling is halted",
+    );
     // The panel needs the read to render at all, so the refused session gets no form —
     // which is the strongest form of "disabled with its reason" available here.
-    expect(screen.queryByRole("button", { name: /Record registration/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Record registration/ }),
+    ).toBeNull();
   });
 
   /**
@@ -1745,7 +2011,9 @@ describe("our own telemarketer registration", () => {
 
       // READ. 2026-01-04T06:30:00Z is 12:00 IST — what the letter says — and 01:30 in the
       // browser's own zone, which is what the field used to show.
-      const field = (await screen.findByDisplayValue("2026-01-04T12:00")) as HTMLInputElement;
+      const field = (await screen.findByDisplayValue(
+        "2026-01-04T12:00",
+      )) as HTMLInputElement;
       expect(field.type).toBe("datetime-local");
 
       // THE LABEL IS PART OF THE FIX. A `datetime-local` carries no zone, so an unlabelled
@@ -1759,14 +2027,24 @@ describe("our own telemarketer registration", () => {
       fireEvent.change(screen.getByPlaceholderText(/registrar grant letter/), {
         target: { value: "registrar grant letter 2026-01-09" },
       });
-      fireEvent.change(screen.getByPlaceholderText("RECORD"), { target: { value: "RECORD" } });
-      fireEvent.click(screen.getByRole("button", { name: /Record registration as active/ }));
+      fireEvent.change(screen.getByPlaceholderText("RECORD"), {
+        target: { value: "RECORD" },
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: /Record registration as active/ }),
+      );
 
       await waitFor(() => {
-        expect(calls.some((c) => c.path === "/v1/ops/platform/tm-registration")).toBe(true);
+        expect(
+          calls.some((c) => c.path === "/v1/ops/platform/tm-registration"),
+        ).toBe(true);
       });
-      const sent = calls.find((c) => c.path === "/v1/ops/platform/tm-registration");
-      expect(JSON.parse(sent?.body ?? "{}").registered_at).toBe("2026-01-09T09:15:00.000Z");
+      const sent = calls.find(
+        (c) => c.path === "/v1/ops/platform/tm-registration",
+      );
+      expect(JSON.parse(sent?.body ?? "{}").registered_at).toBe(
+        "2026-01-09T09:15:00.000Z",
+      );
     } finally {
       if (original === undefined) delete process.env.TZ;
       else process.env.TZ = original;
@@ -1788,7 +2066,9 @@ describe("our own telemarketer registration", () => {
     try {
       // 2026-01-08T18:30:00Z is exactly 00:00 IST on the 9th — a different DAY in New York.
       expect(formatISTInput("2026-01-08T18:30:00Z")).toBe("2026-01-09T00:00");
-      expect(istInputToInstant("2026-01-09T00:00")).toBe("2026-01-08T18:30:00.000Z");
+      expect(istInputToInstant("2026-01-09T00:00")).toBe(
+        "2026-01-08T18:30:00.000Z",
+      );
       // Absent stays absent, in both directions: a field nobody filled in is not midnight.
       expect(formatISTInput(null)).toBe("");
       expect(istInputToInstant("")).toBeNull();
@@ -1849,7 +2129,9 @@ describe("the platform configuration panel", () => {
     expect(screen.getByText("calevate-prod")).toBeTruthy();
     // …and the refusal names the variable, so they know where to go instead.
     expect(container.textContent).toContain("OBJECT_STORE_BUCKET");
-    expect(container.textContent).toContain("The environment always wins over the console");
+    expect(container.textContent).toContain(
+      "The environment always wins over the console",
+    );
   });
 
   it("sends the confirmation bound to the key it is changing", async () => {
@@ -1893,7 +2175,9 @@ describe("the platform configuration panel", () => {
     // THE BINDING, on the wire. The API refuses a header that names another key.
     // The literal, for the reason the credential test above records: an assertion
     // against the function under test cannot see the two sides move together.
-    expect(write?.headers["X-Confirm-Action"]).toBe("set_config:self_serve_inr_per_min");
+    expect(write?.headers["X-Confirm-Action"]).toBe(
+      "set_config:self_serve_inr_per_min",
+    );
     expect(configConfirmation("self_serve_inr_per_min")).toBe(
       "set_config:self_serve_inr_per_min",
     );
@@ -1910,7 +2194,9 @@ describe("the platform configuration panel", () => {
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
         [OPS_CONFIG_PATH]: configList({
-          fields: [configField({ value: "7.25", source: "db", updated_by: "Ops" })],
+          fields: [
+            configField({ value: "7.25", source: "db", updated_by: "Ops" }),
+          ],
         }),
         [`DELETE ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
@@ -1934,7 +2220,9 @@ describe("the platform configuration panel", () => {
       expect(calls.some((c) => c.method === "DELETE")).toBe(true);
     });
     const revert = calls.find((c) => c.method === "DELETE");
-    expect(revert?.headers["X-Confirm-Action"]).toBe("revert_config:self_serve_inr_per_min");
+    expect(revert?.headers["X-Confirm-Action"]).toBe(
+      "revert_config:self_serve_inr_per_min",
+    );
     expect(revertConfirmation("self_serve_inr_per_min")).toBe(
       "revert_config:self_serve_inr_per_min",
     );
@@ -1950,11 +2238,16 @@ describe("the platform configuration panel", () => {
     const { container } = renderAdminPage(
       <OpsConfigPage />,
       configRoutes(SUPERADMIN, {
-        [OPS_CONFIG_PATH]: configList({ never_loaded: true, config_version: 0 }),
+        [OPS_CONFIG_PATH]: configList({
+          never_loaded: true,
+          config_version: 0,
+        }),
       }),
     );
 
-    await screen.findByText("This process has never read the configuration store");
+    await screen.findByText(
+      "This process has never read the configuration store",
+    );
     expect(container.textContent).toContain(
       "nothing set from this console is in force here",
     );
@@ -1972,7 +2265,9 @@ describe("the platform configuration panel", () => {
     // The values are REAL, just possibly behind — the opposite reading from `never_loaded`,
     // and the operator's next move differs.
     expect(container.textContent).toContain("last ones read successfully");
-    expect(screen.queryByText("This process has never read the configuration store")).toBeNull();
+    expect(
+      screen.queryByText("This process has never read the configuration store"),
+    ).toBeNull();
   });
 
   it("warns on a setting that will not take effect until a restart", async () => {
@@ -2020,7 +2315,10 @@ describe("the platform configuration panel", () => {
    * reason once `/v1/admin/me` has answered, and nothing is fetched.
    */
   it("withholds the configuration panel from a session without platform:config", async () => {
-    const { container, calls } = renderAdminPage(<OpsConfigPage />, configRoutes(OPERATOR));
+    const { container, calls } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(OPERATOR),
+    );
 
     // Awaited on the REFUSAL, not on the card title: the title is in both branches, so
     // finding it proves only that the screen rendered. TWO panels gate on platform:config
@@ -2028,7 +2326,9 @@ describe("the platform configuration panel", () => {
     // `findAllByText` waits for it, and the settings panel is then pinned by its own
     // subject line, which no other withheld card shares.
     await screen.findAllByText(/does not have permission to/);
-    screen.getByText(/This panel would list every setting this deployment can change/);
+    screen.getByText(
+      /This panel would list every setting this deployment can change/,
+    );
     // Not a disabled control — no control, and no field name to hang one on.
     expect(screen.queryAllByRole("button", { name: /Change/ })).toEqual([]);
     expect(container.textContent).not.toContain("self_serve_inr_per_min");
@@ -2080,7 +2380,9 @@ describe("the platform configuration panel", () => {
     expect(screen.getByText("Sign-in")).toBeTruthy();
     // The bucket that says this console has no opinion about a setting — neither of
     // these may land in it.
-    expect(container.textContent).not.toContain("Settings this console has no group for yet");
+    expect(container.textContent).not.toContain(
+      "Settings this console has no group for yet",
+    );
   });
 });
 
@@ -2107,8 +2409,13 @@ describe("the platform configuration panel", () => {
  *  short — and it throws rather than returning null, so a form that failed to open reads
  *  as the premise failure it is instead of an unhelpful "cannot fire change". */
 function secretInput(): HTMLInputElement {
-  const input = document.querySelector<HTMLInputElement>('input[type="password"]');
-  if (!input) throw new Error("the credential form is not open — did the button render disabled?");
+  const input = document.querySelector<HTMLInputElement>(
+    'input[type="password"]',
+  );
+  if (!input)
+    throw new Error(
+      "the credential form is not open — did the button render disabled?",
+    );
   return input;
 }
 
@@ -2121,7 +2428,8 @@ describe("the credentials panel", () => {
           key: "bolna_api_key",
           outcome: "accepted",
           status: 200,
-          detail: "The vendor accepted this credential for one authenticated read.",
+          detail:
+            "The vendor accepted this credential for one authenticated read.",
           verified: false,
           candidate_last_four: "cdef",
         },
@@ -2129,10 +2437,14 @@ describe("the credentials panel", () => {
     );
 
     await screen.findByText("bolna_api_key");
-    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
+    );
     const secret = "bn-live-secret-abcdef";
     fireEvent.change(secretInput(), { target: { value: secret } });
-    fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Test with the vendor/ }),
+    );
 
     // The TITLE carries the epistemic status: this fixture is `verified: false`, which
     // every probe in this build is, so the box may not read as a plain acceptance.
@@ -2161,9 +2473,13 @@ describe("the credentials panel", () => {
       }),
     );
     await screen.findByText("bolna_api_key");
-    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
+    );
     fireEvent.change(secretInput(), { target: { value: "a-wrong-key-wxyz" } });
-    fireEvent.click(screen.getByRole("button", { name: /Test with the vendor/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Test with the vendor/ }),
+    );
 
     await screen.findByText("The vendor rejected this key");
     // A rejection is the vendor actively refusing, so it reads as definitive — and the
@@ -2179,7 +2495,9 @@ describe("the credentials panel", () => {
         [OPS_SECRETS_PATH]: problem(503, { title: "Service unavailable" }),
       }),
     );
-    await screen.findByText("We could not read which credentials are installed");
+    await screen.findByText(
+      "We could not read which credentials are installed",
+    );
     expect(screen.queryByText("bolna_api_key")).toBeNull();
   });
 
@@ -2187,7 +2505,9 @@ describe("the credentials panel", () => {
     const { container } = renderAdminPage(<OpsConfigPage />, configRoutes());
     await screen.findByText("sarvam_api_key");
     expect(container.textContent).toContain("SARVAM_API_KEY");
-    expect(container.textContent).toContain("the server's own setting always wins");
+    expect(container.textContent).toContain(
+      "the server's own setting always wins",
+    );
   });
 
   it("sends the key-bound confirmation when installing", async () => {
@@ -2202,8 +2522,12 @@ describe("the credentials panel", () => {
       }),
     );
     await screen.findByText("bolna_api_key");
-    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
-    fireEvent.change(secretInput(), { target: { value: "bn-live-new-key-0001" } });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
+    );
+    fireEvent.change(secretInput(), {
+      target: { value: "bn-live-new-key-0001" },
+    });
     fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
       target: { value: "vendor breach notice" },
     });
@@ -2212,7 +2536,9 @@ describe("the credentials panel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^Rotate$/ }));
 
-    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "PUT")).toBe(true),
+    );
     const write = calls.find((c) => c.method === "PUT");
     // THE LITERAL, not `secretConfirmation("bolna_api_key")`. Comparing the header
     // against the same function that produced it asserts nothing — a sabotage that
@@ -2220,7 +2546,9 @@ describe("the credentials panel", () => {
     // owns this vocabulary (`ops/secret_routes.secret_confirmation`) and a runbook
     // prints it, so the console's copy is pinned to the literal it must match.
     expect(write?.headers["X-Confirm-Action"]).toBe("set_secret:bolna_api_key");
-    expect(secretConfirmation("bolna_api_key")).toBe("set_secret:bolna_api_key");
+    expect(secretConfirmation("bolna_api_key")).toBe(
+      "set_secret:bolna_api_key",
+    );
   });
 });
 
@@ -2237,7 +2565,9 @@ describe("the key-management panel", () => {
         }),
       }),
     );
-    await screen.findByText("3 stored keys are still locked with a previous master key");
+    await screen.findByText(
+      "3 stored keys are still locked with a previous master key",
+    );
     // The sentence that prevents permanent data loss, in the imperative.
     expect(container.textContent).toContain(
       "Do not remove the previous master key",
@@ -2256,14 +2586,20 @@ describe("the key-management panel", () => {
         },
       }),
     );
-    await screen.findByText("Every stored key is locked with the current master key");
-    fireEvent.change(screen.getByPlaceholderText("REWRAP"), { target: { value: "REWRAP" } });
+    await screen.findByText(
+      "Every stored key is locked with the current master key",
+    );
+    fireEvent.change(screen.getByPlaceholderText("REWRAP"), {
+      target: { value: "REWRAP" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Re-lock every key/ }));
 
     await screen.findByText("3 of 4 stored keys re-locked");
     // A row nobody can open is the one that will be LOST, so it is named.
     expect(container.textContent).toContain("sarvam_api_key#1");
-    expect(container.textContent).toContain("will be lost if the previous master key is removed");
+    expect(container.textContent).toContain(
+      "will be lost if the previous master key is removed",
+    );
   });
 
   /**
@@ -2280,12 +2616,17 @@ describe("the key-management panel", () => {
    * nothing whatever about what is installed. No count, no key name, no "none found".
    */
   it("withholds both credential panels from a session without platform:secrets", async () => {
-    const { container, calls } = renderAdminPage(<OpsConfigPage />, configRoutes(OPERATOR));
+    const { container, calls } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(OPERATOR),
+    );
 
     await screen.findAllByText(/does not have permission to/);
     expect(screen.getByText("Vendor credentials")).toBeTruthy();
     expect(screen.getByText("Key management")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Re-lock every key/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Re-lock every key/ }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: /Install/ })).toBeNull();
     // NOT AN INVENTORY. The fixture holds a Bolna key and a missing Sarvam one; a
     // withheld panel that leaked either — the name, the last four, or a count — would be
@@ -2293,7 +2634,9 @@ describe("the key-management panel", () => {
     expect(container.textContent).not.toContain("bolna_api_key");
     expect(container.textContent).not.toContain("sarvam_api_key");
     expect(container.textContent).not.toContain("Not installed");
-    expect(calls.some((call) => call.path.startsWith(OPS_SECRETS_PATH))).toBe(false);
+    expect(calls.some((call) => call.path.startsWith(OPS_SECRETS_PATH))).toBe(
+      false,
+    );
   });
 
   /**
@@ -2324,7 +2667,113 @@ describe("the key-management panel", () => {
     expect(container.textContent).toContain(
       "This account does not have the platform:secrets permission.",
     );
-    expect(container.textContent).not.toContain("We could not read which credentials");
+    expect(container.textContent).not.toContain(
+      "We could not read which credentials",
+    );
     expect(screen.queryByRole("button", { name: /Retry/ })).toBeNull();
+  });
+});
+
+describe("a model withheld on merit says so, instead of asking for a price", () => {
+  /**
+   * THE SCREEN TOLD THE FOUNDER TO DO SOMETHING THAT COULD NOT WORK.
+   *
+   * `ModelOfferability` answered `credential_installed AND price_billable` and left out the
+   * third ground — `LlmModelSpec.selectable`, this repository's own judgement on merit. Its
+   * docstring said so, explicitly, and the panel had no field for it. So every unofferable
+   * model got the same sentence: "becomes available to customers only once you confirm a
+   * price".
+   *
+   * For `gemini-3.*` that is false however carefully the price is attested. On that family
+   * thinking tokens draw on the reply budget with no knob any config can set, and the
+   * engine's terminal branch for the outcome yields NOTHING — silence, mid-call. The screen
+   * invited work that cannot succeed and hid the one fact worth knowing.
+   */
+  const WITHHELD =
+    "THINKING_TOKENS_SHARE_THE_REPLY_BUDGET is UNMITIGABLE on this family and the failure is dead air.";
+
+  function withheldPrices(): ModelPrices {
+    const base = modelPrices();
+    return {
+      ...base,
+      prices: [
+        {
+          ...base.prices[0],
+          model: "gemini-3.1-flash-lite",
+          provider: "google",
+          credential_installed: false,
+          price_attested: false,
+          offerable: false,
+          reference_verified: false,
+          withheld_reason: WITHHELD,
+        },
+      ],
+    };
+  }
+
+  it("does not promise that confirming a price makes it available", async () => {
+    const view = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: withheldPrices() }),
+    );
+    await screen.findByText("gemini-3.1-flash-lite");
+    expect(view.container.textContent).not.toContain(
+      "becomes available to customers only once you confirm a price",
+    );
+  });
+
+  it("gives the catalogue's own ground, not a paraphrase", async () => {
+    // The grounds cite vendor enums and engine line numbers. A summary is the version
+    // people argue with; the sentence is the version they can check.
+    const view = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: withheldPrices() }),
+    );
+    await screen.findByText("gemini-3.1-flash-lite");
+    expect(view.container.textContent).toContain(WITHHELD);
+    expect(view.container.textContent).toContain(
+      "a price will not change that",
+    );
+  });
+
+  it("does not print a to-do list for a decision that was already taken", async () => {
+    // "Needs a vendor key and a price" reads as two steps from available. This model is
+    // not reachable at all, and saying otherwise is the same error one line up.
+    const view = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, { [OPS_MODEL_PRICES_PATH]: withheldPrices() }),
+    );
+    await screen.findByText("gemini-3.1-flash-lite");
+    expect(view.container.textContent).not.toContain("Needs a vendor key");
+    expect(view.container.textContent).toContain("Not offered");
+  });
+
+  it("still asks for a price on a model that only needs one", async () => {
+    // The fix must not be "nothing ever asks for a price". A selectable model with an
+    // unverified catalogue figure is exactly what the attestation flow is for.
+    const base = modelPrices();
+    const view = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_MODEL_PRICES_PATH]: {
+          ...base,
+          prices: [
+            {
+              ...base.prices[0],
+              model: "gpt-5.4-mini",
+              provider: "openai",
+              price_attested: false,
+              offerable: false,
+              reference_verified: false,
+              withheld_reason: null,
+            },
+          ],
+        },
+      }),
+    );
+    await screen.findByText("gpt-5.4-mini");
+    expect(view.container.textContent).toContain(
+      "becomes available to customers only once you confirm a price",
+    );
   });
 });

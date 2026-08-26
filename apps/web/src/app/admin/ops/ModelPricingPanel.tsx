@@ -2,9 +2,19 @@
 
 import { useState } from "react";
 
-import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
+import {
+  WithheldPanel,
+  forbiddenReason,
+  isForbidden,
+} from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
-import { BadgeCheck, CircleHelp, Coins, Save, TriangleAlert } from "lucide-react";
+import {
+  BadgeCheck,
+  CircleHelp,
+  Coins,
+  Save,
+  TriangleAlert,
+} from "lucide-react";
 
 import { lookup } from "@/lib/lookup";
 import {
@@ -19,7 +29,11 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
-import { MonoValue, TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
+import {
+  MonoValue,
+  TypeToConfirm,
+  confirmMatches,
+} from "@/app/admin/ops/opsLanguage";
 import {
   useAttestModelPrice,
   useModelPrices,
@@ -119,13 +133,16 @@ export function ModelPricingPanel({
     <Card title="Model prices">
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
-          The price per million tokens that billing charges for each model, in US dollars.
-          Enter what your own vendor invoice or dashboard says — that figure is the only one
-          that&apos;s true for your account. A model becomes available to customers only once
-          its vendor key is installed and its price is confirmed.
+          The price per million tokens that billing charges for each model, in
+          US dollars. Enter what your own vendor invoice or dashboard says —
+          that figure is the only one that&apos;s true for your account. A model
+          becomes available to customers only once its vendor key is installed
+          and its price is confirmed.
         </p>
 
-        {query.error && <ProblemNotice error={query.error} onRetry={() => query.refetch()} />}
+        {query.error && (
+          <ProblemNotice error={query.error} onRetry={() => query.refetch()} />
+        )}
         {state.status === "loading" && <Skeleton rows={4} />}
 
         {state.status === "unreadable" && (
@@ -135,9 +152,9 @@ export function ModelPricingPanel({
             title="We could not read the model prices"
           >
             <p className="mt-1">
-              This panel will not show invented figures when it could not read the real
-              ones — billing from a guessed price is the mistake that would cause. The error
-              above says what stopped the read.
+              This panel will not show invented figures when it could not read
+              the real ones — billing from a guessed price is the mistake that
+              would cause. The error above says what stopped the read.
             </p>
           </NoticeBox>
         )}
@@ -157,14 +174,24 @@ export function ModelPricingPanel({
 }
 
 /** The one-line "can customers use this?" verdict, and the tone it renders in. */
-function verdict(price: ModelPrice): { label: string; tone: "ok" | "warn" | "neutral" } {
+function verdict(price: ModelPrice): {
+  label: string;
+  tone: "ok" | "warn" | "neutral";
+} {
   if (price.offerable) return { label: "Available to customers", tone: "ok" };
+  // MERIT FIRST. "Needs a vendor key and a price" is a to-do list, and printing one for a
+  // model this repository refuses on merit reads as three steps from available when it is
+  // not reachable at all. `neutral`, not `warn`: nothing here is wrong or waiting on
+  // anybody — the decision was taken, and the row below carries its ground.
+  if (price.withheld_reason != null)
+    return { label: "Not offered", tone: "neutral" };
   const missing: string[] = [];
   if (!price.credential_installed) missing.push("a vendor key");
   // Billable == confirmed OR the catalogue figure is a first-hand vendor reading. So a model
   // that is not available and not confirmed needs a price ONLY when its recorded price is
   // not verified; when the recorded price IS verified the sole gap is the vendor key.
-  if (!price.price_attested && !price.reference_verified) missing.push("a price");
+  if (!price.price_attested && !price.reference_verified)
+    missing.push("a price");
   return { label: `Needs ${missing.join(" and ")}`, tone: "warn" };
 }
 
@@ -178,7 +205,11 @@ function ModelPriceRow({
   const [open, setOpen] = useState(false);
   const v = verdict(price);
   const toneClass =
-    v.tone === "ok" ? "text-brand" : v.tone === "warn" ? "text-amber-600" : "text-ink-faint";
+    v.tone === "ok"
+      ? "text-brand"
+      : v.tone === "warn"
+        ? "text-amber-600"
+        : "text-ink-faint";
 
   return (
     <div className="rounded-md border border-line p-3">
@@ -187,9 +218,13 @@ function ModelPriceRow({
           <p className="text-sm text-ink">
             <MonoValue>{price.model}</MonoValue>
           </p>
-          <p className="mt-0.5 text-xs text-ink-faint">{providerLabel(price.provider)}</p>
+          <p className="mt-0.5 text-xs text-ink-faint">
+            {providerLabel(price.provider)}
+          </p>
         </div>
-        <span className={`inline-flex items-center gap-1 text-xs font-medium ${toneClass}`}>
+        <span
+          className={`inline-flex items-center gap-1 text-xs font-medium ${toneClass}`}
+        >
           {price.offerable ? (
             <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
           ) : (
@@ -208,17 +243,21 @@ function ModelPriceRow({
             <MonoValue>{price.input_usd_per_mtok}</MonoValue>
           ) : (
             <span className="text-ink-faint">
-              <MonoValue>{price.reference_input_usd_per_mtok}</MonoValue> (recorded)
+              <MonoValue>{price.reference_input_usd_per_mtok}</MonoValue>{" "}
+              (recorded)
             </span>
           )}
         </dd>
-        <dt className="text-ink-faint">Output price (US$ per million tokens)</dt>
+        <dt className="text-ink-faint">
+          Output price (US$ per million tokens)
+        </dt>
         <dd className="text-ink">
           {price.output_usd_per_mtok ? (
             <MonoValue>{price.output_usd_per_mtok}</MonoValue>
           ) : (
             <span className="text-ink-faint">
-              <MonoValue>{price.reference_output_usd_per_mtok}</MonoValue> (recorded)
+              <MonoValue>{price.reference_output_usd_per_mtok}</MonoValue>{" "}
+              (recorded)
             </span>
           )}
         </dd>
@@ -239,12 +278,34 @@ function ModelPriceRow({
         )}
       </dl>
 
-      {!price.price_attested && (
-        <p className="mt-2 text-xs text-ink-faint">
-          {price.reference_verified
-            ? "This model already has a recorded price from the vendor, so confirming it yourself is optional."
-            : "This model becomes available to customers only once you confirm a price. The recorded price above is unverified — check it against your vendor invoice first."}
-        </p>
+      {/* WITHHELD ON MERIT COMES FIRST, and it replaces the price sentence rather than
+          joining it. Without this the screen told the founder that `gemini-3.1-flash-lite`
+          "becomes available to customers only once you confirm a price" — which is false
+          however carefully the price is attested, because `LlmModelSpec.selectable` refuses
+          it regardless. It invited work that cannot succeed AND hid the reason it cannot:
+          on that family, thinking tokens draw on the reply budget with no knob to set, and
+          the engine's terminal branch yields nothing — silence, mid-call.
+
+          The catalogue's own words, not a paraphrase: these grounds cite vendor enums and
+          engine line numbers, and a screen that summarised them would be the version people
+          argue with. */}
+      {price.withheld_reason != null ? (
+        <div className="mt-2 rounded-lg border border-line bg-app px-3 py-2">
+          <p className="text-xs font-medium text-ink">
+            Not offered on this platform — a price will not change that
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+            {price.withheld_reason}
+          </p>
+        </div>
+      ) : (
+        !price.price_attested && (
+          <p className="mt-2 text-xs text-ink-faint">
+            {price.reference_verified
+              ? "This model already has a recorded price from the vendor, so confirming it yourself is optional."
+              : "This model becomes available to customers only once you confirm a price. The recorded price above is unverified — check it against your vendor invoice first."}
+          </p>
+        )
       )}
 
       {access.allowed ? (
@@ -252,7 +313,11 @@ function ModelPriceRow({
           {open ? (
             <AttestForm price={price} onDone={() => setOpen(false)} />
           ) : (
-            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setOpen(true)}>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              onClick={() => setOpen(true)}
+            >
               <Coins aria-hidden className="h-3.5 w-3.5" />
               {price.price_attested ? "Update price" : "Confirm price"}
             </button>
@@ -260,14 +325,21 @@ function ModelPriceRow({
         </div>
       ) : (
         <p className="mt-3 text-xs text-ink-faint">
-          {access.reason ?? "Your admin account cannot change platform configuration."}
+          {access.reason ??
+            "Your admin account cannot change platform configuration."}
         </p>
       )}
     </div>
   );
 }
 
-function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }) {
+function AttestForm({
+  price,
+  onDone,
+}: {
+  price: ModelPrice;
+  onDone: () => void;
+}) {
   const [inputUsd, setInputUsd] = useState("");
   const [outputUsd, setOutputUsd] = useState("");
   const [sourceNote, setSourceNote] = useState("");
@@ -306,7 +378,9 @@ function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }
       {save.error && <WriteFailure error={save.error} />}
 
       <label className="block">
-        <span className={FIELD_LABEL}>Input price (US$ per million tokens)</span>
+        <span className={FIELD_LABEL}>
+          Input price (US$ per million tokens)
+        </span>
         <input
           value={inputUsd}
           onChange={(e) => setInputUsd(e.target.value)}
@@ -324,7 +398,9 @@ function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }
       </label>
 
       <label className="block">
-        <span className={FIELD_LABEL}>Output price (US$ per million tokens)</span>
+        <span className={FIELD_LABEL}>
+          Output price (US$ per million tokens)
+        </span>
         <input
           value={outputUsd}
           onChange={(e) => setOutputUsd(e.target.value)}
@@ -343,8 +419,8 @@ function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }
           className={FIELD}
         />
         <span className={FIELD_HINT}>
-          Where you read this figure. Saved with your confirmed price, so a later reader
-          knows who read it and from where.
+          Where you read this figure. Saved with your confirmed price, so a
+          later reader knows who read it and from where.
         </span>
       </label>
 
@@ -357,7 +433,11 @@ function AttestForm({ price, onDone }: { price: ModelPrice; onDone: () => void }
       />
 
       <div className="flex gap-2">
-        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
+        <button
+          type="submit"
+          disabled={!ready || save.isPending}
+          className={PRIMARY_BUTTON_SM}
+        >
           <Save aria-hidden className="h-3.5 w-3.5" />
           {save.isPending ? "Saving…" : "Confirm price"}
         </button>

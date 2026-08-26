@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -22,7 +28,10 @@ import {
   type SecretTest,
   type SecretsList,
 } from "@/lib/api/opsSecrets";
-import { OPS_MODEL_PRICES_PATH, type ModelPrices } from "@/lib/api/opsModelPricing";
+import {
+  OPS_MODEL_PRICES_PATH,
+  type ModelPrices,
+} from "@/lib/api/opsModelPricing";
 
 import { expectNoA11yViolations } from "./a11y";
 import { expectTextCount, problem, stubApi, type Routes } from "./harness";
@@ -83,7 +92,6 @@ const SUPERADMIN = me([
   "platform:secrets",
 ]);
 
-
 function configField(over: Partial<ConfigField> = {}): ConfigField {
   return {
     key: "self_serve_inr_per_min",
@@ -107,7 +115,10 @@ function configField(over: Partial<ConfigField> = {}): ConfigField {
   };
 }
 
-function configList(fields: ConfigField[], over: Partial<ConfigList> = {}): ConfigList {
+function configList(
+  fields: ConfigField[],
+  over: Partial<ConfigList> = {},
+): ConfigList {
   return {
     // Required since D-101: the keys that can only change with an SSH session and a
     // restart. Their ABSENCE used to read identically to "this build has no such
@@ -172,6 +183,7 @@ const MODEL_PRICES: ModelPrices = {
       reference_input_usd_per_mtok: "0.15",
       reference_output_usd_per_mtok: "0.60",
       reference_verified: true,
+      withheld_reason: null,
     },
   ],
   as_of: "2026-08-23T00:00:00Z",
@@ -227,7 +239,11 @@ function renderOps(routes: Routes) {
 }
 
 /** Fill the config form for one key. Assumes the row's Change button is already clicked. */
-function fillConfigForm(over: { value: string; reason: string; confirm: string }): void {
+function fillConfigForm(over: {
+  value: string;
+  reason: string;
+  confirm: string;
+}): void {
   const box = screen.getByLabelText(/New value/) as HTMLInputElement;
   fireEvent.change(box, { target: { value: over.value } });
   fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
@@ -260,7 +276,7 @@ function stalePrecondition() {
     title: "Somebody else changed this setting first",
     detail:
       "'self_serve_inr_per_min' moved between the value you read and this request, so " +
-      "nothing was written — it is now \"7.25\", set by Priya.",
+      'nothing was written — it is now "7.25", set by Priya.',
     remediation:
       "Reload the setting to see the new value, decide whether your change still applies " +
       "to it, and save it again with the fresh If-Match token from that reload. Your value " +
@@ -305,7 +321,9 @@ describe("two operators, one key", () => {
     });
     fireEvent.click(saveButton());
 
-    await screen.findByText("Someone changed this setting first — nothing was saved");
+    await screen.findByText(
+      "Someone changed this setting first — nothing was saved",
+    );
 
     // WHAT IT IS NOW, WHO, WHEN — all three, from the server's own re-read rather than
     // from anything the console remembered.
@@ -340,14 +358,24 @@ describe("two operators, one key", () => {
     });
     fireEvent.click(saveButton());
 
-    await screen.findByText("Someone changed this setting first — nothing was saved");
+    await screen.findByText(
+      "Someone changed this setting first — nothing was saved",
+    );
     // Roles and names, so a `<div onClick>` that no keyboard can reach would fail here.
-    expect(screen.getByRole("button", { name: "Use their value" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Keep mine and replace theirs" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Discard my change" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Use their value" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Keep mine and replace theirs" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Discard my change" }),
+    ).toBeTruthy();
     // The word this screen must not contain, in any control: a retry is the merge's
     // cheaper cousin and just as wrong.
-    expect(screen.queryByRole("button", { name: /retry|try again/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /retry|try again/i }),
+    ).toBeNull();
     // ONE account of one refusal. `ProblemNotice` is a `role="alert"`, and leaving it up
     // beside this box would give an operator two things to answer — the red one with no
     // choices, and this one with three.
@@ -364,7 +392,12 @@ describe("two operators, one key", () => {
         return reads === 1
           ? configList([configField()])
           : configList([
-              configField({ value: "7.25", source: "db", updated_by: "Priya", etag: '"11"' }),
+              configField({
+                value: "7.25",
+                source: "db",
+                updated_by: "Priya",
+                etag: '"11"',
+              }),
             ]);
       },
       get [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]() {
@@ -374,7 +407,11 @@ describe("two operators, one key", () => {
           : ({
               key: "self_serve_inr_per_min",
               previous: "7.25",
-              field: configField({ value: "8.00", source: "db", updated_by: "Ops" }),
+              field: configField({
+                value: "8.00",
+                source: "db",
+                updated_by: "Ops",
+              }),
               config_version: 44,
               recorded: true,
               etag: '"9"',
@@ -391,9 +428,13 @@ describe("two operators, one key", () => {
       confirm: "SELF_SERVE_INR_PER_MIN",
     });
     fireEvent.click(saveButton());
-    await screen.findByText("Someone changed this setting first — nothing was saved");
+    await screen.findByText(
+      "Someone changed this setting first — nothing was saved",
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Keep mine and replace theirs" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep mine and replace theirs" }),
+    );
 
     // THE CONFIRMATION IS GONE. Overriding a peer is a fresh decision, so the typed word
     // that authorised the first attempt does not carry over to the second.
@@ -404,7 +445,9 @@ describe("two operators, one key", () => {
     expect(saveButton().disabled).toBe(true);
     expect(writeCount(calls, "PUT")).toBe(1);
 
-    fireEvent.change(confirmBox, { target: { value: "SELF_SERVE_INR_PER_MIN" } });
+    fireEvent.change(confirmBox, {
+      target: { value: "SELF_SERVE_INR_PER_MIN" },
+    });
     fireEvent.click(saveButton());
     await waitFor(() => expect(writeCount(calls, "PUT")).toBe(2));
 
@@ -437,12 +480,19 @@ describe("two operators, one key", () => {
       client.setQueryData(
         OPS_CONFIG_QUERY_KEY,
         configList([
-          configField({ value: "7.25", source: "db", updated_by: "Priya", etag: '"11"' }),
+          configField({
+            value: "7.25",
+            source: "db",
+            updated_by: "Priya",
+            etag: '"11"',
+          }),
         ]),
       );
     });
 
-    await screen.findByText("Someone changed this setting while you had it open");
+    await screen.findByText(
+      "Someone changed this setting while you had it open",
+    );
     expect(saveButton().disabled).toBe(true);
     // Nothing was attempted, so nothing has to be undone.
     expect(writeCount(calls, "PUT")).toBe(0);
@@ -453,7 +503,9 @@ describe("two operators, one key", () => {
     // so `rebase` is the only thing that can re-arm the confirmation. A sabotage removing
     // it left the refused-path test green, because the mutation's own error handler was
     // clearing the box as well — two mechanisms, one assertion, nothing pinned.
-    fireEvent.click(screen.getByRole("button", { name: "Keep mine and replace theirs" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep mine and replace theirs" }),
+    );
     const confirmBox = screen.getByPlaceholderText(
       "SELF_SERVE_INR_PER_MIN",
     ) as HTMLInputElement;
@@ -471,8 +523,10 @@ describe("two operators, one key", () => {
         kind: "conflict",
         type: "urn:calevate:conflict/config_key_set_in_environment",
         title: "This setting is fixed by the environment",
-        detail: "'self_serve_inr_per_min' is set as SELF_SERVE_INR_PER_MIN on this deployment.",
-        remediation: "Change SELF_SERVE_INR_PER_MIN in the environment and restart.",
+        detail:
+          "'self_serve_inr_per_min' is set as SELF_SERVE_INR_PER_MIN on this deployment.",
+        remediation:
+          "Change SELF_SERVE_INR_PER_MIN in the environment and restart.",
       }),
     });
     renderOps(routes);
@@ -489,15 +543,22 @@ describe("two operators, one key", () => {
     // The server's own refusal, with its remediation — and NOT the three-way choice,
     // whose "keep mine and replace theirs" would be a control with no possible outcome.
     await screen.findByText(/Change SELF_SERVE_INR_PER_MIN in the environment/);
-    expect(screen.queryByRole("button", { name: "Keep mine and replace theirs" })).toBeNull();
     expect(
-      screen.queryByText("Someone changed this setting first — nothing was saved"),
+      screen.queryByRole("button", { name: "Keep mine and replace theirs" }),
+    ).toBeNull();
+    expect(
+      screen.queryByText(
+        "Someone changed this setting first — nothing was saved",
+      ),
     ).toBeNull();
   });
 
   it("refuses to guess which refusals are a lost update", () => {
     const conflict = (status: number, code: string) =>
-      new ApiProblem(status, { kind: "conflict", type: `urn:calevate:conflict/${code}` });
+      new ApiProblem(status, {
+        kind: "conflict",
+        type: `urn:calevate:conflict/${code}`,
+      });
 
     // The one the server actually raises for a stale token.
     expect(isLostUpdate(conflict(412, "config_value_changed"))).toBe(true);
@@ -506,9 +567,13 @@ describe("two operators, one key", () => {
     // while the console is the thing that is broken.
     expect(isLostUpdate(conflict(428, "config_if_match_required"))).toBe(false);
     // The env-pinned refusal shares the `conflict` kind and is not this.
-    expect(isLostUpdate(conflict(409, "config_key_set_in_environment"))).toBe(false);
+    expect(isLostUpdate(conflict(409, "config_key_set_in_environment"))).toBe(
+      false,
+    );
     // A validation refusal changed nothing and has nothing to reconcile.
-    expect(isLostUpdate(new ApiProblem(422, { kind: "validation" }))).toBe(false);
+    expect(isLostUpdate(new ApiProblem(422, { kind: "validation" }))).toBe(
+      false,
+    );
     // A dropped connection never reached the API, so nobody moved anything.
     expect(isLostUpdate(new Error("network down"))).toBe(false);
     expect(isLostUpdate(null)).toBe(false);
@@ -518,7 +583,12 @@ describe("two operators, one key", () => {
     const { calls } = renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
-          configField({ value: "7.25", source: "db", updated_by: "Ops", etag: '"11"' }),
+          configField({
+            value: "7.25",
+            source: "db",
+            updated_by: "Ops",
+            etag: '"11"',
+          }),
         ]),
         [`DELETE ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
@@ -543,10 +613,14 @@ describe("two operators, one key", () => {
     // carries no body, so a precondition on it has to be a header or it does not exist —
     // and a revert lands a value nobody has looked at in months on top of whatever a peer
     // just wrote, which is the most expensive lost update this surface has.
-    expect(calls.find((c) => c.method === "DELETE")?.headers["If-Match"]).toBe('"11"');
+    expect(calls.find((c) => c.method === "DELETE")?.headers["If-Match"]).toBe(
+      '"11"',
+    );
     // Opaque, quoted, verbatim: RFC 9110 §8.8.3, and `parse_etag` refuses `*`, `W/` and
     // lists — every one of which would let an unconditional write through.
-    expect(calls.find((c) => c.method === "DELETE")?.headers["If-Match"]).not.toBe("*");
+    expect(
+      calls.find((c) => c.method === "DELETE")?.headers["If-Match"],
+    ).not.toBe("*");
   });
 
   it("will not offer a form for a key whose API sent no precondition token", async () => {
@@ -555,7 +629,9 @@ describe("two operators, one key", () => {
     // change they were told they could make.
     renderOps(
       opsRoutes({
-        [OPS_CONFIG_PATH]: configList([{ ...configField(), etag: undefined as unknown as string }]),
+        [OPS_CONFIG_PATH]: configList([
+          { ...configField(), etag: undefined as unknown as string },
+        ]),
       }),
     );
 
@@ -596,7 +672,9 @@ describe("what saving will actually do, said before the save", () => {
     expect(form).not.toBeNull();
     expect(form?.textContent).toContain("Needs a restart to take effect");
     expect(form?.textContent).toContain("the old value keeps running");
-    expect(form?.textContent).toContain("the SQLAlchemy engine is built once per process");
+    expect(form?.textContent).toContain(
+      "the SQLAlchemy engine is built once per process",
+    );
   });
 
   it("does not let a live-but-not-retroactive change read as a finished one", async () => {
@@ -625,7 +703,9 @@ describe("what saving will actually do, said before the save", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     const form = saveButton().closest("form");
 
-    expect(form?.textContent).toContain("Live within seconds, but NOT retroactive");
+    expect(form?.textContent).toContain(
+      "Live within seconds, but NOT retroactive",
+    );
     expect(form?.textContent).toContain("must be re-published");
     // The sentence a plain live field gets, which this one must NOT get: it is the
     // difference between a change that worked and one that half did.
@@ -647,7 +727,9 @@ describe("what saving will actually do, said before the save", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
     const form = saveButton().closest("form");
 
-    expect(form?.textContent).toContain("This build cannot say when this takes effect");
+    expect(form?.textContent).toContain(
+      "This build cannot say when this takes effect",
+    );
     expect(form?.textContent).toContain("on_republish");
     expect(form?.textContent).not.toContain("Live within seconds");
   });
@@ -670,7 +752,14 @@ describe("what saving will actually do, said before the save", () => {
 
     // EVERY answer but the plain one warns. `live` is the only quiet branch, and it is
     // the only one where there is nothing left for an operator to do.
-    const quiet = ["live", "on_restart", "needs_republish", "env_only", "unclassified", "x"]
+    const quiet = [
+      "live",
+      "on_restart",
+      "needs_republish",
+      "env_only",
+      "unclassified",
+      "x",
+    ]
       .map((a) => appliesVerdict(configField({ applies: a })).tone)
       .filter((tone) => tone !== "warn");
     expect(quiet).toEqual(["neutral"]);
@@ -683,7 +772,11 @@ describe("what saving will actually do, said before the save", () => {
     const { container } = renderOps(
       opsRoutes({
         [OPS_CONFIG_PATH]: configList([
-          configField({ source: "default", editable: false, applies: "unclassified" }),
+          configField({
+            source: "default",
+            editable: false,
+            applies: "unclassified",
+          }),
         ]),
       }),
     );
@@ -692,7 +785,9 @@ describe("what saving will actually do, said before the save", () => {
     expect(container.textContent).toContain(
       "This build has not said when a change would take effect",
     );
-    expect(container.textContent).not.toContain("The environment always wins over the console");
+    expect(container.textContent).not.toContain(
+      "The environment always wins over the console",
+    );
     expect(screen.queryByRole("button", { name: /Change/ })).toBeNull();
   });
 
@@ -709,7 +804,8 @@ describe("what saving will actually do, said before the save", () => {
             source: "default",
             editable: false,
             applies: "env_only",
-            caveat: "the pool is built from the environment before the store is reachable",
+            caveat:
+              "the pool is built from the environment before the store is reachable",
           }),
         ]),
       }),
@@ -723,7 +819,9 @@ describe("what saving will actually do, said before the save", () => {
     // The distinction the API's own comment insists on: `on_restart` PROMISES a restart
     // is enough, and this one does not. Rendering them the same would send an operator to
     // bounce a process and wonder why nothing changed.
-    expect(container.textContent).not.toContain("Needs a restart to take effect");
+    expect(container.textContent).not.toContain(
+      "Needs a restart to take effect",
+    );
   });
 });
 
@@ -736,7 +834,11 @@ describe("the receipt is the server's answer", () => {
           previous: "6.00",
           // The model coerced the trailing zero away. This is exactly the case where the
           // typed value and the stored value differ, and the screen must show the second.
-          field: configField({ value: "7.25", source: "db", updated_by: "Ops" }),
+          field: configField({
+            value: "7.25",
+            source: "db",
+            updated_by: "Ops",
+          }),
           config_version: 43,
           recorded: true,
           etag: '"8"',
@@ -771,7 +873,11 @@ describe("the receipt is the server's answer", () => {
         [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
           previous: "6.00",
-          field: configField({ value: "7.25", source: "db", updated_by: "Ops" }),
+          field: configField({
+            value: "7.25",
+            source: "db",
+            updated_by: "Ops",
+          }),
           config_version: 43,
           recorded: true,
           etag: '"8"',
@@ -788,7 +894,9 @@ describe("the receipt is the server's answer", () => {
     });
     fireEvent.click(saveButton());
 
-    await screen.findByText("The process serving this screen has not picked it up yet");
+    await screen.findByText(
+      "The process serving this screen has not picked it up yet",
+    );
     expect(container.textContent).toContain("It still reports 6.00");
   });
 
@@ -878,7 +986,9 @@ describe("a key the environment pins", () => {
         }),
       ]);
 
-    const { client, container } = renderOps(opsRoutes({ [OPS_CONFIG_PATH]: pinned("calevate-prod") }));
+    const { client, container } = renderOps(
+      opsRoutes({ [OPS_CONFIG_PATH]: pinned("calevate-prod") }),
+    );
 
     await screen.findByText("object_store_bucket");
     // No control at all — not a disabled one, because there is nothing this session
@@ -886,10 +996,14 @@ describe("a key the environment pins", () => {
     expect(screen.queryByRole("button", { name: /Change/ })).toBeNull();
     expect(screen.queryByLabelText(/New value/)).toBeNull();
     expect(container.textContent).toContain("OBJECT_STORE_BUCKET");
-    expect(container.textContent).toContain("The environment always wins over the console");
+    expect(container.textContent).toContain(
+      "The environment always wins over the console",
+    );
 
     // The deployment's environment changed and the process reloaded. Still no form.
-    act(() => client.setQueryData(OPS_CONFIG_QUERY_KEY, pinned("calevate-prod-2")));
+    act(() =>
+      client.setQueryData(OPS_CONFIG_QUERY_KEY, pinned("calevate-prod-2")),
+    );
     await screen.findByText("calevate-prod-2");
     expect(screen.queryByRole("button", { name: /Change/ })).toBeNull();
     expect(screen.queryByLabelText(/New value/)).toBeNull();
@@ -911,15 +1025,21 @@ describe("a key the environment pins", () => {
       ),
     );
 
-    await waitFor(() => expect(screen.queryByLabelText(/New value/)).toBeNull());
-    expect(container.textContent).toContain("The environment always wins over the console");
+    await waitFor(() =>
+      expect(screen.queryByLabelText(/New value/)).toBeNull(),
+    );
+    expect(container.textContent).toContain(
+      "The environment always wins over the console",
+    );
   });
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════ */
 
 function secretInput(): HTMLInputElement {
-  const input = document.querySelector<HTMLInputElement>('input[type="password"]');
+  const input = document.querySelector<HTMLInputElement>(
+    'input[type="password"]',
+  );
   if (!input) throw new Error("the credential form is not open");
   return input;
 }
@@ -953,7 +1073,10 @@ const CANDIDATE = "bn-live-secret-abcdef";
  */
 const ACCEPTED_UNCONFIRMED = "This key looks right";
 
-async function openSecretFormAndTest(verdict: SecretTest, candidate = CANDIDATE) {
+async function openSecretFormAndTest(
+  verdict: SecretTest,
+  candidate = CANDIDATE,
+) {
   const rendered = renderOps(
     opsRoutes({ [`POST ${OPS_SECRETS_PATH}/bolna_api_key/test`]: verdict }),
   );
@@ -970,12 +1093,16 @@ describe("a credential verdict belongs to one candidate", () => {
     await screen.findByText(ACCEPTED_UNCONFIRMED);
 
     // One keystroke later the verdict is about a string nobody checked.
-    fireEvent.change(secretInput(), { target: { value: "bn-live-a-different-key-9999" } });
+    fireEvent.change(secretInput(), {
+      target: { value: "bn-live-a-different-key-9999" },
+    });
 
     expect(screen.queryByText(ACCEPTED_UNCONFIRMED)).toBeNull();
     expectTextCount(container, "…cdef", 0);
     // …and the operator is told the candidate in the box is unchecked.
-    expect(container.textContent).toContain("has not been checked with the vendor");
+    expect(container.textContent).toContain(
+      "has not been checked with the vendor",
+    );
   });
 
   it("does not survive closing and reopening the form", async () => {
@@ -983,7 +1110,9 @@ describe("a credential verdict belongs to one candidate", () => {
     await screen.findByText(ACCEPTED_UNCONFIRMED);
 
     fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
-    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
+    );
 
     // An empty box under a green box is the worst version of this: it reads as "the
     // credential on file has been checked", which is not something this screen can know.
@@ -1000,7 +1129,9 @@ describe("a credential verdict belongs to one candidate", () => {
       client
         .getMutationCache()
         .getAll()
-        .filter((m) => JSON.stringify(m.state.variables ?? "").includes(CANDIDATE));
+        .filter((m) =>
+          JSON.stringify(m.state.variables ?? "").includes(CANDIDATE),
+        );
     // While the form is open the candidate is legitimately in flight.
     expect(held()).toHaveLength(1);
 
@@ -1014,10 +1145,14 @@ describe("a credential verdict belongs to one candidate", () => {
 
 describe("the four outcomes of a test, kept apart", () => {
   it("does not spend a tick on a check nobody has confirmed", async () => {
-    const { container } = await openSecretFormAndTest(testVerdict({ verified: false }));
+    const { container } = await openSecretFormAndTest(
+      testVerdict({ verified: false }),
+    );
 
     const title = await screen.findByText(ACCEPTED_UNCONFIRMED);
-    expect(container.textContent).toContain("Treat it as a good sign, not a guarantee");
+    expect(container.textContent).toContain(
+      "Treat it as a good sign, not a guarantee",
+    );
     // The green box is what a hurried operator reads instead of the words, so the tone is
     // asserted on THIS box — the key-management panel has a legitimate green one on the
     // same screen, and a container-wide class count would be answering about that.
@@ -1035,7 +1170,8 @@ describe("the four outcomes of a test, kept apart", () => {
       testVerdict({
         outcome: "unreachable",
         status: null,
-        detail: "The vendor could not be reached, so this credential has NOT been checked.",
+        detail:
+          "The vendor could not be reached, so this credential has NOT been checked.",
       }),
     );
 
@@ -1054,7 +1190,8 @@ describe("the four outcomes of a test, kept apart", () => {
         outcome: "no_probe",
         status: null,
         verified: false,
-        detail: "This build has no way to test this credential with the vendor.",
+        detail:
+          "This build has no way to test this credential with the vendor.",
       }),
     );
 
@@ -1075,16 +1212,25 @@ describe("the four outcomes of a test, kept apart", () => {
     );
 
     await screen.findByText("bolna_api_key");
-    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
+    );
 
     // Was a `title` attribute on the button — invisible to a screen reader and to anyone
     // who never hovers.
-    const form = screen.getByRole("button", { name: /Test with the vendor/ }).closest("form");
-    expect(form?.textContent).toContain("There is no automatic check for this vendor");
+    const form = screen
+      .getByRole("button", { name: /Test with the vendor/ })
+      .closest("form");
+    expect(form?.textContent).toContain(
+      "There is no automatic check for this vendor",
+    );
     // And it does NOT block the install: "we cannot check" is not "do not store".
     expect(
-      (screen.getByRole("button", { name: /Test with the vendor/ }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: /Test with the vendor/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true); // no candidate typed yet — the reason is the empty box, not the probe
   });
 });
@@ -1103,8 +1249,12 @@ describe("installing a credential", () => {
     );
 
     await screen.findByText("bolna_api_key");
-    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
-    fireEvent.change(secretInput(), { target: { value: "bn-live-new-key-0001" } });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
+    );
+    fireEvent.change(secretInput(), {
+      target: { value: "bn-live-new-key-0001" },
+    });
     fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
       target: { value: "vendor breach notice" },
     });
@@ -1135,8 +1285,12 @@ describe("installing a credential", () => {
     );
 
     await screen.findByText("bolna_api_key");
-    fireEvent.click(screen.getAllByRole("button", { name: /Rotate|Install/ })[0]);
-    fireEvent.change(secretInput(), { target: { value: "bn-live-new-key-0001" } });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Rotate|Install/ })[0],
+    );
+    fireEvent.change(secretInput(), {
+      target: { value: "bn-live-new-key-0001" },
+    });
     fireEvent.change(screen.getByPlaceholderText(/rotating after/), {
       target: { value: "vendor breach notice" },
     });
@@ -1168,7 +1322,9 @@ describe("the rewrap", () => {
 
     // Waiting on the card TITLE would be waiting on static text: the identity read gates
     // the control, and the KEK read gates the panel. Both are behind this sentence.
-    await screen.findByText("Every stored key is locked with the current master key");
+    await screen.findByText(
+      "Every stored key is locked with the current master key",
+    );
     const box = screen.getByPlaceholderText("REWRAP");
     fireEvent.change(box, { target: { value: "REWRAP" } });
 
@@ -1185,14 +1341,20 @@ describe("the rewrap", () => {
     // armed the first, where `confirm` is still "REWRAP" and `isPending` is still false,
     // and only a ref has changed in time.
     const submit = () =>
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
     act(() => {
       submit();
       submit();
     });
 
-    await waitFor(() => expect(screen.getByText(/stored keys re-locked/)).toBeTruthy());
-    expect(calls.filter((c) => c.path === `${OPS_SECRETS_PATH}/kek/rewrap`)).toHaveLength(1);
+    await waitFor(() =>
+      expect(screen.getByText(/stored keys re-locked/)).toBeTruthy(),
+    );
+    expect(
+      calls.filter((c) => c.path === `${OPS_SECRETS_PATH}/kek/rewrap`),
+    ).toHaveLength(1);
   });
 
   it("can be run again after it finishes, so the latch is not a one-way door", async () => {
@@ -1210,18 +1372,28 @@ describe("the rewrap", () => {
       }),
     );
 
-    await screen.findByText("Every stored key is locked with the current master key");
+    await screen.findByText(
+      "Every stored key is locked with the current master key",
+    );
     const fire = async () => {
-      fireEvent.change(screen.getByPlaceholderText("REWRAP"), { target: { value: "REWRAP" } });
-      fireEvent.click(screen.getByRole("button", { name: /Re-lock every key/ }));
+      fireEvent.change(screen.getByPlaceholderText("REWRAP"), {
+        target: { value: "REWRAP" },
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: /Re-lock every key/ }),
+      );
     };
     await fire();
     await waitFor(() =>
-      expect(calls.filter((c) => c.path === `${OPS_SECRETS_PATH}/kek/rewrap`)).toHaveLength(1),
+      expect(
+        calls.filter((c) => c.path === `${OPS_SECRETS_PATH}/kek/rewrap`),
+      ).toHaveLength(1),
     );
     await fire();
     await waitFor(() =>
-      expect(calls.filter((c) => c.path === `${OPS_SECRETS_PATH}/kek/rewrap`)).toHaveLength(2),
+      expect(
+        calls.filter((c) => c.path === `${OPS_SECRETS_PATH}/kek/rewrap`),
+      ).toHaveLength(2),
     );
   });
 
@@ -1237,15 +1409,23 @@ describe("the rewrap", () => {
 
     await screen.findByText("We could not read the key-management state");
     // The sentence that would license destroying data.
-    expect(screen.queryByText("Every stored key is locked with the current master key")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Every stored key is locked with the current master key",
+      ),
+    ).toBeNull();
     expect(container.textContent).toContain("do not remove");
     // The rewrap stays offered: it is the recovery action and it reports its own counts.
-    expect(screen.getByRole("button", { name: /Re-lock every key/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Re-lock every key/ }),
+    ).toBeTruthy();
   });
 
   it("names the active key as a fingerprint rather than a generation number", async () => {
     const { container } = renderOps(opsRoutes());
-    await screen.findByText("Every stored key is locked with the current master key");
+    await screen.findByText(
+      "Every stored key is locked with the current master key",
+    );
     // D-96: the label is a hash of the key material. "#1633907231" invites an operator to
     // read a rotation count and conclude something has gone very wrong.
     expect(container.textContent).toContain("Active master key ID");
@@ -1277,7 +1457,9 @@ describe("the states that only exist after a click are still operable", () => {
       confirm: "SELF_SERVE_INR_PER_MIN",
     });
     fireEvent.click(saveButton());
-    await screen.findByText("Someone changed this setting first — nothing was saved");
+    await screen.findByText(
+      "Someone changed this setting first — nothing was saved",
+    );
 
     await expectNoA11yViolations(container, "admin/ops — config conflict");
   });
@@ -1295,7 +1477,11 @@ describe("the states that only exist after a click are still operable", () => {
         [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
           key: "self_serve_inr_per_min",
           previous: "6.00",
-          field: configField({ value: "7.25", source: "db", updated_by: "Ops" }),
+          field: configField({
+            value: "7.25",
+            source: "db",
+            updated_by: "Ops",
+          }),
           config_version: 43,
           recorded: true,
           etag: '"8"',

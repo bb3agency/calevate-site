@@ -10274,6 +10274,17 @@
               }
             ],
             "title": "Source Note"
+          },
+          "withheld_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withheld Reason"
           }
         },
         "required": [
@@ -10282,6 +10293,7 @@
           "credential_installed",
           "price_attested",
           "offerable",
+          "withheld_reason",
           "input_usd_per_mtok",
           "output_usd_per_mtok",
           "effective_from",
