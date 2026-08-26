@@ -1,8 +1,23 @@
 packages:
   - "apps/web"
 
+# THE QUARANTINE WINDOW, IN MINUTES. 1440 = 24 hours: a version published less than a
+# day ago is not installed, which is the window in which a compromised release is
+# typically caught and unpublished. This is hard rule 9's one structural control, and it
+# is the control this repository already needed once — `incident_report.md` records the
+# July 2026 `unrs-resolver` compromise, whose remedy is the alias in `overrides` below.
+#
+# ⚠ IT WAS MISSING, AND ITS ABSENCE WAS INVISIBLE BECAUSE THE EXCEPTION LIST WAS NOT.
+# `minimumReleaseAgeExclude` sat here alone with a comment naming "the 24-hour quarantine
+# window", and there was no `minimumReleaseAge` anywhere — not here, not in a `.npmrc` at
+# the root, not in `apps/web` (`pnpm config get minimumReleaseAge` printed `undefined`,
+# checked 26 Aug 2026). So the file read as though a control existed while every one of
+# the 513 resolved dependencies installed the instant it was published. An exception to a
+# policy that does not exist is worse than neither, because it is what a reader checks.
+minimumReleaseAge: 1440
+
 # Rolldown is Vite's bundler; its platform-specific binaries are legitimate but
-# were published recently enough to trip the 24-hour quarantine window. Exclude
+# were published recently enough to trip the quarantine window above. Exclude
 # them specifically rather than disabling the policy for all packages.
 minimumReleaseAgeExclude:
   - "rolldown"

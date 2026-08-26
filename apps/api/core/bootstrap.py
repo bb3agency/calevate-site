@@ -76,8 +76,40 @@ DEFAULT_CORS_ORIGINS = [
     "https://calevate.tech",
     "https://app.calevate.tech",
     "https://admin.calevate.tech",
-    "http://localhost:3000",
 ]
+
+#: The development origin, which is NOT in the constant above and used to be.
+#:
+#: This list is read TWICE — by `CORSMiddleware` with `allow_credentials=True`, and by
+#: `authn.cookies.cross_site_refusal` as the CSRF `Origin` allowlist — so an entry here is
+#: a permission granted in two places at once. `http://localhost:3000` sat in it
+#: unconditionally, which meant a production deployment told every browser that a page on
+#: the user's own machine may read authenticated responses with credentials attached.
+#:
+#: WHAT THAT ACTUALLY BOUGHT AN ATTACKER, stated precisely rather than dramatically.
+#: `CookieCsrfMiddleware.UNSAFE_METHODS` is `{POST,PUT,PATCH,DELETE}`, so GET is covered by
+#: CORS alone; and `SameSite=Strict` withholds the session cookie on a cross-site request
+#: anyway, so the read does not currently succeed. It is a defence-in-depth layer switched
+#: off in production for a convenience that production cannot use — the kind of entry that
+#: is harmless until one of the two things holding it up changes.
+#:
+#: Kept out of the constant rather than filtered at the call site so that both readers get
+#: the same answer from one function, and so `DEFAULT_CORS_ORIGINS` means exactly "the
+#: origins this product is served from" wherever it is read.
+_LOCAL_DEV_ORIGIN = "http://localhost:3000"
+
+
+def cors_origins_for_env() -> list[str]:
+    """The origins allowed to send credentialed requests, for THIS deployment.
+
+    The production three everywhere, plus the dev origin only when `APP_ENV=local`. Both
+    the CORS layer and the CSRF Origin check call this, so the two can never disagree —
+    which they would the first time somebody filtered the list at one of the two sites.
+    """
+    origins = list(DEFAULT_CORS_ORIGINS)
+    if get_settings().app_env == "local":
+        origins.append(_LOCAL_DEV_ORIGIN)
+    return origins
 
 
 def _install_signal_handlers() -> None:
@@ -386,7 +418,7 @@ def create_app(
     if tracing_enabled():
         app.add_middleware(TracingMiddleware, trust_incoming_traceparent=not minimal)
     if not minimal:
-        install_middleware(app, cors_origins=cors_origins or DEFAULT_CORS_ORIGINS)
+        install_middleware(app, cors_origins=cors_origins or cors_origins_for_env())
 
     # ADDED LAST, SO IT IS THE OUTERMOST, and that position is the whole point: the
     # configuration a request runs on has to be fixed before any other layer reads it,
@@ -419,4 +451,9 @@ def create_app(
     return app
 
 
-__all__ = ["DEFAULT_CORS_ORIGINS", "SettingsScopeMiddleware", "create_app"]
+__all__ = [
+    "DEFAULT_CORS_ORIGINS",
+    "SettingsScopeMiddleware",
+    "cors_origins_for_env",
+    "create_app",
+]

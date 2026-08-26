@@ -258,9 +258,9 @@ def cross_site_refusal(
         return _cross_site()
     if not origin:
         return None
-    from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS
+    from apps.api.core.bootstrap import cors_origins_for_env
 
-    allowed = {o.rstrip("/") for o in DEFAULT_CORS_ORIGINS}
+    allowed = {o.rstrip("/") for o in cors_origins_for_env()}
     if own_origin:
         allowed.add(own_origin.rstrip("/"))
     if origin.rstrip("/") in allowed:
