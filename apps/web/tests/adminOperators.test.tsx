@@ -11,6 +11,7 @@ import OperatorsPage from "@/app/admin/operators/page";
 import {
   OPERATORS_PATH,
   addOperatorConfirmation,
+  operatorConfirmPhrase,
   operatorLabel,
   operatorRevocationConfirmation,
   operatorRoleConfirmation,
@@ -21,7 +22,13 @@ import {
 } from "@/lib/api/adminOperators";
 import { HOLDS_PATH } from "@/lib/api/holds";
 
-import { browserOffline, problem, renderAdminPage, stillLoading, type Routes } from "./harness";
+import {
+  browserOffline,
+  problem,
+  renderAdminPage,
+  stillLoading,
+  type Routes,
+} from "./harness";
 
 /**
  * The operator allowlist — who may sign in to the admin console, and in which tier.
@@ -103,7 +110,11 @@ const FOUNDER: Operator = operator({
   created_at: "2026-07-01T04:30:00Z",
 });
 
-function routes(list: unknown, identity: unknown = SUPERADMIN, extra: Routes = {}): Routes {
+function routes(
+  list: unknown,
+  identity: unknown = SUPERADMIN,
+  extra: Routes = {},
+): Routes {
   return { [ADMIN_ME_PATH]: identity, [OPERATORS_PATH]: list, ...extra };
 }
 
@@ -129,7 +140,9 @@ describe("what a normal admin is shown", () => {
     );
 
     await screen.findByText(/does not have permission to/);
-    expect(container.textContent).toContain("Your admin account cannot see this");
+    expect(container.textContent).toContain(
+      "Your admin account cannot see this",
+    );
     // The refusal names the action in plain words and points the reader at a super admin —
     // the raw permission scope is engineer jargon and is deliberately not shown here.
     expect(container.textContent).toContain("Ask a superadmin");
@@ -158,7 +171,9 @@ describe("what a normal admin is shown", () => {
 
     // A skeleton, not the list and not the refusal: the honest statement while the answer
     // is in flight is "we are finding out whether you may see this".
-    expect(container.textContent).toContain("Checking whether you may manage admin accounts");
+    expect(container.textContent).toContain(
+      "Checking whether you may manage admin accounts",
+    );
     expect(calls.some((call) => call.path === OPERATORS_PATH)).toBe(false);
   });
 
@@ -188,13 +203,20 @@ describe("what a normal admin is shown", () => {
     // console that hid the allowlist because an unrelated read was slow would be worse
     // than one that meets the server's own answer.
     await screen.findByText("Sri J");
-    expect(container.textContent).toContain("We could not check what you may do here");
+    expect(container.textContent).toContain(
+      "We could not check what you may do here",
+    );
 
     // Settle anything still in flight, then count. A handful is a mount and a retry; a
     // spin is unbounded, and the bound is what this assertion is for.
     await new Promise((resolve) => setTimeout(resolve, 250));
-    const identityReads = calls.filter((call) => call.path === ADMIN_ME_PATH).length;
-    expect(identityReads, `${identityReads} reads of ${ADMIN_ME_PATH}`).toBeLessThan(4);
+    const identityReads = calls.filter(
+      (call) => call.path === ADMIN_ME_PATH,
+    ).length;
+    expect(
+      identityReads,
+      `${identityReads} reads of ${ADMIN_ME_PATH}`,
+    ).toBeLessThan(4);
   });
 
   it("closes the controls when the console could not ask who you are", async () => {
@@ -202,13 +224,22 @@ describe("what a normal admin is shown", () => {
     // loading — a query query-core has PAUSED because the browser is offline. A control
     // fails closed, and "we have no answer" is not "you may".
     browserOffline();
-    const { container } = renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER)));
+    const { container } = renderAdminPage(
+      <OperatorsPage />,
+      routes(listOf(FOUNDER)),
+    );
 
     await waitFor(() =>
-      expect(container.textContent).toContain("has not been able to establish what you may do"),
+      expect(container.textContent).toContain(
+        "has not been able to establish what you may do",
+      ),
     );
     expect(
-      (screen.getByLabelText(/Email address of the admin to add/) as HTMLInputElement).disabled,
+      (
+        screen.getByLabelText(
+          /Email address of the admin to add/,
+        ) as HTMLInputElement
+      ).disabled,
     ).toBe(true);
   });
 
@@ -265,7 +296,9 @@ describe("the nav entry that reaches this screen", () => {
       shell(SUPERADMIN),
     );
     await waitFor(() => expect(entry(live.container)?.tagName).toBe("A"));
-    expect(entry(live.container)?.getAttribute("href")).toBe("/admin/operators");
+    expect(entry(live.container)?.getAttribute("href")).toBe(
+      "/admin/operators",
+    );
     live.unmount();
 
     const dead = renderAdminPage(
@@ -277,9 +310,7 @@ describe("the nav entry that reaches this screen", () => {
     await waitFor(() => expect(entry(dead.container)?.tagName).toBe("SPAN"));
     // The reason sits in the sentence beside the dead entry rather than only in a `title`
     // a mouse has to discover — in plain words, without the raw permission scope.
-    expect(dead.container.textContent).toContain(
-      "does not have permission to",
-    );
+    expect(dead.container.textContent).toContain("does not have permission to");
   });
 });
 
@@ -296,23 +327,39 @@ describe("the account you are signed in as", () => {
 
     await screen.findByText("Sri J");
     expect(container.textContent).toContain("This is your own account");
-    expect(container.textContent).toContain("stops the last super admin removing themselves");
+    expect(container.textContent).toContain(
+      "stops the last super admin removing themselves",
+    );
     // The controls are ABSENT on that row, not disabled: the API refuses both acts
     // outright, so a greyed-out button would be one that is never available.
-    expect(screen.queryByRole("button", { name: /Change the tier of Sri J/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Revoke the admin access of Sri J/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Change the tier of Sri J/ }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: /Revoke the admin access of Sri J/,
+      }),
+    ).toBeNull();
   });
 
   it("still offers both on somebody ELSE's row, including another super admin", async () => {
     // The invariant must not be over-applied. A second super admin is demotable — that is
     // how a departing founder is actually replaced — and a screen that refused every
     // super admin would make the tier unadministrable.
-    const second = operator({ id: RAVI_ID, name: "Ravi K", role: "superadmin" });
+    const second = operator({
+      id: RAVI_ID,
+      name: "Ravi K",
+      role: "superadmin",
+    });
     renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER, second)));
 
     await screen.findByText("Ravi K");
-    expect(screen.getByRole("button", { name: /Change the tier of Ravi K/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Revoke the admin access of Ravi K/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Change the tier of Ravi K/ }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Revoke the admin access of Ravi K/ }),
+    ).toBeTruthy();
   });
 
   it("refuses to guess a direction for a tier this build has no words for", async () => {
@@ -325,11 +372,17 @@ describe("the account you are signed in as", () => {
     );
 
     await screen.findByText("Asha Rao");
-    expect(screen.queryByRole("button", { name: /Change the tier of Asha Rao/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Change the tier of Asha Rao/ }),
+    ).toBeNull();
     expect(container.textContent).toContain("does not recognise the tier");
     // Revoking needs no opinion about which tier they are in, so it stays — and the row
     // still renders the wire value rather than hiding an account it cannot classify.
-    expect(screen.getByRole("button", { name: /Revoke the admin access of Asha Rao/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: /Revoke the admin access of Asha Rao/,
+      }),
+    ).toBeTruthy();
     expect(container.textContent).toContain("auditor");
 
     expect(tierChangeTarget(operator({ role: "auditor" }))).toBeNull();
@@ -342,7 +395,9 @@ describe("the account you are signed in as", () => {
     // a second opinion about it. A normal admin looking at their own row would be
     // refused for exactly the same reason — they never reach the screen, but the block
     // does not depend on that.
-    expect(selfAdministrationBlock(FOUNDER, FOUNDER_ID)).toContain("your own account");
+    expect(selfAdministrationBlock(FOUNDER, FOUNDER_ID)).toContain(
+      "your own account",
+    );
     expect(selfAdministrationBlock(operator(), FOUNDER_ID)).toBeNull();
     // No viewer id (the identity read failed) is NOT a match: refusing every row on an
     // unknown viewer would make the screen useless exactly when it is least explicable,
@@ -360,22 +415,39 @@ describe("the typed confirmation on a consequential act", () => {
     const { calls } = renderAdminPage(
       <OperatorsPage />,
       routes(listOf(FOUNDER, operator()), SUPERADMIN, {
-        [`PATCH ${OPERATORS_PATH}/${ASHA_ID}`]: operator({ role: "superadmin" }),
+        [`PATCH ${OPERATORS_PATH}/${ASHA_ID}`]: operator({
+          role: "superadmin",
+        }),
       }),
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Change the tier of Asha Rao/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
+    );
 
-    const confirmation = operatorRoleConfirmation(ASHA_ID);
-    type(/Why you are changing Asha Rao's tier/, "she is taking over the platform keys");
-    type(new RegExp(`Type ${confirmation}`), confirmation);
-    fireEvent.click(screen.getByRole("button", { name: "Promote to super admin" }));
+    // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
+    // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
+    // the API builds and validates and which may never be an email, because headers land
+    // in access logs (hard rule 6). The screen used to ask an operator to hand-type
+    // `wire`, i.e. a UUID.
+    const phrase = operatorConfirmPhrase(operator());
+    const wire = operatorRoleConfirmation(ASHA_ID);
+    type(
+      /Why you are changing Asha Rao's tier/,
+      "she is taking over the platform keys",
+    );
+    type(new RegExp(`Type ${phrase} to confirm`), phrase);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Promote to super admin" }),
+    );
 
     await waitFor(() => {
       const sent = calls.find((call) => call.method === "PATCH");
       expect(sent, "the promotion was never sent").toBeTruthy();
-      expect(sent?.headers["X-Confirm-Action"]).toBe(confirmation);
+      // The HEADER is still the API's id-bound string, unchanged by the fact that a
+      // person now types an address. That is the property the split has to preserve.
+      expect(sent?.headers["X-Confirm-Action"]).toBe(wire);
       expect(JSON.parse(sent?.body ?? "{}")).toEqual({
         role: "superadmin",
         reason: "she is taking over the platform keys",
@@ -387,10 +459,19 @@ describe("the typed confirmation on a consequential act", () => {
     renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER, operator())));
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Change the tier of Asha Rao/ }));
-    const confirmation = operatorRoleConfirmation(ASHA_ID);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
+    );
+    // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
+    // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
+    // the API builds and validates and which may never be an email, because headers land
+    // in access logs (hard rule 6). The screen used to ask an operator to hand-type
+    // `wire`, i.e. a UUID.
+    const phrase = operatorConfirmPhrase(operator());
     const submit = () =>
-      screen.getByRole("button", { name: "Promote to super admin" }) as HTMLButtonElement;
+      screen.getByRole("button", {
+        name: "Promote to super admin",
+      }) as HTMLButtonElement;
 
     expect(submit().disabled).toBe(true);
 
@@ -398,10 +479,13 @@ describe("the typed confirmation on a consequential act", () => {
     // under three characters, so a form that lit up here would teach an operator the API
     // is flaky.
     type(/Why you are changing Asha Rao's tier/, "   ");
-    type(new RegExp(`Type ${confirmation}`), confirmation);
+    type(new RegExp(`Type ${phrase} to confirm`), phrase);
     expect(submit().disabled).toBe(true);
 
-    type(/Why you are changing Asha Rao's tier/, "she is taking over the platform keys");
+    type(
+      /Why you are changing Asha Rao's tier/,
+      "she is taking over the platform keys",
+    );
     expect(submit().disabled).toBe(false);
   });
 
@@ -410,20 +494,34 @@ describe("the typed confirmation on a consequential act", () => {
     // remembered from Ravi's row is not consent to promote Asha.
     renderAdminPage(
       <OperatorsPage />,
-      routes(listOf(FOUNDER, operator(), operator({ id: RAVI_ID, name: "Ravi K" }))),
+      routes(
+        listOf(FOUNDER, operator(), operator({ id: RAVI_ID, name: "Ravi K" })),
+      ),
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Change the tier of Asha Rao/ }));
-    type(/Why you are changing Asha Rao's tier/, "swapping their responsibilities");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
+    );
     type(
-      new RegExp(`Type ${operatorRoleConfirmation(ASHA_ID)}`),
-      operatorRoleConfirmation(RAVI_ID),
+      /Why you are changing Asha Rao's tier/,
+      "swapping their responsibilities",
+    );
+    type(
+      // The phrase is bound to the ACCOUNT, so the one belonging to another row is
+      // exactly the thing that must not work here.
+      new RegExp(`Type ${operatorConfirmPhrase(operator())} to confirm`),
+      operatorConfirmPhrase(
+        operator({ id: RAVI_ID, email: "ravi@calevate.tech" }),
+      ),
     );
 
     expect(
-      (screen.getByRole("button", { name: "Promote to super admin" }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: "Promote to super admin",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 
@@ -435,31 +533,45 @@ describe("the typed confirmation on a consequential act", () => {
 
     await screen.findByText("Sri J");
     type(/Email address of the admin to add/, "new@calevate.tech");
-    type(/Why you are adding this admin/, "joining as our second onboarding operator");
-    type(/Type add_operator:operator/, addOperatorConfirmation("operator"));
-    expect((screen.getByRole("button", { name: /^Add admin$/ }) as HTMLButtonElement).disabled).toBe(
-      false,
+    type(
+      /Why you are adding this admin/,
+      "joining as our second onboarding operator",
     );
+    type(/Type ADMIN to confirm/, "ADMIN");
+    expect(
+      (screen.getByRole("button", { name: /^Add admin$/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
 
     fireEvent.change(screen.getByLabelText(/Tier for the new admin/), {
       target: { value: "superadmin" },
     });
 
-    const submit = screen.getByRole("button", { name: /^Add super admin$/ }) as HTMLButtonElement;
+    const submit = screen.getByRole("button", {
+      name: /^Add super admin$/,
+    }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
-    expect((screen.getByLabelText(/Type add_operator:superadmin/) as HTMLInputElement).value).toBe(
-      "",
-    );
+    expect(
+      (screen.getByLabelText(/Type SUPER ADMIN to confirm/) as HTMLInputElement)
+        .value,
+    ).toBe("");
   });
 
   it("says what promoting somebody actually gives them, before the click", async () => {
-    const { container } = renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER, operator())));
+    const { container } = renderAdminPage(
+      <OperatorsPage />,
+      routes(listOf(FOUNDER, operator())),
+    );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Change the tier of Asha Rao/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Change the tier of Asha Rao/ }),
+    );
     // The three facts a super admin is actually agreeing to, in the order they matter.
     expect(container.textContent).toContain("the vendor API keys");
-    expect(container.textContent).toContain("add and remove admins, including you");
+    expect(container.textContent).toContain(
+      "add and remove admins, including you",
+    );
     expect(container.textContent).toContain("Recorded in the audit log");
   });
 });
@@ -478,28 +590,52 @@ describe("revoking an account", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Revoke the admin access of Asha Rao/ }));
-    const confirmation = operatorRevocationConfirmation(ASHA_ID);
-    type(/Why you are revoking Asha Rao's access/, "left the company on Friday");
-    type(new RegExp(`Type ${confirmation}`), confirmation);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Revoke the admin access of Asha Rao/,
+      }),
+    );
+    // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
+    // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
+    // the API builds and validates and which may never be an email, because headers land
+    // in access logs (hard rule 6). The screen used to ask an operator to hand-type
+    // `wire`, i.e. a UUID.
+    const phrase = operatorConfirmPhrase(operator());
+    const wire = operatorRevocationConfirmation(ASHA_ID);
+    type(
+      /Why you are revoking Asha Rao's access/,
+      "left the company on Friday",
+    );
+    type(new RegExp(`Type ${phrase} to confirm`), phrase);
     fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
 
     await waitFor(() => {
       const sent = calls.find((call) => call.path.endsWith("/revocation"));
       expect(sent, "the revocation was never sent").toBeTruthy();
       expect(sent?.method).toBe("POST");
-      expect(sent?.headers["X-Confirm-Action"]).toBe(confirmation);
+      // The HEADER is still the API's id-bound string, unchanged by the fact that a
+      // person now types an address. That is the property the split has to preserve.
+      expect(sent?.headers["X-Confirm-Action"]).toBe(wire);
     });
     expect(calls.some((call) => call.method === "DELETE")).toBe(false);
   });
 
   it("says the row survives, so nobody reads it as a data erasure", async () => {
-    const { container } = renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER, operator())));
+    const { container } = renderAdminPage(
+      <OperatorsPage />,
+      routes(listOf(FOUNDER, operator())),
+    );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Revoke the admin access of Asha Rao/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Revoke the admin access of Asha Rao/,
+      }),
+    );
     expect(container.textContent).toContain("Their row is kept");
-    expect(container.textContent).toContain("Nothing about this is a data erasure");
+    expect(container.textContent).toContain(
+      "Nothing about this is a data erasure",
+    );
   });
 });
 
@@ -507,15 +643,29 @@ describe("the setup link", () => {
   it("is offered only for an account that has never set a password", async () => {
     renderAdminPage(
       <OperatorsPage />,
-      routes(listOf(FOUNDER, operator({ activated: false }), operator({ id: RAVI_ID, name: "Ravi K" }))),
+      routes(
+        listOf(
+          FOUNDER,
+          operator({ activated: false }),
+          operator({ id: RAVI_ID, name: "Ravi K" }),
+        ),
+      ),
     );
 
     await screen.findByText("Asha Rao");
-    expect(screen.getByRole("button", { name: /Resend the setup link for Asha Rao/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: /Resend the setup link for Asha Rao/,
+      }),
+    ).toBeTruthy();
     // Ravi has a password. Offering it for him would be offering a password reset, which
     // the API refuses (`operator_already_activated`) and which must not be reachable from
     // the person asking on somebody else's behalf.
-    expect(screen.queryByRole("button", { name: /Resend the setup link for Ravi K/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: /Resend the setup link for Ravi K/,
+      }),
+    ).toBeNull();
   });
 
   it("says it is not a password reset, at the control", async () => {
@@ -525,9 +675,15 @@ describe("the setup link", () => {
     );
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Resend the setup link for Asha Rao/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Resend the setup link for Asha Rao/,
+      }),
+    );
     expect(container.textContent).toContain("never set a password");
-    expect(container.textContent).toContain("mails the link to them rather than to you");
+    expect(container.textContent).toContain(
+      "mails the link to them rather than to you",
+    );
   });
 });
 
@@ -537,16 +693,26 @@ describe("the setup link", () => {
 
 describe("adding an admin", () => {
   it("sends the role-bound confirmation and reports that a link was MAILED", async () => {
-    const created = operator({ id: RAVI_ID, name: null, email: "new@calevate.tech", activated: false });
+    const created = operator({
+      id: RAVI_ID,
+      name: null,
+      email: "new@calevate.tech",
+      activated: false,
+    });
     const { container, calls } = renderAdminPage(
       <OperatorsPage />,
-      routes(listOf(FOUNDER), SUPERADMIN, { [`POST ${OPERATORS_PATH}`]: created }),
+      routes(listOf(FOUNDER), SUPERADMIN, {
+        [`POST ${OPERATORS_PATH}`]: created,
+      }),
     );
 
     await screen.findByText("Sri J");
     type(/Email address of the admin to add/, "new@calevate.tech");
-    type(/Why you are adding this admin/, "joining as our second onboarding operator");
-    type(/Type add_operator:operator/, addOperatorConfirmation("operator"));
+    type(
+      /Why you are adding this admin/,
+      "joining as our second onboarding operator",
+    );
+    type(/Type ADMIN to confirm/, "ADMIN");
     fireEvent.click(screen.getByRole("button", { name: /^Add admin$/ }));
 
     await screen.findByText(/Setup link sent to new@calevate.tech/);
@@ -572,18 +738,24 @@ describe("adding an admin", () => {
           type: "https://calevate.tech/problems/operator_email_taken",
           title: "Conflict",
           detail: "A live operator account already uses that email address.",
-          remediation: "Use the existing account — resend its setup link if the person never finished signing in — or revoke it first.",
+          remediation:
+            "Use the existing account — resend its setup link if the person never finished signing in — or revoke it first.",
         }),
       }),
     );
 
     await screen.findByText("Sri J");
     type(/Email address of the admin to add/, "asha@calevate.tech");
-    type(/Why you are adding this admin/, "adding her a second time by mistake");
-    type(/Type add_operator:operator/, addOperatorConfirmation("operator"));
+    type(
+      /Why you are adding this admin/,
+      "adding her a second time by mistake",
+    );
+    type(/Type ADMIN to confirm/, "ADMIN");
     fireEvent.click(screen.getByRole("button", { name: /^Add admin$/ }));
 
-    await screen.findByText("A live operator account already uses that email address.");
+    await screen.findByText(
+      "A live operator account already uses that email address.",
+    );
     // The remediation is the actionable half and is printed, not paraphrased.
     expect(container.textContent).toContain("resend its setup link");
   });
@@ -595,7 +767,10 @@ describe("adding an admin", () => {
 
 describe("what the screen says when it has no answer", () => {
   it("is a skeleton while the list is in flight, never a count", async () => {
-    const { container } = renderAdminPage(<OperatorsPage />, routes(stillLoading(), SUPERADMIN));
+    const { container } = renderAdminPage(
+      <OperatorsPage />,
+      routes(stillLoading(), SUPERADMIN),
+    );
 
     // Awaited past the IDENTITY skeleton: until `/v1/admin/me` answers, what is on screen
     // is the "checking whether you may see this" shape and the assertion below would be
@@ -612,7 +787,12 @@ describe("what the screen says when it has no answer", () => {
   it("refuses to state an empty list, or a count, over a failed read", async () => {
     const { container } = renderAdminPage(
       <OperatorsPage />,
-      routes(problem(503, { title: "Service unavailable", detail: "The database is unreachable." })),
+      routes(
+        problem(503, {
+          title: "Service unavailable",
+          detail: "The database is unreachable.",
+        }),
+      ),
     );
 
     await screen.findByText("The database is unreachable.");
@@ -645,15 +825,29 @@ describe("what the screen says when it has no answer", () => {
     });
 
     await screen.findByText("Asha Rao");
-    fireEvent.click(screen.getByRole("button", { name: /Revoke the admin access of Asha Rao/ }));
-    const confirmation = operatorRevocationConfirmation(ASHA_ID);
-    type(/Why you are revoking Asha Rao's access/, "left the company on Friday");
-    type(new RegExp(`Type ${confirmation}`), confirmation);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Revoke the admin access of Asha Rao/,
+      }),
+    );
+    // TWO STRINGS, AND THAT SEPARATION IS THE FEATURE. `phrase` is what a person reads
+    // and types — the account's address. `wire` is what `X-Confirm-Action` carries, which
+    // the API builds and validates and which may never be an email, because headers land
+    // in access logs (hard rule 6). The screen used to ask an operator to hand-type
+    // `wire`, i.e. a UUID.
+    const phrase = operatorConfirmPhrase(operator());
+    type(
+      /Why you are revoking Asha Rao's access/,
+      "left the company on Friday",
+    );
+    type(new RegExp(`Type ${phrase} to confirm`), phrase);
     fireEvent.click(screen.getByRole("button", { name: "Revoke access" }));
 
     await screen.findByText("The database is unreachable.");
     expect(container.textContent).not.toContain("Asha Rao");
-    expect(container.textContent).toContain("would tell you somebody still has access");
+    expect(container.textContent).toContain(
+      "would tell you somebody still has access",
+    );
   });
 
   it("states an empty list only when the server actually sent one", async () => {
@@ -687,16 +881,25 @@ describe("the confirmation strings this console sends", () => {
   const rbacEnd = rbac.indexOf("SUPERADMIN_ROLE:", rbacStart);
 
   it("match the builders in apps/api/admin/operator_routes.py", () => {
-    expect(source, "operator_routes.py no longer builds the create confirmation").toContain(
-      'return f"add_operator:{role}"',
-    );
+    expect(
+      source,
+      "operator_routes.py no longer builds the create confirmation",
+    ).toContain('return f"add_operator:{role}"');
     expect(source).toContain('return f"set_operator_role:{operator_id}"');
     expect(source).toContain('return f"revoke_operator:{operator_id}"');
-    expect(source).toContain('return f"reissue_operator_setup_link:{operator_id}"');
+    expect(source).toContain(
+      'return f"reissue_operator_setup_link:{operator_id}"',
+    );
 
-    expect(addOperatorConfirmation("superadmin")).toBe("add_operator:superadmin");
-    expect(operatorRoleConfirmation(ASHA_ID)).toBe(`set_operator_role:${ASHA_ID}`);
-    expect(operatorRevocationConfirmation(ASHA_ID)).toBe(`revoke_operator:${ASHA_ID}`);
+    expect(addOperatorConfirmation("superadmin")).toBe(
+      "add_operator:superadmin",
+    );
+    expect(operatorRoleConfirmation(ASHA_ID)).toBe(
+      `set_operator_role:${ASHA_ID}`,
+    );
+    expect(operatorRevocationConfirmation(ASHA_ID)).toBe(
+      `revoke_operator:${ASHA_ID}`,
+    );
     expect(operatorSetupLinkConfirmation(ASHA_ID)).toBe(
       `reissue_operator_setup_link:${ASHA_ID}`,
     );
@@ -726,9 +929,10 @@ describe("the confirmation strings this console sends", () => {
    * a few lines up.
    */
   it("describe a narrow tier that the role table still describes the same way", () => {
-    expect(rbacStart, "core/rbac.py no longer spells the normal tier this way").toBeGreaterThan(
-      -1,
-    );
+    expect(
+      rbacStart,
+      "core/rbac.py no longer spells the normal tier this way",
+    ).toBeGreaterThan(-1);
     expect(rbacEnd).toBeGreaterThan(rbacStart);
     const normalTier = rbac.slice(rbacStart, rbacEnd);
     for (const permission of [
@@ -764,8 +968,12 @@ describe("the confirmation strings this console sends", () => {
         "sentence about it (selfAdministrationBlock) is then a rule it invented.",
     ).toContain('code="operator_self_administration"');
     // And it refuses BOTH acts, which is what makes the row hide both controls.
-    expect(operators).toContain('_refuse_self(actor, operator_id, act="change the role of")');
-    expect(operators).toContain('_refuse_self(actor, operator_id, act="revoke")');
+    expect(operators).toContain(
+      '_refuse_self(actor, operator_id, act="change the role of")',
+    );
+    expect(operators).toContain(
+      '_refuse_self(actor, operator_id, act="revoke")',
+    );
   });
 
   it("guard a surface only a superadmin can reach", () => {
@@ -783,6 +991,8 @@ describe("naming an account on a control", () => {
     // ladder ends at the id rather than at a word like "Unnamed".
     expect(operatorLabel(operator())).toBe("Asha Rao");
     expect(operatorLabel(operator({ name: null }))).toBe("asha@calevate.tech");
-    expect(operatorLabel(operator({ name: null, email: null }))).toBe(`account ${ASHA_ID}`);
+    expect(operatorLabel(operator({ name: null, email: null }))).toBe(
+      `account ${ASHA_ID}`,
+    );
   });
 });

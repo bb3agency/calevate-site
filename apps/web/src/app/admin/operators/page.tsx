@@ -13,8 +13,16 @@ import {
   UserPlus,
 } from "lucide-react";
 
-import { adminAccess, identityAnswerPending, useAdminMe } from "@/app/admin/access";
-import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
+import {
+  adminAccess,
+  identityAnswerPending,
+  useAdminMe,
+} from "@/app/admin/access";
+import {
+  WithheldPanel,
+  forbiddenReason,
+  isForbidden,
+} from "@/app/admin/withheld";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
   Card,
@@ -27,6 +35,8 @@ import {
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
+  TypedConfirmation,
+  confirmationMatches,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -36,11 +46,8 @@ import {
 import {
   ADMIN_ROLES,
   ROLE_COPY,
-  addOperatorConfirmation,
+  operatorConfirmPhrase,
   operatorLabel,
-  operatorRevocationConfirmation,
-  operatorRoleConfirmation,
-  operatorSetupLinkConfirmation,
   selfAdministrationBlock,
   tierChangeTarget,
   useAddOperator,
@@ -119,7 +126,11 @@ export default function OperatorsPage() {
    * one observer keeps it closed for the next reader too.
    */
   const me = useAdminMe();
-  const access = adminAccess(me, "admin:operators", "manage who may use this console");
+  const access = adminAccess(
+    me,
+    "admin:operators",
+    "manage who may use this console",
+  );
 
   // The gate `admin/ops/page.tsx` puts in front of its permission-gated panels, for the
   // same two reasons: mounting the list for an unknown session fires a `GET` that can
@@ -129,7 +140,10 @@ export default function OperatorsPage() {
     return (
       <div className="max-w-3xl space-y-5">
         <Card title="Admin accounts">
-          <Skeleton rows={4} label="Checking whether you may manage admin accounts…" />
+          <Skeleton
+            rows={4}
+            label="Checking whether you may manage admin accounts…"
+          />
         </Card>
       </div>
     );
@@ -140,7 +154,10 @@ export default function OperatorsPage() {
       <div className="max-w-3xl space-y-5">
         <WithheldPanel
           title="Admin accounts"
-          reason={access.reason ?? "Your admin account cannot manage who may use this console."}
+          reason={
+            access.reason ??
+            "Your admin account cannot manage who may use this console."
+          }
           subject="This screen would list who may sign in to this console and in which tier."
         />
       </div>
@@ -223,9 +240,9 @@ function OperatorsScreen({
   return (
     <div className="max-w-3xl space-y-5 pb-12">
       <p className="text-sm text-ink-muted">
-        Everyone who can sign in to this console, and what each of them may do. Adding,
-        promoting, demoting and revoking are all recorded in the audit log against your
-        own account, with the reason you type.
+        Everyone who can sign in to this console, and what each of them may do.
+        Adding, promoting, demoting and revoking are all recorded in the audit
+        log against your own account, with the reason you type.
       </p>
 
       {restriction && (
@@ -236,9 +253,9 @@ function OperatorsScreen({
         >
           <p className="mt-1">{restriction}</p>
           <p className="mt-2">
-            The controls below stay closed until we know. These actions are only ever
-            allowed for a super admin, whatever this screen shows, so nothing is being
-            withheld that you could otherwise have done.
+            The controls below stay closed until we know. These actions are only
+            ever allowed for a super admin, whatever this screen shows, so
+            nothing is being withheld that you could otherwise have done.
           </p>
         </NoticeBox>
       )}
@@ -253,7 +270,8 @@ function OperatorsScreen({
              evidence. */
           operators ? (
             <span className="text-xs text-ink-faint">
-              {formatCount(operators.length)} {operators.length === 1 ? "account" : "accounts"}
+              {formatCount(operators.length)}{" "}
+              {operators.length === 1 ? "account" : "accounts"}
             </span>
           ) : undefined
         }
@@ -261,14 +279,18 @@ function OperatorsScreen({
       >
         {list.error != null && (
           <div className="mb-3 space-y-2 px-4 pt-2">
-            <ProblemNotice error={list.error} onRetry={() => void list.refetch()} />
+            <ProblemNotice
+              error={list.error}
+              onRetry={() => void list.refetch()}
+            />
             {/* Said out loud, because an empty card under an error box is otherwise
                 indistinguishable from "there is nobody" — and on this screen those are
                 opposite facts. */}
             <p className="text-xs text-ink-muted">
-              No accounts are listed while that read is failing, including any this screen
-              had already shown: a list that is thirty seconds stale would tell you
-              somebody still has access after another super admin has taken it away.
+              No accounts are listed while that read is failing, including any
+              this screen had already shown: a list that is thirty seconds stale
+              would tell you somebody still has access after another super admin
+              has taken it away.
             </p>
           </div>
         )}
@@ -300,9 +322,10 @@ function OperatorsScreen({
         )}
 
         <p className="px-4 pb-3 pt-1 text-xs text-ink-faint">
-          Revoked accounts are not listed: their rows survive as the record of what they
-          approved, and &ldquo;who was removed and when&rdquo; is a question for the audit
-          log, which keeps a record that cannot be quietly changed.
+          Revoked accounts are not listed: their rows survive as the record of
+          what they approved, and &ldquo;who was removed and when&rdquo; is a
+          question for the audit log, which keeps a record that cannot be
+          quietly changed.
         </p>
       </Card>
     </div>
@@ -357,13 +380,18 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
   const [typed, setTyped] = useState("");
   const [added, setAdded] = useState<Operator | null>(null);
 
-  const confirmation = addOperatorConfirmation(role);
+  // NOTE: the header the API validates is still `add_operator:<role>` and is built by
+  // `useAddOperator` (`lib/api/adminOperators`), which is where it always belonged — the
+  // wire value is a property of the REQUEST, not of this form. This screen's job is the
+  // human half.
   const copy = lookup(ROLE_COPY, role);
+  /** What a PERSON types. The tier, in the words the picker shows. */
+  const confirmPhrase = (copy?.label ?? role).toUpperCase();
   const ready =
     !disabled &&
     email.trim().length >= 3 &&
     reason.trim().length >= 3 &&
-    typed.trim() === confirmation;
+    confirmationMatches(typed, confirmPhrase);
 
   return (
     <Card title="Add an admin">
@@ -392,7 +420,12 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
           );
         }}
       >
-        <div className="flex flex-wrap gap-3">
+        {/* A GRID, NOT `flex flex-wrap` WITH HAND-PICKED WIDTHS. The three fields
+            were `sm:w-72`, `sm:w-56` and full-width — three arbitrary numbers giving
+            a ragged right edge and a wrap order nobody chose. One column on a phone,
+            two on a tablet, three on a desktop; they line up because the grid
+            decides, and no field carries a width of its own. */}
+        <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
           <label className="block">
             <span className={FIELD_LABEL}>Their email address</span>
             <input
@@ -410,12 +443,8 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
               // `tests/responsive.test.ts` chases through `min-w-` utilities, arriving
               // through the one utility it does not scan. The breakpoint keeps the roomy
               // desktop field and lets the phone have the row.
-              className={`${FIELD} w-full sm:w-72`}
+              className={FIELD}
             />
-            <span className={FIELD_HINT}>
-              The setup link is mailed here and nowhere else — we cannot show it to you,
-              and there is no password to pass on.
-            </span>
           </label>
           <label className="block">
             <span className={FIELD_LABEL}>Their name (optional)</span>
@@ -426,7 +455,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
               autoComplete="off"
               placeholder="Asha Rao"
               aria-label="Name of the admin to add"
-              className={`${FIELD} w-full sm:w-56`}
+              className={FIELD}
             />
           </label>
           <label className="block">
@@ -454,14 +483,27 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
           </label>
         </div>
 
+        {/* Under the ROW, not under the first column — where it wrapped into a narrow
+            ribbon beside two empty fields. */}
+        <p className={FIELD_HINT}>
+          The setup link is mailed to that address and nowhere else — we cannot
+          show it to you, and there is no password to pass on.
+        </p>
+
         {/* WHAT THE TIER MEANS, ABOVE THE BUTTON — the sentence somebody is actually
             deciding on. A super admin can replace the Bolna key and add further admins;
             nothing else on this screen says so. */}
         <div className="flex gap-3 rounded-card border border-line bg-surface p-4 text-sm">
           {role === "superadmin" ? (
-            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+            <TriangleAlert
+              aria-hidden
+              className="mt-0.5 h-4 w-4 shrink-0 text-rose-600"
+            />
           ) : (
-            <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <ShieldCheck
+              aria-hidden
+              className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint"
+            />
           )}
           <div className="min-w-0">
             <p className="font-semibold text-ink">
@@ -469,8 +511,19 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
                 ? "A super admin can do everything you can, including this screen"
                 : "An admin runs onboarding and support, and nothing platform-wide"}
             </p>
-            <p className="mt-1 text-ink-muted">{copy?.can}</p>
-            {copy?.cannot && <p className="mt-1 text-ink-muted">{copy.cannot}</p>}
+            {/* LABELLED HALVES. These were two consecutive paragraphs in one colour, so
+                a reader had to parse each to learn which was the grant and which the
+                limit — on the screen where that distinction IS the decision. Labelling
+                them makes it scannable without shortening either. */}
+            <p className="mt-2 text-ink-muted">
+              <span className="font-medium text-ink">Can</span> {copy?.can}
+            </p>
+            {copy?.cannot && (
+              <p className="mt-1.5 text-ink-muted">
+                <span className="font-medium text-ink">Cannot</span>{" "}
+                {copy.cannot}
+              </p>
+            )}
           </div>
         </div>
 
@@ -488,34 +541,37 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
             className={FIELD}
           />
           <span className={FIELD_HINT}>
-            Recorded in the audit log beside who asked for it. Whoever reads this row in a
-            year has to be able to decide whether the reason still holds.
+            Recorded in the audit log beside who asked for it. Whoever reads
+            this row in a year has to be able to decide whether the reason still
+            holds.
           </span>
         </label>
 
-        <label className="block">
-          <span className={FIELD_LABEL}>Type the confirmation</span>
-          <input
-            value={typed}
-            disabled={disabled}
-            autoComplete="off"
-            onChange={(event) => {
-              setTyped(event.target.value);
-              add.reset();
-            }}
-            aria-label={`Type ${confirmation} to confirm adding this admin`}
-            className={`${FIELD} font-mono`}
-          />
-          <span className={FIELD_HINT}>
-            <code>{confirmation}</code> — the exact phrase this action needs, typed by hand
-            so it cannot be sent by accident. It names the tier, so it changes when you
-            change the tier.
-          </span>
-        </label>
+        {/* THE TIER, IN WORDS — not the API's `add_operator:<role>`. See
+            `TypedConfirmation`: the phrase has to be specific enough that typing it is
+            an act of attention, and readable enough that somebody types it rather than
+            copying it. The tier is both, and it is what the server binds its own header
+            to, so the two agree about what is being consented to. */}
+        <TypedConfirmation
+          phrase={confirmPhrase}
+          binding="Naming the tier is the confirmation: change the tier and this phrase changes with it, so a phrase typed to add an admin cannot add a super admin."
+          value={typed}
+          disabled={disabled}
+          onChange={(next) => {
+            setTyped(next);
+            add.reset();
+          }}
+        />
 
-        <button type="submit" disabled={!ready || add.isPending} className={PRIMARY_BUTTON}>
+        <button
+          type="submit"
+          disabled={!ready || add.isPending}
+          className={PRIMARY_BUTTON}
+        >
           <UserPlus aria-hidden className="h-4 w-4" />
-          {add.isPending ? "Adding…" : `Add ${copy?.label.toLowerCase() ?? role}`}
+          {add.isPending
+            ? "Adding…"
+            : `Add ${copy?.label.toLowerCase() ?? role}`}
         </button>
 
         {disabled && (
@@ -540,13 +596,15 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
             title={`Setup link sent to ${added.email ?? operatorLabel(added)}`}
           >
             <p className="mt-1">
-              The account exists and cannot sign in until they follow that link and choose
-              their own password. It works once and expires within the hour.
+              The account exists and cannot sign in until they follow that link
+              and choose their own password. It works once and expires within
+              the hour.
             </p>
             <p className="mt-2 text-xs">
-              We cannot show or forward the link — it is stored only as a fingerprint. If
-              it does not arrive, use <span className="font-semibold">Resend setup link</span>{" "}
-              on their row below, which invalidates the previous one.
+              We cannot show or forward the link — it is stored only as a
+              fingerprint. If it does not arrive, use{" "}
+              <span className="font-semibold">Resend setup link</span> on their
+              row below, which invalidates the previous one.
             </p>
           </NoticeBox>
         </div>
@@ -589,7 +647,9 @@ function OperatorRow({
           )}
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-ink">{operator.name ?? "No name on file"}</span>
+          <span className="block truncate text-ink">
+            {operator.name ?? "No name on file"}
+          </span>
           {/* The whole address, like the client realm's pending-invite row (D-436): a
               super admin has to be able to tell two accounts at one domain apart before
               revoking one of them, and the confirmations below are typed against a row
@@ -631,8 +691,9 @@ function OperatorRow({
               {target === null ? (
                 <span className="text-xs text-ink-muted">
                   This console does not recognise the tier{" "}
-                  <span className="font-mono">{operator.role}</span>, so it will not guess
-                  which way a change would move them. Revoking still works.
+                  <span className="font-mono">{operator.role}</span>, so it will
+                  not guess which way a change would move them. Revoking still
+                  works.
                 </span>
               ) : (
                 <button
@@ -674,7 +735,11 @@ function OperatorRow({
       </div>
 
       {open === "role" && target !== null && (
-        <RoleChangePanel operator={operator} target={target} onClose={() => setOpen(null)} />
+        <RoleChangePanel
+          operator={operator}
+          target={target}
+          onClose={() => setOpen(null)}
+        />
       )}
       {open === "revoke" && (
         <RevokePanel operator={operator} onClose={() => setOpen(null)} />
@@ -698,7 +763,7 @@ function OperatorRow({
 function ConfirmBlock({
   heading,
   consequence,
-  confirmation,
+  confirmPhrase,
   reasonLabel,
   actionLabel,
   pendingLabel,
@@ -712,7 +777,11 @@ function ConfirmBlock({
 }: {
   heading: string;
   consequence: ReactNode;
-  confirmation: string;
+  /**
+   * What a PERSON types — the account's address, not the API's id-bound header string.
+   * `TypedConfirmation` argues why the two are different requirements.
+   */
+  confirmPhrase: string;
   /**
    * The reason box's accessible name, naming the ACT and the account.
    *
@@ -738,20 +807,25 @@ function ConfirmBlock({
   // Trimmed before it is measured, because the API strips it and refuses anything under
   // three characters — a form that lights up on "   " teaches an operator the API is
   // flaky (`admin/ops/page.tsx` records the same trap).
-  const ready = reason.trim().length >= 3 && typed.trim() === confirmation && !pending;
+  const ready =
+    reason.trim().length >= 3 &&
+    confirmationMatches(typed, confirmPhrase) &&
+    !pending;
 
   return (
     <div className="mt-3 space-y-3 rounded-card border border-line bg-surface p-4">
       <div className="flex gap-3">
-        <span className={`mt-0.5 shrink-0 ${danger ? "text-rose-600" : "text-ink-faint"}`}>
+        <span
+          className={`mt-0.5 shrink-0 ${danger ? "text-rose-600" : "text-ink-faint"}`}
+        >
           {icon}
         </span>
         <div className="min-w-0">
           <p className="font-semibold text-ink">{heading}</p>
           <div className="mt-1 text-ink-muted">{consequence}</div>
           <p className="mt-1 text-xs text-ink-faint">
-            Recorded in the audit log against your admin account, with the reason you type
-            below.
+            Recorded in the audit log against your admin account, with the
+            reason you type below.
           </p>
         </div>
       </div>
@@ -772,20 +846,18 @@ function ConfirmBlock({
         />
       </label>
 
-      <label className="block">
-        <span className={FIELD_LABEL}>Type the confirmation</span>
-        <input
-          value={typed}
-          autoComplete="off"
-          onChange={(event) => setTyped(event.target.value)}
-          aria-label={`Type ${confirmation} to confirm`}
-          className={`${FIELD} font-mono`}
-        />
-        <span className={FIELD_HINT}>
-          <code>{confirmation}</code> — the exact phrase this action needs, typed by hand.
-          It names this account, so a phrase typed for somebody else cannot be used here.
-        </span>
-      </label>
+      {/* WHO, not `revoke_operator:<uuid>`. The old phrase was a UUID, and nobody types
+          a UUID — they copy it, which is a click with extra steps and confirms nothing.
+          The address is the thing an operator would most regret getting wrong here, so
+          it is the thing worth reading twice. It never leaves this page: the header the
+          API validates is still the id-bound string (hard rule 6 keeps mailboxes out of
+          headers). */}
+      <TypedConfirmation
+        phrase={confirmPhrase}
+        binding="This names the account you are acting on, so a phrase typed for somebody else cannot be used here."
+        value={typed}
+        onChange={setTyped}
+      />
 
       {error != null && <WriteFailure error={error} />}
 
@@ -798,7 +870,12 @@ function ConfirmBlock({
         >
           {pending ? pendingLabel : actionLabel}
         </button>
-        <button type="button" disabled={pending} onClick={onClose} className={SECONDARY_BUTTON}>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={onClose}
+          className={SECONDARY_BUTTON}
+        >
           Cancel
         </button>
       </div>
@@ -839,20 +916,20 @@ function RoleChangePanel({
         promoting ? (
           <p>
             They gain everything you can do: the vendor API keys, the platform
-            configuration, the incident switches, and this screen — so they will be able to
-            add and remove admins, including you. Their live sessions end, so the change is
-            in force on their next request.
+            configuration, the incident switches, and this screen — so they will
+            be able to add and remove admins, including you. Their live sessions
+            end, so the change is in force on their next request.
           </p>
         ) : (
           <p>
-            They keep onboarding and support across every client and lose the four
-            platform-wide authorities: the vendor API keys, the platform configuration, the
-            incident switches and this screen. Their live sessions end, so the change is in
-            force on their next request.
+            They keep onboarding and support across every client and lose the
+            four platform-wide authorities: the vendor API keys, the platform
+            configuration, the incident switches and this screen. Their live
+            sessions end, so the change is in force on their next request.
           </p>
         )
       }
-      confirmation={operatorRoleConfirmation(operator.id)}
+      confirmPhrase={operatorConfirmPhrase(operator)}
       reasonLabel={`Why you are changing ${label}'s tier`}
       actionLabel={promoting ? "Promote to super admin" : "Demote to admin"}
       pendingLabel="Saving…"
@@ -873,7 +950,13 @@ function RoleChangePanel({
   );
 }
 
-function RevokePanel({ operator, onClose }: { operator: Operator; onClose: () => void }) {
+function RevokePanel({
+  operator,
+  onClose,
+}: {
+  operator: Operator;
+  onClose: () => void;
+}) {
   const revoke = useRevokeOperator();
   const label = operatorLabel(operator);
 
@@ -883,19 +966,20 @@ function RevokePanel({ operator, onClose }: { operator: Operator; onClose: () =>
       consequence={
         <>
           <p>
-            Their password, their live sessions and any outstanding setup link are
-            destroyed, and they cannot sign in from their next request onwards. There is no
-            undo: adding them again creates a new account and a new setup link.
+            Their password, their live sessions and any outstanding setup link
+            are destroyed, and they cannot sign in from their next request
+            onwards. There is no undo: adding them again creates a new account
+            and a new setup link.
           </p>
           {/* The one thing an operator will otherwise ask support about, said here. */}
           <p className="mt-1">
-            Their row is kept and their name stays on what they decided — the campaigns
-            they approved, the identity checks they signed off, the credentials they
-            installed. Nothing about this is a data erasure.
+            Their row is kept and their name stays on what they decided — the
+            campaigns they approved, the identity checks they signed off, the
+            credentials they installed. Nothing about this is a data erasure.
           </p>
         </>
       }
-      confirmation={operatorRevocationConfirmation(operator.id)}
+      confirmPhrase={operatorConfirmPhrase(operator)}
       reasonLabel={`Why you are revoking ${label}'s access`}
       actionLabel="Revoke access"
       pendingLabel="Revoking…"
@@ -904,14 +988,23 @@ function RevokePanel({ operator, onClose }: { operator: Operator; onClose: () =>
       pending={revoke.isPending}
       error={revoke.error}
       onConfirm={(reason) =>
-        revoke.mutate({ operatorId: operator.id, reason }, { onSuccess: () => onClose() })
+        revoke.mutate(
+          { operatorId: operator.id, reason },
+          { onSuccess: () => onClose() },
+        )
       }
       onClose={onClose}
     />
   );
 }
 
-function ResendPanel({ operator, onClose }: { operator: Operator; onClose: () => void }) {
+function ResendPanel({
+  operator,
+  onClose,
+}: {
+  operator: Operator;
+  onClose: () => void;
+}) {
   const resend = useResendOperatorSetupLink();
   const label = operatorLabel(operator);
 
@@ -922,19 +1015,22 @@ function ResendPanel({ operator, onClose }: { operator: Operator; onClose: () =>
         <>
           <p>
             A new single-use link is mailed to{" "}
-            <span className="font-mono">{operator.email ?? "their address"}</span> and the
-            previous one stops working. It is not shown here and cannot be forwarded.
+            <span className="font-mono">
+              {operator.email ?? "their address"}
+            </span>{" "}
+            and the previous one stops working. It is not shown here and cannot
+            be forwarded.
           </p>
           {/* THIS IS NOT A PASSWORD RESET, and the API refuses to let it become one. Said
               here because the button is next to a name and the temptation is obvious. */}
           <p className="mt-1">
-            This only works for an account that has never set a password. Somebody who has
-            forgotten theirs uses the sign-in page&apos;s reset, which mails the link to
-            them rather than to you.
+            This only works for an account that has never set a password.
+            Somebody who has forgotten theirs uses the sign-in page&apos;s
+            reset, which mails the link to them rather than to you.
           </p>
         </>
       }
-      confirmation={operatorSetupLinkConfirmation(operator.id)}
+      confirmPhrase={operatorConfirmPhrase(operator)}
       reasonLabel={`Why you are re-sending ${label}'s setup link`}
       actionLabel="Send a new setup link"
       pendingLabel="Sending…"
@@ -943,7 +1039,10 @@ function ResendPanel({ operator, onClose }: { operator: Operator; onClose: () =>
       pending={resend.isPending}
       error={resend.error}
       onConfirm={(reason) =>
-        resend.mutate({ operatorId: operator.id, reason }, { onSuccess: () => onClose() })
+        resend.mutate(
+          { operatorId: operator.id, reason },
+          { onSuccess: () => onClose() },
+        )
       }
       onClose={onClose}
     />
