@@ -81,8 +81,8 @@ describe("which form carries the product name", () => {
     const { container } = render(
       <>
         <BrandIcon size={36} />
-        <BrandWordmark height={40} />
-        <BrandLockup height={38} />
+        <BrandWordmark height={52} />
+        <BrandLockup height={52} />
       </>,
     );
     const sizes = Array.from(container.querySelectorAll("img")).map((img) => [
@@ -92,8 +92,8 @@ describe("which form carries the product name", () => {
     // The wordmark and lockup canvases are 3:1; the mark is square.
     expect(sizes).toEqual([
       ["36", "36"],
-      ["120", "40"],
-      ["114", "38"],
+      ["156", "52"],
+      ["156", "52"],
     ]);
   });
 });

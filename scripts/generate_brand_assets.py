@@ -61,6 +61,21 @@ DERIVATIVES: list[tuple[str, Path, int]] = [
     ("calevate-icon-logo-no-text.png", APP / "apple-icon.png", 180),
 ]
 
+#: The sizes packed into `app/favicon.ico`.
+#:
+#: `favicon.ico` IS WHY THE TAB STILL SHOWED THE OLD MARK after `icon.png` landed. Next
+#: emits BOTH files' link tags and gives the `.ico` `sizes="any"`, which browsers read as
+#: "usable at every size" and prefer over a single-resolution PNG. Adding `icon.png` beside
+#: a stale `.ico` therefore changes nothing a user can see — the file that has to change is
+#: this one. Deleting it instead would work, but an `.ico` at the well-known path is also
+#: what a crawler, a feed reader and a bookmark bar fetch without reading any markup.
+#:
+#: 16/32/48 covers the tab, the bookmark bar and Windows' larger list views. The images are
+#: embedded as PNG rather than BMP, which every browser has accepted since IE11 and which
+#: keeps the alpha channel exact — a BMP-in-ICO carries its transparency in a separate
+#: 1-bit mask, so the mark's antialiased curves would come back with hard edges.
+FAVICON_SIZES = (16, 32, 48)
+
 
 def read_rgba(path: Path) -> tuple[int, int, bytearray]:
     """Decode a non-interlaced 8-bit RGBA PNG into a flat byte buffer."""
@@ -190,6 +205,25 @@ def write_rgba(path: Path, width: int, height: int, pixels: bytearray) -> None:
     )
 
 
+def write_ico(path: Path, images: list[tuple[int, bytes]]) -> None:
+    """Pack `(size, png_bytes)` pairs into a Windows ICO.
+
+    The format is a 6-byte ICONDIR, one 16-byte ICONDIRENTRY per image, then the image
+    data (docs.microsoft.com/en-us/previous-versions/ms997538(v=msdn.10)). A dimension of
+    256 is stored as 0 — the field is one byte — which is why nothing here may exceed 48
+    without handling that case; `FAVICON_SIZES` is asserted against it rather than trusted.
+    """
+    if any(size > 255 for size, _ in images):
+        raise ValueError("an ICO dimension above 255 must be stored as 0; see the docstring")
+    header = struct.pack("<HHH", 0, 1, len(images))
+    offset = len(header) + 16 * len(images)
+    directory, blob = b"", b""
+    for size, png in images:
+        directory += struct.pack("<BBBBHHII", size, size, 0, 0, 1, 32, len(png), offset + len(blob))
+        blob += png
+    path.write_bytes(header + directory + blob)
+
+
 def main() -> int:
     for master_name, out, width in DERIVATIVES:
         master = MASTERS / master_name
@@ -201,6 +235,21 @@ def main() -> int:
             f"{out.relative_to(REPO)}  {width}x{height}  "
             f"{out.stat().st_size / 1024:.0f}KB  (from {master_name} {sw}x{sh})"
         )
+    # The favicon last, reusing the same downsampler so the tab mark cannot drift from
+    # the one in the sidebar.
+    sw, sh, pixels = read_rgba(MASTERS / "calevate-icon-logo-no-text.png")
+    packed: list[tuple[int, bytes]] = []
+    for size in FAVICON_SIZES:
+        scratch = APP / f".favicon-{size}.png"
+        write_rgba(scratch, size, size, box_downsample(pixels, sw, sh, size, size))
+        packed.append((size, scratch.read_bytes()))
+        scratch.unlink()
+    ico = APP / "favicon.ico"
+    write_ico(ico, packed)
+    print(
+        f"{ico.relative_to(REPO)}  {'/'.join(str(s) for s in FAVICON_SIZES)}  "
+        f"{ico.stat().st_size / 1024:.0f}KB  (from calevate-icon-logo-no-text.png {sw}x{sh})"
+    )
     return 0
 
 
