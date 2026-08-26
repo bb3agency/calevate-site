@@ -68,10 +68,14 @@ Step-up asks who is at the keyboard, not what they may do.
 
 ### The part that needed an argument: an OTP every fourteen minutes
 
-`REAUTH_MAX_AGE` is 5 minutes. `GRANT_TTL` is 15, and the console re-mints 60 s before
-expiry. So the naive shape — demand a fresh factor on every mint — challenges an operator
-roughly **every fourteen minutes** for as long as they stay in a client's account, doing
-read-only support work.
+`REAUTH_MAX_AGE` was 5 minutes when this was written and is **30** since D-473; the
+conclusion is unchanged and the arithmetic is not, so both are recorded. `GRANT_TTL` is 15
+and the console re-mints 60 s before expiry. At 5, the naive shape — demand a fresh factor
+on every mint — challenged an operator roughly **every fourteen minutes** for as long as
+they stayed in a client's account, doing read-only support work. At 30 the first half hour
+is free and the challenge begins partway through a session that may run to
+`VIEW_AS_MAX_AGE` = 1 h — better, and still an interruption the operator cannot predict, in
+the back half of every long support session.
 
 `apps/api/authn/stepup.py` already names that failure mode in its own words, about this very
 control: gating something on a flow that does not work is "a control that gets switched

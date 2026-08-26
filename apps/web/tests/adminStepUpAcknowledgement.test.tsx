@@ -111,17 +111,17 @@ describe("proving a second factor acknowledges itself", () => {
     });
   });
 
-  it("leaves the refusal standing when the code is never proved", async () => {
+  it("leaves the refusal standing while the code is unproved, and offers no way to dodge it", async () => {
     mount();
 
     fireEvent.click(screen.getByRole("button", { name: /send me a code/i }));
-    await screen.findByRole("alertdialog");
-    fireEvent.click(screen.getByRole("button", { name: /close without confirming/i }));
+    const dialog = await screen.findByRole("alertdialog");
 
-    await waitFor(() => {
-      expect(screen.queryByRole("alertdialog")).toBeNull();
-    });
-    // Still the refusal: a dismissed prompt proved nothing, and a screen that congratulated
+    // D-473: the prompt has two exits, and neither is "dismiss". Escape is inert.
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+
+    // Still the refusal underneath: nothing was proved, and a screen that congratulated
     // the operator here would be lying about the state of their session.
     expect(screen.getByRole("alert").textContent).toContain("Nothing was changed");
     expect(screen.queryByRole("status")).toBeNull();

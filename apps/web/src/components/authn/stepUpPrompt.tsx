@@ -3,8 +3,8 @@
 /**
  * The code prompt that clears a step-up refusal, without leaving the screen (D-210).
  *
- * `core/stepup.py` demands a second factor proved in the last five minutes before a
- * dangerous admin action, and `authn/stepup.py::reauthentication_required` prints the two
+ * `core/stepup.py` demands a recently-proved second factor before a dangerous admin
+ * action, and `authn/stepup.py::reauthentication_required` prints the two
  * endpoints that clear it — because "an operator mid-incident must not have to find the
  * source to learn how to get past this". They should not have to find the source OR a
  * curl either, which is what this panel is: the refusal's own remediation, as two buttons.
@@ -32,11 +32,17 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { KeyRound, Mail, ShieldCheck, X } from "lucide-react";
+import { KeyRound, LogOut, Mail, ShieldCheck } from "lucide-react";
 
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
-import { confirmAdminStepUp, requestAdminStepUp } from "@/lib/authn/adminAuthn";
+import {
+  ADMIN_SIGN_IN_PATH,
+  adminAuthn,
+  confirmAdminStepUp,
+  requestAdminStepUp,
+} from "@/lib/authn/adminAuthn";
+import { markSignedOut } from "@/lib/authn/signedOutNotice";
 import { useCountdown } from "@/lib/authn/useCountdown";
 import {
   completeStepUpPrompt,
@@ -53,6 +59,18 @@ import { useFocusTrap } from "@/lib/focusTrap";
  * the real limit would invite somebody to relax it.
  */
 const RESEND_COOLDOWN_MS = 60_000;
+
+/**
+ * How long a proved factor lasts, in minutes — `authn/stepup.REAUTH_MAX_AGE`.
+ *
+ * A SECOND COPY OF A SERVER NUMBER, so it is pinned rather than trusted. This sentence
+ * read "the last five minutes" as a hardcoded string while the constant it describes was
+ * being changed to thirty; nothing would have caught that, and the operator would have
+ * been told the wrong thing by the one screen whose whole job is explaining this control.
+ * `tests/step_up_window_mirror_test.py` reads this literal out of this file and compares
+ * it to the Python constant, so the two cannot drift again.
+ */
+export const REAUTH_WINDOW_MINUTES = 30;
 
 export function StepUpPrompt() {
   const prompt = useSyncExternalStore(subscribeToStepUpPrompt, readStepUpPrompt, readStepUpPrompt);
@@ -72,10 +90,53 @@ export function StepUpPrompt() {
     setResendReadyAt(null);
   }, []);
 
-  const close = useCallback(() => {
+  const [leaving, setLeaving] = useState(false);
+
+  /**
+   * THE ONLY WAY OUT OF THIS PANEL THAT IS NOT PROVING THE FACTOR (D-473).
+   *
+   * There used to be an `X`. It was argued for on the grounds that this prompt "blocks
+   * exactly one action the operator asked for", so trapping them would be unkind — and
+   * that reasoning was sound about the ACTION and wrong about the SCREEN. A close control
+   * on a second-factor challenge reads as "not now", which is exactly the posture the
+   * challenge exists to refuse: the person who cannot answer it is either the operator,
+   * who can, or somebody at their unattended keyboard, who cannot and should not be left
+   * with the console open. Founder's call, and it is the stricter of the two.
+   *
+   * `dismissStepUpPrompt()` still runs, FIRST and unconditionally. Every caller awaiting
+   * `requireStepUp` must be settled `false` or it waits on a prompt that is being torn
+   * down — and the sign-out network call may fail, so settling cannot be made to depend on
+   * it. Same reason the unmount effect below settles too.
+   *
+   * `markSignedOut` is what makes the sign-in page say "you have been signed out" instead
+   * of appearing for no reason; it returns false for a session that never existed, so a
+   * fresh tab is not told it lost something.
+   */
+  const signOutAndLeave = useCallback(() => {
+    if (leaving) return;
+    setLeaving(true);
     reset();
     dismissStepUpPrompt();
-  }, [reset]);
+    markSignedOut("admin");
+    // `window.location.assign`, not the router: the session cookie is gone, so every
+    // client-side cache in this tree is about to describe a session that no longer
+    // exists. A full document load is the same exit `adminIdleTimeoutModal` takes, for
+    // the same reason.
+    //
+    // `.catch()` BEFORE `.finally()`, and the order is the point: `finally` passes a
+    // rejection through, so `signOut().finally(leave)` leaves AND raises an unhandled
+    // rejection when the logout request fails — which is precisely the case this path
+    // exists for, an operator abandoning a console whose network may be the reason they
+    // are stuck. The local session state is already cleared by `signOut`'s own `finally`
+    // (`lib/authn/realm.ts`), so there is nothing here to report and nothing to retry:
+    // the browser must stop believing it holds a session either way.
+    void adminAuthn
+      .signOut()
+      .catch(() => undefined)
+      .finally(() => {
+        if (typeof window !== "undefined") window.location.assign(ADMIN_SIGN_IN_PATH);
+      });
+  }, [leaving, reset]);
 
   const send = useCallback(() => {
     if (sending || cooldown > 0) return;
@@ -120,11 +181,13 @@ export function StepUpPrompt() {
   // Empty deps so this runs on unmount ONLY, never on a re-render.
   useEffect(() => dismissStepUpPrompt, []);
 
-  // Escape DOES dismiss here, unlike the idle-timeout modal. That one hides a running
-  // countdown, so closing it silently is a deadline nobody can see; this one blocks
-  // exactly one action the operator asked for, and refusing to let them out of it would
-  // trap them on a screen whose only other exit is a sign-out.
-  useFocusTrap(panel, prompt !== null, close, "first-tabbable");
+  // Escape does NOT dismiss, and that is the same decision as the missing `X` rather than
+  // a separate one: leaving the close button off while Escape still closed it would hide
+  // the exit rather than remove it, which is worse than either — the control would look
+  // strict and behave loosely, and only a keyboard user would know. The two exits are
+  // proving the factor and signing out, which is what an `alertdialog` is for. This
+  // matches `adminIdleTimeoutModal`, whose trap takes the same no-op.
+  useFocusTrap(panel, prompt !== null, () => {}, "first-tabbable");
 
   if (prompt === null) return null;
 
@@ -147,21 +210,14 @@ export function StepUpPrompt() {
             <ShieldCheck aria-hidden className="h-4 w-4" />
             Confirm it is still you
           </h2>
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close without confirming"
-            className="rounded-md p-1 text-ink-faint hover:bg-surface-muted hover:text-ink"
-          >
-            <X aria-hidden className="h-4 w-4" />
-          </button>
         </div>
 
         <div id="step-up-body" className="mt-3 space-y-3 text-sm text-ink-muted">
           <p>
             {/* The server's own words for what is waiting, not a sentence invented here —
                 the caller knows which action it is and this panel does not. */}
-            {prompt.reason} This needs a second factor proved in the last five minutes.
+            {prompt.reason} This needs a second factor proved in the last{" "}
+            {REAUTH_WINDOW_MINUTES} minutes.
           </p>
 
           <form className="space-y-3" onSubmit={submit} noValidate>
@@ -211,6 +267,27 @@ export function StepUpPrompt() {
 
             <AuthProblemNotice error={error} />
           </form>
+
+          {/* THE OTHER EXIT, and the only one. Separated from the form by a rule because
+              it is not an alternative way to do the thing the operator came for — it is
+              leaving. `DANGER`-weight styling would overstate it (signing out is not
+              destructive); a secondary button understates it against the primary, which
+              is correct: proving the factor is what this panel is for. */}
+          <div className="border-t border-line pt-3">
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              disabled={leaving}
+              onClick={signOutAndLeave}
+            >
+              <LogOut aria-hidden className="h-4 w-4" />
+              {leaving ? "Signing out…" : "Sign out"}
+            </button>
+            <p className="mt-2 text-xs text-ink-faint">
+              If this is not your session, sign out. Nothing you were doing has been
+              applied.
+            </p>
+          </div>
         </div>
       </div>
     </div>
