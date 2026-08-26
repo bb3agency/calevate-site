@@ -43,6 +43,15 @@ const REQUIRED_IN_A_DEPLOY_BUILD: Record<string, string> = {
   NEXT_PUBLIC_API_BASE_URL:
     "every request would go to a relative path and 404 against the Next server " +
     "(the reader's ?? default fires on undefined, never on an empty string)",
+  // Added after the bug it describes reached the live console. `viewAsHref()` falls back
+  // to a bare `/c/<slug>` path when this is empty, which is right for a single-origin
+  // development box and WRONG for this deployment: `admin.` and `app.` are separate
+  // hostnames and each 404s the other's tree (D-177/P7.3), so every operator opening
+  // "View as" landed on a not-found screen. A deploy build is by definition the
+  // multi-hostname case, and an empty value there is not a default — it is the defect.
+  NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN:
+    "every \"View as\" link would be built as a bare /c/<slug> path and 404 against the " +
+    "admin hostname, which refuses the client tree by design",
 };
 
 if (DEPLOY_BUILD) {
