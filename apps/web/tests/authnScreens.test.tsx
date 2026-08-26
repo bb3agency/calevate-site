@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AdminSignInPage from "@/app/(auth)/auth/admin/sign-in/page";
@@ -8,7 +14,12 @@ import { SessionGate } from "@/components/authn/sessionGate";
 import { ApiProblem } from "@/lib/api/client";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
 import { clientAuthn } from "@/lib/authn/clientAuthn";
-import { AUTHN_CODES, isSessionGone, needsSecondFactor, signInMessage } from "@/lib/authn/problems";
+import {
+  AUTHN_CODES,
+  isSessionGone,
+  needsSecondFactor,
+  signInMessage,
+} from "@/lib/authn/problems";
 import { useCountdown } from "@/lib/authn/useCountdown";
 
 import { problem, stubApi, type Routes } from "./harness";
@@ -82,13 +93,20 @@ describe("§5.7 defect 2 — the sign-in screen is not a user-enumeration oracle
       kind: "auth",
     });
 
-  async function signInAndRead(email: string, refuse: ReturnType<typeof problem>): Promise<string> {
+  async function signInAndRead(
+    email: string,
+    refuse: ReturnType<typeof problem>,
+  ): Promise<string> {
     const view = await renderPage(<AdminSignInPage />, {
       ...SIGNED_OUT,
       "POST /v1/auth/admin/login": refuse,
     });
-    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: email } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "not-the-password" } });
+    fireEvent.change(await screen.findByLabelText("Email address"), {
+      target: { value: email },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "not-the-password" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     await screen.findByRole("alert");
     const text = (view.container.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -100,7 +118,11 @@ describe("§5.7 defect 2 — the sign-in screen is not a user-enumeration oracle
   it("renders identical copy for an unknown address and a wrong password", async () => {
     const unknown = await signInAndRead(
       "nobody@example.com",
-      refusal("No such account exists.", "Unknown account", "Create an account."),
+      refusal(
+        "No such account exists.",
+        "Unknown account",
+        "Create an account.",
+      ),
     );
     const wrong = await signInAndRead(
       "operator@example.com",
@@ -117,9 +139,15 @@ describe("§5.7 defect 2 — the sign-in screen is not a user-enumeration oracle
   it("never renders the server's own sentence for a credential refusal", async () => {
     const text = await signInAndRead(
       "operator@example.com",
-      refusal("No such account exists.", "Unknown account", "Create an account."),
+      refusal(
+        "No such account exists.",
+        "Unknown account",
+        "Create an account.",
+      ),
     );
-    expect(text, "the server's detail leaked into the UI").not.toContain("No such account exists");
+    expect(text, "the server's detail leaked into the UI").not.toContain(
+      "No such account exists",
+    );
     expect(text).not.toContain("Unknown account");
   });
 
@@ -143,8 +171,12 @@ describe("§5.7 defect 5 — the password does not survive the code step", () =>
 
   it("clears the password from the form and sends no body on resend", async () => {
     const view = await renderPage(<AdminSignInPage />, OTP_ROUTES);
-    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "operator@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+    fireEvent.change(await screen.findByLabelText("Email address"), {
+      target: { value: "operator@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse-battery" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     await screen.findByLabelText("Six-digit code");
@@ -168,8 +200,12 @@ describe("§5.7 defect 5 — the password does not survive the code step", () =>
 
   it("moves focus to the code field when the step changes", async () => {
     await renderPage(<AdminSignInPage />, OTP_ROUTES);
-    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "operator@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+    fireEvent.change(await screen.findByLabelText("Email address"), {
+      target: { value: "operator@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse-battery" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     // The control that had focus has just unmounted; without this, focus falls to `<body>`
@@ -192,12 +228,18 @@ describe("§5.7 defect 5 — the password does not survive the code step", () =>
       ...OTP_ROUTES,
       "POST /v1/auth/admin/logout": {},
     });
-    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "operator@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+    fireEvent.change(await screen.findByLabelText("Email address"), {
+      target: { value: "operator@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse-battery" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     await screen.findByLabelText("Six-digit code");
-    fireEvent.click(screen.getByRole("button", { name: /Use a different email address/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Use a different email address/ }),
+    );
 
     const emailField = await screen.findByLabelText("Email address");
     await waitFor(() => expect(document.activeElement).toBe(emailField));
@@ -226,8 +268,12 @@ describe("§5.7 defect 5 — the password does not survive the code step", () =>
         kind: "auth",
       }),
     });
-    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "operator@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+    fireEvent.change(await screen.findByLabelText("Email address"), {
+      target: { value: "operator@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse-battery" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     const codeField = await screen.findByLabelText("Six-digit code");
@@ -243,7 +289,9 @@ describe("§5.7 defect 5 — the password does not survive the code step", () =>
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
     });
-    const resendButton = screen.getByRole("button", { name: /Send a new code/ });
+    const resendButton = screen.getByRole("button", {
+      name: /Send a new code/,
+    });
     expect((resendButton as HTMLButtonElement).disabled).toBe(false);
 
     await act(async () => {
@@ -290,7 +338,10 @@ describe("§5.7 defect 4 — one countdown, not two", () => {
     act(() => {
       vi.advanceTimersByTime(2_000);
     });
-    expect(view.container.textContent, "the previous interval is still decrementing").toBe("58");
+    expect(
+      view.container.textContent,
+      "the previous interval is still decrementing",
+    ).toBe("58");
   });
 
   it("leaves no timer behind on unmount", () => {
@@ -298,7 +349,10 @@ describe("§5.7 defect 4 — one countdown, not two", () => {
     const view = render(<Countdown deadline={Date.now() + 60_000} />);
     expect(vi.getTimerCount()).toBe(1);
     view.unmount();
-    expect(vi.getTimerCount(), "an interval still setting state on an unmounted tree").toBe(0);
+    expect(
+      vi.getTimerCount(),
+      "an interval still setting state on an unmounted tree",
+    ).toBe(0);
   });
 
   it("recomputes from the deadline, so a slept tab returns showing the truth", () => {
@@ -314,6 +368,30 @@ describe("§5.7 defect 4 — one countdown, not two", () => {
   });
 });
 
+/**
+ * `next/navigation` is re-mocked for this file because the REDIRECT is now the behaviour
+ * under test. `tests/setup.ts` registers a global mock whose `useRouter()` returns a fresh
+ * `vi.fn()` on every call, which is right for the files that only need the hook not to
+ * throw and useless for asserting that `replace` was called with a particular path.
+ */
+const replace = vi.fn();
+// Never reassigned in THIS file — the "already at the door" case is exercised in
+// `tests/signedOutRedirect.test.tsx`, which owns the loop guard.
+const pathname = "/admin";
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => pathname,
+  useRouter: () => ({
+    push: vi.fn(),
+    replace,
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
+
 describe("§5.7 defect 9 — a dropped connection and a dead session are different screens", () => {
   /**
    * `OpsSessionGate` rendered `error ?? "Sign in to continue."` for every failure. The two
@@ -324,6 +402,7 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
     render(
       <SessionGate
         status={status}
+        realm="admin"
         realmLabel="operator console"
         signInPath="/auth/admin/sign-in"
         onRetry={() => {}}
@@ -337,9 +416,11 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
-  it("offers SIGN IN and claims nothing about the network when signed out", () => {
+  it("sends people to the door when signed out, instead of describing it", () => {
+    // The panel this replaces was a dead end: its only control was a link to the page
+    // this now goes to directly, on a console URL that refuses them again on the way back.
     const view = gate("signed-out");
-    expect(view.container.textContent).toContain("You are signed out");
+    expect(replace).toHaveBeenCalledWith("/auth/admin/sign-in");
     expect(view.container.textContent).not.toContain("could not reach");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
@@ -348,6 +429,7 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
     const view = render(
       <SessionGate
         status="restoring"
+        realm="admin"
         realmLabel="operator console"
         signInPath="/auth/admin/sign-in"
         onRetry={() => {}}
@@ -366,7 +448,9 @@ describe("§5.3 — which refusals may clear a session", () => {
     // The exclusion §5.3 calls easy to get wrong: an admin who fat-fingers a step-up
     // confirmation must not be ejected from the console for it.
     expect(isSessionGone(wrongPassword)).toBe(false);
-    expect(isSessionGone(problemFor(AUTHN_CODES.invalidSecondFactor))).toBe(false);
+    expect(isSessionGone(problemFor(AUTHN_CODES.invalidSecondFactor))).toBe(
+      false,
+    );
     expect(isSessionGone(problemFor(AUTHN_CODES.tooManyAttempts))).toBe(false);
     expect(isSessionGone(problemFor(AUTHN_CODES.unauthorized))).toBe(true);
   });
@@ -389,28 +473,42 @@ describe("the reset request tells you nothing either way", () => {
     const view = await renderPage(<ClientForgotPasswordPage />, {
       "POST /v1/auth/client/password/reset/request": {},
     });
-    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "someone@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Email me a reset link" }));
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "someone@example.com" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Email me a reset link" }),
+    );
 
     await screen.findByText(/If that address has an account/);
     const text = view.container.textContent ?? "";
-    expect(text, "'check your inbox' would be a claim that the account exists").not.toContain(
-      "Check your inbox",
-    );
+    expect(
+      text,
+      "'check your inbox' would be a claim that the account exists",
+    ).not.toContain("Check your inbox");
   });
 
   it("sends an Idempotency-Key that is not the address", async () => {
     const view = await renderPage(<ClientForgotPasswordPage />, {
       "POST /v1/auth/client/password/reset/request": {},
     });
-    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "someone@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Email me a reset link" }));
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "someone@example.com" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Email me a reset link" }),
+    );
     await screen.findByText(/If that address has an account/);
 
-    const call = view.calls.find((c) => c.path.endsWith("/password/reset/request"));
+    const call = view.calls.find((c) =>
+      c.path.endsWith("/password/reset/request"),
+    );
     const key = (call?.headers as Record<string, string>)["Idempotency-Key"];
     expect(key, "§5.6 requires the key from the first commit").toBeTruthy();
-    expect(key, "hard rule 6: the address must not travel in a header").not.toContain("someone@");
+    expect(
+      key,
+      "hard rule 6: the address must not travel in a header",
+    ).not.toContain("someone@");
   });
 });
 
@@ -425,7 +523,11 @@ describe("the set-password forms carry the hasher's real bounds", () => {
   });
 
   it("states the length rule under the field", async () => {
-    window.history.replaceState(null, "", "/auth/reset-password?token=" + "t".repeat(40));
+    window.history.replaceState(
+      null,
+      "",
+      "/auth/reset-password?token=" + "t".repeat(40),
+    );
     const view = await renderPage(<ClientResetPasswordPage />, {});
     await screen.findByLabelText("New password");
     expect(view.container.textContent).toContain("At least 12 characters");

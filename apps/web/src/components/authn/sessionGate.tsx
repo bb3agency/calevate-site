@@ -25,7 +25,11 @@
 import type { ReactNode } from "react";
 
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { PlugZap, ShieldAlert } from "lucide-react";
+
+import { markSignedOut } from "@/lib/authn/signedOutNotice";
 
 import {
   Card,
@@ -38,6 +42,15 @@ import type { RealmSessionStatus } from "@/lib/authn/useRealmSession";
 
 export interface SessionGateProps {
   status: RealmSessionStatus;
+  /**
+   * The realm's identifier (`"admin"` / `"client"`), NOT its label.
+   *
+   * Used only to namespace the signed-out mark, so an operator session ending cannot put
+   * a notice in front of a client and vice versa. Separate from `realmLabel` because that
+   * one is prose a person reads and this one is a storage key — collapsing them would
+   * make a copy edit silently orphan the mark.
+   */
+  realm: string;
   /** Names the door in the copy, so an operator can see which realm refused them. */
   realmLabel: string;
   /** Where the sign-in link goes. The caller's realm decides; this component never does. */
@@ -70,6 +83,7 @@ export interface SessionGateProps {
 
 export function SessionGate({
   status,
+  realm,
   realmLabel,
   signInPath,
   onRetry,
@@ -104,14 +118,20 @@ export function SessionGate({
         {/* `role="status"` with `aria-live="polite"`: a gate that renders silently is a
             screen reader user waiting on nothing. `Skeleton` is the app's loading shape
             elsewhere; here the wait is the whole screen, so it gets a sentence. */}
-        <div role="status" aria-live="polite" className="space-y-2 text-sm text-ink-muted">
-          <p className="font-medium text-ink">Checking your {realmLabel} session…</p>
+        <div
+          role="status"
+          aria-live="polite"
+          className="space-y-2 text-sm text-ink-muted"
+        >
+          <p className="font-medium text-ink">
+            Checking your {realmLabel} session…
+          </p>
           <p>
-            This takes a moment on a slow connection. Nothing has been signed out — we are
-            asking the server whether your session is still good.
+            This takes a moment on a slow connection. Nothing has been signed
+            out — we are asking the server whether your session is still good.
           </p>
         </div>
-      </Card>
+      </Card>,
     );
   }
 
@@ -125,8 +145,8 @@ export function SessionGate({
             title="This sign-in still needs its emailed code"
           >
             <p className="mt-1">
-              Your password was accepted. Until the six-digit code we emailed is entered,
-              this session can only finish signing in.
+              Your password was accepted. Until the six-digit code we emailed is
+              entered, this session can only finish signing in.
             </p>
           </NoticeBox>
           {secondFactor ?? (
@@ -135,7 +155,7 @@ export function SessionGate({
             </Link>
           )}
         </div>
-      </Card>
+      </Card>,
     );
   }
 
@@ -153,8 +173,8 @@ export function SessionGate({
             title="We could not reach Calevate"
           >
             <p className="mt-1">
-              Your session has not been ended — we simply could not ask about it. This is
-              usually the connection.
+              Your session has not been ended — we simply could not ask about
+              it. This is usually the connection.
             </p>
           </NoticeBox>
           <div className="flex flex-wrap gap-2">
@@ -166,27 +186,81 @@ export function SessionGate({
             </Link>
           </div>
         </div>
-      </Card>
+      </Card>,
     );
   }
 
+  // SIGNED OUT SENDS PEOPLE TO THE DOOR, it does not describe the door to them.
+  //
+  // This used to render a terminal card: a red "You are signed out" panel with a Sign in
+  // link, on whatever URL the person happened to be on. That is a dead end wearing an
+  // explanation — the only thing anybody can do from it is click the one link, so the
+  // click is pure ceremony, and it leaves them on a console URL that will refuse them
+  // again the moment they navigate back to it.
+  //
+  // `replace`, not `push`: the guarded page they were on is no longer reachable, so
+  // leaving it in history means Back lands on this gate and bounces forward again — a
+  // Back button that appears broken.
+  //
+  // `markSignedOut` decides whether the door SAYS anything. It returns false for a
+  // browser that never held a session here, which is a first-time visitor arriving at a
+  // console URL: they are not "signed out", they are simply not signed in, and telling
+  // them their session ended would be inventing an event. See `signedOutNotice`.
+  return (
+    <SignedOutRedirect realm={realm} signInPath={signInPath} frame={frame} />
+  );
+}
+
+function SignedOutRedirect({
+  realm,
+  signInPath,
+  frame,
+}: {
+  realm: string;
+  signInPath: string;
+  frame: (body: ReactNode) => ReactNode;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  // THE LOOP GUARD, and it is not hypothetical: `SessionGate` is also rendered by pages
+  // that sit at or beside the sign-in path, and a gate that redirects to the page it is
+  // already on navigates forever.
+  const alreadyThere = pathname === signInPath;
+
+  useEffect(() => {
+    if (alreadyThere) return;
+    markSignedOut(realm);
+    router.replace(signInPath);
+  }, [alreadyThere, realm, router, signInPath]);
+
+  if (alreadyThere) {
+    return frame(
+      <Card>
+        <div className="space-y-3 text-sm text-ink-muted">
+          <NoticeBox
+            tone="stop"
+            icon={<ShieldAlert aria-hidden className="h-4 w-4" />}
+            title="You are signed out"
+          >
+            <p className="mt-1">Sign in below to continue.</p>
+          </NoticeBox>
+        </div>
+      </Card>,
+    );
+  }
+
+  // The redirect is an effect, so one paint happens first. It gets the waiting copy
+  // rather than a blank — and `role="status"` so a screen reader is not left on silence
+  // during a navigation it did not ask for.
   return frame(
     <Card>
-      <div className="space-y-3 text-sm text-ink-muted">
-        <NoticeBox
-          tone="stop"
-          icon={<ShieldAlert aria-hidden className="h-4 w-4" />}
-          title="You are signed out"
-        >
-          <p className="mt-1">
-            This {realmLabel} session is no longer valid. Sessions end on their own after a
-            period of inactivity, and signing out everywhere ends them immediately.
-          </p>
-        </NoticeBox>
-        <Link href={signInPath} className={PRIMARY_BUTTON}>
-          Sign in
-        </Link>
+      <div
+        role="status"
+        aria-live="polite"
+        className="space-y-2 text-sm text-ink-muted"
+      >
+        <p className="font-medium text-ink">Taking you to sign in…</p>
       </div>
-    </Card>
+    </Card>,
   );
 }

@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { AuthnSession, RealmAuthn, RestoreAudience } from "./realm";
+import { rememberSession } from "./signedOutNotice";
 
 export type RealmSessionStatus =
   /** The restore is in flight. A gate shows its waiting state; it does NOT show a shell. */
@@ -74,11 +75,15 @@ export function useRealmSession(
    */
   const adopted = useRef(false);
 
-  const adopt = useCallback((next: AuthnSession) => {
-    adopted.current = true;
-    setSession(next);
-    setStatus("ready");
-  }, []);
+  const adopt = useCallback(
+    (next: AuthnSession) => {
+      adopted.current = true;
+      setSession(next);
+      setStatus("ready");
+      rememberSession(authn.realm);
+    },
+    [authn],
+  );
 
   const retry = useCallback(() => {
     adopted.current = false;
@@ -113,6 +118,11 @@ export function useRealmSession(
       if (outcome.ok) {
         setSession(outcome.session);
         setStatus("ready");
+        // THE ONLY PLACE THIS BROWSER LEARNS IT HAS A SESSION, which is why the mark is
+        // made here rather than at a sign-in form: a reload of a tab that was already
+        // signed in never touches a form, and it must leave the same evidence. See
+        // `signedOutNotice` for why the evidence has to be local at all.
+        rememberSession(authn.realm);
         return;
       }
       if (outcome.reason === "partial") {

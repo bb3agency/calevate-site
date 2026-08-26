@@ -28,7 +28,11 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { SessionGate } from "@/components/authn/sessionGate";
 import { Skeleton } from "@/components/ui";
 
-import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "./clientAuthn";
+import {
+  CLIENT_CONSOLE_PATH,
+  CLIENT_SIGN_IN_PATH,
+  clientAuthn,
+} from "./clientAuthn";
 import { RESTORE_DEADLINE_MS, type AuthnSession } from "./realm";
 import { useRealmSession, type RealmSessionState } from "./useRealmSession";
 
@@ -48,7 +52,12 @@ const CLIENT_GUEST_PATHS = [
 export function redirectToClientSignIn(): void {
   if (typeof window === "undefined") return;
   const here = window.location.pathname;
-  if (CLIENT_GUEST_PATHS.some((path) => here === path || here.startsWith(`${path}/`))) return;
+  if (
+    CLIENT_GUEST_PATHS.some(
+      (path) => here === path || here.startsWith(`${path}/`),
+    )
+  )
+    return;
   window.location.assign(CLIENT_SIGN_IN_PATH);
 }
 
@@ -64,13 +73,19 @@ export function ClientSessionProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [status]);
 
-  return <ClientSessionContext.Provider value={state}>{children}</ClientSessionContext.Provider>;
+  return (
+    <ClientSessionContext.Provider value={state}>
+      {children}
+    </ClientSessionContext.Provider>
+  );
 }
 
 export function useClientSession(): RealmSessionState {
   const state = useContext(ClientSessionContext);
   if (!state) {
-    throw new Error("useClientSession must be used inside <ClientSessionProvider>");
+    throw new Error(
+      "useClientSession must be used inside <ClientSessionProvider>",
+    );
   }
   return state;
 }
@@ -94,6 +109,7 @@ export function ClientSessionGate({
   return (
     <SessionGate
       status={status}
+      realm="client"
       realmLabel={CLIENT_REALM_LABEL}
       signInPath={CLIENT_SIGN_IN_PATH}
       onRetry={retry}
@@ -118,7 +134,8 @@ export function ClientGuestOnly({ children }: { children: ReactNode }) {
     window.location.assign(CLIENT_CONSOLE_PATH);
   }, [alreadyIn]);
 
-  if (status === "restoring" || alreadyIn) return <Skeleton rows={4} label="Checking…" />;
+  if (status === "restoring" || alreadyIn)
+    return <Skeleton rows={4} label="Checking…" />;
   return <>{children}</>;
 }
 

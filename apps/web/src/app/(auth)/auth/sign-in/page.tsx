@@ -17,6 +17,7 @@
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { SignInForm } from "@/components/authn/signInForm";
+import { SignedOutToast } from "@/components/authn/signedOutToast";
 import {
   CLIENT_ACCEPT_INVITE_PATH,
   CLIENT_CONSOLE_PATH,
@@ -30,7 +31,10 @@ export default function ClientSignInPage() {
     <Providers>
       <AuthPageFrame realmLabel="Client console">
         <div className="space-y-4">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">Sign in</h1>
+          <SignedOutToast realm="client" realmLabel="Calevate" />
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
+            Sign in
+          </h1>
           <ClientGuestOnly>
             <SignInForm
               authn={clientAuthn}
@@ -41,8 +45,8 @@ export default function ClientSignInPage() {
               }}
               footer={
                 <p className="text-xs text-ink-faint">
-                  Invited by a colleague? Open the link they sent you — it sets your
-                  password and adds you to their account in one step (
+                  Invited by a colleague? Open the link they sent you — it sets
+                  your password and adds you to their account in one step (
                   {CLIENT_ACCEPT_INVITE_PATH}).
                 </p>
               }

@@ -26,6 +26,7 @@
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { SignInForm } from "@/components/authn/signInForm";
+import { SignedOutToast } from "@/components/authn/signedOutToast";
 import {
   ADMIN_CONSOLE_PATH,
   ADMIN_FORGOT_PATH,
@@ -38,6 +39,7 @@ export default function AdminSignInPage() {
     <Providers>
       <AuthPageFrame realmLabel="Operator console">
         <div className="space-y-4">
+          <SignedOutToast realm="admin" realmLabel="operator console" />
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
             Sign in to the operator console
           </h1>
@@ -61,8 +63,8 @@ export default function AdminSignInPage() {
               }}
               footer={
                 <p className="text-xs text-ink-faint">
-                  Operator accounts are created by invitation only. There is no sign-up
-                  here, and there is no route that makes one.
+                  Operator accounts are created by invitation only. There is no
+                  sign-up here, and there is no route that makes one.
                 </p>
               }
             />
