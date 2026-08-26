@@ -72,31 +72,63 @@ export const CHROME_TOKENS: readonly string[] = ["{{EFFECTIVE_DATE}}"];
 export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
   LEGAL_ENTITY_NAME: {
     describes:
-      "The registered name of the legal person that supplies Calevate, exactly as it " +
-      "appears on the incorporation certificate — including the suffix (Private " +
-      "Limited, LLP, or the proprietor's name for a proprietorship).",
-    source: "Certificate of incorporation / registration. ROADMAP Milestone-0 'entity decision'.",
+      "The name the supplier contracts under. THERE IS NO COMPANY AND NO PARENT " +
+      "ENTITY: `docs/legal/LEGAL-OPS-PLAYBOOK.md:16` and `:80-96` settle the shape — " +
+      "Calevate is a product operated by a sole proprietor, and a sole proprietorship " +
+      "has no legal identity separate from the individual who runs it. The founder's " +
+      "decision (26 Aug 2026) is to contract under the TRADE NAME, which the playbook " +
+      "permits at `:94` (\"[Your legal name / trade name]\").",
+    source: "The founder's decision. Playbook §3.",
+    value: "Calevate",
+  },
+  ENTITY_FORM: {
+    describes:
+      "What kind of legal person the supplier is, in one noun phrase, so no document " +
+      "has to guess. It exists because every one of these documents used to imply an " +
+      "incorporated company — a certificate of incorporation, a CIN, a Director — and " +
+      "none of that is true. A sole proprietorship is the individual: `docs/legal/" +
+      "LEGAL-OPS-PLAYBOOK.md:82` — \"You and the business are the same legal person\".",
+    source: "Playbook §3, and the founder's decision not to incorporate at launch.",
+    value: "a sole proprietorship established in India",
   },
   ENTITY_REGISTRATION_NUMBER: {
     describes:
-      "The company identifier: CIN for a private limited company, LLPIN for an LLP, or " +
-      "the Udyam / shop-and-establishment registration number for a proprietorship.",
-    source: "MCA master data, or the registering authority for an unincorporated entity.",
+      "The Udyam (MSME) registration number. NOT a CIN and not an LLPIN — there is no " +
+      "company to have one. `docs/legal/LEGAL-OPS-PLAYBOOK.md:23` and §8 (`:227`) make " +
+      "Udyam the first entity proof for this shape, and `:204` records why it matters " +
+      "beyond the documents: RBI KYC for a proprietorship current account wants two " +
+      "proofs in the trade name, and Udyam is usually the first of them.",
+    source: "The Udyam registration certificate (udyamregistration.gov.in).",
   },
-  GSTIN: {
+  GST_STATUS: {
     describes:
-      "The 15-character GST identification number of the supplier. Until it exists, " +
-      "invoices are issued as proforma documents and no tax may be collected " +
-      "(CGST s.32) — the billing module already refuses to render a tax invoice " +
-      "without it.",
-    source: "GST registration certificate (Form REG-06).",
+      "Whether the supplier is registered for GST, as a sentence a document can print. " +
+      "THIS REPLACED `GSTIN`, and the change is not cosmetic: a blank GSTIN said \"we " +
+      "have one and have not typed it in\", which was false. We are not registered, we " +
+      "are not required to be, and that is a fact with a citation rather than a gap. " +
+      "Restore a `GSTIN` token in the same change that registers — `apps/api/billing/" +
+      "gst.py` already refuses to render a tax invoice without one, so the code and the " +
+      "documents move together.",
+    source:
+      "`docs/legal/LEGAL-OPS-PLAYBOOK.md` §4: the CGST s.22 threshold for services in " +
+      "Andhra Pradesh and Telangana is ₹20 lakh aggregate turnover (`:105`), and " +
+      "Notification No. 10/2017–Integrated Tax (13 Oct 2017) exempts a person making " +
+      "inter-state supplies of taxable SERVICES from the compulsory registration in " +
+      "CGST s.24 while they are under it (`:115`). Both are the playbook's readings, " +
+      "not this repository's — re-verify against the instruments before relying on " +
+      "either commercially.",
+    value:
+      "not registered for GST, and not required to be at present turnover",
   },
   REGISTERED_ADDRESS: {
     describes:
-      "The full registered office address, with state and PIN code. It is the address " +
-      "on the GST invoice, the address a legal notice is served at, and one of the " +
-      "items the Consumer Protection (E-Commerce) Rules 2020 require to be displayed.",
-    source: "Certificate of incorporation / GST registration.",
+      "The principal place of business, with state and PIN code. NOT a \"registered " +
+      "office\" — a proprietorship has none to register. It is still the address a " +
+      "legal notice is served at, one of the items the Consumer Protection " +
+      "(E-Commerce) Rules 2020 require to be displayed, and half of what " +
+      "`docs/legal/LEGAL-OPS-PLAYBOOK.md:464` calls the minimum credible bar: " +
+      "\"Contact (Indian phone + address + email)\".",
+    source: "The founder's decision, and whatever address the Udyam registration carries.",
   },
   CONTACT_PHONE: {
     describes:
@@ -119,8 +151,15 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
     source: "A founder or employee appointment, recorded in writing.",
   },
   GRIEVANCE_OFFICER_DESIGNATION: {
-    describes: "That person's designation in the company (for example, Director).",
-    source: "The same appointment record.",
+    describes:
+      "That person's designation. \"Director\" is not available — there is no company " +
+      "and there are no directors; for this shape it is normally \"Proprietor\". The " +
+      "designation does not discharge the duty on its own: rule 5(9) of the SPDI Rules " +
+      "2011 and rule 4(6) of the Consumer Protection (E-Commerce) Rules 2020 both " +
+      "require the NAME, which is why `GRIEVANCE_OFFICER_NAME` is a separate blank and " +
+      "stays one. `docs/legal/LEGAL-OPS-PLAYBOOK.md:463` says the same in one line: " +
+      "\"Grievance Redressal (named human = you)\".",
+    source: "The appointment record.",
   },
   GRIEVANCE_OFFICER_EMAIL: {
     describes: "A monitored mailbox that reaches the Grievance Officer directly.",
@@ -151,7 +190,7 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
   JURISDICTION_CITY: {
     describes:
       "The city that is the seat of arbitration and whose courts have exclusive " +
-      "jurisdiction. Normally the city of the registered office.",
+      "jurisdiction. Normally the city of the principal place of business.",
     source: "A commercial decision, taken with counsel.",
   },
   EFFECTIVE_DATE: {
@@ -167,8 +206,9 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "compliance gate already refuses every campaign with the blocker " +
       "`tm_registration_missing`.",
     source:
-      "DLT registration with an access provider, which requires the legal entity to " +
-      "exist first. ROADMAP Milestone-0.",
+      "DLT registration with an access provider under the proprietor's PAN " +
+      "(`docs/legal/LEGAL-OPS-PLAYBOOK.md:87`, §10). The entity is no longer the " +
+      "blocker — the registration is.",
   },
   PRIMARY_HOSTING_LOCATION: {
     describes:
@@ -242,7 +282,7 @@ export function unresolvedPlaceholders(): string[] {
  * are the POINT — they render as visible marks under a banner that tells the reader not
  * to rely on the page, and that is how the founder and their advocate see what is still
  * missing. The moment somebody deletes that banner they are publishing, and a published
- * legal document containing `{{GSTIN}}` is not a cosmetic defect: it is a document that
+ * legal document containing `{{REGISTERED_ADDRESS}}` is not a cosmetic defect: it is a document that
  * announces its own drafting state to a regulator or a buyer's counsel.
  *
  * So the two constants are wired together rather than left as two independent decisions

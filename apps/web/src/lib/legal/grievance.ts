@@ -14,6 +14,57 @@ import type { LegalDocument } from "./types";
  * Publishing the LONGEST of the three would be lawful and would be a worse product. So the
  * page states one commitment — the shortest — and shows the statutory outer limits beside
  * it, so a reader can see both what we promise and what we could get away with.
+ *
+ * ## Rewritten 26 August 2026: there is no company behind this page
+ *
+ * The founder confirmed it, and `docs/legal/LEGAL-OPS-PLAYBOOK.md` settles the shape:
+ * `:16` — Calevate is a "product / trade name, not a separate company"; `:82` — "You and
+ * the business are the same legal person". This page had been written as though a
+ * complainant were writing to an organisation with desks in it. Three consequences, and
+ * each is a sentence a complainant can act on rather than an internal detail:
+ *
+ * 1. **The three published contacts are one person.** Three instruments each demand a
+ *    published contact, so three rows stay — but a page implying three desks would send a
+ *    complainant hunting for the right one, and there is no wrong one to pick.
+ * 2. **There is nothing above the person named.** No board, no head office, no second
+ *    tier. That is worth SAYING, because the ordinary next move when a company's
+ *    grievance officer does not answer is to escalate internally, and here that move does
+ *    not exist — section 5 is the real one and it is external.
+ * 3. **`{{GRIEVANCE_OFFICER_DESIGNATION}}` cannot be "Director".** Nobody holds that
+ *    office. `placeholders.ts` records "Proprietor" as the designation for this shape.
+ *
+ * ## Being one person is not an exemption, and the page says why
+ *
+ * The obvious reading of "we are a sole proprietor" is that the corporate data-security
+ * duties do not apply. They do. Section 43A of the Information Technology Act 2000 — the
+ * section the SPDI Rules 2011 are made under, and the operative privacy law until 13 May
+ * 2027 — carries its own Explanation defining "body corporate" as "any company and
+ * includes a firm, sole proprietorship or other association of individuals engaged in
+ * commercial or professional activities". ⚠ EVIDENCE CLASS: the bare-act text was read on
+ * 26 Aug 2026 through a web search that returned the Explanation verbatim from bare-act
+ * sources; `indiacode.nic.in`, `indiankanoon.org` and `meity.gov.in` are ALL egress-blocked
+ * from this environment, so the section could not be opened directly and this is a
+ * REPORTED reading rather than a page a session opened. It is stated in the prose because
+ * a reader who concludes the opposite concludes it in our favour, which is the direction
+ * this document set is written against — but re-verify it against the instrument before
+ * relying on it commercially, per hard rule 11.
+ *
+ * ## What the redressal process actually is, said out loud (DP-8)
+ *
+ * `docs/LEGAL-SURFACE.md` DP-8: "There is no grievance intake surface, no ticket record
+ * and no clock in the product — it is an email address. What closes it: either a mailbox +
+ * a written procedure (sufficient at this size), or a `grievances` table. Say which; do
+ * not leave it implied." Section 2 now says which. The reference number this page promises
+ * is issued by hand in the acknowledgement, which is a real commitment one person can keep
+ * and is not the same as a ticketing system — and a page that let a reader infer the
+ * second from the first would be overclaiming its own operations.
+ *
+ * ## The name is still a blank, and that is an unmet obligation rather than a formatting gap
+ *
+ * `docs/LEGAL-SURFACE.md` S-2 puts it exactly: "A placeholder is not a designation — this
+ * is UNMET until a person is appointed", and F-9 records it as EXTERNAL and the cheapest
+ * unmet obligation on the page. Nothing here may invent one (`placeholders.ts:1-14`). The
+ * appointment must be recorded in writing before the pending-review banner comes off.
  */
 export const GRIEVANCE: LegalDocument = {
   slug: "grievance",
@@ -33,9 +84,12 @@ export const GRIEVANCE: LegalDocument = {
         {
           kind: "para",
           text:
-            "Three named contacts, because three different instruments require one and " +
-            "the right desk depends on what went wrong. If you are not sure, use the " +
-            "Grievance Officer; internal routing is our problem, not yours.",
+            "Three published contacts, because three different instruments each require " +
+            "one. They are not three desks: Calevate is a product operated by " +
+            "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, so the same individual holds all " +
+            "three roles and reads all three mailboxes. Pick whichever fits and do not " +
+            "spend a minute choosing — there is no wrong one, and no complaint is turned " +
+            "away for arriving at the wrong address.",
         },
         {
           kind: "table",
@@ -70,6 +124,20 @@ export const GRIEVANCE: LegalDocument = {
           text:
             "By post: {{LEGAL_ENTITY_NAME}}, {{REGISTERED_ADDRESS}}. By telephone: " +
             "{{CONTACT_PHONE}}.",
+        },
+        {
+          kind: "callout",
+          tone: "note",
+          title: "There is nobody above the person named here",
+          text:
+            "Worth knowing before you plan your next move. The usual escalation when a " +
+            "company's grievance officer does not answer is to write to someone more " +
+            "senior. That does not exist here: a sole proprietorship has no board, no " +
+            "directors and no head office, and the person named above is the business " +
+            "rather than a first tier of it — which is also why their designation is " +
+            "Proprietor and not Director. If we do not put your complaint right, the next " +
+            "step is not further up this page; it is section 5, and section 5 is outside " +
+            "Calevate altogether.",
         },
       ],
     },
@@ -120,6 +188,22 @@ export const GRIEVANCE: LegalDocument = {
             "operative privacy law and their one-month clock is the binding one. We are " +
             "not waiting for 2027 to honour any of it, and the commitments in the middle " +
             "column apply now.",
+        },
+        {
+          kind: "callout",
+          tone: "warning",
+          title: "What is behind those dates is a monitored mailbox, not a ticketing system",
+          text:
+            "A published timetable can read like a support organisation, so here is the " +
+            "mechanism. Your complaint arrives in a mailbox one person monitors and is " +
+            "worked from a written procedure; there is no complaint form in the product, " +
+            "no ticket queue and no automatic clock. The reference number in your " +
+            "acknowledgement is issued by hand and quoted in every message about your " +
+            "complaint after that, which is what makes the commitment checkable by you " +
+            "rather than by us. We say this because the commitments above are real and we " +
+            "intend to keep them, and because a reader who assumed a system was tracking " +
+            "them would be relying on something that does not exist. If a reply is late, " +
+            "chase it — and section 5 does not require you to wait for us either way.",
         },
       ],
     },
@@ -219,7 +303,14 @@ export const GRIEVANCE: LegalDocument = {
                 "complaint about personal data is made under the Information Technology " +
                 "Act 2000 and the 2011 rules made under it, which is exactly why the " +
                 "Grievance Officer named above is the first step and why we publish their " +
-                "name rather than a role title.",
+                "name rather than a role title. One thing that changes nothing, stated " +
+                "because it looks as though it should: those duties fall on a \"body " +
+                "corporate\", and section 43A of that Act defines the term in its own " +
+                "Explanation as \"any company and includes a firm, sole proprietorship or " +
+                "other association of individuals engaged in commercial or professional " +
+                "activities\". Calevate being one person rather than a company is " +
+                "therefore not an exemption from anything on this page, and we would " +
+                "rather you read that from us than have to look it up.",
             },
             {
               term: "Unsolicited or unlawful commercial calls",
@@ -254,8 +345,9 @@ export const GRIEVANCE: LegalDocument = {
         {
           kind: "para",
           text:
-            "A complaint is recorded with its outcome so that we can see patterns rather " +
-            "than treating each one as an isolated event. The personal data in your " +
+            "A complaint is recorded with its outcome — in the written procedure section " +
+            "2 describes, not in a system — so that we can see patterns rather than " +
+            "treating each one as an isolated event. The personal data in your " +
             "complaint is used to investigate and answer it and for nothing else, and it " +
             "is retained for as long as we need it to demonstrate that we dealt with it " +
             "properly. The Privacy Policy governs it.",

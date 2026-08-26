@@ -40,6 +40,40 @@ interface RegisterRow {
  * feature is off, it is selected only if the client themselves turns it on, or it is a
  * contingency nobody has selected. Every state traces to a config field or an adapter in
  * the tree, cited in `docs/LEGAL-SURFACE.md`.
+ *
+ * ## Re-audited against the CODE on 26 August 2026, and three vendors were missing
+ *
+ * F-11 in `docs/LEGAL-SURFACE.md` closed the copy that named vendors we do not use, and
+ * left the MECHANISM open: nothing in the tree can notice when our actual vendors and this
+ * list diverge. This pass walked the other direction — from the code outwards — rather
+ * than re-reading the rows, and the omissions it found were all of the same shape: an
+ * integration a CLIENT switches on, which nobody thinks of as ours because no data reaches
+ * it until they do.
+ *
+ * - **Google — Calendar API.** `apps/api/actions/calendar.py` + `actions/execution.py`
+ *   (`_run_calendar`) read a client's free/busy and insert events; the router is mounted
+ *   at `apps/api/main.py:208`. The event title is whatever the client mapped
+ *   (`CalendarConfig.summary_param`), so a caller's name commonly goes to Google.
+ * - **AiSensy · Interakt.** `apps/api/actions/whatsapp.py::build_aisensy` /
+ *   `build_interakt`, selected in `actions/execution.py` by `tool.provider`. These are
+ *   WhatsApp Business Solution Providers — separate companies from Meta — and a client
+ *   picking one sends the caller's number through them.
+ *
+ * Their LOCATION is deliberately not stated. Both BSP hosts are egress-blocked from this
+ * environment (`actions/whatsapp.py` says so at the top and marks its whole endpoint spec
+ * REPORTED), so nobody here has read where either processes, and hard rule 11 forbids
+ * writing a country we would be guessing at — on the one page whose entire job is saying
+ * where data goes. An honest "we have not verified this" costs a client nothing they
+ * cannot ask for; a wrong country in a register a buyer's counsel reads costs the whole
+ * page its credibility.
+ *
+ * Checked and found ACCURATE in the same pass: `engine: EngineName = "fake"` is still the
+ * shipped default (`packages/shared/src/calevate_shared/config.py:330`), so the Bolna row's
+ * status stands; the three language-model providers are exactly `LlmProvider =
+ * Literal["azure_openai", "openai", "google"]` (`calevate_shared/engine.py:567`); Sarvam is
+ * still the first extraction pass (`GEMINI_EXTRACTION_DEFAULT: Final = False`,
+ * `apps/workers/extraction.py:190`); Cohere appears nowhere in the code at all, which is
+ * what "Contingency. Not selected." should look like.
  */
 export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
   {
@@ -250,15 +284,61 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "service account, and revoked by un-sharing it.",
   },
   {
+    names: ["Google"],
+    vendor: "Google — Calendar API",
+    does:
+      "Reads free time on a calendar you own and books an appointment on it, when " +
+      "your agent is configured with a calendar action. A third Google service, " +
+      "separate from the Gemini and Sheets rows: a calendar request is not a model " +
+      "request and carries no transcript.",
+    receives:
+      "The appointment's start and end time, and the event title — which is " +
+      "whichever field you mapped to it, commonly the caller's name. The caller's " +
+      "phone number reaches it only if you put it in that title yourself. Never the " +
+      "recording or the transcript.",
+    location: "Google, global.",
+    status:
+      "Configured, not enabled. This deployment holds no Google OAuth client yet, " +
+      "and every calendar route refuses cleanly until it does rather than " +
+      "half-working. Beyond that it is yours to switch on: it reaches only a " +
+      "calendar you connect yourself, and disconnecting it revokes the access.",
+  },
+  {
     names: ["Meta"],
     vendor: "Meta — WhatsApp Business",
-    does: "Sends a follow-up WhatsApp message to a lead using an approved template.",
+    does:
+      "Sends a WhatsApp message to a lead using an approved template — either as a " +
+      "post-call follow-up, or as an action the agent triggers during the call itself.",
     receives: "The recipient's phone number and the template parameters.",
     location: "Meta, global.",
     status:
-      "Configured, not enabled. No messaging provider has been chosen, and the " +
-      "code refuses to send until one is. A separate, recorded messaging opt-in " +
-      "is required for every recipient — consent to be called never satisfies it.",
+      "Configured, not enabled for the post-call follow-up: no messaging provider " +
+      "has been chosen for it and the code refuses to send until one is. The " +
+      "in-call action is client-enabled instead — it runs on a WhatsApp " +
+      "credential you supply for your own account. Either way a separate, " +
+      "recorded messaging opt-in is required for every recipient, and consent to " +
+      "be called never satisfies it.",
+  },
+  {
+    names: ["AiSensy", "Interakt"],
+    vendor: "AiSensy · Interakt",
+    does:
+      "Alternative WhatsApp Business Solution Providers. Either can carry the " +
+      "in-call WhatsApp action in place of a direct Meta connection, sending the " +
+      "approved template on your behalf.",
+    receives:
+      "The recipient's phone number and the template's variables — whatever your " +
+      "action was configured to fill them with. Never the recording or the " +
+      "transcript.",
+    location:
+      "NOT VERIFIED, and we would rather say so than name a country. Both are " +
+      "reached at their own endpoints and neither vendor's documentation could be " +
+      "read from our build environment, so nobody here has confirmed where either " +
+      "processes. If you are choosing one of them, ask them directly — and ask us " +
+      "for this cell to be filled in, because it should be.",
+    status:
+      "Client-enabled. Nothing reaches either provider unless you configure a " +
+      "WhatsApp action on your own account with them, using your own credential.",
   },
   {
     names: ["Meta"],
@@ -331,9 +411,10 @@ export const SUBPROCESSORS: LegalDocument = {
         {
           kind: "para",
           text:
-            "A sub-processor is a company we engage to process personal data as part of " +
-            "delivering the service. Under clause 5 of the Data Processing Addendum, this " +
-            "page is the authorised list, and it is the list we notify changes against.",
+            "A sub-processor is a third party — a company or an individual — that we " +
+            "engage to process personal data as part of delivering the service. Under " +
+            "clause 5 of the Data Processing Addendum, this page is the authorised list, " +
+            "and it is the list we notify changes against.",
         },
         {
           kind: "callout",
@@ -378,6 +459,21 @@ export const SUBPROCESSORS: LegalDocument = {
                 "Processing Addendum.",
             },
           ],
+        },
+        {
+          kind: "callout",
+          tone: "note",
+          title: "One Location cell says NOT VERIFIED, and that is the honest answer",
+          text:
+            "The Location column says where a vendor processes the data it receives. " +
+            "Where we have read the vendor's own published position, it says so; where a " +
+            "person confirms it by hand against a console rather than a build check, the " +
+            "row says that too, and section 3.2 explains which. One row says NOT " +
+            "VERIFIED. That is not an oversight we forgot to fill in: it is a row nobody " +
+            "here has been able to confirm, on a page whose only job is telling you where " +
+            "data goes, and inventing a plausible country for it would be worse than the " +
+            "gap. It is an integration you would have to switch on yourself, so nothing " +
+            "reaches it unless you decide it does.",
         },
       ],
     },

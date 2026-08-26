@@ -3,9 +3,37 @@ import type { LegalDocument } from "./types";
 /**
  * The Terms of Service.
  *
- * Written from an Indian supplier's position — Indian governing law, an Indian seat, GST
- * on the invoice, the telecom obligations allocated to the client who actually holds the
- * registration — rather than adapted from a US SaaS template with the state name swapped.
+ * Written from an Indian supplier's position — Indian governing law, an Indian seat, the
+ * tax position this supplier is actually in, the telecom obligations allocated to the
+ * client who actually holds the registration — rather than adapted from a US SaaS
+ * template with the state name swapped.
+ *
+ * ## The supplier is a person, not a company, and clause 1 now says so
+ *
+ * This document used to open with a "registration number" that a reader would take for a
+ * CIN and a "registered office" that only a company has. There is no company and no
+ * parent entity: `docs/legal/LEGAL-OPS-PLAYBOOK.md:16` makes Calevate a product/trade
+ * name and `:80-96` makes the legal person the founder as a sole proprietor — "You and
+ * the business are the same legal person". Three consequences are drafted rather than
+ * implied, because a client's adviser will look for each: the parties clause names the
+ * form (`{{ENTITY_FORM}}`), the registration number is the Udyam/MSME one and not a CIN,
+ * and clause 14.1 says in terms that the cap is a contractual limit and not a corporate
+ * shield — the proprietor's liability is unlimited and personal (`:88`), which is a fact
+ * running in the CLIENT's favour and therefore one we can afford to state plainly. No
+ * insurance position is asserted anywhere: `:492` records that cyber/PI cover is optional
+ * at this size and is not held, and an insurance sentence in a contract is a promise a
+ * counterparty relies on.
+ *
+ * ## Clause 6.2 is the GST position, and it is a statement rather than a blank
+ *
+ * It used to print `{{GSTIN}}` — a blank where a number goes, which asserts "we have one
+ * and have not typed it in". We are not registered and are not required to be
+ * (playbook §4, `:105` and `:115`), so the clause states the position and describes the
+ * document the code actually issues: `apps/api/billing/invoice.py` emits
+ * `document_type: "proforma"` — a bill of supply in substance — with `gst_inr` zero,
+ * `tax_components` empty and `BILL_OF_SUPPLY_TAX_NOTE` in words on its face (CGST s.32,
+ * CGST Rule 49). The clause describes THAT document, including the `estimated_*` figures
+ * the same function emits, which are marked as an estimate and are never due.
  *
  * Two clauses are deliberately narrower than a template's would be, because the honest
  * version is narrower: clause 12 promises no availability target (nothing in this product
@@ -14,6 +42,17 @@ import type { LegalDocument } from "./types";
  * it. Overpromising in a contract is the one drafting error a client can actually enforce.
  * (That second reference read "clause 15", which is General; nothing checks a clause
  * number, so `tests/legal.test.tsx` now resolves every one in the published set.)
+ *
+ * ## Model B is the phone-number model, and the Terms carry its points
+ *
+ * `docs/legal/LEGAL-OPS-PLAYBOOK.md:479-490` lists what the Terms must contain for the
+ * model this product uses — the client buys and KYCs the number on their own operator
+ * account. Each point is now somewhere a reader can find it: subscriber-of-record and PE
+ * warranties in clause 5, purpose-limited consent in the same list, the header/template
+ * and subscriber indemnity in clause 14.2, the cap and its uncapped counterpart in
+ * clause 14.1, the IP split in clause 8, and number ownership on exit in clause 11.
+ * Clause 3 says what we do NOT supply, which under Model B includes the telephone
+ * connection itself.
  *
  * Clause 6.1 carries one callout that is not about a fee at all: the model picker
  * D-454 shipped prints a rupee-per-minute figure against each model, and that figure is
@@ -42,8 +81,9 @@ export const TERMS_OF_SERVICE: LegalDocument = {
         {
           kind: "para",
           text:
-            "These terms are between {{LEGAL_ENTITY_NAME}} (registration number " +
-            "{{ENTITY_REGISTRATION_NUMBER}}, registered at {{REGISTERED_ADDRESS}}) — " +
+            "These terms are between {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}} (Udyam " +
+            "registration number {{ENTITY_REGISTRATION_NUMBER}}, principal place of " +
+            "business {{REGISTERED_ADDRESS}}) — " +
             '"Calevate", "we", "us" — and the business that opens or uses an account — ' +
             '"you", "the Client". They apply from the moment you create an account, sign ' +
             "an order form, or use the service, whichever is earliest.",
@@ -57,6 +97,25 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "order form governs for the commercial matters it covers and these terms " +
             "govern everything else. Where the Data Processing Addendum conflicts with " +
             "these terms on the handling of personal data, the Addendum governs.",
+        },
+        {
+          kind: "callout",
+          tone: "note",
+          title: "Who you are contracting with, and why it is not a company",
+          text:
+            "Calevate is a product and a trading name. There is no company behind it and " +
+            "no parent company: the supplier is one individual carrying on business as a " +
+            "sole proprietor, and in Indian law that individual and the business are the " +
+            "same legal person. So this agreement is with that person, trading as " +
+            "Calevate. There is no certificate of incorporation to produce, no corporate " +
+            "identity number, and no board or director to address a notice to — the " +
+            "registration number above is the Udyam (MSME) registration, which is what " +
+            "this shape of business has instead. We would rather you learned that here " +
+            "than from a document that quietly did not exist, and it is worth knowing " +
+            "which way it cuts: our liability to you under clause 14 is a personal " +
+            "liability, not one bounded by a company's assets. If we later incorporate a " +
+            "company to carry on this business, clause 15 says how this agreement moves " +
+            "to it.",
         },
         {
           kind: "callout",
@@ -144,7 +203,11 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "financial adviser, and nothing an agent says on your behalf is advice from " +
             "us. We do not obtain your Principal Entity registration for you as a legal " +
             "guarantee — we run the process on your instructions and the registration is " +
-            "granted, or not, by the access provider.",
+            "granted, or not, by the access provider. We do not supply the telephone " +
+            "number or the telephone connection either, and we do not resell either one. " +
+            "You take the connection with an Indian operator in your own name and on your " +
+            "own account, you remain the subscriber of record for it, and we operate on " +
+            "that account using credentials you issue to us and can withdraw.",
         },
       ],
     },
@@ -160,10 +223,13 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "You are responsible for everyone you give access to, and for keeping " +
               "credentials safe. Tell us at once if you think an account has been " +
               "compromised.",
-            "The information you give us must be accurate — your legal name, your GSTIN " +
-              "and place of supply for invoicing, and the documents you produce for " +
-              "identity verification. Getting the GST details wrong means the tax on your " +
-              "invoice is charged under the wrong head and you cannot claim it.",
+            "The information you give us must be accurate — your legal name, your GST " +
+              "registration details and place of supply if you have them, and the " +
+              "documents you produce for identity verification. Today those GST details " +
+              "decide only what your billing document says about you, because we charge " +
+              "no tax on it; from the day we are registered, wrong details mean the tax " +
+              "is charged under the wrong head and you cannot claim it. Clause 6.2 sets " +
+              "out our own GST position.",
             "You must complete identity verification where the Acceptable Use Policy " +
               "requires it, and keep your registrations current. A registration that " +
               "lapses stops your outbound calling until it is restored.",
@@ -191,8 +257,18 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "Complying with the Acceptable Use Policy in full, including the calling " +
               "hours, the number series, the suppression checks and the consent provenance " +
               "rules.",
+            "Being the subscriber of record for every telephone connection your agents " +
+              "use, and the registered Principal Entity for every call placed on it. You " +
+              "warrant both, for every number you give us, and you tell us at once if " +
+              "either stops being true — a call placed on a connection registered to " +
+              "somebody else is a breach of the telecom rules before it is a breach of " +
+              "this agreement.",
             "Having a lawful basis for every number you upload and every call you ask us " +
-              "to place, and being able to evidence it.",
+              "to place, and being able to evidence it — including what the person agreed " +
+              "to, when, and for what. Consent obtained for one purpose does not " +
+              "authorise a campaign about another, consent to be called does not " +
+              "authorise a message on another channel, and a number on a suppression list " +
+              "is not re-enabled by a later enquiry.",
             "Giving the people you call whatever notice the law requires — including any " +
               "notice that the call is being recorded, and any notice that they are " +
               "speaking to an AI. Those announcements are settings on your agents and you " +
@@ -263,42 +339,59 @@ export const TERMS_OF_SERVICE: LegalDocument = {
           heading: "6.2 GST and invoicing",
           blocks: [
             {
-              kind: "para",
-              text:
-                "Unless the order form says otherwise, prices are exclusive of GST and GST " +
-                "is charged in addition at the applicable rate — currently 18% on this " +
-                "class of supply. We issue an invoice for each billing month carrying the " +
-                "particulars rule 46 of the CGST Rules requires: our identity and our " +
-                "GSTIN {{GSTIN}}, your identity and GSTIN, the serial number and date, " +
-                "the SAC for the supply, the taxable value, the rate, the tax charged, " +
-                "and the place of supply.",
-            },
-            {
-              kind: "para",
-              text:
-                "Whether you are charged IGST or CGST plus SGST depends on the place of " +
-                "supply, which for a registered recipient is your location. Give us your " +
-                "correct GSTIN and state: the document says which head it charged, because " +
-                "you cannot claim tax charged under the wrong one.",
-            },
-            {
               kind: "callout",
-              tone: "note",
-              title: "Before registration",
+              tone: "warning",
+              title: "We charge you no GST, and you cannot claim input credit from us",
               text:
-                "Until {{LEGAL_ENTITY_NAME}} holds GST registration, no tax is collected " +
-                "and the billing document is issued as a proforma rather than as a tax " +
-                "invoice. Section 32 of the CGST Act prohibits an unregistered person from " +
-                "collecting tax, and the product refuses to render a tax invoice without a " +
-                "supplier GSTIN. A proforma is not a document you can claim input credit " +
-                "against.",
+                "{{LEGAL_ENTITY_NAME}} is {{GST_STATUS}}. So the price you agree is the " +
+                "whole amount payable: nothing you are charged carries CGST, SGST, IGST " +
+                "or any other tax, and no invoice from us will ever show a tax line " +
+                "while that is true. Section 32 of the CGST Act forbids a person who is " +
+                "not registered from collecting tax, and the product will not render a " +
+                "tax invoice without a supplier GSTIN. The consequence for you is real " +
+                "and we would rather state it than let your accounts department find " +
+                "it: there is no tax on our document, so there is no input tax credit to " +
+                "claim against it. If your procurement requires a GST tax invoice, say " +
+                "so before you sign.",
             },
             {
               kind: "para",
               text:
-                "A correction to an issued invoice is made by a credit or debit note under " +
-                "section 34 of the CGST Act referencing the original, never by silently " +
-                "re-rendering it.",
+                "What you receive for each billing month is a bill of supply — the " +
+                "document rule 49 of the CGST Rules provides for a supplier who is not " +
+                "registered. It carries our identity and address, your identity, a serial " +
+                "number and date, what was supplied and its value, and a note in words " +
+                "saying that no tax is charged and that no input tax credit is available. " +
+                "Because we expect to register one day, that document may also show what " +
+                "the tax and the total WOULD be at today's rate once we are: it is " +
+                "labelled as an estimate, it is not part of what you owe, and no payment " +
+                "we take includes it.",
+            },
+            {
+              kind: "para",
+              text:
+                "If our turnover crosses the registration threshold, or another trigger " +
+                "makes registration compulsory, we will register and start issuing tax " +
+                "invoices. From that date GST is payable in addition to the prices quoted " +
+                "to you, at the rate in force for this class of supply, and the invoice " +
+                "will carry the particulars rule 46 of the CGST Rules requires: our GSTIN " +
+                "and yours, the serial number and date, the SAC for the supply, the " +
+                "taxable value, the rate, the tax charged under the correct head, and the " +
+                "place of supply. Whether that head is IGST or CGST plus SGST depends on " +
+                "the place of supply, which for a registered recipient is your location — " +
+                "so give us your correct GSTIN and state, because you cannot claim tax " +
+                "charged under the wrong one. We will tell you before the first such " +
+                "invoice, and we will not add tax to a month already billed.",
+            },
+            {
+              kind: "para",
+              text:
+                "A correction to an issued tax invoice is made by a credit or debit note " +
+                "under section 34 of the CGST Act referencing the original. While we are " +
+                "unregistered there is no tax to credit, so a correction is a corrected " +
+                "bill of supply and a compensating entry in the ledger. Either way the " +
+                "document you were given is never silently re-rendered — the Refund and " +
+                "Cancellation Policy explains why.",
             },
           ],
         },
@@ -364,11 +457,20 @@ export const TERMS_OF_SERVICE: LegalDocument = {
           kind: "list",
           items: [
             "We own the platform, the software, the documentation and everything we " +
-              "develop. You get a non-exclusive, non-transferable right to use it for your " +
+              "develop, including the improvements we make to the product while running " +
+              "it. You get a non-exclusive, non-transferable right to use it for your " +
               "own business while this agreement lasts.",
-            "You own your Client Data and your Caller Data. You grant us only the licence " +
-              "we need to run the service for you, and it ends when the agreement does, " +
-              "subject to clause 14.",
+            "You own your Client Data and your Caller Data — your recordings, your " +
+              "transcripts, the lead records and CRM fields your extraction schema " +
+              "produces, and the agents, prompts and knowledge content you created. You " +
+              "grant us only the licence we need to run the service for you, and it ends " +
+              "when the agreement does, subject to clause 14.",
+            "Improving the product never means learning from your callers. We do not use " +
+              "your Client Data or your Caller Data to train, fine-tune or evaluate any " +
+              "model, ours or a vendor's — clause 2 of the Data Processing Addendum is " +
+              "the operative promise and nothing in this clause cuts it back. What we own " +
+              "is the generic product: the code, the prompts we wrote, the schemas we " +
+              "ship. Not anything derived from your conversations.",
             "Neither of us may use the other's name or marks publicly without written " +
               "agreement. We will not name you as a customer without asking.",
             "If you send us feedback we may use it freely and without owing you anything. " +
@@ -453,6 +555,22 @@ export const TERMS_OF_SERVICE: LegalDocument = {
           text:
             "On termination your access ends, outbound dialling stops, and clause 14 " +
             "governs your data. Clauses 7, 8, 12, 13, 14, 15 and 17 survive.",
+        },
+        {
+          kind: "callout",
+          tone: "note",
+          title: "Your telephone number is yours, and ending this does not touch it",
+          text:
+            "The connection was taken in your name on your own operator account and it " +
+            "stays there: there is nothing for us to hand back, port or release, because " +
+            "we never held it. What ends on our side is the access: we stop using the " +
+            "operator credentials you issued us and delete our copy of them, and we " +
+            "revoke the API keys and webhook signing secrets issued for your account. " +
+            "The link between your Principal Entity registration and our Telemarketer " +
+            "registration lives on the access provider's platform and is yours to " +
+            "remove — ask and we will run that step for you, as we do at onboarding. " +
+            "Until it is removed, nothing can be dialled under it through us anyway, " +
+            "because your account is closed.",
         },
       ],
     },
@@ -544,7 +662,25 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               kind: "para",
               text:
                 "That cap does not apply to your obligation to pay fees, or to your " +
-                "liability under clause 14.2.",
+                "liability under clause 14.2, which is uncapped. A penalty, a claim or a " +
+                "regulatory cost arising from your list, your consent, your registration " +
+                "or your header is yours in full: the cap exists to keep a supplier's " +
+                "exposure proportionate to a risk it chose and can see, and that risk is " +
+                "not one of them.",
+            },
+            {
+              kind: "callout",
+              tone: "note",
+              title: "The cap is a contractual limit, not a corporate shield",
+              text:
+                "Read clause 1 with this one. The supplier is an individual trading as " +
+                "Calevate, not a limited company, so there is no separate pool of " +
+                "company assets standing between you and this agreement, and no " +
+                "shareholder liability to be limited. What limits our liability to you " +
+                "is the paragraph above and nothing else. A client used to a Private " +
+                "Limited counterparty may assume the opposite; the difference, such as " +
+                "it is, runs in your favour rather than ours, which is why we can say " +
+                "it plainly instead of leaving it to be discovered.",
             },
             {
               kind: "callout",
@@ -572,8 +708,11 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "placed to people for whom you had no lawful basis; content you supplied " +
                 "for an agent to say or answer from; a failure by you to give a notice or " +
                 "obtain a consent that the law required of you as Data Fiduciary or " +
-                "Principal Entity; and any claim that your content infringes a third " +
-                "party's rights.",
+                "Principal Entity; use of a telephone connection you were not the " +
+                "subscriber of record for; use of a header or a template registered to " +
+                "somebody else, or registered for one class of message and used for " +
+                "another; and any claim that your content infringes a third party's " +
+                "rights.",
             },
             {
               kind: "para",
@@ -630,7 +769,11 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "regulatory direction, or a network-level block. A party affected must tell " +
               "the other and mitigate. This does not excuse paying money already owed.",
             "Assignment: neither party may assign without the other's written consent, " +
-              "except that either may assign to a successor of its business on notice.",
+              "except that either may assign to a successor of its business on notice. " +
+              "If we incorporate a company to carry on this business, we may transfer " +
+              "this agreement to that company on notice to you; the transfer changes who " +
+              "your counterparty is and nothing else in these terms, and your rights " +
+              "under them are unaffected.",
             "No partnership: nothing here makes either party the other's agent, partner " +
               "or employee, except that we act as your registered Telemarketer, which is " +
               "the specific relationship the telecom framework defines.",
