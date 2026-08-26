@@ -46,7 +46,7 @@ export function AuthPageFrame({
           {/* The wordmark is the link's whole content, so its `alt` is the link's
               accessible name — "Calevate" — which is what it read as before. */}
           <Link href="/" className="flex items-center">
-            <BrandWordmark height={36} className="h-9 w-auto" />
+            <BrandWordmark height={44} />
           </Link>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-xs text-ink-faint">

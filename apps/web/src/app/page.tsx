@@ -383,7 +383,7 @@ export default function Home() {
                 them: the artwork already contains the name, and rendering both would say
                 "Calevate" twice on the one screen a stranger judges us by. It carries a
                 real `alt` for the same reason — it is the name here, not decoration. */}
-            <BrandWordmark height={40} className="h-10 w-auto" />
+            <BrandWordmark height={52} />
             {/* A client island in a server page: the session cookie is `HttpOnly`, so
                 whether this visitor is already signed in can only be answered by asking
                 the API. It renders the signed-out header until that lands, and never the
@@ -1092,7 +1092,7 @@ export default function Home() {
             {/* The tagline lockup, and this is the one place it belongs: a footer is
                 where a signature reads as a signature rather than as a second headline. */}
             <div className="flex items-center">
-              <BrandLockup height={38} className="h-[38px] w-auto" />
+              <BrandLockup height={52} />
             </div>
             <nav aria-label="Legal">
               <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
