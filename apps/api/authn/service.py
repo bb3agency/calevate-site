@@ -624,6 +624,26 @@ async def confirm_password_reset(
          that somebody else signed in. Also every OTHER outstanding reset token, for the
          same reason.
 
+    **WHAT IS DELIBERATELY *NOT* BURNED: OUTSTANDING OTP CHALLENGES**, and the argument is
+    reachability rather than tidiness, because "only the newest secret survives" is a
+    narrower promise than it sounds and the difference is worth writing down once.
+
+    `invalidate_outstanding` below is scoped to `password_reset`, so a live
+    `email_verify`, `login_challenge` or `step_up` code in `auth_otp_challenges` outlives
+    this call. It cannot be spent. Every route that redeems one — `POST /otp/verify`,
+    `POST /login/otp`, `POST /step-up/verify` — takes a session (`Depends(authed)` /
+    `Depends(live)` in `authn/routes.py`), and step 3 above revokes EVERY session row for
+    this subject in this realm unconditionally, the half-authenticated
+    `mfa_verified_at IS NULL` ones included (`sessions.revoke_subject_sessions`). So the
+    surviving code is a secret with no door: the only way back to one of those endpoints
+    is to sign in with the password that was just replaced, and whoever can do that is the
+    person this function just served.
+
+    Burning them anyway would therefore buy no security and would cost the legitimate
+    case — someone mid-verification in another tab, sent back to request another code for
+    no reason. If an OTP purpose is ever added that is redeemable WITHOUT a session, this
+    paragraph stops being true and the retirement has to be added here.
+
     THE SUBJECT IS RE-RESOLVED AFTER THE TOKEN IS BURNED, and that is reference defect
     `auth.service.ts:996`. Theirs updated `user` by the id on the token without checking the
     row was still there, so a token outliving a deleted account raised a driver error and
@@ -649,7 +669,14 @@ async def confirm_password_reset(
 
     async with credential_session() as session:
         await set_password(
-            session, realm=realm, subject_id=subject.subject_id, password=password, now=at
+            session,
+            realm=realm,
+            subject_id=subject.subject_id,
+            password=password,
+            # The blocklist's context half: NIST names "the username, and derivatives
+            # thereof". The address is already in hand from `load_subject`.
+            email=subject.email,
+            now=at,
         )
         await tokens.invalidate_outstanding(
             session,

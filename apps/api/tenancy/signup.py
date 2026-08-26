@@ -59,12 +59,14 @@ forever by a soft-deleted shell.
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
+from apps.api.authn.subjects import load_subject
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -89,6 +91,91 @@ SIGNUPS_PER_IP_PER_HOUR: int = 30
 QUOTA_WINDOW_S: Final = 3600
 
 
+#: Bidirectional FORMATTING controls, which are the half of Unicode category `Cf` that
+#: has no business in a business name. U+202A-U+202E are the legacy embedding/override
+#: set and U+2066-U+2069 are the isolates; U+200E/U+200F are the directional marks.
+#: `U+202E RIGHT-TO-LEFT OVERRIDE` in a stored name renders the rest of the string
+#: backwards in every console, every invoice and every email that shows it, which is a
+#: spoofing primitive rather than a typo.
+#:
+#: **THE REST OF `Cf` IS DELIBERATELY ALLOWED, AND THAT IS THE WHOLE POINT OF NAMING
+#: THESE EIGHT INSTEAD OF THE CATEGORY.** `U+200C ZERO WIDTH NON-JOINER` and `U+200D ZERO
+#: WIDTH JOINER` are also `Cf`, and on a Telugu-first product (D-36) they are ORDINARY
+#: LETTERS' WORK: they are what controls conjunct formation in Telugu and Devanagari, so
+#: a category-wide refusal would reject correctly-spelled Indic business names while
+#: passing every ASCII one. That is the failure mode this repo has already met once, in
+#: `admin_service.slugify` — a rule written against ASCII that turns the default case on
+#: this product into the error case.
+_BIDI_CONTROLS: Final = frozenset(
+    "\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+)
+
+
+def clean_business_name(raw: str) -> str:
+    """The business name as it will be STORED, or an actionable refusal.
+
+    `Field(min_length=2, max_length=120)` was the only thing in front of
+    `organizations.name` and it let three shapes through, each measured against the live
+    endpoint before this function existed:
+
+      * **A NUL byte produced a 500.** `"Ab\x00cd"` satisfies `min_length` and reaches
+        psycopg, which raises `DataError: PostgreSQL text fields cannot contain NUL
+        (0x00) bytes` — an unhandled driver exception on the one route whose whole job is
+        to be reachable by a stranger. Not a security hole, but it is a 500 where the
+        RFC-9457 contract promises a refusal, and "errors are part of the interface".
+      * **`"   "` created a workspace named `"   "`** (201, no complaint): three spaces
+        satisfy `min_length=2`, and the tenant is then unnameable in every list it appears
+        in. The slug derivation does not catch it, because a caller who supplies their own
+        slug never reaches the derivation.
+      * **Control characters and bidi overrides were stored verbatim.** A name containing
+        `\r\n` breaks any line-oriented rendering of it; `U+202E` reverses everything
+        after it on screen.
+
+    So the name is normalized (NFC, the same form `authn/policy.py` argues for and for the
+    same reason — one visual name should be one stored string), stripped of the characters
+    that are not text, whitespace-collapsed, and then measured. The LENGTH IS RE-CHECKED
+    AFTER CLEANING, which is the point of returning a value rather than validating in
+    place: `min_length` on the raw string is a bound on what was typed, and what matters
+    is what is left.
+
+    ⚠ THE ADMIN WIZARD DOES NOT USE THIS YET. `admin/service.create_organization` takes
+    `name` straight from `admin/routes.py`, which has the identical `Field` bound and the
+    identical three holes. That path is operator-only, so a stranger cannot reach it — but
+    it is the same defect and it wants the same call, at `admin/routes.py`'s intake model.
+    It is not done here only because another change is in flight in those files.
+    """
+    name = " ".join(
+        "".join(
+            ch
+            for ch in unicodedata.normalize("NFC", raw)
+            # `Cc` is the C0/C1 controls, NUL and CR/LF among them. `Cs` (surrogates) and
+            # `Co` (private use) are not text either. Whitespace survives this because
+            # SPACE and TAB are `Zs`/`Cc`-adjacent — TAB is `Cc` and is deliberately
+            # dropped, which is correct: the join below would have collapsed it anyway.
+            if ch not in _BIDI_CONTROLS and unicodedata.category(ch) not in ("Cc", "Cs", "Co")
+        ).split()
+    )
+    if 2 <= len(name) <= 120:
+        return name
+    raise ProblemError(
+        kind="validation",
+        code="invalid_business_name",
+        title="Check the business name",
+        detail=(
+            "A business name is 2 to 120 characters once spacing is tidied up, and cannot "
+            "be made only of spaces or invisible characters."
+        ),
+        fields=[
+            {
+                "field": "business_name",
+                "rule": "length",
+                "message": "2-120 characters of ordinary text",
+            }
+        ],
+        remediation="Enter the name your callers know you as.",
+    )
+
+
 def derive_slug(name: str) -> str:
     """The slug we offer when the caller does not pick one. Deliberately the wizard's
     own derivation, so a business gets the same URL — and, when the name yields no ASCII
@@ -99,6 +186,66 @@ def derive_slug(name: str) -> str:
     would live. It has not diverged; see `admin_service.derive_slug`.
     """
     return admin_service.derive_slug(name)
+
+
+async def assert_email_verified(user_id: UUID) -> None:
+    """A tenant is not created for a mailbox nobody has proved.
+
+    ═══ WHY THIS WAS MISSING, AND WHY IT IS THE CONTROL THIS MODULE ASKED FOR ═══
+
+    The module docstring above already names the hole in its own words: Clerk's "bot
+    mitigation and email verification were free abuse control on the way in. First-party
+    signup has neither yet — AUTH-MIGRATION §1 C-23/C-24 carry that as accepted risk, and
+    `assert_signup_quota` below is what stands in for it meanwhile." A quota is not a
+    substitute for proof of a mailbox; it only makes an unattended tenant factory slower.
+
+    Measured against the endpoint before this function existed: a client-realm session
+    whose `users.email_verified_at` was NULL created a tenant and got a 201.
+    `email_verified_at` was written by exactly one thing (`/otp/verify` →
+    `subjects.mark_email_verified`) and READ by exactly two — `SessionOut.email_verified`,
+    which only reports it, and `invitations.py:213`, which uses it for a different rule.
+    It gated nothing. A column that is written, displayed and never enforced is the
+    half-wired shape: it looks like a control on the screen and is not one.
+
+    **THIS IS REACHABLE, NOT A LOCKOUT, AND THAT IS LOAD-BEARING.** D-185 deliberately
+    does NOT set `email_verified_at` when an invitation is redeemed — possession of a
+    forwarded link is not proof of the mailbox — so a brand-new account genuinely arrives
+    here unverified. What clears it is `POST /v1/auth/client/otp/request` +
+    `/otp/verify`, which is built, mounted, mailed and already has its own page at
+    `/auth/account` (D-174). So the refusal below names a door that exists; the signup
+    page renders it as a step rather than as an error.
+
+    **WHY THE TENANT AND NOT THE SESSION.** The gate could have been put on
+    `current_identity`, refusing every unverified client request. It is not, because that
+    would break the one flow that must work for an unverified account — reaching
+    `/auth/account` to verify — and because the thing worth protecting is not "reading a
+    console" but "manufacturing a tenant", which writes an org, an agent, a schema and
+    several retention policies per call and is the resource-exhaustion surface
+    `assert_signup_quota` exists for. Verification is the control that makes the quota
+    mean something: it costs an attacker a deliverable mailbox per five tenants an hour
+    instead of nothing at all.
+
+    A subject that has vanished between the session check and this read is refused the
+    same way. `current_identity` already proved they were live a moment ago, so this is
+    not the liveness check — it is only that `load_subject` has no other answer, and
+    "verify your address" is a safe thing to tell someone whose account just went away.
+    """
+    subject = await load_subject("client", user_id)
+    if subject is not None and subject.email_verified_at is not None:
+        return
+    log.info("signup_refused_unverified_email", extra={"user_id": str(user_id)})
+    raise ProblemError(
+        kind="business_rule",
+        code="email_not_verified",
+        title="Confirm your email address first",
+        detail=(
+            "Your email address has not been confirmed yet, so we cannot create a workspace on it."
+        ),
+        remediation=(
+            "Open your account settings, send yourself a confirmation code, and enter "
+            "it. Then come back here."
+        ),
+    )
 
 
 async def assert_signup_open() -> None:
@@ -307,8 +454,10 @@ __all__ = [
     "SIGNUPS_PER_USER_PER_HOUR",
     "SIGNUP_QUOTA",
     "SelfServeTier",
+    "assert_email_verified",
     "assert_signup_open",
     "assert_signup_quota",
+    "clean_business_name",
     "create_self_serve_tenant",
     "derive_slug",
 ]

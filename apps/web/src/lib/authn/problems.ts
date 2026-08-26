@@ -46,6 +46,7 @@ export const AUTHN_CODES = {
   invitationAccountUnverified: "invitation_account_unverified",
   invitationInvalid: "invitation_invalid",
   passwordLength: "password_length",
+  passwordUnacceptable: "password_unacceptable",
   rateLimited: "rate_limited",
   reauthenticationRequired: "reauthentication_required",
   secondFactorRequired: "second_factor_required",
@@ -145,6 +146,15 @@ const SIGN_IN_COPY: Record<string, string> = {
     "This sign-in still needs its emailed code.",
   [AUTHN_CODES.passwordLength]:
     "That password is not an accepted length. See the requirement under the field.",
+  // The blocklist (NIST SP 800-63B-4 §3.1.1.2, `apps/api/authn/policy.py`). The server
+  // sends the SPECIFIC reason in `fields[0].message` — that it is the service name, or a
+  // keyboard run — and `passwordFieldMessage` below is what pulls it out, so
+  // `SetPasswordForm` can render it beside the input. This generic line is the fallback
+  // for a problem that arrived with no field list. It says what to do next
+  // rather than what was wrong, because §3.1.1.2 requires guidance here and because
+  // "that one is too weak" on its own is the advice that produces `Password1!`.
+  [AUTHN_CODES.passwordUnacceptable]:
+    "That password is too easy to guess. Three or four unrelated words is the easiest way to a strong one.",
   [AUTHN_CODES.invalidResetToken]:
     "This reset link cannot be used. Reset links work once and expire an hour after they are sent — request a new one.",
   [AUTHN_CODES.invalidBootstrapToken]:
@@ -194,4 +204,34 @@ export function signInMessage(error: unknown): string | null {
   // this repo's one answer to that, and `tests/wireLookupGuard.test.ts` enforces it.
   // `?? null` rather than a default sentence, for the reason above.
   return lookup(SIGN_IN_COPY, codeOf(error)) ?? null;
+}
+
+/**
+ * The server's SPECIFIC reason for refusing a password, for rendering at the field.
+ *
+ * `password_unacceptable` is the blocklist refusal (`apps/api/authn/policy.py`), and
+ * NIST SP 800-63B-4 §3.1.1.2 requires the reason to reach the person: "If the chosen
+ * password is found on the blocklist, the CSP SHALL require the subscriber to select a
+ * different secret and SHALL provide the reason for rejection." A generic "too weak" is
+ * the refusal that sends people to `Password1!`, so the API composes the reason —
+ * keyboard walk, repetition, built out of the address — and sends it in `fields`.
+ *
+ * **THIS IS THE ONE AUTHENTICATION REFUSAL WHOSE SERVER SENTENCE IS PASSED THROUGH, AND
+ * THE FILE-HEADER RULE ABOVE IS NOT BROKEN BY IT.** That rule exists because a sign-in
+ * refusal's wording can distinguish a known account from an unknown one (§5.7 defect 2),
+ * so those surfaces render fixed copy chosen by code. This sentence says nothing about
+ * any account: it is a statement about the string the person just typed into their own
+ * browser, and the API cannot compose it without being told the string first. Fixed copy
+ * here could not name the reason at all, which is the requirement.
+ *
+ * `password_length` is deliberately NOT handled. Its `fields` entry is the fragment
+ * `"at least 15"` rather than a sentence — the number belongs in
+ * `passwordProblem`'s locally-composed line, which says it properly and says it before a
+ * round trip.
+ */
+export function passwordFieldMessage(error: unknown): string | null {
+  if (!(error instanceof ApiProblem)) return null;
+  if (error.code !== AUTHN_CODES.passwordUnacceptable) return null;
+  const entry = error.fields?.find((field) => field.field === "password");
+  return entry?.message?.trim() || null;
 }

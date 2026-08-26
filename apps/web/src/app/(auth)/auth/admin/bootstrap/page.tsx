@@ -36,6 +36,7 @@ export default function AdminBootstrapPage() {
             Set up the first operator account
           </h1>
           <SetPasswordForm
+            realm="admin"
             submitLabel="Set the password"
             intro={
               <>

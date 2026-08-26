@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.hashing import hash_password, verify_password
 from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.policy import assert_password_allowed
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -50,9 +51,26 @@ async def set_password(
     realm: str,
     subject_id: UUID,
     password: str,
+    email: str | None = None,
     now: datetime | None = None,
 ) -> None:
     """Install or replace one subject's password.
+
+    THE PASSWORD POLICY IS APPLIED HERE, at the store, and not at any of the four routes
+    that reach it (`invitations.accept_with_password`, `service.confirm_password_reset`,
+    `bootstrap.confirm`, `scripts/seed_dev`). `authn/policy.py` carries the standard it
+    implements; this is the placement argument. A rule enforced per-endpoint is enforced
+    by whoever remembered, which is precisely how the reference implementation ended up
+    with a careful generic response on `requestPasswordReset` and an enumeration oracle on
+    `check-identifier` (see `subjects.py`). There is no path to a stored password that does
+    not pass through this function, so there is no route to forget.
+
+    `email` is optional and is the subject's own address, used for nothing but the
+    context-specific half of the blocklist — NIST names "the username, and derivatives
+    thereof" among what a blocklist should hold. It is a PARAMETER rather than a lookup
+    because the invitation path writes the `users` row in this same uncommitted
+    transaction, so a second session could not see it. It is never logged and never
+    stored (hard rule 6).
 
     An UPSERT on `(realm, subject_id)` rather than a read-then-write: two concurrent
     resets must produce one row and a definite winner, not a primary-key error on the
@@ -67,6 +85,7 @@ async def set_password(
     capability with its own test rather than as a side effect of this call.
     """
     _refuse_unknown_realm(realm)
+    assert_password_allowed(password, realm=realm, email=email)
     at = now or datetime.now(UTC)
     digest = await hash_password(password)
     await session.execute(

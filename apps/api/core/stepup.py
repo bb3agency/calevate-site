@@ -3,8 +3,8 @@
 Step-up in this codebase is TWO obligations answered by two kinds of evidence, and this
 module is where both are demanded together so that no dangerous route can end up with one:
 
-    X-Confirm-Action                       INTENT   — this screen meant to send THIS action
-    a second factor proved in the last 5m  PRESENCE — the person at the keyboard is still them
+    X-Confirm-Action                         INTENT   — this screen meant to send THIS action
+    a second factor inside `REAUTH_MAX_AGE`  PRESENCE — the person at the keyboard is still them
 
 The header half — the value must ECHO the action being taken — is what stops a screen
 sending a dangerous request it did not mean to, and stops a confirmation captured for one

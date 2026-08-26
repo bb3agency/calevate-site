@@ -230,7 +230,17 @@ async def accept_with_password(
     if not await has_password(INVITE_REALM, user_id):
         async with credential_session() as session:
             await set_password(
-                session, realm=INVITE_REALM, subject_id=user_id, password=password, now=at
+                session,
+                realm=INVITE_REALM,
+                subject_id=user_id,
+                password=password,
+                # The address the invitation was issued to, which IS this account's
+                # identity — the blocklist refuses a password that is nothing but a
+                # decorated form of it (NIST §3.1.1.2's "username, and derivatives
+                # thereof"). Taken from the invitation row rather than re-read, because
+                # `_find_or_create_user` may have written that row moments ago.
+                email=invited_email,
+                now=at,
             )
 
     async with tenant_session(tenant_id) as scoped:

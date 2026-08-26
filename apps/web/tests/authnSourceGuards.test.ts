@@ -6,7 +6,11 @@ import { relPosix } from "./repoPaths";
 import { describe, expect, it } from "vitest";
 
 import { ApiProblem } from "@/lib/api/client";
-import { MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS } from "@/lib/authn/password";
+import {
+  MAX_PASSWORD_CHARS,
+  MIN_PASSWORD_CHARS,
+  MIN_PASSWORD_CHARS_BY_REALM,
+} from "@/lib/authn/password";
 import { AUTHN_CODES, signInMessage } from "@/lib/authn/problems";
 
 /**
@@ -297,8 +301,60 @@ describe("§5.7 defect 8 — the client's password bounds are the hasher's", () 
     return Number(found![1]);
   };
 
-  it("MIN_PASSWORD_CHARS matches the API's floor", () => {
+  /**
+   * The PER-REALM floors, read out of `apps/api/authn/policy.py`, which is the module
+   * that enforces them (`credentials.set_password` calls it before it hashes).
+   *
+   * This is the same defect as §5.7 defect 8 one level up, and it is the reason this
+   * block no longer pins `MIN_PASSWORD_CHARS` to `hashing.py`. NIST SP 800-63B-4
+   * §3.1.1.2 requires 15 characters for a single-factor password and permits fewer only
+   * under MFA, so the client and admin realms have different floors. A single client
+   * constant of 12 shown on the client-realm form would advertise a bound looser than the
+   * server's — a person types twelve characters, the form says fine, the submit is
+   * refused. `hashing.MIN_PASSWORD_CHARS` is now only the absolute KDF-side bound, which
+   * is what `MIN_PASSWORD_CHARS` here mirrors.
+   */
+  const policy = readFileSync(
+    join(process.cwd(), "..", "..", "apps", "api", "authn", "policy.py"),
+    "utf8",
+  );
+
+  /** `MIN_CHARS_BY_REALM`'s literal entries — `"realm": N,` inside the dict body. */
+  function serverFloors(): Record<string, number> {
+    const body = /MIN_CHARS_BY_REALM:[^=]*=\s*\{([\s\S]*?)\}/.exec(policy);
+    expect(body, "MIN_CHARS_BY_REALM not found in apps/api/authn/policy.py").not.toBeNull();
+    const floors: Record<string, number> = {};
+    for (const [, realm, value] of body![1].matchAll(/"(\w+)"\s*:\s*(\w+)/g)) {
+      // `SINGLE_FACTOR_MIN_CHARS` is spelled as a name in the table; resolve it the same
+      // way, so the indirection the API uses to say WHY 15 does not defeat this check.
+      const literal = /^\d+$/.test(value)
+        ? Number(value)
+        : Number(new RegExp(`^${value}:[^=]*=\\s*(\\d+)`, "m").exec(policy)?.[1]);
+      expect(literal, `could not resolve ${realm}'s floor (${value})`).not.toBeNaN();
+      floors[realm] = literal;
+    }
+    return floors;
+  }
+
+  it("every realm's floor matches the API's own table", () => {
+    expect(MIN_PASSWORD_CHARS_BY_REALM).toEqual(serverFloors());
+  });
+
+  it("the client realm is at least 15, because its password is single-factor", () => {
+    // NIST SP 800-63B-4 §3.1.1.2: a password "used as a single-factor authentication
+    // mechanism" SHALL be a minimum of 15 characters. `service.MFA_REQUIRED_REALMS` is
+    // `{"admin"}`, so the client realm is that case. The API-side test derives this from
+    // that set; here it is pinned as a number because the web app cannot read it.
+    expect(MIN_PASSWORD_CHARS_BY_REALM.client).toBeGreaterThanOrEqual(15);
+  });
+
+  it("MIN_PASSWORD_CHARS is the absolute floor the hasher applies", () => {
     expect(MIN_PASSWORD_CHARS).toBe(constant("MIN_PASSWORD_CHARS"));
+    // And it may never exceed a realm's floor, or the client would refuse what the
+    // server would have taken.
+    expect(MIN_PASSWORD_CHARS).toBeLessThanOrEqual(
+      Math.min(...Object.values(MIN_PASSWORD_CHARS_BY_REALM)),
+    );
   });
 
   it("MAX_PASSWORD_CHARS matches the API's ceiling", () => {

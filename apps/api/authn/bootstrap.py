@@ -319,13 +319,19 @@ async def confirm_bootstrap(
                 # same transaction, so a live token for a revoked operator should not
                 # exist — but this is the statement that decides whether a password is
                 # installed, and it should not depend on another function's completeness.
-                text("SELECT 1 FROM admin_users WHERE id = :id AND deactivated_at IS NULL"),
+                # The address comes back with the liveness check rather than from a second
+                # read: `authn/policy.py`'s blocklist refuses a password that is nothing
+                # but a decorated form of the operator's own address, and one round trip
+                # already has the row open. It is used for that comparison and is never
+                # logged (hard rule 6).
+                text("SELECT email FROM admin_users WHERE id = :id AND deactivated_at IS NULL"),
                 {"id": admin_id},
             )
         ).first()
     if row is None:
         log.warning("admin_bootstrap_subject_missing", extra={"admin_id": str(admin_id)})
         raise _bad_bootstrap_token()
+    admin_email = str(row[0]) if row[0] is not None else None
 
     async with credential_session() as session:
         has_credential = (
@@ -339,7 +345,15 @@ async def confirm_bootstrap(
             log.warning("admin_bootstrap_already_has_password", extra={"admin_id": str(admin_id)})
             raise _bad_bootstrap_token()
         await set_password(
-            session, realm=ADMIN_REALM, subject_id=admin_id, password=password, now=at
+            session,
+            realm=ADMIN_REALM,
+            subject_id=admin_id,
+            password=password,
+            # See `authn/policy.py`: the operator's own address is context an attacker
+            # guesses first. `admin_email` is the address the bootstrap link was issued
+            # to and is already proved by possession of that link.
+            email=admin_email,
+            now=at,
         )
         await revoke_subject_sessions(session, realm=ADMIN_REALM, subject_id=admin_id, now=at)
 

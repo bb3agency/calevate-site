@@ -42,6 +42,7 @@ function AdminResetBody() {
 
   return (
     <SetPasswordForm
+      realm="admin"
       submitLabel="Set my new password"
       intro={
         <>
