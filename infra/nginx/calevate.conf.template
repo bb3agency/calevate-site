@@ -102,6 +102,25 @@ server {
     client_max_body_size 1m;
 
     # Neither realm exists on the public hostname.
+    # THE REALM REFUSALS RENDER OUR 404, not nginx's.
+    #
+    # `return 404` below is the control and stays exactly as it is — what changes is what
+    # a person sees. A bare `nginx` error page tells a client who mistyped a path that
+    # something is broken at the infrastructure level, when the truth is that the page
+    # does not exist on this hostname; the app already has a designed not-found screen
+    # with a way back.
+    #
+    # No `=` in the `error_page` directive, so the response KEEPS its 404 status — with
+    # `=` nginx would rewrite it to 200 and hand a crawler a "successful" page.
+    # `proxy_intercept_errors` is off by default, so this catches only the 404s nginx
+    # itself generates here, never one Next returns for a route it has already handled.
+    error_page 404 @calevate_not_found;
+
+    location @calevate_not_found {
+        proxy_pass http://calevate_web/not-found;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location ^~ /admin { return 404; }
     location ^~ /c/    { return 404; }
 
@@ -198,6 +217,40 @@ server {
 
     # The ADMIN realm does not exist on the client hostname. Covers `/admin/sign-in` —
     # the operator door — and every operator screen under it.
+    # THE REALM'S FRONT DOOR, and without this it was the MARKETING PAGE.
+    #
+    # Next serves `apps/web/src/app/page.tsx` at `/`, and all three browser vhosts proxy
+    # `/` to the same process — so `app.${ROOT_DOMAIN}/` rendered the public site, complete with a
+    # "Create a workspace" button, on the hostname clients use. It was invisible while the apex had no vhost
+    # of its own (marketing was only reachable here), and became wrong the moment the apex
+    # started serving it properly.
+    #
+    # `= /` is an EXACT match: it claims the bare root and nothing else, so every real
+    # route under this hostname is untouched. 302 rather than 301 because this is a
+    # routing convenience and not a canonical address — a permanently-cached redirect on
+    # a realm root is a decision that cannot be taken back without waiting out every
+    # browser cache (`www` -> apex is 301, which IS canonical, and stays that way).
+    location = / { return 302 /c; }
+
+    # THE REALM REFUSALS RENDER OUR 404, not nginx's.
+    #
+    # `return 404` below is the control and stays exactly as it is — what changes is what
+    # a person sees. A bare `nginx` error page tells a client who mistyped a path that
+    # something is broken at the infrastructure level, when the truth is that the page
+    # does not exist on this hostname; the app already has a designed not-found screen
+    # with a way back.
+    #
+    # No `=` in the `error_page` directive, so the response KEEPS its 404 status — with
+    # `=` nginx would rewrite it to 200 and hand a crawler a "successful" page.
+    # `proxy_intercept_errors` is off by default, so this catches only the 404s nginx
+    # itself generates here, never one Next returns for a route it has already handled.
+    error_page 404 @calevate_not_found;
+
+    location @calevate_not_found {
+        proxy_pass http://calevate_web/not-found;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location ^~ /admin { return 404; }
 
     location / {
@@ -236,6 +289,40 @@ server {
     # dashboard's whole tree (`apps/web/src/app/c/<slug>/...`). An operator who needs to
     # see a client's screens uses impersonation (D-22), which is audited; a URL that
     # serves them silently on this host is the thing that makes that audit optional.
+    # THE REALM'S FRONT DOOR, and without this it was the MARKETING PAGE.
+    #
+    # Next serves `apps/web/src/app/page.tsx` at `/`, and all three browser vhosts proxy
+    # `/` to the same process — so `admin.${ROOT_DOMAIN}/` rendered the public site, complete with a
+    # "Create a workspace" button, on the hostname operators sign in on. It was invisible while the apex had no vhost
+    # of its own (marketing was only reachable here), and became wrong the moment the apex
+    # started serving it properly.
+    #
+    # `= /` is an EXACT match: it claims the bare root and nothing else, so every real
+    # route under this hostname is untouched. 302 rather than 301 because this is a
+    # routing convenience and not a canonical address — a permanently-cached redirect on
+    # a realm root is a decision that cannot be taken back without waiting out every
+    # browser cache (`www` -> apex is 301, which IS canonical, and stays that way).
+    location = / { return 302 /admin; }
+
+    # THE REALM REFUSALS RENDER OUR 404, not nginx's.
+    #
+    # `return 404` below is the control and stays exactly as it is — what changes is what
+    # a person sees. A bare `nginx` error page tells a client who mistyped a path that
+    # something is broken at the infrastructure level, when the truth is that the page
+    # does not exist on this hostname; the app already has a designed not-found screen
+    # with a way back.
+    #
+    # No `=` in the `error_page` directive, so the response KEEPS its 404 status — with
+    # `=` nginx would rewrite it to 200 and hand a crawler a "successful" page.
+    # `proxy_intercept_errors` is off by default, so this catches only the 404s nginx
+    # itself generates here, never one Next returns for a route it has already handled.
+    error_page 404 @calevate_not_found;
+
+    location @calevate_not_found {
+        proxy_pass http://calevate_web/not-found;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location ^~ /c/ { return 404; }
 
     location / {

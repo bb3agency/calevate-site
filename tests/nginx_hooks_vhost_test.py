@@ -388,3 +388,83 @@ def test_no_block_restates_a_directive_the_shared_snippet_already_sets() -> None
                     "which already sets it at that level. nginx rejects the duplicate and "
                     "refuses the whole config — set it at server scope instead."
                 )
+
+
+# --- each realm's front door ---------------------------------------------------
+#
+# `admin.calevate.tech/` SERVED THE MARKETING PAGE, complete with a "Create a workspace"
+# button, on the hostname operators sign in on. `app.calevate.tech/` did the same to
+# clients. Next serves `apps/web/src/app/page.tsx` at `/` and all three browser vhosts
+# proxy `/` to the same process, so the public site was the default answer everywhere.
+#
+# It was invisible for as long as the apex had no vhost — marketing was ONLY reachable on
+# those two hostnames, so it looked deliberate — and became wrong the moment the apex
+# started serving it properly. That is the shape worth naming: a defect introduced by
+# fixing something else, in a file where nothing tested the property.
+
+REALM_ROOTS = (
+    ("admin.", "/admin", "the operator console"),
+    ("app.", "/c", "the client console junction"),
+)
+
+
+@pytest.mark.parametrize(("host", "target", "what"), REALM_ROOTS)
+def test_each_console_hostname_sends_its_root_to_its_own_realm(
+    host: str, target: str, what: str
+) -> None:
+    block = _block_for(host)
+    match = re.search(r"location\s+=\s+/\s*\{\s*return\s+(\d{3})\s+(\S+?);", block)
+    assert match is not None, (
+        f"{host} has no `location = /`, so the bare root falls through to `location /` "
+        f"and Next answers with the public marketing page instead of {what}"
+    )
+    assert match.group(2) == target, f"{host}/ redirects to {match.group(2)}, not {target} ({what})"
+    assert match.group(1) == "302", (
+        "a realm root is a routing convenience, not a canonical address. A 301 is cached "
+        "permanently by browsers, so changing where this hostname lands would mean "
+        "waiting out every cache. `www` -> apex is the 301, because that one IS canonical."
+    )
+
+
+def test_the_apex_still_serves_the_marketing_page_itself() -> None:
+    """The fix must not be "every root redirects". The public site has to live somewhere,
+    and the apex is where it lives — a `location = /` here would send visitors away from
+    the page they came for."""
+    block = _block_for("${ROOT_DOMAIN}")
+    assert not re.search(r"location\s+=\s+/\s*\{", block), (
+        "the apex now redirects its own root; the marketing site is unreachable"
+    )
+
+
+@pytest.mark.parametrize("host", ["${ROOT_DOMAIN}", "app.", "admin."])
+def test_a_realm_refusal_renders_our_404_and_not_nginx_s(host: str) -> None:
+    """A bare `nginx` error page tells a client who mistyped a path that the
+    infrastructure is broken. The truth is narrower — that page does not exist on this
+    hostname — and the app has a designed not-found screen with a way back.
+
+    The `return 404`s themselves are asserted elsewhere in this file and are unchanged:
+    this is about what a person SEES, never about relaxing the refusal.
+    """
+    block = _uncommented(_block_for(host))
+    match = re.search(r"error_page\s+404\s+(=\s*)?@(\w+)", block)
+    assert match is not None, f"{host} still serves nginx's default 404 page"
+    assert match.group(1) is None, (
+        "`error_page 404 = @name` rewrites the status to 200 — a crawler would be told "
+        "the page exists. Drop the `=` so the 404 survives."
+    )
+    handler = re.search(rf"location\s+@{match.group(2)}\s*\{{([^}}]*)\}}", block)
+    assert handler is not None, f"{host} names @{match.group(2)} but never defines it"
+    assert "proxy_pass http://calevate_web/not-found" in handler.group(1), (
+        "the 404 handler must render the app's not-found page"
+    )
+
+
+def test_the_machine_facing_vhosts_keep_a_plain_404() -> None:
+    """`hooks.` and `api.` answer machines. Handing an engine's webhook retry a rendered
+    HTML page instead of a bare 404 wastes the upstream this vhost exists to protect —
+    and `hooks.`'s whole reason for 404ing /healthz is to keep requests OFF calevate_web."""
+    for host in ("hooks.", "api."):
+        block = _uncommented(_block_for(host))
+        assert "error_page 404" not in block, (
+            f"{host} now renders an HTML 404 through the web upstream"
+        )
