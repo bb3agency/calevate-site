@@ -99,6 +99,42 @@ export function BrandWordmark({
   );
 }
 
+/**
+ * The mark below `sm`, the wordmark at `sm` and up — as ONE element and ONE request.
+ *
+ * The marketing header is the logo, "Sign in" and "Create a workspace" on a single row,
+ * and at 320px (an iPhone SE, still common) those three do not fit however the padding is
+ * tuned: measured in Chromium, the row wanted 374px of a 320px viewport and produced real
+ * horizontal scroll. Shrinking the wordmark alone was not enough — 108px of logo plus
+ * 220px of nav plus the shell's own padding is still over — and letting the labels wrap
+ * gave a two-line header. A brand system has a square mark precisely for this, and using
+ * it here is what it is for.
+ *
+ * `<picture>` RATHER THAN TWO `<img>` WITH `hidden`/`block`. The two-element version is
+ * the obvious spelling and it downloads both files: a `display:none` image is still
+ * fetched. `<source media>` is the one mechanism that makes the browser evaluate the
+ * query BEFORE choosing what to request, so a phone fetches 21 KB and nothing else.
+ *
+ * `width`/`height` describe the SQUARE, which is what `<img>` falls back to and what a
+ * phone loads; the wordmark's own ratio is carried by `w-auto` beside a stated height, so
+ * the row's height never shifts even though its width settles on load. In a flex row with
+ * a fixed height that is the trade worth making.
+ */
+export function BrandHeaderMark({ size = 36, className = "" }: { size?: number; className?: string }) {
+  return (
+    <picture>
+      <source media="(min-width: 640px)" srcSet={`${BRAND}/wordmark.png`} />
+      <img
+        src={`${BRAND}/icon.png`}
+        alt="Calevate"
+        width={size}
+        height={size}
+        className={`h-9 w-auto shrink-0 sm:h-[52px] ${className}`}
+      />
+    </picture>
+  );
+}
+
 /** Mark + "calevate" + the tagline. The footer, where a tagline reads as a signature. */
 export function BrandLockup({
   height = 40,
