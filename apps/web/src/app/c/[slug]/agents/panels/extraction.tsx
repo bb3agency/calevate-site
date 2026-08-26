@@ -35,6 +35,7 @@ import {
   type DraftRow,
 } from "./extractionDraft";
 import { FieldEditorRow } from "./extractionRow";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /**
  * What the agent writes down — and, for the owner, the form that changes it (D-21 is
@@ -55,6 +56,8 @@ export function ExtractionList({ agent, leadsHref }: { agent: Agent; leadsHref: 
 /** The editable form: add, rename, retype, reorder, delete, then save the whole list. */
 function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: ReactNode }) {
   const session = useClientSession();
+  // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
+  const eg = useVerticalExamples();
   const save = useSetExtractionSchema(session, agent.id);
   const write = useWriteAccess(session, "org:manage", "change what this agent captures");
   const { toast } = useToast();
@@ -126,6 +129,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
           <ul className="space-y-3">
             {rows.map((row, index) => (
               <FieldEditorRow
+                eg={eg}
                 key={row.uid}
                 row={row}
                 index={index}

@@ -26,6 +26,7 @@ import { useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/agents";
 import { useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import { lookup } from "@/lib/lookup";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /**
  * Client-side knowledge (FLOWS §7).
@@ -99,6 +100,8 @@ const STATUS_COPY: Record<string, StatusCopy> = {
 
 export default function KnowledgePage() {
   const session = useClientSession();
+  // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
+  const eg = useVerticalExamples();
   const sources = useKbSources(session);
   const agents = useAgents(session);
   const submit = useSubmitKnowledge(session);
@@ -217,7 +220,7 @@ export default function KnowledgePage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 aria-label="What this knowledge is about"
-                placeholder="What is this about? e.g. Clinic hours"
+                placeholder={`What is this about? e.g. ${eg.knowledgeTitle}`}
                 className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
               />
               <textarea

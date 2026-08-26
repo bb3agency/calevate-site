@@ -7139,6 +7139,10 @@
             "title": "Languages",
             "type": "array"
           },
+          "owner_present": {
+            "title": "Owner Present",
+            "type": "boolean"
+          },
           "prose_answers": {
             "anyOf": [
               {
@@ -7195,6 +7199,7 @@
           "submitted_at",
           "saved_at",
           "language_primary",
+          "owner_present",
           "sheet_agent_id"
         ],
         "title": "IntakeStateOut",

@@ -87,6 +87,7 @@ const NO_INTAKE: IntakeState = {
   saved_at: null,
   language_primary: "te-IN",
   sheet_agent_id: null,
+  owner_present: false,
 };
 
 /** What the abandoned client's sheet holds: an address and a service, and neither of
@@ -110,6 +111,7 @@ const HALF_ANSWERED: IntakeState = {
   // resumed form has to read the agent's own row rather than the browser's memory.
   language_primary: "hi-IN",
   sheet_agent_id: ABANDONED.agent_id,
+  owner_present: false,
 };
 
 const DRAFT_SAVED = { agent_id: ABANDONED.agent_id, blockers: ABANDONED.blockers };

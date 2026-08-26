@@ -21,6 +21,7 @@ import {
 import { hasKey } from "@/lib/lookup";
 
 import { FIELD_TYPE_COPY, effectiveKey, type DraftRow, type FieldType } from "./extractionDraft";
+import type { VerticalExamples } from "@/lib/verticalExamples";
 
 /**
  * One editable variable, as a stacked card so it works on a phone with no sideways scroll.
@@ -38,11 +39,19 @@ export function FieldEditorRow({
   onDelete,
   onMoveUp,
   onMoveDown,
+  eg,
 }: {
   row: DraftRow;
   index: number;
   total: number;
   disabled: boolean;
+  /**
+   * This tenant's example text. A PROP, not a hook, because this file's own docstring is
+   * the reason: it "does not touch the network or the session — it is given a draft row
+   * and hands back a patch". Reaching for `/v1/me` here to fill one placeholder would
+   * trade that away, and the parent already holds the answer.
+   */
+  eg: VerticalExamples;
   onChange: (patch: Partial<DraftRow>) => void;
   onDelete: () => void;
   onMoveUp: () => void;
@@ -141,7 +150,7 @@ export function FieldEditorRow({
           value={row.reason}
           disabled={disabled}
           onChange={(event) => onChange({ reason: event.target.value })}
-          placeholder="e.g. so we can route urgent cases to a doctor first"
+          placeholder={`e.g. ${eg.extractionReason}`}
           className={FIELD}
         />
         <span className={FIELD_HINT}>

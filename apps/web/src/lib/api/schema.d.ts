@@ -7980,6 +7980,8 @@ export interface components {
             language_primary: string;
             /** Languages */
             languages: string[];
+            /** Owner Present */
+            owner_present: boolean;
             prose_answers: components["schemas"]["IntakeProse"] | null;
             /** Saved At */
             saved_at: string | null;

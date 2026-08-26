@@ -82,6 +82,7 @@ const NO_INTAKE: IntakeState = {
   // is the EXTRAS plus this, and a caller that arrived by resuming has no other source.
   language_primary: "te-IN",
   sheet_agent_id: null,
+  owner_present: false,
 };
 
 /** `IntakeOut` when the answers compiled into something new. */
@@ -182,6 +183,7 @@ const STORED: IntakeState = {
   saved_at: "2026-08-01T04:30:00Z",
   language_primary: "te-IN",
   sheet_agent_id: CREATED.agent_id,
+  owner_present: false,
 };
 
 describe("submitting the intake", () => {
@@ -337,6 +339,32 @@ describe("reopening the step", () => {
     // not be told its answers were lost.
     const { container } = await reachIntake();
     expect(container.textContent).not.toContain("Only the summary we build for the agent is kept");
+  });
+
+  it("withdraws the owner invite once somebody has accepted, and says why", async () => {
+    /* The step exists to get an owner INTO the account. Offering it afterwards invites
+       an operator to redo work that is done, and the next screen would then either be
+       refused (`invitation_already_pending`) or hand a second key to an account that
+       already has an owner.
+
+       `owner_present` is the signal and NOT "are there pending invitations", because
+       `list_pending_invitations` filters `used_at IS NULL AND expires_at > now()` — so
+       an empty list means never-invited, consumed OR expired, and only the middle one
+       should hide this control. The other two are exactly when it is still needed. */
+    await reachIntake({ [INTAKE]: { ...STORED, owner_present: true } });
+
+    expect(screen.queryByRole("button", { name: /Continue to the owner invite/ })).toBeNull();
+    // Withdrawn WITH a reason: a control that vanishes silently sends an operator
+    // hunting for a button they remember.
+    expect(screen.getByText(/already accepted into this account/i)).toBeTruthy();
+  });
+
+  it("still offers it while nobody has accepted — invited, expired or never sent", async () => {
+    // `owner_present: false` is all three of those states, which is the point of using it.
+    await reachIntake({ [INTAKE]: { ...STORED, owner_present: false } });
+    expect(
+      await screen.findByRole("button", { name: /Continue to the owner invite/ }),
+    ).toBeTruthy();
   });
 
   it("keeps the answers when the operator walks to the invite step and back", async () => {

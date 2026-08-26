@@ -576,6 +576,12 @@ class IntakeStateOut(BaseModel):
     # The agent's own primary. Without it `languages` is unrenderable by anyone who did
     # not just choose the primary themselves — see `read_intake` for the full argument.
     language_primary: str
+    # Whether anybody has accepted into this account yet, so the wizard can stop
+    # offering an owner invite that has already been redeemed. False covers "never
+    # invited", "invite outstanding" and "link expired" alike — all three are states in
+    # which the operator still needs that step. See `admin/intake.read_intake` for why
+    # the invitations list cannot answer this.
+    owner_present: bool
     # Which agent the stored answers were last written through (provenance, not
     # ownership: the sheet is per-ORG, the compile is per-agent). `None` for a
     # pre-migration org that has no sheet.

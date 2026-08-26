@@ -871,11 +871,31 @@ export function IntakeStep({
             <Save aria-hidden className="h-4 w-4" />
             {saveDraft.isPending ? "Saving…" : "Save draft"}
           </button>
-          <button type="button" onClick={onContinue} className={SECONDARY_BUTTON}>
-            Continue to the owner invite
-            <ArrowRight aria-hidden className="h-4 w-4" />
-          </button>
+          {/* WITHDRAWN ONCE SOMEBODY IS IN. The step exists to get an owner into the
+              account; offering it after one has accepted is an operator being invited to
+              do work that is already done, and the wizard's own next screen would then
+              refuse the mint with `invitation_already_pending` or hand out a second key
+              to an account that has an owner.
+
+              `owner_present` and not "are there pending invitations": that list filters
+              to unexpired-and-unused, so empty means never-invited, consumed OR expired,
+              and only the middle one should hide this. See `admin/intake.read_intake`. */}
+          {!stored?.owner_present && (
+            <button type="button" onClick={onContinue} className={SECONDARY_BUTTON}>
+              Continue to the owner invite
+              <ArrowRight aria-hidden className="h-4 w-4" />
+            </button>
+          )}
         </div>
+        {/* The other half of withdrawing the control: say why it is gone, rather than
+            leaving an operator hunting for a button they remember. */}
+        {stored?.owner_present && (
+          <p className="text-xs text-ink-faint">
+            Somebody has already accepted into this account, so there is no owner invite
+            left to send. Further people are invited from the client&apos;s own team
+            screen.
+          </p>
+        )}
         {/* Said where the buttons are, because it is the answer to "why is that one
             dead". `RestrictionNote` at the top of the form covers the disabled inputs;
             this covers the control at the bottom of a long page. */}

@@ -20,6 +20,8 @@ import {
   type KnowledgeGap,
 } from "@/lib/api/knowledgeGaps";
 import { useClientSession } from "@/lib/api/session";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
+import type { VerticalExamples } from "@/lib/verticalExamples";
 
 /**
  * "Where the agents struggled on real calls" — the URGENT insights surface.
@@ -42,6 +44,8 @@ export function KnowledgeGaps({
   className?: string;
 }) {
   const session = useClientSession();
+  // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
+  const eg = useVerticalExamples();
   const gaps = useKnowledgeGaps(session, { agentId, status: "open", limit: 20 });
 
   const title = agentId ? "Where this agent struggled" : "Where your agents struggled";
@@ -93,7 +97,7 @@ export function KnowledgeGaps({
       ) : (
         <ul className="space-y-2" aria-label="Knowledge gaps needing attention">
           {items.map((gap) => (
-            <GapRow key={gap.id} gap={gap} showAgent={!agentId} />
+            <GapRow eg={eg} key={gap.id} gap={gap} showAgent={!agentId} />
           ))}
         </ul>
       )}
@@ -107,7 +111,16 @@ const SIGNAL_BADGE: Record<GapSignal, string> = {
   unanswered_question: "LEFT UNANSWERED",
 };
 
-function GapRow({ gap, showAgent }: { gap: KnowledgeGap; showAgent: boolean }) {
+function GapRow({
+  gap,
+  showAgent,
+  eg,
+}: {
+  gap: KnowledgeGap;
+  showAgent: boolean;
+  /** This tenant's examples, passed down rather than re-read: one `/v1/me` per screen. */
+  eg: VerticalExamples;
+}) {
   const session = useClientSession();
   const dismiss = useDismissGap(session);
   const teach = useTeachGap(session);
@@ -182,7 +195,7 @@ function GapRow({ gap, showAgent }: { gap: KnowledgeGap; showAgent: boolean }) {
             className={`${FIELD} min-h-[76px]`}
             value={answer}
             onChange={(event) => setAnswer(event.target.value)}
-            placeholder="e.g. Our consultation fee is ₹500, adjusted against any treatment on the same day."
+            placeholder={`e.g. ${eg.knowledgeAnswer}`}
           />
           <p className="text-[11px] text-ink-faint">
             This is saved as a draft for your agent&apos;s knowledge and reviewed before it
