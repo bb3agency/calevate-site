@@ -35,9 +35,13 @@ import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/aut
 import { useRealmSession } from "@/lib/authn/useRealmSession";
 import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
-const LINK = "rounded-md px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
+// TIGHTER BELOW `sm`, because this nav shares one row with the logo and at 320px that row
+// did not fit — measured in Chromium, 374px of content in a 320px viewport. The padding
+// and type step back up at `sm`, so nothing changes on the screens that have the room.
+const LINK =
+  "rounded-md px-2 py-1.5 text-xs font-medium whitespace-nowrap text-ink-muted hover:bg-black/5 sm:px-3 sm:text-sm dark:hover:bg-white/5";
 const PRIMARY =
-  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-strong";
+  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white hover:bg-brand-strong sm:px-3 sm:text-sm";
 
 export interface MarketingAccountNavProps {
   /** The signup call to action, whose wording the page owns (`SIGNUP_OPEN`). */

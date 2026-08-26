@@ -30,7 +30,7 @@ import {
   Webhook,
 } from "lucide-react";
 
-import { BrandLockup, BrandWordmark } from "@/components/brand";
+import { BrandHeaderMark, BrandLockup } from "@/components/brand";
 
 import { CallDemo } from "@/components/marketing/callDemo";
 import {
@@ -108,7 +108,24 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  */
 
 /** The section container, one place so every band lines up on the same rhythm. */
-const SHELL = "mx-auto w-full max-w-6xl px-6";
+/**
+ * The page's content column.
+ *
+ * IT STOPPED GROWING AT 1024px, WHICH IS WHY A BIG SCREEN LOOKED BROKEN. Every width
+ * class on this page tops out at `lg`, so a 1152px column sat unchanged in a 1920, 2560 or
+ * 3440 viewport — 40%, 55% and 66% of the screen as empty margin, with a 224px illustration
+ * marooned at the right edge. Measured in real Chromium at six widths rather than guessed:
+ * the shell was 1152px and the headline 896px at every single one of them, and there was no
+ * horizontal overflow anywhere, so the complaint was never a scrollbar — it was a layout
+ * with no breakpoint above `lg`.
+ *
+ * `xl` (1280) and `2xl` (1536) now do something. The steps are deliberately small — 1152 →
+ * 1280 → 1440 — because a content column is not improved by growing without limit: past
+ * roughly 75 characters a line gets hard to track back from, which is why the paragraphs
+ * below keep their own `max-w-2xl` regardless of what this does. What the extra room buys
+ * is a hero that fills its screen and cards that are not postage stamps on a monitor.
+ */
+const SHELL = "mx-auto w-full max-w-6xl px-6 xl:max-w-7xl 2xl:max-w-[90rem]";
 
 /** A capability, stated as the behaviour a caller or a client would observe. */
 const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[] = [
@@ -378,12 +395,15 @@ export default function Home() {
     <SmoothScroll>
       <div data-marketing-root className="bg-app text-ink">
         <header className="sticky top-0 z-30 border-b border-line bg-surface/80 backdrop-blur-md">
-          <div className={`${SHELL} flex items-center justify-between gap-4 py-3.5`}>
+          <div className={`${SHELL} flex items-center justify-between gap-3 py-3.5 sm:gap-4`}>
             {/* The wordmark REPLACES the chip and the word, rather than sitting beside
                 them: the artwork already contains the name, and rendering both would say
                 "Calevate" twice on the one screen a stranger judges us by. It carries a
                 real `alt` for the same reason — it is the name here, not decoration. */}
-            <BrandWordmark height={52} />
+            {/* Square mark on a phone, wordmark from `sm` — one element, one request.
+                The three things in this row do not fit at 320px otherwise; see
+                `BrandHeaderMark`, which carries the measurement. */}
+            <BrandHeaderMark />
             {/* A client island in a server page: the session cookie is `HttpOnly`, so
                 whether this visitor is already signed in can only be answered by asking
                 the API. It renders the signed-out header until that lands, and never the
@@ -411,7 +431,7 @@ export default function Home() {
                   so it can never crowd the copy or push the hero wider. */}
               <div
                 aria-hidden
-                className="pointer-events-none absolute top-40 right-0 hidden w-56 xl:block"
+                className="pointer-events-none absolute top-40 right-0 hidden w-56 xl:block 2xl:w-72"
               >
                 <IsoHandset className="h-auto w-full" />
               </div>
@@ -425,7 +445,7 @@ export default function Home() {
                 </p>
                 <h1
                   data-hero-item
-                  className="mt-6 max-w-4xl text-5xl leading-[1.02] font-semibold tracking-tight text-balance text-ink sm:text-6xl lg:text-7xl"
+                  className="mt-6 max-w-4xl text-5xl leading-[1.02] font-semibold tracking-tight text-balance text-ink sm:text-6xl lg:text-7xl 2xl:max-w-5xl 2xl:text-[5.25rem]"
                 >
                   Never lose a{" "}
                   <span className="relative inline-block">
@@ -1088,7 +1108,7 @@ export default function Home() {
           for exactly this reason, so iterating is safe as well as shorter.
         */}
         <footer className="border-t border-line px-6 py-10">
-          <div className="mx-auto flex max-w-6xl flex-col gap-5">
+          <div className={`${SHELL} flex flex-col gap-5 px-0`}>
             {/* The tagline lockup, and this is the one place it belongs: a footer is
                 where a signature reads as a signature rather than as a second headline. */}
             <div className="flex items-center">
