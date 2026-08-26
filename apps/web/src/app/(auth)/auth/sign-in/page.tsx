@@ -25,6 +25,7 @@ import {
   clientAuthn,
 } from "@/lib/authn/clientAuthn";
 import { ClientGuestOnly } from "@/lib/authn/clientSession";
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
 export default function ClientSignInPage() {
   return (
@@ -40,8 +41,12 @@ export default function ClientSignInPage() {
               authn={clientAuthn}
               forgotPath={CLIENT_FORGOT_PATH}
               onSignedIn={() => {
-                // The console, not the account page — see `CLIENT_CONSOLE_PATH`.
-                window.location.assign(CLIENT_CONSOLE_PATH);
+                // The console, not the account page — see `CLIENT_CONSOLE_PATH`. Through
+                // `clientConsoleUrl` because THIS SCREEN IS SERVED ON THREE HOSTNAMES: the
+                // apex refuses `/c/`, so a bare path sent everyone who signed in from the
+                // marketing site to a 404 one redirect later. The cookie is set on the API
+                // host and is same-site to all three, so crossing to `app.` keeps it.
+                window.location.assign(clientConsoleUrl(CLIENT_CONSOLE_PATH));
               }}
               footer={
                 <p className="text-xs text-ink-faint">

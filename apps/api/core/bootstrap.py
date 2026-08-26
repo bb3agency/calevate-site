@@ -46,9 +46,34 @@ log = get_logger(__name__)
 #: or `None` when the handler was not installed from Python.
 _Handler = Callable[[int, FrameType | None], Any] | int | signal.Handlers | None
 
-# Client realm, admin realm, and local dev. Prod origins come from the edge config;
-# a wildcard is never acceptable here because sessions are cookie-backed.
+# Every origin this product's own pages are served from. A wildcard is never acceptable
+# here because sessions are cookie-backed (`install_middleware` refuses one outright).
+#
+# THIS LIST IS READ TWICE, and the second reader is why an omission here is not merely a
+# CORS inconvenience: `authn/cookies.enforce_same_origin` uses the SAME list as its CSRF
+# `Origin` allowlist, deliberately, so that there is not a second list to keep in step. A
+# missing origin therefore fails a request twice over — the browser refuses the response
+# for want of `Access-Control-Allow-Origin`, and the API would refuse the request as
+# cross-site even if the browser did not.
+#
+# THE APEX WAS MISSING, AND IT BROKE SIGN-IN, PASSWORD RESET AND THE MARKETING HEADER.
+# Reported from the live site as "we could not reach Calevate" on correct credentials —
+# which is exactly what a CORS-blocked `fetch` looks like from `lib/authn/transport.ts`:
+# the request never completes, so the browser reports a network failure and the console
+# renders `authn_unreachable`. The console was right that it could not reach us.
+#
+# `https://calevate.tech` is not an optional extra. The marketing page mounts
+# `MarketingAccountNav`, which asks `GET /v1/auth/client/session` on every load because
+# the session cookie is `HttpOnly` and "are you already signed in" cannot be answered any
+# other way; and `/auth/sign-in`, `/auth/forgot-password` and `/auth/reset-password` are
+# served on that hostname too, since only `/admin` and `/c/` are refused there.
+#
+# `https://www.calevate.tech` is deliberately NOT here. The `www` vhost is a server-scope
+# `return 301` to the apex, so the browser follows the redirect before any of our script
+# runs and `www` never becomes a document origin. Adding an origin that cannot occur
+# widens the CSRF allowlist for nothing.
 DEFAULT_CORS_ORIGINS = [
+    "https://calevate.tech",
     "https://app.calevate.tech",
     "https://admin.calevate.tech",
     "http://localhost:3000",

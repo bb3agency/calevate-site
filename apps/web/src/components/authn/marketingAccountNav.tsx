@@ -33,6 +33,7 @@ import Link from "next/link";
 
 import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
 import { useRealmSession } from "@/lib/authn/useRealmSession";
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
 const LINK = "rounded-md px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
 const PRIMARY =
@@ -70,8 +71,10 @@ export function MarketingAccountNav({ signupLabel }: MarketingAccountNavProps) {
     <nav className="flex items-center gap-2">
       {/* `/c`, not `/c/<slug>`: this component has a session and no slug, and the junction
           is what turns one into the other. Linking anywhere else would mean a second
-          `/v1/me` read here purely to build an href. */}
-      <Link href={CLIENT_CONSOLE_PATH} className={PRIMARY}>
+          `/v1/me` read here purely to build an href.
+          ABSOLUTE, because this nav renders on the APEX, which serves `/c` and refuses
+          `/c/<slug>` — so the bare path reached the junction and died at its destination. */}
+      <Link href={clientConsoleUrl(CLIENT_CONSOLE_PATH)} className={PRIMARY}>
         <LayoutDashboard aria-hidden className="h-3.5 w-3.5" />
         Go to your console
       </Link>

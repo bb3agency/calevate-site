@@ -300,8 +300,8 @@ def enforce_same_origin(request: Request) -> None:
     Checking the `Origin` unconditionally closes it: that sibling's origin is not
     `admin.calevate.tech` and is not in the allowlist. The request's OWN origin is
     accepted alongside the list, which is what `same-origin` used to buy — the API host is
-    not in `DEFAULT_CORS_ORIGINS` (that list names the two consoles), so without this the
-    tightening would refuse a legitimate same-origin call.
+    not in `DEFAULT_CORS_ORIGINS` (that list names the marketing site and the two
+    consoles), so without this the tightening would refuse a legitimate same-origin call.
 
     The allowlist is `core/bootstrap.DEFAULT_CORS_ORIGINS` — the SAME list the CORS
     middleware is installed with, deliberately, rather than a second one to keep in step.
