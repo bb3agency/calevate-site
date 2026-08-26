@@ -446,14 +446,19 @@ def test_a_realm_refusal_renders_our_404_and_not_nginx_s(host: str) -> None:
     this is about what a person SEES, never about relaxing the refusal.
     """
     block = _uncommented(_block_for(host))
-    match = re.search(r"error_page\s+404\s+(=\s*)?@(\w+)", block)
+    match = re.search(r"error_page\s+404\s+(=\s*)?(/\S+);", block)
     assert match is not None, f"{host} still serves nginx's default 404 page"
     assert match.group(1) is None, (
-        "`error_page 404 = @name` rewrites the status to 200 — a crawler would be told "
-        "the page exists. Drop the `=` so the 404 survives."
+        "`error_page 404 = /uri` rewrites the status to the error page's own — a crawler "
+        "would be told the page exists. Drop the `=` so the 404 survives."
     )
-    handler = re.search(rf"location\s+@{match.group(2)}\s*\{{([^}}]*)\}}", block)
-    assert handler is not None, f"{host} names @{match.group(2)} but never defines it"
+    target = match.group(2)
+    handler = re.search(rf"location\s+=\s+{re.escape(target)}\s*\{{([^}}]*)\}}", block)
+    assert handler is not None, f"{host} points 404 at {target} but never defines it"
+    assert "internal;" in handler.group(1), (
+        f"{target} is reachable directly — `internal` is what keeps it an implementation "
+        "detail rather than a published URL"
+    )
     assert "proxy_pass http://calevate_web/not-found" in handler.group(1), (
         "the 404 handler must render the app's not-found page"
     )

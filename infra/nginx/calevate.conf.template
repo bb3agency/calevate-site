@@ -114,9 +114,16 @@ server {
     # `=` nginx would rewrite it to 200 and hand a crawler a "successful" page.
     # `proxy_intercept_errors` is off by default, so this catches only the 404s nginx
     # itself generates here, never one Next returns for a route it has already handled.
-    error_page 404 @calevate_not_found;
+    error_page 404 /_calevate_not_found;
 
-    location @calevate_not_found {
+    # `internal`, and an EXACT-MATCH location rather than a named one. `proxy_pass` may
+    # not carry a URI part inside a named location — nginx refuses the whole config with
+    # "proxy_pass cannot have URI part in location given by regular expression, or inside
+    # named location" — and the URI is the entire point here, since the app's not-found
+    # page lives at `/not-found`. `internal` is what stops the path being reachable
+    # directly, so nothing publishes a `/_calevate_not_found` URL.
+    location = /_calevate_not_found {
+        internal;
         proxy_pass http://calevate_web/not-found;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
@@ -244,9 +251,16 @@ server {
     # `=` nginx would rewrite it to 200 and hand a crawler a "successful" page.
     # `proxy_intercept_errors` is off by default, so this catches only the 404s nginx
     # itself generates here, never one Next returns for a route it has already handled.
-    error_page 404 @calevate_not_found;
+    error_page 404 /_calevate_not_found;
 
-    location @calevate_not_found {
+    # `internal`, and an EXACT-MATCH location rather than a named one. `proxy_pass` may
+    # not carry a URI part inside a named location — nginx refuses the whole config with
+    # "proxy_pass cannot have URI part in location given by regular expression, or inside
+    # named location" — and the URI is the entire point here, since the app's not-found
+    # page lives at `/not-found`. `internal` is what stops the path being reachable
+    # directly, so nothing publishes a `/_calevate_not_found` URL.
+    location = /_calevate_not_found {
+        internal;
         proxy_pass http://calevate_web/not-found;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
@@ -316,9 +330,16 @@ server {
     # `=` nginx would rewrite it to 200 and hand a crawler a "successful" page.
     # `proxy_intercept_errors` is off by default, so this catches only the 404s nginx
     # itself generates here, never one Next returns for a route it has already handled.
-    error_page 404 @calevate_not_found;
+    error_page 404 /_calevate_not_found;
 
-    location @calevate_not_found {
+    # `internal`, and an EXACT-MATCH location rather than a named one. `proxy_pass` may
+    # not carry a URI part inside a named location — nginx refuses the whole config with
+    # "proxy_pass cannot have URI part in location given by regular expression, or inside
+    # named location" — and the URI is the entire point here, since the app's not-found
+    # page lives at `/not-found`. `internal` is what stops the path being reachable
+    # directly, so nothing publishes a `/_calevate_not_found` URL.
+    location = /_calevate_not_found {
+        internal;
         proxy_pass http://calevate_web/not-found;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
