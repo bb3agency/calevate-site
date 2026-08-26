@@ -362,7 +362,8 @@ separation exists to prevent.
 ### Step-up (D-178) — the gate is whole (REASONED)
 
 `core/stepup.StepUp.require` demands both halves — the `X-Confirm-Action` echo and a second
-factor proved within `REAUTH_MAX_AGE` (5 minutes) — and the permissive branch the brief asked
+factor proved within `REAUTH_MAX_AGE` (5 minutes when this was read; **30** since D-473) —
+and the permissive branch the brief asked
 about is now `if dev_tokens_permitted(): return`, which is `APP_ENV=local` **and** no
 `PLATFORM_KEK`, i.e. the same two conditions that already gate accepting a `dev:` token at
 all. `is_fresh(None)` is False, so a session that never proved a factor is refused rather

@@ -169,12 +169,19 @@ AUTH_TIME_CLAIM: Final = "auth_time"
 #: step-up (D-210), after which the operator proves a factor again.
 #:
 #: THE ALTERNATIVE THIS REPLACES, stated because it is the obvious one: demand a fresh
-#: second factor on EVERY mint. `REAUTH_MAX_AGE` is 5 minutes and `GRANT_TTL` is 15, so
-#: every mint after the first would fall outside the freshness window and an operator
-#: would answer an emailed code roughly every fourteen minutes to stay inside one client's
-#: account. `authn/stepup.py` records this repo's own name for that failure — "a control
-#: that gets switched off" — and a read-only support session is exactly the workflow it
-#: would be switched off for.
+#: second factor on EVERY mint. `GRANT_TTL` is 15 minutes and the console re-mints just
+#: inside it, so the question is whether each re-mint falls inside `REAUTH_MAX_AGE`.
+#:
+#: THIS ARITHMETIC CHANGED WITH D-473 AND THE CONCLUSION DID NOT. At 5 minutes every mint
+#: after the first fell outside the window, so an operator answered an emailed code roughly
+#: every fourteen minutes to stay inside one client's account — flatly unusable. At 30 the
+#: first ~30 minutes of a view-as session would be free and the challenge would begin
+#: partway through, which is better and still wrong: `VIEW_AS_MAX_AGE` is an hour, so the
+#: back half of every long support session would be interrupted, and interrupted at a
+#: moment the operator cannot predict. `authn/stepup.py` records this repo's own name for
+#: that failure — "a control that gets switched off" — and a read-only support session is
+#: exactly the workflow it would be switched off for. Renewal is what makes the ceiling a
+#: property of the SESSION rather than a recurring interruption inside it.
 #:
 #: The shape used instead is the one the industry converged on for "assume authority into
 #: another account's data": AWS STS `AssumeRole` takes the MFA code ONCE and returns a

@@ -139,9 +139,9 @@ def _render(tmp: Path) -> Path:
             snippet.read_text(encoding="utf-8"), encoding="utf-8"
         )
 
-    # Two edits are made to the rendered text and no others. First: the templates include
+    # Three edits are made to the rendered text and no others. First: the templates include
     # snippets by ABSOLUTE path (/etc/nginx/snippets/...), which a test prefix cannot
-    # provide. Second is argued at the line that makes it.
+    # provide. The other two are argued at the lines that make them.
     for conf in (prefix / "conf.d").glob("*.conf"):
         text = conf.read_text().replace("/etc/nginx/snippets/", f"{prefix}/snippets/")
         # IPv6 `listen` lines are dropped, and this is the second and last edit.
@@ -152,6 +152,24 @@ def _render(tmp: Path) -> Path:
         # config error is a gate people learn to ignore. The v4 line beside each one is
         # kept, so every server block is still bound and still tested.
         text = re.sub(r"^\s*listen\s+\[::\]:.*\n", "", text, flags=re.MULTILINE)
+        # THE PRIVILEGED PORTS ARE MOVED, and this is the third and last edit. `nginx -t`
+        # does not merely parse — it OPENS the listening sockets — so on a runner that is
+        # not root, every `listen 80` in the rendered config fails with
+        # `bind() to 0.0.0.0:80 failed (13: Permission denied)` AFTER nginx has printed
+        # "syntax is ok". That is a property of the ACCOUNT, not of the config, and it is
+        # what made this gate red on GitHub Actions while passing on a workstation with
+        # the capability — a gate that fails for a reason the diff cannot contain is one
+        # people learn to override.
+        #
+        # 80 -> 8080 and 443 -> 8443. A port number is an argument to `listen` and nothing
+        # else in the file reads it: no `proxy_pass`, no redirect and no `server_name`
+        # here names a port, so every directive under test — the vhost split, the
+        # locations, the timeouts, the certificates, `http2 on` — is parsed exactly as it
+        # would be on the host. What this deliberately does NOT do is drop the `listen`
+        # lines: a server block with none would still parse, and would stop testing the
+        # thing that decides which vhost answers.
+        text = re.sub(r"(^\s*listen\s+)80\b", r"\g<1>8080", text, flags=re.MULTILINE)
+        text = re.sub(r"(^\s*listen\s+)443\b", r"\g<1>8443", text, flags=re.MULTILINE)
         conf.write_text(text, encoding="utf-8")
 
     (prefix / "nginx.conf").write_text(

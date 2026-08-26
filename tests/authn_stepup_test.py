@@ -4,7 +4,7 @@ Two obligations, two kinds of evidence, and this file's job is to prove that a d
 mutation cannot be reached by satisfying one of them:
 
     X-Confirm-Action                       INTENT   — this screen meant to send THIS action
-    a second factor proved in the last 5m  PRESENCE — the person at the keyboard is still them
+    a second factor proved recently        PRESENCE — the person at the keyboard is still them
 
 `core/auth.py` records why freshness was NOT enforced before: Clerk models it as
 "reverification", this repo had no browser flow to raise the prompt, and gating an incident
@@ -497,10 +497,25 @@ async def test_requesting_a_step_up_code_does_not_retire_a_pending_sign_in_code(
     assert still_live == 1
 
 
-def test_the_window_is_tighter_than_the_session_it_guards() -> None:
-    """A step-up window at or above the admin idle bound would be satisfied by every
-    session that is live at all — a control that never fires."""
+def test_the_window_is_never_the_loosest_clock_in_the_request() -> None:
+    """Step-up may equal the idle bound (D-473) but must never exceed either session bound.
+
+    THIS TEST USED TO ASSERT A STRICT `>`, on the reasoning that a window "at or above the
+    idle bound would be satisfied by every session that is live at all — a control that
+    never fires". That reasoning is wrong and D-473 records why: `mfa_verified_at` is
+    stamped when a factor is PROVED and is never refreshed by activity, so a session in
+    its fourth hour carries a four-hour-old stamp and is challenged by any window shorter
+    than four hours. Equality with the idle bound costs the first half hour after each
+    proof, not the control's ability to fire.
+
+    What genuinely must hold is the weaker statement the old one was reaching for: a
+    step-up window LONGER than a session bound would be a gate the session outlives, i.e.
+    a per-action control that no living session could ever fail. `<=` on idle, and
+    strictly `<` on absolute, is exactly that line — and it is what would fail if somebody
+    widened this constant again without weighing it against the session it guards.
+    """
     from apps.api.authn.sessions import REALM_TIMEOUTS
 
-    assert REALM_TIMEOUTS["admin"].idle > REAUTH_MAX_AGE
+    assert REAUTH_MAX_AGE <= REALM_TIMEOUTS["admin"].idle
+    assert REAUTH_MAX_AGE < REALM_TIMEOUTS["admin"].absolute
     assert COOKIE_NAMES["admin"].startswith("__Host-")

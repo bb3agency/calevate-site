@@ -48,19 +48,39 @@ refused before this gate is reached. The `X-Confirm-Action` echo (`core/stepup.p
 either way. `tests/authn_stepup_test.py` pins the refusal on the branch that exists rather
 than trusting this paragraph.
 
-═══ FIVE MINUTES ═══
+═══ THIRTY MINUTES (D-473, was five under D-178) ═══
 
-`REAUTH_MAX_AGE` is five minutes: long enough that an operator working through a runbook —
-read the current value, decide, send the change — is not challenged twice inside one task,
-short enough that an abandoned session is not a usable one. It is deliberately much shorter
-than the admin realm's 30-minute idle bound, because the whole point is to be a tighter
-clock than the session's own; a step-up window at or above the idle window would be
-satisfied by every session that is live at all, which is a control that never fires.
+`REAUTH_MAX_AGE` is thirty minutes. It was five, and five was measured against real use on
+the live console rather than in the abstract: an operator moving through a client — spend
+ceiling, then KYC, then a commercial term — was challenged for an emailed code on each,
+because the window expired between actions that belong to one piece of work. A control
+that fires that often is one people learn to click through, and the emailed-code round
+trip is long enough that the habit forms fast.
+
+WHAT WAS GIVEN UP, STATED PLAINLY RATHER THAN GLOSSED. An admin console left unattended
+within thirty minutes of a proved factor can perform a dangerous mutation without being
+challenged; at five that exposure was six times smaller. The mitigations are unchanged and
+none of them moved: MFA at sign-in (`service.MFA_REQUIRED_REALMS`), the 30-minute idle
+bound with its 25-minute warning modal, the 8-hour absolute bound, `X-Confirm-Action` on
+every one of these routes, and an `audit_log` row per action.
+
+THE OLD JUSTIFICATION FOR "MUCH SHORTER THAN 30" WAS PARTLY WRONG, and it is corrected
+here rather than quietly deleted. It said a window "at or above the idle window would be
+satisfied by every session that is live at all". That does not follow: `mfa_verified_at`
+is stamped when a factor is PROVED, and is not refreshed by activity — so a session in its
+fourth hour carries a four-hour-old stamp and is challenged at any window shorter than
+that. What thirty minutes actually costs is the first half hour after each proof, not the
+control's ability to fire.
 
 NIST SP 800-63B has no number for this and says so implicitly — reauthentication intervals
-there are session-level (12 h / 30 min inactivity for AAL2), not per-action — so five
-minutes is our judgement about ONE operator action, recorded as a decision (D-178) rather
-than presented as a standard.
+there are session-level (12 h / 30 min inactivity for AAL2), not per-action — so thirty
+minutes is our judgement about ONE operator action, recorded as a decision (D-473) rather
+than presented as a standard. It is at the AAL2 inactivity interval, not above it.
+
+THE CONSOLE PRINTS THIS NUMBER TOO. `apps/web/src/components/authn/stepUpPrompt.tsx`
+tells the operator how long the proof lasts, and a second copy of a number is a second
+place for it to be wrong — the sentence there read "five minutes" while this constant
+was about to say thirty. `tests/step_up_window_mirror_test.py` compares the two.
 """
 
 from __future__ import annotations
@@ -84,7 +104,9 @@ log = get_logger(__name__)
 STEP_UP_REALM: Final = "admin"
 
 #: How recently a second factor must have been proved. See the module docstring.
-REAUTH_MAX_AGE: Final = timedelta(minutes=5)
+#: The refusal detail below derives its wording from this value, so the number an operator
+#: is told is the number that is enforced, always.
+REAUTH_MAX_AGE: Final = timedelta(minutes=30)
 
 
 async def current_admin_session(request: Request) -> VerifiedSession | None:

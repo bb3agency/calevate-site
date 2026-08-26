@@ -574,7 +574,8 @@ Identity & access
   - **Step-up now has BOTH halves (D-178)**, demanded together by
     `core/stepup.StepUp.require`: `X-Confirm-Action` must echo the action (INTENT — a
     stolen cookie satisfies it trivially, since the refusal prints the string), and
-    `auth_sessions.mfa_verified_at` must be under `REAUTH_MAX_AGE` = 5 minutes (PRESENCE).
+    `auth_sessions.mfa_verified_at` must be under `REAUTH_MAX_AGE` = 30 minutes (PRESENCE,
+    widened from 5 by D-473 — the trade is argued in `authn/stepup.py`'s docstring).
     `POST /v1/auth/admin/step-up` mails a `step_up`-purpose code and `.../step-up/verify`
     answers it, rotating the session and carrying `absolute_expires_at` forward so
     re-proving cannot extend a session. This was "the named next step needing a browser

@@ -64,3 +64,19 @@ dump.rdb
 
 # Live production credentials — never commit (see the file's own header)
 VPS_INPUTS.md
+
+# The coverage ratchet's probe package — a THREE-LINE FILE THAT BROKE CI FOR AN HOUR.
+#
+# `coverage_ratchet_guard_test` proves the unguarded-surface check against the REAL tree
+# rather than a fixture (a fixture would prove only that the fixture parses), so it writes
+# `apps/api/_ratchet_probe/models.py`, asserts the checker names it, and removes it in a
+# `finally`. The cleanup is correct. What is not safe is `git add -A` while that test is
+# running: the probe gets committed, and from then on it is a permanent second writer of
+# an append-only table in a package no area guards — so `unguarded_surfaces()` reports it
+# forever, `test_the_real_tree_leaves_no_hard_rule_surface_unguarded` fails, the probe test
+# fails on its own "must not collide with real code" precondition, and the ratchet REFUSES
+# TO SCORE. That is exactly what happened in commit 367270a.
+#
+# Ignoring it is the durable fix: the test writes and reads the path directly, so it is
+# unaffected, and no `add -A` can ever capture it again.
+apps/api/_ratchet_probe/

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin import intake, service
 from apps.api.agents import service as agents_service
 from apps.api.authn.service import enqueue_invitation_email
+from apps.api.authn.stepup import REAUTH_MAX_AGE
 from apps.api.billing import rates as billing_rates
 from apps.api.billing import service as billing
 from apps.api.billing import terms as billing_terms
@@ -883,7 +884,12 @@ class ImpersonationGrantOut(BaseModel):
         "is read-only, and writes go through the admin surfaces with the tenant in the "
         "path.\n\n"
         "STARTING a view-as session needs step-up: a second factor proved in the last "
-        "five minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one "
+        # Interpolated, never typed: this is a PUBLIC description of a control, and it
+        # said "five minutes" for as long as the constant said five. D-473 moved the
+        # constant; a sentence that has to be found and edited by hand is a sentence that
+        # eventually lies to an integrator about what the API will accept.
+        f"{int(REAUTH_MAX_AGE.total_seconds() // 60)} minutes AND the header "
+        "`X-Confirm-Action: view_as:<slug>`. EXTENDING one "
         "does not — send the grant currently held as `renew` and it is continued, for up "
         "to an hour from the second factor that started it."
     ),

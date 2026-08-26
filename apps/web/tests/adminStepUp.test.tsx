@@ -175,22 +175,51 @@ describe("a step-up refusal becomes a prompt", () => {
     expect(bodies[1]).toEqual({ slug: SLUG });
   });
 
-  it("fails the action with the server's own refusal when the prompt is dismissed", async () => {
+  it("has no way out except proving the factor or signing out (D-473)", async () => {
+    /* THE `X` IS GONE ON PURPOSE, and this asserts the absence rather than trusting it.
+
+       A close control on a second-factor challenge reads as "not now", which is the one
+       posture the challenge exists to refuse. Escape is asserted too, because leaving the
+       button off while Escape still closed it would HIDE the exit rather than remove it —
+       strict-looking, loose-behaving, and only a keyboard user would ever find out. */
+    mountPrompt({
+      [`POST ${IMPERSONATION_GRANT_PATH}`]: reauthRequired(),
+      "/v1/agents": [],
+    });
+
+    // Held and swallowed rather than `void`ed: this ask is settled `false` when the tree
+    // unmounts at the end of the test, and an unattended rejection there fails the FILE
+    // rather than this case — which is a failure pointing at the wrong line.
+    readThroughViewAs().catch(() => undefined);
+    const dialog = await screen.findByRole("alertdialog");
+
+    expect(screen.queryByRole("button", { name: /close without confirming/i })).toBeNull();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+  });
+
+  it("signing out settles the waiting action with the server's own refusal", async () => {
     const calls = mountPrompt({
       [`POST ${IMPERSONATION_GRANT_PATH}`]: reauthRequired(),
+      "POST /v1/auth/admin/logout": { revoked: 1 },
       "/v1/agents": [],
     });
 
     const read = readThroughViewAs();
     await screen.findByRole("alertdialog");
 
-    fireEvent.click(screen.getByRole("button", { name: /close without confirming/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     // The ORIGINAL refusal, not an invented one: it is still exactly true, and it already
     // carries a title, a sentence and a remediation this console would have to reinvent.
+    // It must settle even though the panel is being torn down — a caller left awaiting a
+    // prompt that no longer exists is a promise nothing can resolve.
     await expect(read).rejects.toMatchObject({ code: "reauthentication_required" });
-    // And nothing was retried behind the closed prompt.
+    // And nothing was retried behind the closing prompt.
     expect(mints(calls)).toHaveLength(1);
+    await waitFor(() => {
+      expect(calls.some((call) => call.path.endsWith("/logout"))).toBe(true);
+    });
   });
 
   it("asks ONCE when six reads are refused together", async () => {
@@ -262,7 +291,9 @@ describe("a step-up refusal becomes a prompt", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByRole("alertdialog")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /close without confirming/i }));
+    // Signing out is now the only exit that is not proving the factor (D-473), and it
+    // still settles the waiting caller `false` rather than leaving it pending.
+    fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
     expect(await settled).toBe("declined");
   });
 });
@@ -302,13 +333,13 @@ describe("the ask is single-flighted, whoever asks", () => {
     expect(await waiting).toBe(false);
   });
 
-  it("settles every waiter `false` when the prompt is closed", async () => {
-    mountPrompt({});
+  it("settles every waiter `false` when the operator signs out", async () => {
+    mountPrompt({ "POST /v1/auth/admin/logout": { revoked: 1 } });
     const first = requireStepUp("Opening one thing.");
     const second = requireStepUp("Opening another thing.");
 
     await screen.findByRole("alertdialog");
-    fireEvent.click(screen.getByRole("button", { name: /close without confirming/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     // `false`, never a rejection: a prompt nobody answers must not become an unhandled
     // rejection, and the caller reports the refusal it is already holding.
