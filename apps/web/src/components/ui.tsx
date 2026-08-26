@@ -54,7 +54,9 @@ export function Card({
           pair does not fit on one line — unwrapped, the action was what got squeezed. */}
       {(title || action) && (
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-6">
-          {title && <h2 className="text-[17px] font-semibold text-ink">{title}</h2>}
+          {title && (
+            <h2 className="text-[17px] font-semibold text-ink">{title}</h2>
+          )}
           {action}
         </header>
       )}
@@ -83,7 +85,13 @@ export function Card({
  * rather than a font size, which is what makes this an `h3` and not a styled `<span>`
  * (w3.org/WAI/WCAG22/Understanding/info-and-relationships, read 25 Aug 2026).
  */
-export function SectionHeading({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+export function SectionHeading({
+  icon,
+  children,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
@@ -271,7 +279,9 @@ export function Disclosure({
         )}
         <span className="min-w-0 flex-1">
           <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
-          {subtitle && <span className="block text-xs text-ink-muted">{subtitle}</span>}
+          {subtitle && (
+            <span className="block text-xs text-ink-muted">{subtitle}</span>
+          )}
         </span>
         {/* The affordance, in words as well as a chevron: an icon alone is what GOV.UK's
             research says people fail to notice. `group-open:` swaps the pair. */}
@@ -321,7 +331,9 @@ export function StatTile({
         <div
           className={clsx(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-            tone === "strong" ? "bg-brand-strong text-white" : "bg-brand-soft text-brand-strong",
+            tone === "strong"
+              ? "bg-brand-strong text-white"
+              : "bg-brand-soft text-brand-strong",
           )}
         >
           {icon}
@@ -349,7 +361,13 @@ export function StatTile({
  * about; it puts the console's first paint behind a network the client's office may
  * not reach; and it renders nothing if that host is down. Initials need no network.
  */
-export function Avatar({ name, className }: { name: string | null | undefined; className?: string }) {
+export function Avatar({
+  name,
+  className,
+}: {
+  name: string | null | undefined;
+  className?: string;
+}) {
   const initials = (name ?? "")
     .split(/\s+/)
     .filter(Boolean)
@@ -372,20 +390,24 @@ export function Avatar({ name, className }: { name: string | null | undefined; c
 const LEAD_STATUS_STYLES: Record<string, string> = {
   new: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   contacted: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-  interested: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
+  interested:
+    "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
   hot: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
   won: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
   lost: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
 };
 
 const CALL_STATUS_STYLES: Record<string, string> = {
-  completed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  completed:
+    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
   in_progress: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
   queued: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   ringing: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
-  no_answer: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  no_answer:
+    "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
   busy: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  voicemail: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  voicemail:
+    "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
   failed: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
 };
 
@@ -401,13 +423,20 @@ const CALL_STATUS_STYLES: Record<string, string> = {
  * class list. Fails VISIBLE — neutral slate, and `value` is still printed, because a
  * status we have no colour for is exactly the one worth reading.
  */
-export function StatusBadge({ value, kind = "lead" }: { value: string; kind?: "lead" | "call" }) {
+export function StatusBadge({
+  value,
+  kind = "lead",
+}: {
+  value: string;
+  kind?: "lead" | "call";
+}) {
   const styles = kind === "lead" ? LEAD_STATUS_STYLES : CALL_STATUS_STYLES;
   return (
     <span
       className={clsx(
         "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        lookup(styles, value) ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+        lookup(styles, value) ??
+          "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
       )}
     >
       {value.replace(/_/g, " ")}
@@ -423,7 +452,13 @@ export function StatusBadge({ value, kind = "lead" }: { value: string; kind?: "l
  * than a bare `<span className="font-mono">` so that choice is made in one place across
  * both realms and the marketing site.
  */
-export function MonoValue({ children, className }: { children: ReactNode; className?: string }) {
+export function MonoValue({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return <span className={clsx("font-mono", className)}>{children}</span>;
 }
 
@@ -457,7 +492,13 @@ export function MonoValue({ children, className }: { children: ReactNode; classN
  *
  *   <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>
  */
-export function TermGloss({ term, children }: { term: string; children: string }) {
+export function TermGloss({
+  term,
+  children,
+}: {
+  term: string;
+  children: string;
+}) {
   // tabIndex on a non-interactive <abbr> so the box reveals on keyboard FOCUS and on TAP,
   // not mouse-hover alone (the WAI-ARIA tooltip pattern needs a focusable trigger). <abbr>
   // is kept rather than <button> because TermGloss renders inside <label>/<legend>, where a
@@ -495,7 +536,13 @@ export function TermGloss({ term, children }: { term: string; children: string }
  * failure, and tells us which is which via `retryable` + `remediation`. Flattening
  * both into "something went wrong" would make the compliance gate look like a bug.
  */
-export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+export function ProblemNotice({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry?: () => void;
+}) {
   if (!error) return null;
   const problem = error instanceof ApiProblem ? error : null;
   const title = problem?.message ?? "Something went wrong.";
@@ -511,7 +558,11 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
       className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
       <p className="font-medium">{title}</p>
-      {problem?.remediation && <p className="mt-1 text-rose-800 dark:text-rose-300">{problem.remediation}</p>}
+      {problem?.remediation && (
+        <p className="mt-1 text-rose-800 dark:text-rose-300">
+          {problem.remediation}
+        </p>
+      )}
       {problem === null && (
         <p className="mt-1 text-rose-800 dark:text-rose-300">
           We could not reach Calevate. Check your connection and try again.
@@ -537,7 +588,8 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
       )}
       {problem?.traceId && (
         <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-400">
-          Support reference: <span className="font-mono">{problem.traceId}</span>
+          Support reference:{" "}
+          <span className="font-mono">{problem.traceId}</span>
         </p>
       )}
     </div>
@@ -614,9 +666,96 @@ export const NOTICE_TONES: Record<NoticeTone, string> = {
  * `min-h-*`, never `h-*`: these controls wrap onto two lines with long Telugu or Hindi
  * labels, and a fixed height would clip the second line rather than grow.
  */
+/**
+ * "Type X to confirm" — the human half of a step-up confirmation.
+ *
+ * ## What a typed confirmation is for, and what it is NOT
+ *
+ * It exists so a consequential action cannot be sent by a reflex click. That works only
+ * while the phrase NAMES THE THING BEING DONE: a fixed word like "CONFIRM" becomes muscle
+ * memory by the third use, and muscle memory is exactly the reflex the control was added
+ * to interrupt. So the phrase is always specific — a tier, an address, a name — and it
+ * changes when the target changes.
+ *
+ * ## Why it is not the API's header string
+ *
+ * It used to be. The screen asked an operator to hand-type `add_operator:operator`, and
+ * for the row actions `revoke_operator:0192f0aa-e954-7d43-92b9-e91f2b38ef30` — a UUID.
+ * Nobody types a UUID; they copy it, which is a click with extra steps and confirms
+ * nothing. Meanwhile the wire value is a WIRE value and has its own constraints: it
+ * travels in `X-Confirm-Action`, so it may never carry an email address, because headers
+ * land in access logs (hard rule 6).
+ *
+ * The two were never the same requirement. The header stays exactly what the API builds
+ * and validates; this is what a person reads and types. `apps/api/core/stepup` still
+ * refuses anything but its own string, so nothing here can weaken the server's check —
+ * the worst a bug in this file could do is refuse a legitimate operator.
+ *
+ * ## Case-insensitive, and trimmed
+ *
+ * The phrase is a proof of attention, not a spelling test. An address typed with a
+ * capital letter, or with a space picked up from a copy, is the same intent — and a
+ * confirmation that rejects it teaches people to paste instead of read.
+ */
+export function confirmationMatches(typed: string, phrase: string): boolean {
+  return typed.trim().toLowerCase() === phrase.trim().toLowerCase();
+}
+
+export interface TypedConfirmationProps {
+  /** What the person must type. Human words, specific to this target. */
+  phrase: string;
+  /** One line on WHY this phrase — what it is bound to, so the binding is visible. */
+  binding: string;
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+}
+
+export function TypedConfirmation({
+  phrase,
+  binding,
+  value,
+  onChange,
+  disabled,
+}: TypedConfirmationProps) {
+  const matched = value.trim() !== "" && confirmationMatches(value, phrase);
+  return (
+    <label className="block">
+      <span className={FIELD_LABEL}>
+        To confirm, type{" "}
+        <span className="font-semibold text-ink">{phrase}</span>
+      </span>
+      <input
+        value={value}
+        disabled={disabled}
+        autoComplete="off"
+        spellCheck={false}
+        // `aria-label` carries the phrase, because the visible label's emphasis span is
+        // not something a screen reader conveys as emphasis.
+        aria-label={`Type ${phrase} to confirm`}
+        onChange={(event) => onChange(event.target.value)}
+        className={`${FIELD} ${matched ? "border-brand" : ""}`}
+      />
+      <span className={FIELD_HINT}>{binding}</span>
+    </label>
+  );
+}
+
 export const FIELD =
   "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11";
-export const FIELD_LABEL = "text-xs font-medium text-ink-muted";
+/**
+ * `block` IS THE FIX FOR A BUG THAT LOOKED LIKE THREE DIFFERENT DESIGNS.
+ *
+ * Without it the label is INLINE, so it renders beside any field narrow enough to leave
+ * room — and full-width fields wrapped it onto its own line. One form therefore showed
+ * "Their email address" and "Their name" to the LEFT of their boxes and "Tier" above its
+ * select, which reads as three deliberate decisions and was none: the labels behaved
+ * differently because the FIELDS had different widths.
+ *
+ * Above the field, always. That is what every form in this product was already trying to
+ * do, and it is the placement a person scanning a column of fields can follow.
+ */
+export const FIELD_LABEL = "block text-xs font-medium text-ink-muted";
 export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
 /**
  * `bg-brand-strong`, not `bg-brand`, and this was worth checking rather than assuming.
@@ -845,7 +984,13 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
  * reader less than "Loading your calls". It has a default so no call site is obliged to
  * think about it, and the sites that mean something specific can say so.
  */
-export function Skeleton({ rows = 3, label = "Loading…" }: { rows?: number; label?: string }) {
+export function Skeleton({
+  rows = 3,
+  label = "Loading…",
+}: {
+  rows?: number;
+  label?: string;
+}) {
   return (
     <div role="status" aria-live="polite" className="space-y-2">
       <span className="sr-only">{label}</span>
@@ -853,7 +998,10 @@ export function Skeleton({ rows = 3, label = "Loading…" }: { rows?: number; la
           the sentence above, and reading them out is 96 announcements of nothing. */}
       <div aria-hidden className="space-y-2">
         {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className="h-8 animate-pulse rounded bg-black/5 dark:bg-white/10" />
+          <div
+            key={i}
+            className="h-8 animate-pulse rounded bg-black/5 dark:bg-white/10"
+          />
         ))}
       </div>
     </div>
@@ -956,7 +1104,9 @@ export function formatINR(value: string | null | undefined): string {
   const [whole = "0", fraction = ""] = value.replace(/^[-+]/, "").split(".");
   const head = whole.length > 3 ? whole.slice(0, -3) : "";
   const tail = whole.slice(-3);
-  const grouped = head ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}` : tail;
+  const grouped = head
+    ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}`
+    : tail;
   const paise = `${fraction}00`.slice(0, 2);
   return `${negative ? "-" : ""}₹${grouped}.${paise}`;
 }
@@ -1059,7 +1209,8 @@ export function formatISTInput(value: string | null | undefined): string {
   const at = new Date(value);
   if (Number.isNaN(at.getTime())) return "";
   const parts: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
-  for (const part of IST_INPUT_PARTS.formatToParts(at)) parts[part.type] = part.value;
+  for (const part of IST_INPUT_PARTS.formatToParts(at))
+    parts[part.type] = part.value;
   const { year, month, day, hour, minute } = parts;
   if (!year || !month || !day || !hour || !minute) return "";
   return `${year}-${month}-${day}T${hour}:${minute}`;

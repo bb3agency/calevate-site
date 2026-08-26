@@ -40,7 +40,12 @@
  * most repeated frontend defect (`leadSources.ts` names it too).
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
@@ -205,12 +210,22 @@ export function useSetOperatorRole() {
 export function useRevokeOperator() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ operatorId, reason }: { operatorId: string; reason: string }) =>
-      apiRequest<Operator>(adminSession(), operatorPath(operatorId, "/revocation"), {
-        method: "POST",
-        body: { reason },
-        confirmAction: operatorRevocationConfirmation(operatorId),
-      }),
+    mutationFn: ({
+      operatorId,
+      reason,
+    }: {
+      operatorId: string;
+      reason: string;
+    }) =>
+      apiRequest<Operator>(
+        adminSession(),
+        operatorPath(operatorId, "/revocation"),
+        {
+          method: "POST",
+          body: { reason },
+          confirmAction: operatorRevocationConfirmation(operatorId),
+        },
+      ),
     onSuccess: () => invalidate(client),
   });
 }
@@ -226,12 +241,22 @@ export function useRevokeOperator() {
 export function useResendOperatorSetupLink() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ operatorId, reason }: { operatorId: string; reason: string }) =>
-      apiRequest<Operator>(adminSession(), operatorPath(operatorId, "/setup-link"), {
-        method: "POST",
-        body: { reason },
-        confirmAction: operatorSetupLinkConfirmation(operatorId),
-      }),
+    mutationFn: ({
+      operatorId,
+      reason,
+    }: {
+      operatorId: string;
+      reason: string;
+    }) =>
+      apiRequest<Operator>(
+        adminSession(),
+        operatorPath(operatorId, "/setup-link"),
+        {
+          method: "POST",
+          body: { reason },
+          confirmAction: operatorSetupLinkConfirmation(operatorId),
+        },
+      ),
     onSuccess: () => invalidate(client),
   });
 }
@@ -254,7 +279,10 @@ export function useResendOperatorSetupLink() {
  * true and comfortable; "can play the recording and take the contact list, attributably"
  * is what somebody is actually granting, and this screen is where they grant it.
  */
-export const ROLE_COPY: Record<string, { label: string; can: string; cannot: string | null }> = {
+export const ROLE_COPY: Record<
+  string,
+  { label: string; can: string; cannot: string | null }
+> = {
   superadmin: {
     label: "Super admin",
     can: "Everything on the platform, including the vendor API keys, the platform configuration, the big red switch, and adding or removing other admins.",
@@ -276,6 +304,23 @@ export const ROLE_COPY: Record<string, { label: string; can: string; cannot: str
  * a list whose whole purpose is telling two administrators apart, and a shared label on
  * a Revoke button is how the wrong one gets revoked.
  */
+/**
+ * What a person types to confirm an action against ONE account.
+ *
+ * THE ADDRESS FIRST, where `operatorLabel` takes the name first, and the difference is
+ * the job. A label identifies a row to a reader who is already looking at it; a
+ * confirmation has to be the thing somebody would most regret getting wrong, and two
+ * colleagues can share a name in a way they cannot share a mailbox. It is also the field
+ * the setup link was mailed to, so it is the identity an operator actually holds in mind.
+ *
+ * NEVER SENT. `X-Confirm-Action` still carries the API's id-bound string — a header lands
+ * in access logs, and a mailbox in an access log is hard rule 6. This phrase is compared
+ * in the browser and goes no further.
+ */
+export function operatorConfirmPhrase(operator: Operator): string {
+  return operator.email ?? operator.name ?? `account ${operator.id}`;
+}
+
 export function operatorLabel(operator: Operator): string {
   return operator.name ?? operator.email ?? `account ${operator.id}`;
 }
@@ -327,7 +372,10 @@ export function tierChangeTarget(operator: Operator): AdminRole | null {
  * BEFORE the click, and to say why, so the founder meets a sentence instead of a 403 on
  * the request that would have ended their own access.
  */
-export function selfAdministrationBlock(operator: Operator, viewerId: string | null): string | null {
+export function selfAdministrationBlock(
+  operator: Operator,
+  viewerId: string | null,
+): string | null {
   if (viewerId === null || operator.id !== viewerId) return null;
   return (
     "This is your own account. You cannot change your own role or revoke your own " +
