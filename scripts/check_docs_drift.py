@@ -920,13 +920,28 @@ def conf_rate_zones(text: str) -> dict[str, str]:
 
 
 def rate_zone_template(root: Path | None = None) -> Path | None:
-    """The template wherever it lives, or None while it lives nowhere."""
+    """The template wherever it lives, or None while it lives nowhere.
+
+    HIDDEN DIRECTORIES ARE SKIPPED, AND THAT IS A BUG FIX, NOT TIDYING. This is the one
+    place in this file that walks from the repository root rather than from a named root,
+    and `sorted()` puts a dot-prefixed directory FIRST — so a leftover agent worktree under
+    `.claude/worktrees/` shadowed `infra/nginx/`, and the gate reported a disagreement
+    between the doc and a stale copy of the config while the real config agreed with it
+    perfectly. The failure is the worst shape a gate can have: it fires, it names a file,
+    and the file it names is not the one that ships. CI never saw it (those directories do
+    not exist there), which is precisely why it could sit here.
+
+    Locating by FILENAME is still right, for the reason above the constant — the doc names
+    the file, not its home. What is excluded is only what is not the repository's own
+    tree: dotted directories (`.claude`, `.git`, `.venv`) and vendored dependencies.
+    """
     base = root or REPO_ROOT
     return next(
         (
             path
             for path in sorted(base.rglob(RATE_ZONE_TEMPLATE_NAME))
             if "node_modules" not in path.parts
+            and not any(part.startswith(".") for part in path.relative_to(base).parts)
         ),
         None,
     )

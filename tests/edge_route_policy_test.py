@@ -60,12 +60,35 @@ class ServerBlock:
     names: tuple[str, ...] = ()
     locations: list[Location] = field(default_factory=list)
     max_body: str | None = None
+    #: True when the block's whole job is a server-scope redirect. `www.` is one: it
+    #: answers `return 301 https://<apex>$request_uri;` before location selection ever
+    #: happens, so it legitimately declares no `location` at all.
+    redirects: bool = False
 
 
 _COMMENT = re.compile(r"#.*$")
 _SERVER_NAME = re.compile(r"\bserver_name\s+([^;]+);")
 _MAX_BODY = re.compile(r"\bclient_max_body_size\s+([^;]+);")
 _LOCATION = re.compile(r"\blocation\s+(=|\^~|~\*?|)\s*(\S+)\s*\{")
+_SERVER_REDIRECT = re.compile(r"\breturn\s+30[1278]\b")
+
+
+def _outside_locations(body: str) -> str:
+    """The server block's own directives, with every `location { … }` removed.
+
+    A `return 301` INSIDE a location is an ordinary route; one at server scope decides the
+    whole vhost before location selection runs, which is a different claim. Telling them
+    apart needs the location bodies gone, not merely skipped.
+    """
+    out, cursor = [], 0
+    for found in _LOCATION.finditer(body):
+        if found.start() < cursor:
+            continue
+        out.append(body[cursor : found.start()])
+        opening = found.end() - 1
+        cursor = opening + len(_braced_body(body, opening)) + 2
+    out.append(body[cursor:])
+    return "".join(out)
 
 
 def _strip_comments(text: str) -> str:
@@ -115,6 +138,7 @@ def parse_server_blocks(text: str) -> list[ServerBlock]:
                 for found in _LOCATION.finditer(body)
             ],
             max_body=cap.group(1).strip() if (cap := _MAX_BODY.search(body)) else None,
+            redirects=bool(_SERVER_REDIRECT.search(_outside_locations(body))),
         )
         for body in _server_blocks(_strip_comments(text))
     ]
@@ -308,7 +332,23 @@ def test_the_template_parses_into_the_blocks_this_file_assumes() -> None:
         "template moved or this parser no longer understands it — the checks in this file "
         "are inert until that is settled."
     )
-    assert all(b.locations for b in parsed), "a server block parsed with no locations"
+    # A block with no locations is a parser failure UNLESS the block is a server-scope
+    # redirect, which is what `www.` is: `return 301` runs before location selection, so
+    # declaring a `location` there would be dead config. This assertion said "all", and
+    # `www.` made that false the day it landed — the guard was right that something had
+    # changed and wrong about what, which is the failure mode it exists to prevent in the
+    # config and had in itself.
+    for block in parsed:
+        assert block.locations or block.redirects, (
+            f"{block.names} parsed with no locations and no server-scope redirect — "
+            "either the vhost is inert or this parser no longer understands the template"
+        )
+    # And the redirect vhosts are still REAL, not an escape hatch a typo could widen into:
+    # a block claiming to redirect must name somewhere to go.
+    assert any(b.redirects for b in parsed), (
+        "no server-scope redirect parsed at all; `www.` is one, so the parser has stopped "
+        "seeing it and the exemption above is now vacuous"
+    )
 
 
 def test_parser_attributes_locations_to_the_right_server() -> None:

@@ -143,8 +143,28 @@ server {
     location ^~ /admin { return 404; }
     location ^~ /c/    { return 404; }
 
+    # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
+    # firing on them. Every path here is content-addressed by Next's build hash
+    # (`/_next/static/chunks/9926-8fef8aebe910ff85.js`), immutable, and served with
+    # `Cache-Control: immutable` — so it is cached by Cloudflare and by the browser, and a
+    # cold load of one console screen is dozens of them at once. Counting that fan-out
+    # against a per-second budget meant an honest first visit spent its whole allowance on
+    # JavaScript and then 429'd the navigation that needed it.
+    #
+    # Leaving them unlimited is bounded by what they are: a fixed set of static files that
+    # touch no database, that Cloudflare answers from its own cache for anyone who is not
+    # the first visitor, and whose URLs an attacker cannot vary — a hash that does not
+    # exist 404s from Next without work. The traffic worth limiting is on the api vhost.
+    location ^~ /_next/static/ {
+        proxy_pass http://calevate_web;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location / {
-        limit_req zone=default burst=30 nodelay;
+        # burst=120, up from 30: see `rate-zones.conf.template` — an RSC prefetch fires per
+        # sidebar link, so a burst that fits one page load is the requirement, not a
+        # generosity.
+        limit_req zone=browser burst=120 nodelay;
         proxy_pass http://calevate_web;
         include /etc/nginx/snippets/calevate-proxy.conf;
         proxy_set_header Upgrade    $http_upgrade;
@@ -291,8 +311,28 @@ server {
 
     location ^~ /admin { return 404; }
 
+    # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
+    # firing on them. Every path here is content-addressed by Next's build hash
+    # (`/_next/static/chunks/9926-8fef8aebe910ff85.js`), immutable, and served with
+    # `Cache-Control: immutable` — so it is cached by Cloudflare and by the browser, and a
+    # cold load of one console screen is dozens of them at once. Counting that fan-out
+    # against a per-second budget meant an honest first visit spent its whole allowance on
+    # JavaScript and then 429'd the navigation that needed it.
+    #
+    # Leaving them unlimited is bounded by what they are: a fixed set of static files that
+    # touch no database, that Cloudflare answers from its own cache for anyone who is not
+    # the first visitor, and whose URLs an attacker cannot vary — a hash that does not
+    # exist 404s from Next without work. The traffic worth limiting is on the api vhost.
+    location ^~ /_next/static/ {
+        proxy_pass http://calevate_web;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location / {
-        limit_req zone=default burst=30 nodelay;
+        # burst=120, up from 30: see `rate-zones.conf.template` — an RSC prefetch fires per
+        # sidebar link, so a burst that fits one page load is the requirement, not a
+        # generosity.
+        limit_req zone=browser burst=120 nodelay;
         proxy_pass http://calevate_web;
         include /etc/nginx/snippets/calevate-proxy.conf;
         proxy_set_header Upgrade    $http_upgrade;
@@ -382,8 +422,28 @@ server {
 
     location ^~ /c/ { return 404; }
 
+    # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
+    # firing on them. Every path here is content-addressed by Next's build hash
+    # (`/_next/static/chunks/9926-8fef8aebe910ff85.js`), immutable, and served with
+    # `Cache-Control: immutable` — so it is cached by Cloudflare and by the browser, and a
+    # cold load of one console screen is dozens of them at once. Counting that fan-out
+    # against a per-second budget meant an honest first visit spent its whole allowance on
+    # JavaScript and then 429'd the navigation that needed it.
+    #
+    # Leaving them unlimited is bounded by what they are: a fixed set of static files that
+    # touch no database, that Cloudflare answers from its own cache for anyone who is not
+    # the first visitor, and whose URLs an attacker cannot vary — a hash that does not
+    # exist 404s from Next without work. The traffic worth limiting is on the api vhost.
+    location ^~ /_next/static/ {
+        proxy_pass http://calevate_web;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location / {
-        limit_req zone=default burst=30 nodelay;
+        # burst=120, up from 30: see `rate-zones.conf.template` — an RSC prefetch fires per
+        # sidebar link, so a burst that fits one page load is the requirement, not a
+        # generosity.
+        limit_req zone=browser burst=120 nodelay;
         proxy_pass http://calevate_web;
         include /etc/nginx/snippets/calevate-proxy.conf;
         proxy_set_header Upgrade    $http_upgrade;

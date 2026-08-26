@@ -56,11 +56,35 @@ limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
 # so /healthz cannot be used as a free database-load generator.
 limit_req_zone $binary_remote_addr zone=health:5m rate=60r/m;
 
-# Everything not matched by a more specific location, including the public lead-intake
-# endpoint's IP dimension. Note DEPLOYMENT §7a: intake's real limit is PER AGENT TOKEN
-# and lives at the Cloudflare edge, because the caller is a customer's server and one IP
-# is legitimately every request.
-limit_req_zone $binary_remote_addr zone=default:10m rate=90r/m;
+# THE BROWSER CONSOLES, and this zone is named for what uses it rather than for what it
+# used to be called. It is applied in exactly three places — the `location /` of the
+# marketing, client-console and admin-console vhosts — and nowhere else. It was called
+# `default` and described as "everything not matched by a more specific location,
+# including the public lead-intake endpoint's IP dimension", which was never true of this
+# deployment: lead intake arrives on the api vhost, whose `location /` is `client_api`.
+#
+# THE RATE IS 10r/s BECAUSE 1.5r/s WAS RATE-LIMITING HONEST USERS, and this is not a
+# judgement call — it is in the origin's error log. At 90r/m with burst=30 a single
+# operator loading one console screen produced:
+#
+#   [warn] limiting requests, excess: 30.206 by zone "default", client: <redacted>,
+#     server: app.calevate.tech, request: "GET /_next/static/chunks/9926-....js"
+#   [warn] limiting requests, excess: 30.380 by zone "default", ...
+#     request: "GET /c/<slug>/messaging-consent?_rsc=..."
+#
+# — the burst was full and the queue 30 deep, on ONE person navigating. The cause is what
+# a Next App Router console is: one screen is dozens of hashed JS chunks, and every
+# `<Link>` in the sidebar fires an RSC prefetch (`?_rsc=`) the moment it is rendered. That
+# is a browser being normal, not an attack, and a limiter that cannot tell them apart is
+# refusing the wrong traffic. Requests were being answered 429.
+#
+# 10r/s sustained with a burst of 120 absorbs a cold page load and its prefetch fan-out
+# while still bounding the box. What it costs: a flood from ONE address now gets 600
+# requests a minute of static-asset service instead of 90. That is the right trade at
+# this layer — these vhosts serve documents and cached assets, not database work; the
+# expensive surfaces (`auth` 20r/m, `client_api` 120r/m, `admin_api` 180r/m) are on the
+# api vhost, are untouched by this, and are where a flood would actually hurt.
+limit_req_zone $binary_remote_addr zone=browser:10m rate=600r/m;
 
 # Refuse with 429, not nginx's default 503. 503 says "the server is broken"; 429 says
 # "you are going too fast", which is the true statement and the one a client's HTTP
