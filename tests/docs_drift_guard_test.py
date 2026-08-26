@@ -142,7 +142,7 @@ class TestWiring:
     def test_it_reads_the_real_rate_zone_table(self) -> None:
         zones = guard.doc_rate_zones()
         assert zones["auth"] == "20r/m"
-        assert {"admin_api", "client_api", "webhooks", "health", "default"} <= set(zones)
+        assert {"admin_api", "client_api", "webhooks", "health", "browser"} <= set(zones)
 
 
 # ============================================================================
@@ -489,6 +489,33 @@ class TestRateZones:
         self._template(tmp_path, body)
         failures = guard.rate_zone_drift(root=tmp_path)
         assert any("`webhooks`" in f and "does not define it" in f for f in failures), failures
+
+    def test_a_stale_copy_in_a_hidden_directory_does_not_shadow_the_real_template(
+        self, tmp_path: Path
+    ) -> None:
+        """THE BUG THIS TEST IS NAMED AFTER FIRED ON A REAL TREE, and it fired wrongly.
+
+        `rate_zone_template()` is the one locator in the guard that walks from the
+        repository root, and `sorted()` puts a dot-prefixed directory first. A leftover
+        agent worktree at `.claude/worktrees/<id>/infra/nginx/` therefore won the search,
+        and the gate reported the doc disagreeing with a config that is not deployed,
+        naming that path, while `infra/nginx/` agreed with the doc exactly.
+
+        A gate that fires and names the wrong file is worse than one that stays silent:
+        the next reader edits what it named. CI never reproduced it — those directories
+        exist only on a developer's machine — so nothing but this case can hold it.
+        """
+        self._template(tmp_path, self._faithful())
+        stale = tmp_path / ".claude" / "worktrees" / "agent-old" / "infra" / "nginx"
+        stale.mkdir(parents=True)
+        (stale / guard.RATE_ZONE_TEMPLATE_NAME).write_text(
+            self._faithful().replace("zone=auth:10m rate=20r/m", "zone=auth:10m rate=1r/m"),
+            encoding="utf-8",
+        )
+
+        found = guard.rate_zone_template(root=tmp_path)
+        assert found is not None and ".claude" not in found.parts, found
+        assert guard.rate_zone_drift(root=tmp_path) == []
 
     def test_catches_a_zone_the_doc_never_declared(self, tmp_path: Path) -> None:
         self._template(

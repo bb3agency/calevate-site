@@ -900,7 +900,16 @@ Calevate adaptations:
    flagged it.)
 4. **Rate zones** (ours): `auth` 20r/m · `admin_api` 180r/m · `client_api` 120r/m ·
    `webhooks` 600r/m (engine events burst on campaign completion) · `health` 60r/m ·
-   `default` 90r/m. App-layer limits stay authoritative; nginx is edge defense.
+   `browser` 600r/m. App-layer limits stay authoritative; nginx is edge defense.
+
+   `browser` was `default` at 90r/m, and it was refusing honest traffic: the origin's
+   error log shows one operator loading one console screen filling the burst and queueing
+   30 deep, on hashed `_next/static` chunks and on the `?_rsc=` prefetch every sidebar
+   `<Link>` fires. A Next App Router console is dozens of requests per screen; 1.5r/s
+   could not serve one. Renamed as well as retuned because it is applied in exactly three
+   places — the `location /` of the marketing, client and admin vhosts — and never was the
+   catch-all the old name claimed. `_next/static/` now has its own location with no
+   limiter at all: immutable, content-addressed, Cloudflare-cached, no database behind it.
 
 5. **Where the files install, and the correction this forced.** `limit_req_zone` is an
    `http`-context directive, so the zone file goes in `/etc/nginx/conf.d/` (Debian
