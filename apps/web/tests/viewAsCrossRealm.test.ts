@@ -81,7 +81,44 @@ describe("every operator-console link into the client realm", () => {
 describe("clientConsoleUrl", () => {
   it("leaves the path alone when the realms share an origin", async () => {
     // `pnpm dev` is this case, and it must need no configuration.
-    const { clientConsoleUrl } = await import("@/lib/api/session");
+    const { clientConsoleUrl } = await import("@/lib/consoleOrigin");
     expect(clientConsoleUrl("/c/acme")).toBe("/c/acme");
+  });
+
+  it("is still reachable from `lib/api/session`, where the admin screens import it", async () => {
+    // It MOVED to `lib/consoleOrigin` (the auth layer and the marketing header need it
+    // and should not import a query provider for a hostname) and is re-exported. Two
+    // import paths for one function is worth one assertion that they are one function.
+    const moved = await import("@/lib/consoleOrigin");
+    const reexported = await import("@/lib/api/session");
+    expect(reexported.clientConsoleUrl).toBe(moved.clientConsoleUrl);
+  });
+});
+
+describe("the way OUT of the marketing site, which is served on the apex", () => {
+  /**
+   * THE SECOND HALF OF THE SIGN-IN BUG, and the half a CORS fix alone would have left.
+   *
+   * `calevate.tech` serves the three auth screens and the marketing header, and nginx
+   * refuses `/c/` there. So `window.location.assign("/c")` after a successful sign-in
+   * reached the junction — which the apex DOES serve — and the junction forwarded to
+   * `/c/<slug>`, which it does not. A correct password ended on a not-found page.
+   *
+   * Both exits are read as source rather than rendered, for the reason the guard above
+   * gives: what is wrong is a literal in the code, and a rendered assertion would pass on
+   * a dev box where the bare path is right.
+   */
+  const EXITS = [
+    ["src/app/(auth)/auth/sign-in/page.tsx", "the destination after a successful sign-in"],
+    ["src/components/authn/marketingAccountNav.tsx", "the header's link into the console"],
+  ] as const;
+
+  it.each(EXITS)("%s sends the user through clientConsoleUrl", (file, what) => {
+    const text = readFileSync(join(process.cwd(), file), "utf8");
+    expect(
+      text.includes("clientConsoleUrl(CLIENT_CONSOLE_PATH)"),
+      `${what} must be resolved against NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN — a bare ` +
+        `CLIENT_CONSOLE_PATH is a 404 one redirect later for anyone on the apex`,
+    ).toBe(true);
   });
 });

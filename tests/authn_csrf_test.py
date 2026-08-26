@@ -103,6 +103,39 @@ def test_each_console_origin_is_allowed(origin: str) -> None:
     enforce_same_origin(_request({"sec-fetch-site": "same-site", "origin": origin}))
 
 
+def test_the_marketing_apex_is_allowed_and_www_deliberately_is_not() -> None:
+    """THE OMISSION THAT BROKE SIGN-IN, PASSWORD RESET AND THE MARKETING HEADER AT ONCE.
+
+    `https://calevate.tech` was not in the list, and the list is read twice — here as the
+    CSRF `Origin` allowlist and by `install_middleware` as the CORS one. The browser
+    refused every response for want of `Access-Control-Allow-Origin`, so a correct
+    password produced "We could not reach Calevate": a blocked `fetch` never completes,
+    and `lib/authn/transport.ts` reports that as `authn_unreachable`.
+
+    The apex is not optional. The marketing page asks `GET /v1/auth/client/session` on
+    every load — the cookie is `HttpOnly`, so "are you already signed in" has no other
+    answer — and the three auth screens are served on that hostname, which refuses only
+    `/admin` and `/c/`.
+
+    `www` is asserted ABSENT rather than left unmentioned. Its vhost is a server-scope
+    `return 301` to the apex, so the browser follows before any of our script runs and it
+    never becomes a document origin; an entry for it would widen the CSRF allowlist for a
+    case that cannot occur. If somebody ever makes `www` serve rather than redirect, this
+    is the line that should stop them and make them think about it.
+    """
+    assert "https://calevate.tech" in DEFAULT_CORS_ORIGINS
+    enforce_same_origin(
+        _request({"sec-fetch-site": "same-site", "origin": "https://calevate.tech"})
+    )
+
+    assert "https://www.calevate.tech" not in DEFAULT_CORS_ORIGINS
+    with pytest.raises(ProblemError) as caught:
+        enforce_same_origin(
+            _request({"sec-fetch-site": "same-site", "origin": "https://www.calevate.tech"})
+        )
+    assert caught.value.code == "cross_site_request"
+
+
 def test_the_api_s_own_origin_is_allowed_although_it_is_not_in_the_console_list() -> None:
     """What the removed `same-origin` early exit used to buy. Without it, tightening the
     rule would have refused a legitimate same-origin call from the API's own docs page."""

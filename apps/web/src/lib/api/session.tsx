@@ -72,6 +72,7 @@ import { clientRealmSession } from "@/lib/authn/realmSessions";
 
 import { viewAsSession } from "./admin";
 import { type Session } from "./client";
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
 /** `/c/<slug>?view=admin` — set by the admin console's "View as client" link. */
 export const VIEW_AS_PARAM = "view";
@@ -108,24 +109,19 @@ export const VIEW_AS_ADMIN = "admin";
  * what it was — one origin, a relative link. That keeps `pnpm dev` working with no
  * configuration and makes the production value the only thing that has to be right.
  */
-const CLIENT_CONSOLE_ORIGIN = process.env.NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN ?? "";
-
 /**
- * A path on the client console, absolute when the realms are on different hostnames.
+ * The "view as client" destination for one tenant, wherever the client console lives.
  *
- * Every operator-console link into `/c/...` goes through here. A bare `href="/c/…"` in an
- * `app/admin/**` file is the defect above, and `tests/viewAsCrossRealm.test.ts` fails on
- * one.
+ * `clientConsoleUrl` MOVED to `lib/consoleOrigin.ts` and is re-exported here so the three
+ * `app/admin/**` call sites and the guard that reads them keep one import path. It left
+ * because the auth layer and the marketing header need the same answer and should not
+ * have to import a query provider to get it — see that module.
  */
-export function clientConsoleUrl(path: string): string {
-  const origin = CLIENT_CONSOLE_ORIGIN.replace(/\/+$/, "");
-  return origin === "" ? path : `${origin}${path}`;
-}
-
-/** The "view as client" destination for one tenant, wherever the client console lives. */
 export function viewAsHref(slug: string, path = ""): string {
   return clientConsoleUrl(`/c/${slug}${path}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`);
 }
+
+export { clientConsoleUrl };
 
 export interface ClientRealm {
   /** The session every hook on a `/c/<slug>` screen must use. */
