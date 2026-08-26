@@ -1,0 +1,90 @@
+# Access-log format for the browser vhosts, with single-use auth secrets removed.
+#
+# ═══ WHY THIS FILE EXISTS ═══
+#
+# `core/console_links.py` mails links whose secret is in the QUERY STRING:
+#
+#     https://app.calevate.tech/auth/reset-password?token=<43 url-safe chars>
+#     https://app.calevate.tech/auth/accept-invitation?token=...
+#     https://admin.calevate.tech/auth/admin/bootstrap?token=...
+#
+# The browser's first GET of that page carries the token, and none of the vhosts declared
+# a `log_format` or an `access_log`, so nginx used the built-in `combined` — whose
+# `$request` is the full request line INCLUDING the query string. Every reset, invitation
+# and bootstrap secret was therefore written to `/var/log/nginx/access.log` in plaintext,
+# where it is readable by anyone in `adm`, by a log shipper, by a nightly backup, and by
+# whoever holds the Cloudflare account (every zone is CF-proxied, D-27, so the edge
+# request log has it too).
+#
+# `useLinkToken` (`apps/web/src/lib/authn/useLinkToken.ts`) strips the parameter from the
+# address bar — but only AFTER the request that logged it. That is a defence against
+# shoulder-surfing and `Referer`, not against the log.
+#
+# What it bought an attacker who could read one line: a live `password_reset` token (1h),
+# an `accept-invitation` token (72h), or an `admin_bootstrap` token (60m). The last one is
+# the worst — `POST /v1/auth/admin/bootstrap/confirm` sets the password on the FIRST
+# operator account, which is the widest authority in the system, and the only thing in
+# front of it is a 20 req/min per-address limit.
+#
+# `console_links.py:19-22` claims the page-not-API design keeps the secret "out of the
+# API's access logs". That is true of `api.calevate.tech` and was false of the two console
+# vhosts served by this same nginx. `docs/evidence/audit-security.md:150-154` established
+# the identical `combined`/`$request` fact for a phone number and proposed exactly this
+# remedy; that instance was closed by moving lead search to POST, which a mailed link
+# cannot do, so the remedy was never applied. It is applied here.
+#
+# ═══ WHY A `map` AND NOT A REGEX IN THE FORMAT ═══
+#
+# `log_format` takes variables, not expressions, so the redaction has to happen where a
+# variable is COMPUTED. `map` is an `http`-scope directive, which is why this is a
+# `conf.d` file and not a snippet — the same constraint that put `geo` in
+# `origin-trust.conf.template` rather than in `snippets/calevate-origin.conf`.
+#
+# The map is evaluated lazily and only for requests whose vhost actually logs with this
+# format, so vhosts that do not name it pay nothing.
+#
+# ═══ WHY THE FILENAME STARTS `00-` ═══
+#
+# `nginx.conf` includes `conf.d/*.conf`, and a glob include is processed in ALPHABETICAL
+# order. `log_format` must be defined BEFORE the `access_log` directive that names it —
+# nginx does not defer the lookup — so a file named `log-format.conf` sorts AFTER
+# `calevate.conf` and every vhost fails to load with:
+#
+#     [emerg] unknown log format "calevate_redacted" in .../calevate.conf:91
+#
+# That is not hypothetical: it is what the first version of this file did, measured by
+# running `nginx -t` over the rendered prefix rather than reasoned about. The deployed
+# name (`scripts/vps-deploy.sh`) carries the same prefix for the same reason. `00-` also
+# sorts before `000-default.conf`, because `-` (0x2D) precedes `0` (0x30).
+
+# The request URI with a token-bearing query string replaced.
+#
+# The default arm is `$request_uri` unchanged, so an ordinary request logs exactly what it
+# logged before and nothing about debugging a 404 changes. The regex arm fires only when
+# the query contains `token=`, and it keeps the PATH — which is the part an operator
+# reading a log actually needs — while naming the parameter it removed, so a reader can
+# tell "there was a token here and it was redacted" from "there was no token".
+#
+# Deliberately NOT a general "strip every query string": that would hide `?window=30d` and
+# every other honest parameter, and a redaction that removes more than the secret trains
+# people to turn it off. Deliberately NOT a list of parameter names to keep, either — a
+# new secret-bearing parameter would then default to being logged, which is the wrong
+# direction for a default to fail in. `token` is the ONE name `console_links.py` mints;
+# add to this alternation in the same change that mints a second.
+map $request_uri $calevate_logged_uri {
+    default                                            $request_uri;
+    "~^(?<calevate_log_path>[^?]*)\?(?:.*&)?token="    "$calevate_log_path?token=[redacted]";
+}
+
+# `combined`, with `$request` decomposed so the URI can be the redacted one.
+#
+# nginx's built-in is:
+#   '$remote_addr - $remote_user [$time_local] "$request" '
+#   '$status $body_bytes_sent "$http_referer" "$http_user_agent"'
+#
+# Reproduced field for field below — anything that parses `combined` today keeps parsing
+# this — with `"$request"` expanded to its three components and the middle one swapped.
+log_format calevate_redacted
+    '$remote_addr - $remote_user [$time_local] '
+    '"$request_method $calevate_logged_uri $server_protocol" '
+    '$status $body_bytes_sent "$http_referer" "$http_user_agent"';

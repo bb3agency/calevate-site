@@ -84,6 +84,14 @@ server {
     http2 on;
     server_name ${ROOT_DOMAIN};
 
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
+
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
@@ -186,6 +194,14 @@ server {
     http2 on;
     server_name www.${ROOT_DOMAIN};
 
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
+
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
@@ -238,6 +254,14 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name app.${ROOT_DOMAIN};
+
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
@@ -370,6 +394,14 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name admin.${ROOT_DOMAIN};
+
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;

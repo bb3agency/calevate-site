@@ -1063,6 +1063,12 @@ render_nginx() {
   # shellcheck disable=SC2016  # envsubst wants the LITERAL `${NAME}` list, unexpanded
   local subst='${ROOT_DOMAIN} ${TLS_LIVE_DIR} ${ACME_WEBROOT} ${ORIGIN_CERT_PATH} ${ORIGIN_KEY_PATH}'
 
+  # FIRST, and the `00-` prefix is load-bearing: `nginx.conf` includes `conf.d/*.conf` in
+  # ALPHABETICAL order and `log_format` must be defined before the `access_log` that names
+  # it. Named `log-format.conf` this sorted after `calevate-site.conf` and every vhost
+  # failed to load with `unknown log format "calevate_redacted"` — measured with `nginx -t`
+  # over the rendered prefix, not reasoned about.
+  envsubst "$subst" < "$ROOT/infra/nginx/00-log-format.conf.template" > "$staging/00-calevate-log-format.conf"
   envsubst "$subst" < "$ROOT/infra/nginx/calevate.conf.template"     > "$staging/calevate-site.conf"
   envsubst "$subst" < "$ROOT/infra/nginx/000-default.conf.template"  > "$staging/000-default.conf"
   envsubst "$subst" < "$ROOT/infra/nginx/rate-zones.conf.template"   > "$staging/calevate-rate-zones.conf"
