@@ -38,6 +38,8 @@ import { EmailVerificationPanel } from "@/components/authn/emailVerificationPane
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { Card, DANGER_BUTTON, NoticeBox, SECONDARY_BUTTON } from "@/components/ui";
 import { ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
+import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
+import { adminConsoleUrl } from "@/lib/consoleOrigin";
 import {
   AdminSessionGate,
   AdminSessionProvider,
@@ -151,7 +153,10 @@ function AdminSessionBody() {
       </Card>
 
       <p className="text-sm text-ink-muted">
-        <Link href="/admin" className="text-brand-strong underline underline-offset-2">
+        <Link
+          href={adminConsoleUrl(ADMIN_CONSOLE_PATH)}
+          className="text-brand-strong underline underline-offset-2"
+        >
           Open the operator console
         </Link>
       </p>

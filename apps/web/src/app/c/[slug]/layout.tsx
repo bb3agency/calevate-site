@@ -43,6 +43,8 @@ import { NavDrawer } from "@/components/navDrawer";
 import { OfflineBanner } from "@/components/offline";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
 import { clientAuthn, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
+import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
+import { adminConsoleUrl } from "@/lib/consoleOrigin";
 import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { ClientRealmProvider, useClientRealm } from "@/lib/api/session";
@@ -407,6 +409,12 @@ function ViewAsBanner({ slug }: { slug: string }) {
             a warning. So the sentence that says "you are impersonating" is now also the
             thing that stops it, which is the only place a reader is already looking.
 
+            ABSOLUTE, through `adminConsoleUrl`: this banner only ever renders on the
+            CLIENT hostname, and `app.` answers `location ^~ /admin { return 404; }`
+            (`infra/nginx/calevate.conf.template`) — so the bare `/admin` this used to
+            assign was a not-found screen for every operator who finished looking. The
+            exact mirror of the view-as bug that produced `clientConsoleUrl`.
+
             A hard navigation, for `SidebarSignOut`'s reason: the in-memory grant cache
             (`admin.ts::grantCache`) and this tab's TanStack cache both hold another
             account's data, and a client-side route change would carry both into the admin
@@ -415,7 +423,7 @@ function ViewAsBanner({ slug }: { slug: string }) {
             deeper would be a request that can fail on the way out of a session. */}
         <button
           type="button"
-          onClick={() => window.location.assign("/admin")}
+          onClick={() => window.location.assign(adminConsoleUrl(ADMIN_CONSOLE_PATH))}
           className="shrink-0 rounded border border-amber-950/40 px-2 py-0.5 font-semibold underline-offset-2 hover:bg-amber-950/10 hover:underline"
         >
           Exit and return to the admin console

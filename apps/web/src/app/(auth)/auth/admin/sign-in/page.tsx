@@ -33,6 +33,7 @@ import {
   adminAuthn,
 } from "@/lib/authn/adminAuthn";
 import { AdminGuestOnly } from "@/lib/authn/adminSession";
+import { adminConsoleUrl } from "@/lib/consoleOrigin";
 
 export default function AdminSignInPage() {
   return (
@@ -59,7 +60,7 @@ export default function AdminSignInPage() {
                 // reachable and still owns the things a console shell should not carry
                 // (ending a session on a device you no longer hold, verifying the address
                 // the code goes to); it is just not where signing in takes you.
-                window.location.assign(ADMIN_CONSOLE_PATH);
+                window.location.assign(adminConsoleUrl(ADMIN_CONSOLE_PATH));
               }}
               footer={
                 <p className="text-xs text-ink-faint">

@@ -34,15 +34,27 @@
 import { usePathname } from "next/navigation";
 
 import { NotFoundScreen, type Exit } from "@/components/failureScreen";
+import { adminConsoleUrl, clientConsoleUrl } from "@/lib/consoleOrigin";
 
 const HOME: Exit = { href: "/", label: "Go to the homepage" };
-const CONSOLE: Exit = { href: "/c", label: "Open your console" };
+/**
+ * THROUGH THE ORIGIN HELPERS, because this screen is the one page that renders on all
+ * three hostnames — nginx routes every refused address here (`error_page 404
+ * /_calevate_not_found`). A bare `/c` offered on the apex reaches the junction, which
+ * forwards to `/c/<slug>`, which the apex refuses; a bare `/admin` offered on `app.` is
+ * refused outright. An exit from a not-found page that lands on another not-found page is
+ * the worst possible version of this defect.
+ */
+const CONSOLE: Exit = { href: clientConsoleUrl("/c"), label: "Open your console" };
 const LEGAL: Exit = { href: "/legal", label: "Legal documents" };
 
 /** The way out, chosen for where the reader was when the address failed. */
 function exitsFor(pathname: string | null): Exit[] {
   if (pathname?.startsWith("/admin")) {
-    return [{ href: "/admin", label: "Back to the operator console" }, HOME];
+    return [
+      { href: adminConsoleUrl("/admin"), label: "Back to the operator console" },
+      HOME,
+    ];
   }
   if (pathname?.startsWith("/c")) return [CONSOLE, HOME];
   if (pathname?.startsWith("/legal")) {

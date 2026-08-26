@@ -27,6 +27,7 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 
 import { SessionGate } from "@/components/authn/sessionGate";
 import { Skeleton } from "@/components/ui";
+import { clientConsoleUrl } from "@/lib/consoleOrigin";
 
 import {
   CLIENT_CONSOLE_PATH,
@@ -130,8 +131,12 @@ export function ClientGuestOnly({ children }: { children: ReactNode }) {
     // `SignInForm.onSignedIn` navigates, and in the same commit the session goes non-null,
     // so this effect fires too: two `window.location` calls in one tick, later one wins.
     // While the two named different destinations, where a person landed after signing in
-    // was a race. Both now name `/c`.
-    window.location.assign(CLIENT_CONSOLE_PATH);
+    // was a race. Both now name `/c` — and both go through `clientConsoleUrl`, because
+    // this guard renders on the AUTH screens, which are served on the apex, and the apex
+    // refuses `/c/`: a bare `/c` reaches the junction and the junction forwards to
+    // `/c/<slug>`, which 404s. A race between a correct destination and a wrong one is
+    // still a wrong destination half the time.
+    window.location.assign(clientConsoleUrl(CLIENT_CONSOLE_PATH));
   }, [alreadyIn]);
 
   if (status === "restoring" || alreadyIn)

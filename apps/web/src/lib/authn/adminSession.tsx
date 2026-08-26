@@ -29,6 +29,7 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 
 import { SessionGate } from "@/components/authn/sessionGate";
 import { Skeleton } from "@/components/ui";
+import { adminConsoleUrl } from "@/lib/consoleOrigin";
 
 import {
   ADMIN_CONSOLE_PATH,
@@ -169,7 +170,7 @@ export function AdminGuestOnly({ children }: { children: ReactNode }) {
     // calls in one tick, and the later one wins. While these two named different
     // destinations, where an operator landed after signing in was a race, which is why it
     // looked intermittent. Both now name `/admin`, so the race has one outcome.
-    window.location.assign(ADMIN_CONSOLE_PATH);
+    window.location.assign(adminConsoleUrl(ADMIN_CONSOLE_PATH));
   }, [alreadyIn]);
 
   // A wait while the restore runs, so the sign-in form does not paint and then vanish
