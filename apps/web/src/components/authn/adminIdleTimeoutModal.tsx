@@ -33,6 +33,8 @@ import { LogOut, RefreshCw, Timer } from "lucide-react";
 import { DANGER_BUTTON, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { useFocusTrap } from "@/lib/focusTrap";
 import { ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
+import { isSessionGone, isUnreachable } from "@/lib/authn/problems";
+import { markSignedOut } from "@/lib/authn/signedOutNotice";
 import { useCountdown } from "@/lib/authn/useCountdown";
 import { useIdleTimeout } from "@/lib/authn/useIdleTimeout";
 
@@ -52,22 +54,49 @@ export const ADMIN_IDLE_LOGOUT_MS = 5 * 60 * 1000;
 export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
   const [deadline, setDeadline] = useState<number | null>(null);
   const [extending, setExtending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  /**
+   * WHY THIS HOLDS THE ERROR AND NOT A BOOLEAN.
+   *
+   * It was `failed: boolean`, and the panel rendered one sentence for it: "the request
+   * did not reach Calevate. Check your connection and try again." That sentence is a
+   * CLAIM ABOUT THE NETWORK, and it was printed for every rejection `rotateSession` can
+   * produce — including the one that matters most, a 401 saying the session is already
+   * gone. An operator whose session had expired (a slept laptop is the ordinary way: the
+   * warning runs on `setTimeout`, which does not advance while a machine is suspended, so
+   * the countdown can show four minutes left on a session the server ended an hour ago)
+   * was told their session "has not been ended", handed a button that could never work,
+   * and left pressing it. That is what was reported from the live console.
+   *
+   * `problems.ts` already draws this line — `isSessionGone` vs `isUnreachable` — and
+   * records why it is load-bearing: the two have opposite remedies. This screen simply
+   * was not asking.
+   */
+  const [failure, setFailure] = useState<unknown>(null);
   const panel = useRef<HTMLDivElement>(null);
   const remaining = useCountdown(deadline);
 
   const endSession = useCallback(() => {
     setDeadline(null);
-    void adminAuthn.signOut().finally(() => {
-      if (typeof window !== "undefined") window.location.assign(ADMIN_SIGN_IN_PATH);
-    });
+    // The door explains itself. `markSignedOut` returns false for a session that never
+    // existed, so a fresh tab is not told it lost something; here there was always one.
+    markSignedOut("admin");
+    // `.catch()` BEFORE `.finally()`: `finally` passes a rejection through, so a failed
+    // logout would leave AND raise an unhandled rejection — and a failed logout is
+    // exactly what happens on the path this modal exists for, a console whose network or
+    // whose session has already gone. `signOut` clears local state in its own `finally`.
+    void adminAuthn
+      .signOut()
+      .catch(() => undefined)
+      .finally(() => {
+        if (typeof window !== "undefined") window.location.assign(ADMIN_SIGN_IN_PATH);
+      });
   }, []);
 
   const { resume } = useIdleTimeout({
     warningAfterMs: ADMIN_IDLE_WARNING_MS,
     logoutAfterWarningMs: ADMIN_IDLE_LOGOUT_MS,
     onWarning: () => {
-      setFailed(false);
+      setFailure(null);
       setDeadline(Date.now() + ADMIN_IDLE_LOGOUT_MS);
     },
     onLogout: endSession,
@@ -78,7 +107,7 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
 
   const extend = useCallback(() => {
     setExtending(true);
-    setFailed(false);
+    setFailure(null);
     void adminAuthn
       .rotateSession()
       .then((session) => {
@@ -94,12 +123,20 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
         }
         endSession();
       })
-      .catch(() => {
-        // NOT a sign-out. A failed rotation is most often a dropped connection, and
-        // ending a live admin session because one request did not land is the §5.7 defect
-        // 9 mistake with real consequences. The countdown keeps running, so an operator
-        // who is genuinely gone is still signed out on time.
-        setFailed(true);
+      .catch((error: unknown) => {
+        // THE SERVER ANSWERED, AND ITS ANSWER IS THAT THERE IS NOTHING TO EXTEND. No
+        // amount of pressing this button brings a dead session back, so the honest move
+        // is the exit: sign out and land on the door, which now says why. Leaving the
+        // operator on a modal that blames their connection is how a bug becomes a habit.
+        if (isSessionGone(error)) {
+          endSession();
+          return;
+        }
+        // NOT a sign-out. A rotation that never landed is most often a dropped
+        // connection, and ending a live admin session because one request did not arrive
+        // is the §5.7 defect 9 mistake with real consequences. The countdown keeps
+        // running, so an operator who is genuinely gone is still signed out on time.
+        setFailure(error);
       })
       .finally(() => setExtending(false));
   }, [endSession, resume]);
@@ -140,11 +177,18 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
             remaining.
           </p>
           <p>Anything you have typed and not saved will be lost when it does.</p>
-          {failed && (
+          {failure !== null && (
             <NoticeBox tone="warn" title="We could not extend the session">
+              {/* Two sentences, because there are two causes and only one of them is the
+                  operator's connection. Claiming the network for a refusal we did not
+                  diagnose is the same defect one layer down. */}
               <p className="mt-1">
-                Your session has not been ended — the request did not reach Calevate. Check
-                your connection and try again before the timer runs out.
+                {isUnreachable(failure)
+                  ? "Your session has not been ended — the request did not reach Calevate. " +
+                    "Check your connection and try again before the timer runs out."
+                  : "Your session has not been ended, and Calevate refused the request " +
+                    "rather than failing to receive it. Try again before the timer runs " +
+                    "out; if it refuses again, sign out and sign back in."}
               </p>
             </NoticeBox>
           )}

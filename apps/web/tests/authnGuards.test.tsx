@@ -315,6 +315,47 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
     ).toContain("Still there?");
   });
 
+  it("signs out — and does not blame the network — when the session is already gone", async () => {
+    /* REPORTED FROM THE LIVE CONSOLE: "Stay signed in basically doesn't work".
+
+       The panel had ONE failure branch, and it printed a claim about the network — "the
+       request did not reach Calevate. Check your connection" — for every rejection
+       `rotateSession` can produce. A 401 saying the session is already gone took that
+       branch too, so an operator was told their session "has not been ended" (it had),
+       handed a button that could never succeed, and left pressing it.
+
+       It is not an exotic state. The warning runs on `setTimeout`, which does not advance
+       while a machine is suspended, so a slept laptop wakes showing four minutes left on
+       a session the server ended an hour before.
+
+       `problems.ts` already separates `isSessionGone` from `isUnreachable` and records
+       that the two have opposite remedies. This screen simply was not asking. Both halves
+       are asserted here: the exit is taken, AND the false sentence is not printed. */
+    vi.useFakeTimers();
+    const calls = stubApi({
+      "POST /v1/auth/admin/session/refresh": problem(401, {
+        type: "https://calevate.tech/problems/unauthorized",
+        title: "Sign in to continue",
+        detail: "This session has ended.",
+        kind: "auth",
+      }),
+      "POST /v1/auth/admin/logout": { revoked: 0 },
+    });
+    const view = render(<AdminIdleTimeoutModal enabled />);
+
+    await warn();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(calls.some((c) => c.path.endsWith("/logout"))).toBe(true);
+    expect(view.container.textContent).not.toContain("did not reach Calevate");
+  });
+
   /**
    * The warning is STICKY, and the first spelling of this hook was not.
    *
