@@ -605,3 +605,41 @@ async def test_every_refusal_on_this_boundary_is_problem_json_with_a_stable_code
         assert body["type"].endswith(f"/{expected}"), f"expected {expected}, got {body['type']}"
         assert body["detail"], expected
         assert "Traceback" not in body["detail"] and "sqlalchemy" not in body["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_the_spend_cap_read_is_reachable_from_view_as_and_the_write_is_not() -> None:
+    """The two halves of `/v1/billing/caps`, asserted side by side because the fix is
+    the asymmetry and not either half on its own.
+
+    REPORTED FROM THE LIVE CONSOLE. `SpendCapPanel` on the admin tenant screen reads
+    this route through a D-22 view-as session, and the GET was declared
+    `realm="client"` — so `current_principal` refused it on the header alone and the
+    panel rendered "The cap state could not be read, so nothing is offered here" for
+    every tenant, permanently withholding the recompute control underneath it. The
+    restriction was never argued for: `current_principal`'s docstring enumerates the
+    three routes deliberately in that position and the GET is not among them.
+
+    THE WRITE MUST STAY REFUSED, and that is why this test drives both. `client_cap_*`
+    is the client's own instruction to stop them at a figure; `plan_cap_*` is ours, and
+    an operator moves that one through the admin-realm commercial-terms route where the
+    audit row names them. A change that opened the read by relaxing the pair would erase
+    the distinction between "we capped them" and "they capped themselves", and this
+    would still pass if only the GET were asserted.
+    """
+    org = await _make_org()
+    _admin_id, admin_token = await _make_admin()
+
+    async with _client() as http:
+        headers = await view_as_headers(http, admin_token, str(org["slug"]))
+        read = await http.get("/v1/billing/caps", headers=headers)
+        write = await http.put("/v1/billing/caps", headers=headers, json={})
+
+    assert read.status_code == 200, read.text
+    body = read.json()
+    # The panel's own fields, so a response that is 200 and useless still fails here.
+    for field in ("capped", "month", "effective_cap_spend_inr", "spend_used_inr"):
+        assert field in body, f"{field} missing from the caps read: {body}"
+
+    assert write.status_code == 403, write.text
+    assert write.json()["type"].endswith("/impersonation_not_available_here"), write.text
