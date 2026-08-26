@@ -516,6 +516,6 @@ def test_the_window_is_never_the_loosest_clock_in_the_request() -> None:
     """
     from apps.api.authn.sessions import REALM_TIMEOUTS
 
-    assert REAUTH_MAX_AGE <= REALM_TIMEOUTS["admin"].idle
-    assert REAUTH_MAX_AGE < REALM_TIMEOUTS["admin"].absolute
+    assert REALM_TIMEOUTS["admin"].idle >= REAUTH_MAX_AGE
+    assert REALM_TIMEOUTS["admin"].absolute > REAUTH_MAX_AGE
     assert COOKIE_NAMES["admin"].startswith("__Host-")
