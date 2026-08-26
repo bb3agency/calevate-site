@@ -239,7 +239,25 @@ export async function expectNoA11yViolations(container: Element, screen: string)
  * everywhere; the barriers live in the populated state.
  */
 export function assertScreenRendered(container: Element, screen: string): void {
-  const text = (container.textContent ?? "").replace(/\s+/g, " ").trim();
+  // NON-EMPTY `alt` COUNTS AS TEXT, and that is a correction to what this measures
+  // rather than a relaxation of the floor.
+  //
+  // The auth frame used to render the product name as the literal string "Calevate";
+  // it now renders the wordmark image, whose `alt` is that same string. Nothing on
+  // `invite/page.tsx` or `c/page.tsx` became less perceivable — a screen reader
+  // announces exactly what it did before — but `textContent` stopped seeing it, and both
+  // screens dropped under the 40-character floor and failed. A guard that treats a
+  // labelled image as "nothing is there" is measuring the DOM's text nodes, not the
+  // thing it exists to detect.
+  //
+  // It cannot be gamed into vacuity: `alt=""` is how a DECORATIVE image declares itself
+  // and contributes nothing here, so a skeleton full of unlabelled placeholders still
+  // fails, and the `operable === 0` half of the floor is untouched.
+  const alts = Array.from(container.querySelectorAll("img[alt]"))
+    .map((img) => img.getAttribute("alt") ?? "")
+    .filter((alt) => alt.trim().length > 0)
+    .join(" ");
+  const text = `${container.textContent ?? ""} ${alts}`.replace(/\s+/g, " ").trim();
   const operable = container.querySelectorAll(
     "a[href], button, input, select, textarea, table, h1, h2, h3",
   ).length;

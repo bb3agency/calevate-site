@@ -20,7 +20,6 @@ import {
   Megaphone,
   Menu,
   MessageSquare,
-  Mic,
   PanelLeftClose,
   PanelLeftOpen,
   PhoneCall,
@@ -34,6 +33,8 @@ import {
   Users,
   X,
 } from "lucide-react";
+
+import { BrandIcon } from "@/components/brand";
 
 import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
@@ -214,17 +215,15 @@ function Sidebar({
     >
       <div className={`flex items-center p-5 ${isCollapsed ? "lg:justify-center lg:px-3" : "justify-between gap-3"}`}>
         <div className="flex items-center gap-3 overflow-hidden">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white">
-            <Mic className="h-5 w-5" />
-          </span>
-          {!isCollapsed && (
-            <span className="whitespace-nowrap">
-              <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
-                Calevate
-              </span>
-              <span className="block text-[11px] font-medium text-ink-muted">AI agents</span>
+          {/* The chip is gone with the glyph — the mark is green ink, not a white icon. */}
+          <BrandIcon size={36} />
+          {/* `sr-only` rather than unmounted when collapsed: see the admin shell. */}
+          <span className={isCollapsed ? "sr-only" : "whitespace-nowrap"}>
+            <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
+              Calevate
             </span>
-          )}
+            <span className="block text-[11px] font-medium text-ink-muted">AI agents</span>
+          </span>
         </div>
         <button
           type="button"

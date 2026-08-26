@@ -67,7 +67,21 @@ describe("the landing page's claims", () => {
     // No third-party imagery either: a logo wall is a claim in picture form, and an
     // external image is also a request to a host we do not control (the reason
     // `Avatar` replaced dicebear in ui.tsx).
-    expect(container.querySelectorAll("img").length).toBe(0);
+    //
+    // THIS USED TO ASSERT ZERO IMAGES, which was the right intent behind the wrong
+    // proxy. The page now carries our OWN wordmark and lockup, which are neither a
+    // customer's logo nor a third-party request. What actually has to hold is that
+    // every image is first-party — a relative path to our own origin — so the check is
+    // now that, stated directly. It still fails on the two things it was written for: a
+    // logo wall would have to come from somewhere, and anything on another host has a
+    // scheme in its `src`.
+    const sources = Array.from(container.querySelectorAll("img")).map(
+      (img) => img.getAttribute("src") ?? "",
+    );
+    expect(sources.length).toBeGreaterThan(0);
+    for (const src of sources) {
+      expect(src, `${src} is not a first-party asset`).toMatch(/^\/brand\//);
+    }
   });
 
   it("claims no uptime, accuracy or answer-rate figure", () => {

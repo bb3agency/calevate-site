@@ -30,6 +30,8 @@ import {
   Webhook,
 } from "lucide-react";
 
+import { BrandLockup, BrandWordmark } from "@/components/brand";
+
 import { CallDemo } from "@/components/marketing/callDemo";
 import {
   IsoCallStack,
@@ -377,15 +379,11 @@ export default function Home() {
       <div data-marketing-root className="bg-app text-ink">
         <header className="sticky top-0 z-30 border-b border-line bg-surface/80 backdrop-blur-md">
           <div className={`${SHELL} flex items-center justify-between gap-4 py-3.5`}>
-            <span className="flex items-center gap-2.5">
-              <span
-                aria-hidden
-                className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-strong text-white shadow-sm"
-              >
-                <PhoneCall className="h-4 w-4" />
-              </span>
-              <span className="text-base font-semibold tracking-tight text-ink">Calevate</span>
-            </span>
+            {/* The wordmark REPLACES the chip and the word, rather than sitting beside
+                them: the artwork already contains the name, and rendering both would say
+                "Calevate" twice on the one screen a stranger judges us by. It carries a
+                real `alt` for the same reason — it is the name here, not decoration. */}
+            <BrandWordmark height={40} className="h-10 w-auto" />
             {/* A client island in a server page: the session cookie is `HttpOnly`, so
                 whether this visitor is already signed in can only be answered by asking
                 the API. It renders the signed-out header until that lands, and never the
@@ -1091,14 +1089,10 @@ export default function Home() {
         */}
         <footer className="border-t border-line px-6 py-10">
           <div className="mx-auto flex max-w-6xl flex-col gap-5">
-            <div className="flex items-center gap-2.5">
-              <span
-                aria-hidden
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-strong text-white"
-              >
-                <PhoneCall className="h-3.5 w-3.5" />
-              </span>
-              <span className="text-sm font-semibold tracking-tight text-ink">Calevate</span>
+            {/* The tagline lockup, and this is the one place it belongs: a footer is
+                where a signature reads as a signature rather than as a second headline. */}
+            <div className="flex items-center">
+              <BrandLockup height={38} className="h-[38px] w-auto" />
             </div>
             <nav aria-label="Legal">
               <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs">

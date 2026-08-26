@@ -20,6 +20,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 
+import { BrandWordmark } from "@/components/brand";
+
 import { OfflineBanner } from "@/components/offline";
 
 export function AuthPageFrame({
@@ -41,8 +43,10 @@ export function AuthPageFrame({
       <OfflineBanner />
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-md items-center justify-between gap-4 px-6 py-4">
-          <Link href="/" className="text-base font-semibold tracking-tight text-ink">
-            Calevate
+          {/* The wordmark is the link's whole content, so its `alt` is the link's
+              accessible name — "Calevate" — which is what it read as before. */}
+          <Link href="/" className="flex items-center">
+            <BrandWordmark height={36} className="h-9 w-auto" />
           </Link>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-xs text-ink-faint">
