@@ -72,6 +72,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: nginx mainline, for the rendered-config gate
+        # `tests/nginx_config_parses_test.py` hands the RENDERED config to the real parser,
+        # which is the only thing that catches a config nginx refuses to load — two such
+        # failures reached a production host in one evening (`proxy_connect_timeout
+        # directive is duplicate`, then `proxy_pass cannot have URI part … inside named
+        # location`), and no text-reading guard in this repository could see either.
+        #
+        # FROM nginx.org AND NOT THE DISTRO. Ubuntu 24.04 ships 1.24; the config uses
+        # `http2 on;`, which is 1.25.1+ (DEPLOYMENT §2's floor), so the distro package
+        # makes that test SKIP rather than run — a green build that checked nothing. This
+        # is also the same source the VPS installs from, so CI parses with the production
+        # parser rather than a near-enough one.
+        run: |
+          set -euo pipefail
+          curl -fsSL https://nginx.org/keys/nginx_signing.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/nginx-archive-keyring.gpg
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx.org/packages/mainline/ubuntu $VERSION_CODENAME nginx" \
+            | sudo tee /etc/apt/sources.list.d/nginx.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nginx
+          nginx -v
+
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
