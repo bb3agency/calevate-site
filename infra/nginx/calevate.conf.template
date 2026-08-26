@@ -142,6 +142,10 @@ server {
 
     location ^~ /admin { return 404; }
     location ^~ /c/    { return 404; }
+    # The operator door, for the reason given at length on the `app.` block: the route is
+    # `/auth/admin/...`, `^~ /admin` never matched it, and the apex is a hostname clients
+    # are sent to. `admin.` serves it and nothing else does.
+    location ^~ /auth/admin { return 404; }
 
     # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
     # firing on them. Every path here is content-addressed by Next's build hash
@@ -310,6 +314,27 @@ server {
     }
 
     location ^~ /admin { return 404; }
+
+    # THE OPERATOR DOOR IS NOT UNDER `/admin`, AND THIS BLOCK CLAIMED TO CLOSE IT.
+    #
+    # The comment at the head of this server block names the surface it exists to refuse —
+    # "the operator SIGN-IN surface, `/auth/admin/sign-in`, served on the hostname every
+    # client is told to visit, which is phishing surface". The directive above does not
+    # match that path: the route is `src/app/(auth)/auth/admin/sign-in/page.tsx`, and
+    # `(auth)` is a Next route GROUP, which contributes no URL segment. So the URL is
+    # `/auth/admin/sign-in` and `^~ /admin` never saw it.
+    #
+    # What was actually reachable, and why it is worse than a stray page: the form rendered
+    # in full on `app.` with our certificate and our brand, and it WORKED — `app.` is in
+    # `DEFAULT_CORS_ORIGINS`, which is also the CSRF Origin allowlist, so
+    # `POST /v1/auth/admin/login` was accepted there and minted a real operator session.
+    # An attacker needed only to send the link. The admin realm holds every tenant's data.
+    #
+    # `admin.` is now the ONLY hostname that serves the operator door, which is a property
+    # a reader can check rather than a convention. Nothing links here relatively any more:
+    # every `/admin` and every operator sign-in destination is resolved through
+    # `adminConsoleUrl()` against NEXT_PUBLIC_ADMIN_CONSOLE_ORIGIN.
+    location ^~ /auth/admin { return 404; }
 
     # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
     # firing on them. Every path here is content-addressed by Next's build hash
