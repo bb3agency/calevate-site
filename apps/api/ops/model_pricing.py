@@ -201,6 +201,21 @@ class ModelOfferability:
     provider: LlmProvider
     credential_installed: bool
     price_attested: bool
+    #: WITHHELD ON MERIT, and the reason, or `None` when this repository permits the model.
+    #:
+    #: THIS FIELD EXISTS BECAUSE ITS ABSENCE MISLED THE ONE PERSON IT IS FOR. The docstring
+    #: above already said this dataclass is "NOT the whole story a client's picker tells"
+    #: and named `LlmModelSpec.selectable` as the missing half — and the ops panel, having
+    #: only these fields, told the founder that every unofferable model "becomes available
+    #: to customers only once you confirm a price". For `gemini-3.*` and any model whose
+    #: retirement stance is unread, that is false however the price is attested: a
+    #: `selectable=False` model stays withheld, so the screen was inviting work that could
+    #: not succeed and hiding the reason it could not — dead air on a phone call, a 10x
+    #: cost tier, a vendor page nobody has read.
+    #:
+    #: Carried as the REASON rather than a boolean so the panel can say WHY without
+    #: re-deriving it. `unofferable_reason` writes those sentences; this passes them on.
+    withheld_reason: str | None
     #: The catalogue figure is a first-hand vendor reading (`LlmPrice.evidence.verified`) —
     #: billable with no attestation. True for Azure, False for the OpenAI/Google legs.
     reference_verified: bool
@@ -210,8 +225,20 @@ class ModelOfferability:
         return self.price_attested or self.reference_verified
 
     @property
+    def selectable(self) -> bool:
+        """Does this repository permit the model at all, on merit?"""
+        return self.withheld_reason is None
+
+    @property
     def offerable(self) -> bool:
-        return self.credential_installed and self.price_billable
+        """May a client pick it right now.
+
+        ALL THREE GROUNDS, where this used to be two. `agents/llm_models.offerable_models`
+        has always ANDed merit with the credential and the price; this property answered
+        for the last two only, which was correct for its old callers and wrong for the one
+        that reported it to a human as "available to customers".
+        """
+        return self.selectable and self.credential_installed and self.price_billable
 
 
 async def model_offerability(
@@ -234,6 +261,14 @@ async def model_offerability(
             credential_installed=spec.provider in legs,
             price_attested=model in prices,
             reference_verified=spec.price.evidence.verified,
+            # `withheld_reason` from the catalogue, NOT re-derived here: those sentences
+            # cite their own primary sources (a vendor enum with no zero, an engine branch
+            # that yields nothing) and belong with the decision, not with the screen.
+            # STRAIGHT OFF THE SPEC. `agents/llm_models.unofferable_reason` would also
+            # answer, but it ANDs merit with the credential and the price, so a model
+            # withheld on merit AND missing a key would report only the key — which is
+            # the half a price screen can act on and the half that is not true.
+            withheld_reason=spec.withdrawn_reason if not spec.selectable else None,
         )
     return result
 

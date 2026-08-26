@@ -128,9 +128,16 @@ class ModelPriceOut(BaseModel):
     #: The founder's offerability rule, split so the console can say WHICH half is missing.
     credential_installed: bool
     price_attested: bool
-    #: `credential_installed AND price_attested`. NOT the whole client-picker story — the
-    #: catalogue lane composes this with `selectable` and deployment addressability.
+    #: `selectable AND credential_installed AND price_billable` — the whole rule, where
+    #: this used to answer for the last two. A screen that reported the partial answer as
+    #: "available to customers" told the founder that a model withheld on merit would
+    #: become available once priced.
     offerable: bool
+    #: `null` when this repository permits the model on merit. Otherwise the GROUND, in the
+    #: catalogue's own words: attesting a price will not change it, and the reason is
+    #: usually the more useful fact (dead air mid-call, a 10x cost tier, a vendor page
+    #: nobody has read). `LlmModelSpec.withdrawn_reason`.
+    withheld_reason: str | None
     #: The attested figures, USD per million tokens, as strings. `null` until attested.
     input_usd_per_mtok: str | None
     output_usd_per_mtok: str | None
@@ -207,6 +214,7 @@ def _row(
         credential_installed=offer.credential_installed,
         price_attested=offer.price_attested,
         offerable=offer.offerable,
+        withheld_reason=offer.withheld_reason,
         input_usd_per_mtok=str(attested.input_usd_per_mtok) if attested else None,
         output_usd_per_mtok=str(attested.output_usd_per_mtok) if attested else None,
         effective_from=attested.effective_from.isoformat() if attested else None,

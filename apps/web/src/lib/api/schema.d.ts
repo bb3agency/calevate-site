@@ -9351,6 +9351,8 @@ export interface components {
             reference_verified: boolean;
             /** Source Note */
             source_note: string | null;
+            /** Withheld Reason */
+            withheld_reason: string | null;
         };
         /**
          * ModelPriceWriteOut
