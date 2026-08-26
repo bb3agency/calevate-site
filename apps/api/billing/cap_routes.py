@@ -62,7 +62,32 @@ router = APIRouter(prefix="/v1/billing/caps", tags=["billing"])
 Session = Annotated[AsyncSession, Depends(db)]
 # Annotated dependencies rather than `Depends()` in a default: this file is not
 # `routes.py`, so it is not covered by the B008 per-file ignore.
-CapsRead = Annotated[Principal, Depends(requires("billing:read", realm="client"))]
+# THE READ IS `realm="any"` AND THE WRITE IS NOT, and the asymmetry is the point.
+#
+# `realm="client"` on the READ made the operator console's own Spend cap panel
+# unreachable: `admin/tenants/[tenantId]/page.tsx::SpendCapPanel` reads this route
+# through a D-22 view-as session, and `current_principal` refuses ANY request carrying
+# the impersonation header — so the panel rendered "The cap state could not be read, so
+# nothing is offered here" for every tenant, and the recompute control underneath it was
+# permanently withheld. That was reported from the live console.
+#
+# It was never a considered restriction. `current_principal`'s docstring enumerates the
+# three routes that are deliberately in that position — `PUT /v1/billing/caps`, the
+# top-up intent and the WhatsApp alert opt-in — because each is part of the client's own
+# sign-in. The GET is not one of them, and both realm-boundary sweeps drive the PUT, not
+# this. An operator already sees this account's spend on the Money board and on Client
+# health (`admin/health.py` reads `spend_cap_inr` and raises `spend_cap_near`), so
+# nothing here is newly visible; what changes is that the panel built to show it can.
+#
+# The WRITE stays `realm="client"` deliberately, and not merely because D-22 refuses a
+# mutation through impersonation. `client_cap_spend` is the CLIENT'S OWN INSTRUCTION —
+# "stop us at this figure" — and it sits beside `plan_cap_spend`, which is OURS. An
+# operator who wants to move what stops this account edits the plan's ceiling through
+# the admin-realm commercial-terms route, where the write is theirs and the audit row
+# names them. Letting the operator console write the client's half would erase the
+# distinction between "we capped them" and "they capped themselves", which is the one
+# thing this pair of columns exists to keep separate.
+CapsRead = Annotated[Principal, Depends(requires("billing:read", realm="any"))]
 CapsWrite = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 
 # A rupee cap wider than this is not a cap. NUMERIC(12,4) holds eight digits before the
