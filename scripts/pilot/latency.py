@@ -88,9 +88,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from apps.api.engine.bolna import parse_latency_data as parse_call_latency
+from calevate_shared.engine import (
+    VOICE_TO_VOICE_P50_TARGET_MS,
+    VOICE_TO_VOICE_P95_TARGET_MS,
+)
 from pydantic import BaseModel, Field
 
 # --- vocabulary ---------------------------------------------------------------
@@ -121,8 +125,29 @@ AgreementVerdict = Literal["agrees", "disagrees", "not_comparable"]
 
 # TRD §4 / OPERATIONS §2 gate 4. Targets, not measurements — they are the thresholds a
 # measurement is judged against and are never copied into a result.
-TARGET_P50_MS = 1_100
-TARGET_TAIL_MS = 1_800
+#
+# DERIVED, NOT DECLARED, and they used to be declared. `1_100` and `1_800` were typed here
+# as literals while `calevate_shared.engine` declared the same two figures for the ops
+# report — two spellings of one fact, which is the defect class this repo treats as real
+# even when both copies agree, because the second one is where the drift starts. TRD §4a
+# names the slot where a MEASURED number replaces these targets; on the day that happens,
+# one of the two copies would have moved and the other would have gone quietly stale, and
+# the stale one is the harness that decides whether the pilot passed.
+#
+# `int` rather than the shared `float`: every consumer here is an `int` threshold in a
+# signature or an f-string at `REPORT_PRECISION_MS` resolution, and a `1100.0` in a
+# printed verdict reads as a precision the stopwatch never had. The assertion below is
+# what makes the narrowing safe — a fractional target would otherwise be silently
+# truncated into a threshold nobody declared.
+TARGET_P50_MS: Final[int] = int(VOICE_TO_VOICE_P50_TARGET_MS)
+TARGET_TAIL_MS: Final[int] = int(VOICE_TO_VOICE_P95_TARGET_MS)
+assert TARGET_P50_MS == VOICE_TO_VOICE_P50_TARGET_MS, (
+    "the voice-to-voice p50 target is no longer a whole number of milliseconds; this "
+    "harness narrows it to int and would judge the pilot against a truncated threshold"
+)
+assert TARGET_TAIL_MS == VOICE_TO_VOICE_P95_TARGET_MS, (
+    "the voice-to-voice p95 target is no longer a whole number of milliseconds; see above"
+)
 TARGET_TAIL_FRACTION = 0.05  # "p95 ≤ 1.8s" == "at most 5% of turns exceed 1.8s"
 
 #: One-sided confidence for every bound in this module.
