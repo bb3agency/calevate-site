@@ -145,6 +145,29 @@ async function arm(): Promise<HTMLButtonElement> {
   return button;
 }
 
+describe("the two ceilings, and which of them this console can move", () => {
+  it("offers an edit path for OUR ceiling and none for the client's own", async () => {
+    /* The panel already told an operator to "raise the ceiling first if that is the
+       fix" and pointed nowhere — an instruction with a dead end in the middle of it.
+
+       Only one of the two ceilings is ours. `plan_cap_*` is set through the admin-realm
+       commercial-terms route, so it gets a link. `client_cap_*` is the client's own
+       instruction to stop them at a figure, `PUT /v1/billing/caps` is client-realm and
+       stays that way (D-22: no acting-as), and there is no operator route that writes
+       it — so a link there would promise a control this console does not have. The
+       absence is asserted, not just the presence, because "add an edit link to both"
+       is the obvious wrong fix and would leave a 403 waiting at the end of it. */
+    await render();
+
+    const ours = await screen.findByRole("link", { name: /change on commercials/i });
+    expect(ours.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/commercials`);
+
+    // One link in the ceilings grid, not two.
+    expect(screen.getAllByRole("link", { name: /change on commercials/i })).toHaveLength(1);
+    expect(screen.getByText("Their own ceiling")).toBeTruthy();
+  });
+});
+
 describe("the spend-cap panel when the cap state cannot be read", () => {
   it("offers no recompute at all, and does not claim the client is uncapped", async () => {
     const { container } = await render({

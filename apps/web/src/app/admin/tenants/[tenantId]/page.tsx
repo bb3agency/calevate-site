@@ -882,9 +882,16 @@ function SpendCapPanel({
                   ? "no minute ceiling"
                   : `${formatCount(data.plan_cap_minutes)} minutes`
               }
+              edit={{
+                href: `/admin/tenants/${tenantId}/commercials`,
+                label: "Change on Commercials",
+              }}
             />
             {/* Theirs, and only they can move it — the one line that decides whether this
-                button can help at all. */}
+                button can help at all. NO edit link, deliberately: this column is the
+                client's own instruction to stop them at a figure, and the operator
+                console has no route that writes it (see `billing/cap_routes.py`). A link
+                here would promise a control that does not exist. */}
             <CapFact
               label="Their own ceiling"
               value={formatINR(data.client_cap_spend_inr)}
@@ -980,12 +987,38 @@ function SpendCapPanel({
 
 /** One cap figure with the minute ceiling that goes with it — rupees and minutes are two
  * ceilings, and `LEAST` is taken over each independently. */
-function CapFact({ label, value, note }: { label: string; value: string; note: string }) {
+function CapFact({
+  label,
+  value,
+  note,
+  edit,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  /**
+   * Where an operator changes this number, when it is one they may change.
+   *
+   * The panel already tells them to "raise the ceiling first if that is the fix" and
+   * never said WHERE — a dead end in the middle of the instruction. Only OUR ceiling
+   * gets one: the client's own is theirs to move (`PUT /v1/billing/caps` is client-realm
+   * and stays that way), and offering a link there would promise a control this console
+   * does not have.
+   */
+  edit?: { href: string; label: string };
+}) {
   return (
     <div className="rounded-card border border-line bg-surface p-4">
       <dt className="text-xs uppercase tracking-wide text-ink-faint">{label}</dt>
       <dd className="mt-0.5 text-lg font-semibold tabular-nums text-ink">{value}</dd>
       <dd className="mt-0.5 text-xs text-ink-muted">{note}</dd>
+      {edit && (
+        <dd className="mt-1.5">
+          <Link href={edit.href} className="text-xs font-medium text-brand hover:underline">
+            {edit.label}
+          </Link>
+        </dd>
+      )}
     </div>
   );
 }
