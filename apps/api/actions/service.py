@@ -212,10 +212,55 @@ async def list_tools(session: AsyncSession, *, agent_id: UUID) -> list[LoadedToo
 
 
 async def get_tool(session: AsyncSession, *, tool_id: UUID) -> LoadedTool | None:
+    """A tool by id alone, WITHIN THE TENANT (RLS).
+
+    FOR THE WRITERS IN THIS MODULE ONLY — `create_tool` and `update_tool` re-read the row
+    they just wrote inside the same transaction, where the agent is not in question. A
+    ROUTE must not use this: the id in a route's URL is the caller's to choose, and this
+    function cannot tell whether the tool belongs to the agent the URL also names. Use
+    `get_agent_tool`, which is why it exists.
+    """
     row = (
         await session.execute(
             text(f"SELECT {_TOOL_COLUMNS} FROM action_tools WHERE id = :id"),
             {"id": tool_id},
+        )
+    ).first()
+    return _loaded(row) if row is not None else None
+
+
+async def get_agent_tool(
+    session: AsyncSession, *, agent_id: UUID, tool_id: UUID
+) -> LoadedTool | None:
+    """A tool that belongs to THIS agent, or nothing.
+
+    ═══ THE ROUTES CLAIMED THIS CHECK AND DID NOT MAKE IT. ═══
+
+    `routes.invoke_action` carried the comment "Also refuse a disabled tool or one
+    belonging to a different agent than the ref resolved" above a line that read
+    `if tool is None or not tool.enabled`. There was no agent comparison anywhere: the
+    bridge query selected `tenant_id` only, and `get_tool` is a bare `WHERE id = :id`.
+    So an in-call tool call carrying agent A's ref could execute a tool configured for
+    agent B — including one on an agent whose actions are switched off — and use that
+    tool's `integration_credentials` through a binding nobody verified. The three sibling
+    routes (`enabled`, `delete`, `test`) had the same shape: `_assert_agent` proved the
+    AGENT was the caller's and then the tool was fetched by id, so any agent id in the
+    URL paired with any tool id.
+
+    RLS keeps this inside one tenant, so it is not a cross-tenant hole (hard rule 1 is
+    intact). What it broke is that the URL did not mean what it said, and a comment
+    asserted a control that was never written — which is the more expensive half, because
+    the next reader budgets for it.
+
+    A FILTER RATHER THAN A COMPARISON, deliberately: `... WHERE id = :id AND agent_id =
+    :agent_id` cannot be forgotten by a caller the way an `if` can, and a mismatch returns
+    the same `None` a deleted tool returns, so a probe cannot tell "not yours" from "not
+    there" (the property `get_tool`'s RLS behaviour already provides across tenants).
+    """
+    row = (
+        await session.execute(
+            text(f"SELECT {_TOOL_COLUMNS} FROM action_tools WHERE id = :id AND agent_id = :agent"),
+            {"id": tool_id, "agent": agent_id},
         )
     ).first()
     return _loaded(row) if row is not None else None
@@ -399,16 +444,26 @@ def _write_params(
     }
 
 
-async def set_enabled(session: AsyncSession, *, tool_id: UUID, enabled: bool) -> bool:
+async def set_enabled(
+    session: AsyncSession, *, agent_id: UUID, tool_id: UUID, enabled: bool
+) -> bool:
+    """`agent_id` is REQUIRED and is in the WHERE clause — see `get_agent_tool`."""
     result = await session.execute(
-        text("UPDATE action_tools SET enabled = :en, updated_at = now() WHERE id = :id"),
-        {"en": enabled, "id": tool_id},
+        text(
+            "UPDATE action_tools SET enabled = :en, updated_at = now() "
+            "WHERE id = :id AND agent_id = :agent"
+        ),
+        {"en": enabled, "id": tool_id, "agent": agent_id},
     )
     return rowcount_of(result) == 1
 
 
-async def delete_tool(session: AsyncSession, *, tool_id: UUID) -> bool:
-    result = await session.execute(text("DELETE FROM action_tools WHERE id = :id"), {"id": tool_id})
+async def delete_tool(session: AsyncSession, *, agent_id: UUID, tool_id: UUID) -> bool:
+    """`agent_id` is REQUIRED and is in the WHERE clause — see `get_agent_tool`."""
+    result = await session.execute(
+        text("DELETE FROM action_tools WHERE id = :id AND agent_id = :agent"),
+        {"id": tool_id, "agent": agent_id},
+    )
     return rowcount_of(result) == 1
 
 
@@ -535,6 +590,7 @@ __all__ = [
     "create_tool",
     "declare",
     "delete_tool",
+    "get_agent_tool",
     "get_tool",
     "list_tools",
     "set_actions_enabled",

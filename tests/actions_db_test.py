@@ -197,3 +197,86 @@ async def test_tool_name_must_be_snake_case() -> None:
                 config={"method": "GET", "url": "https://api.example.com/o"},
             )
         assert exc.value.code == "action_name_invalid"
+
+
+# --- the URL has to mean what it says ------------------------------------------------
+#
+# `routes.invoke_action` carried the comment "Also refuse a disabled tool or one belonging
+# to a different agent than the ref resolved" above a line that read
+# `if tool is None or not tool.enabled`. There was no agent comparison anywhere: the bridge
+# query selected `tenant_id` only, and `get_tool` was a bare `WHERE id = :id`. The three
+# sibling routes had the same shape — `_assert_agent` proved the AGENT belonged to the
+# caller, then the tool was fetched by id, so any agent id paired with any tool id.
+#
+# RLS kept it inside one tenant, so it was never a cross-tenant hole. What it broke is that
+# a tenant-scoped credential could be used through a binding nobody verified, and that a
+# comment asserted a control which was never written.
+
+
+async def _agent_with_tool(session, tenant: UUID, *, name: str) -> tuple[UUID, UUID]:
+    agent = await agent_lifecycle.create_agent(
+        session, tenant_id=tenant, name=name, direction="inbound", language_primary="te-IN"
+    )
+    tool = await service.create_tool(
+        session,
+        tenant_id=tenant,
+        agent_id=agent,
+        kind="custom_api",
+        provider=None,
+        name="get_status",
+        description="when asked",
+        trigger="during_call",
+        pre_call_message=None,
+        credential_id=None,
+        params=[{"name": "order_id", "source": "ai", "type": "string", "description": "id"}],
+        config={"method": "GET", "url": "https://api.example.com/o"},
+    )
+    return agent, tool.id
+
+
+@pytest.mark.asyncio
+async def test_a_tool_is_invisible_through_another_agent_of_the_same_tenant() -> None:
+    """The binding, as a filter rather than a comparison.
+
+    Same tenant, so RLS is not what is being tested — two agents the same client owns.
+    Agent A's tool must not be reachable by naming agent B, and the miss must be the SAME
+    `None` a deleted tool returns, so a probe cannot tell "not yours" from "not there".
+    """
+    tenant = await _tenant("bind")
+    async with tenant_session(tenant) as s:
+        agent_a, tool_a = await _agent_with_tool(s, tenant, name="Agent A")
+        agent_b, _ = await _agent_with_tool(s, tenant, name="Agent B")
+
+        assert await service.get_agent_tool(s, agent_id=agent_a, tool_id=tool_a) is not None
+        assert await service.get_agent_tool(s, agent_id=agent_b, tool_id=tool_a) is None
+
+
+@pytest.mark.asyncio
+async def test_a_mutation_through_the_wrong_agent_changes_nothing() -> None:
+    """`set_enabled` and `delete_tool` filter on the agent too, and report the miss.
+
+    A `rowcount` of 0 is what the routes turn into a 404, so the refusal and the
+    non-effect are the same fact rather than two that could drift. The read afterwards is
+    the half that matters: a mutation that returned False having still written would be
+    the worst of both.
+    """
+    tenant = await _tenant("bind-mut")
+    async with tenant_session(tenant) as s:
+        agent_a, tool_a = await _agent_with_tool(s, tenant, name="Agent A")
+        agent_b, _ = await _agent_with_tool(s, tenant, name="Agent B")
+
+        assert not await service.set_enabled(s, agent_id=agent_b, tool_id=tool_a, enabled=False), (
+            "a tool was disabled through an agent that does not own it"
+        )
+        still = await service.get_agent_tool(s, agent_id=agent_a, tool_id=tool_a)
+        assert still is not None and still.enabled, "the wrong-agent update took effect"
+
+        assert not await service.delete_tool(s, agent_id=agent_b, tool_id=tool_a), (
+            "a tool was deleted through an agent that does not own it"
+        )
+        assert await service.get_agent_tool(s, agent_id=agent_a, tool_id=tool_a) is not None
+
+        # The control: through its own agent, both work.
+        assert await service.set_enabled(s, agent_id=agent_a, tool_id=tool_a, enabled=False)
+        assert await service.delete_tool(s, agent_id=agent_a, tool_id=tool_a)
+        assert await service.get_agent_tool(s, agent_id=agent_a, tool_id=tool_a) is None
