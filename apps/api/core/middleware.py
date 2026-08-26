@@ -441,13 +441,47 @@ class RateLimitMiddleware:
         whole JWKS for an unrecognised `kid`, and PyJWT caches failures nowhere, so one
         crafted token per request is one outbound fetch per request.
         """
+        # Imported here rather than at module scope, for `CookieCsrfMiddleware`'s reason
+        # below: `core.bootstrap` imports this module while assembling the app, and
+        # `authn.cookies` pulls in the credential layer. A function-local import is a
+        # `sys.modules` lookup after the first call, which is the right price on a path
+        # that runs per request.
+        from apps.api.authn.cookies import session_cookie_value
+
         token = bearer_token(headers.get("authorization"))
         address = self._address_subject(scope, headers)
-        if token is None:
+        if token is not None:
+            return f"t:{fingerprint(token)}", address
+
+        # ═══ THE COOKIE ARM, AND WITHOUT IT THIS WHOLE DIMENSION HAD COLLAPSED. ═══
+        #
+        # Everything above is written about `Authorization`, and since D-177 a real session
+        # is a `__Host-` COOKIE — `core.auth._credential` refuses anything on that header
+        # but the local `dev:` token. So on every production request `token is None`, this
+        # returned `(address, None)`, and the "per-caller" ceiling WAS the per-address
+        # ceiling for the entire authenticated API.
+        #
+        # What that cost, and it is the case the docstring above explicitly claims to
+        # handle: one Indian SMB behind one NAT, or a carrier CGNAT, is named there as "the
+        # ordinary case". An unauthenticated attacker sharing that egress address sends 240
+        # requests a minute at any `/v1/**` path and every signed-in user behind it takes
+        # 429 for the rest of the window; twenty at `/v1/auth/**` locks the address out of
+        # SIGNING IN, the console's own restore poll included. The per-tenant ceiling of 900
+        # that is supposed to govern a shared office never engages, because the per-client
+        # one bites first. No credential is needed and nothing in the app can tell the flood
+        # from the office. The paragraph above was true for bearer tokens and was simply not
+        # revisited when the credential moved.
+        #
+        # The cookie is read exactly as the bearer token is: unauthenticated, fingerprinted,
+        # and its MINT charged to the address — so presenting a session still never buys
+        # more room than presenting nothing, and rotating cookies costs one address unit per
+        # request just as rotating tokens does.
+        session = session_cookie_value(headers.get("cookie"))
+        if session is None:
             # The caller IS the address, so there is no second bucket to charge — the one
             # charge below is already the address's.
             return address, None
-        return f"t:{fingerprint(token)}", address
+        return f"s:{fingerprint(session)}", address
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
