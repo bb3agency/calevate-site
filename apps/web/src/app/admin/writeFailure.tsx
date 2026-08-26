@@ -1,6 +1,8 @@
 "use client";
 
-import { ShieldAlert } from "lucide-react";
+import { useState } from "react";
+
+import { ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
@@ -72,7 +74,50 @@ import { requireStepUp } from "@/lib/authn/stepUpPrompt";
  * answers leaves the screen showing the server's own refusal — which is still true — and
  * can never become an unhandled rejection.
  */
-function ReauthenticationRefusal({ onRetry }: { onRetry?: () => void }) {
+function ReauthenticationRefusal({
+  onRetry,
+  actionLabel,
+}: {
+  onRetry?: () => void;
+  actionLabel: string;
+}) {
+  /**
+   * PROVING A FACTOR HAD NO VISIBLE OUTCOME, AND THAT WAS THE BUG.
+   *
+   * The button called `requireStepUp(...).then(proved => proved && onRetry?.())`, and NOT
+   * ONE of the six call sites passed `onRetry` — so an operator typed the emailed code,
+   * watched the same red panel sit there unchanged, and had to work out for themselves
+   * that pressing the original button again would now work. The plumbing existed; nothing
+   * was connected to it.
+   *
+   * The fix is NOT to replay the write. That decision is deliberate and stays: proving a
+   * factor says who is at the keyboard, and a button that re-fired a platform halt off the
+   * back of an emailed code would turn an identity check into a confirmation. What was
+   * missing is the acknowledgement — so the panel changes state, says the check passed and
+   * says what to press. `onRetry` is still called for any caller that wants more.
+   */
+  const [proved, setProved] = useState(false);
+
+  if (proved) {
+    return (
+      // `status`, not `alert`: this interrupts nothing and announces a success.
+      <div role="status">
+        <NoticeBox
+          tone="ok"
+          icon={<ShieldCheck aria-hidden className="h-5 w-5" />}
+          title="Confirmed — it is still you"
+        >
+          <p className="mt-1">
+            Your second factor is proved for the next few minutes. Press{" "}
+            <span className="font-semibold">{actionLabel}</span> again to apply the change.
+            Nothing has been applied yet — the earlier attempt rolled back, and proving who
+            you are does not re-send it.
+          </p>
+        </NoticeBox>
+      </div>
+    );
+  }
+
   return (
     <div role="alert">
       <NoticeBox
@@ -96,8 +141,10 @@ function ReauthenticationRefusal({ onRetry }: { onRetry?: () => void }) {
             // keyboard; it does not restate the intent to halt a platform or adjust a
             // client's credits, and a button that silently re-fired one of those on the
             // back of an emailed code would turn an identity check into a confirmation.
-            void requireStepUp("A confirmed change on this screen.").then((proved) => {
-              if (proved) onRetry?.();
+            void requireStepUp("A confirmed change on this screen.").then((ok) => {
+              if (!ok) return;
+              setProved(true);
+              onRetry?.();
             });
           }}
         >
@@ -108,7 +155,24 @@ function ReauthenticationRefusal({ onRetry }: { onRetry?: () => void }) {
   );
 }
 
-export function WriteFailure({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+export function WriteFailure({
+  error,
+  onRetry,
+  actionLabel,
+}: {
+  error: unknown;
+  onRetry?: () => void;
+  /**
+   * The button an operator pressed, named so the confirmation can say which one to press
+   * again — "Press Install again" beats "press the button again" on a screen with four.
+   *
+   * REQUIRED, and that is the durable half of this fix. The bug was not that the label was
+   * wrong; it was that an optional prop nobody passed left the whole acknowledgement dead
+   * at all seventeen call sites, silently, for as long as it existed. A required prop makes
+   * the eighteenth a compile error instead of a screen that does nothing.
+   */
+  actionLabel: string;
+}) {
   const problem = error instanceof ApiProblem ? error : null;
   // The OTHER half of the same control (D-340). `X-Confirm-Action` answers "this screen
   // meant to send this action"; step-up answers "the person at the keyboard is still
@@ -118,7 +182,7 @@ export function WriteFailure({ error, onRetry }: { error: unknown; onRetry?: () 
   // refusal an operator clears by proving a factor. Routed FIRST so the skew panel cannot
   // claim a refusal it does not describe.
   if (problem?.code === AUTHN_CODES.reauthenticationRequired) {
-    return <ReauthenticationRefusal onRetry={onRetry} />;
+    return <ReauthenticationRefusal onRetry={onRetry} actionLabel={actionLabel} />;
   }
   if (problem?.code !== "step_up_required") return <ProblemNotice error={error} onRetry={onRetry} />;
   return (

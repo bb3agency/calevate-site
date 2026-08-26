@@ -1032,8 +1032,8 @@ function ConfigForm({
       {/* Suppressed while the conflict box is up: it is carrying the same refusal, with
           the choices attached. Every other failure still gets the full problem+json
           rendering, including its remediation. */}
-      {!refused && save.error && <WriteFailure error={save.error} />}
-      {!refused && revert.error && <WriteFailure error={revert.error} />}
+      {!refused && save.error && <WriteFailure error={save.error} actionLabel="Save" />}
+      {!refused && revert.error && <WriteFailure error={revert.error} actionLabel="Revert to default" />}
 
       <label className="block">
         <span className={FIELD_LABEL}>New value</span>

@@ -375,7 +375,7 @@ function AttestForm({
         );
       }}
     >
-      {save.error && <WriteFailure error={save.error} />}
+      {save.error && <WriteFailure error={save.error} actionLabel="Confirm price" />}
 
       <label className="block">
         <span className={FIELD_LABEL}>

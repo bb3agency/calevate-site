@@ -170,7 +170,7 @@ export default function GlobalDncPage() {
       >
         {release.error != null && (
           <div className="mb-3 px-4 pt-2">
-            <WriteFailure error={release.error} />
+            <WriteFailure error={release.error} actionLabel="Release" />
           </div>
         )}
         {entries.error != null && (
@@ -294,7 +294,7 @@ function SuppressPanel({
           </div>
         </div>
 
-        {mutation.error != null && <WriteFailure error={mutation.error} />}
+        {mutation.error != null && <WriteFailure error={mutation.error} actionLabel="Suppress" />}
 
         <label className="block">
           <span className={FIELD_LABEL}>Numbers</span>

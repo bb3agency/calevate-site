@@ -947,7 +947,9 @@ function CorrectionPanel({
             </div>
           </div>
 
-          {correct.error != null && <WriteFailure error={correct.error} />}
+          {correct.error != null && (
+            <WriteFailure error={correct.error} actionLabel="Correct this entry" />
+          )}
           {correct.data && <CorrectionOutcome result={correct.data} clientName={clientName} />}
 
           <button
@@ -1306,7 +1308,9 @@ function RestatementPanel({
           </div>
         </div>
 
-        {restate.error != null && <WriteFailure error={restate.error} />}
+        {restate.error != null && (
+          <WriteFailure error={restate.error} actionLabel="Restate this payment" />
+        )}
         {restate.data && <RestatementOutcome result={restate.data} clientName={clientName} />}
 
         <button

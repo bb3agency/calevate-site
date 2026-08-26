@@ -119,9 +119,21 @@ server {
     # `internal`, and an EXACT-MATCH location rather than a named one. `proxy_pass` may
     # not carry a URI part inside a named location — nginx refuses the whole config with
     # "proxy_pass cannot have URI part in location given by regular expression, or inside
-    # named location" — and the URI is the entire point here, since the app's not-found
-    # page lives at `/not-found`. `internal` is what stops the path being reachable
-    # directly, so nothing publishes a `/_calevate_not_found` URL.
+    # named location" — and the URI is the entire point here. `internal` is what stops the
+    # path being reachable directly, so nothing publishes a `/_calevate_not_found` URL.
+    #
+    # WHY `/not-found` AND NOT SOME OTHER PATH, stated correctly because the first version
+    # of this comment stated it wrongly. There is NO `/not-found` route: the App Router's
+    # mechanism is `app/not-found.tsx`, which renders for ANY address the router does not
+    # match, `/not-found` included (verified by building this repo's `apps/web` and asking
+    # the running server: `/404`, `/not-found`, `/nope/deep` and `/admin/zzz` each returned
+    # 404 with the designed screen, 26 Aug 2026). So the URI here is simply a stable,
+    # self-describing address that is guaranteed to be unmatched — and any path would do.
+    #
+    # The upstream therefore answers this subrequest with a 404 of its own, which is fine
+    # and was measured rather than assumed: nginx serves the handler's BODY and returns the
+    # ORIGINAL 404 to the client, with no error-page recursion and no 500. Reproduced on
+    # nginx 1.24.0 against a stub upstream returning 404 for the handler URI.
     location = /_calevate_not_found {
         internal;
         proxy_pass http://calevate_web/not-found;
@@ -256,9 +268,21 @@ server {
     # `internal`, and an EXACT-MATCH location rather than a named one. `proxy_pass` may
     # not carry a URI part inside a named location — nginx refuses the whole config with
     # "proxy_pass cannot have URI part in location given by regular expression, or inside
-    # named location" — and the URI is the entire point here, since the app's not-found
-    # page lives at `/not-found`. `internal` is what stops the path being reachable
-    # directly, so nothing publishes a `/_calevate_not_found` URL.
+    # named location" — and the URI is the entire point here. `internal` is what stops the
+    # path being reachable directly, so nothing publishes a `/_calevate_not_found` URL.
+    #
+    # WHY `/not-found` AND NOT SOME OTHER PATH, stated correctly because the first version
+    # of this comment stated it wrongly. There is NO `/not-found` route: the App Router's
+    # mechanism is `app/not-found.tsx`, which renders for ANY address the router does not
+    # match, `/not-found` included (verified by building this repo's `apps/web` and asking
+    # the running server: `/404`, `/not-found`, `/nope/deep` and `/admin/zzz` each returned
+    # 404 with the designed screen, 26 Aug 2026). So the URI here is simply a stable,
+    # self-describing address that is guaranteed to be unmatched — and any path would do.
+    #
+    # The upstream therefore answers this subrequest with a 404 of its own, which is fine
+    # and was measured rather than assumed: nginx serves the handler's BODY and returns the
+    # ORIGINAL 404 to the client, with no error-page recursion and no 500. Reproduced on
+    # nginx 1.24.0 against a stub upstream returning 404 for the handler URI.
     location = /_calevate_not_found {
         internal;
         proxy_pass http://calevate_web/not-found;
@@ -335,9 +359,21 @@ server {
     # `internal`, and an EXACT-MATCH location rather than a named one. `proxy_pass` may
     # not carry a URI part inside a named location — nginx refuses the whole config with
     # "proxy_pass cannot have URI part in location given by regular expression, or inside
-    # named location" — and the URI is the entire point here, since the app's not-found
-    # page lives at `/not-found`. `internal` is what stops the path being reachable
-    # directly, so nothing publishes a `/_calevate_not_found` URL.
+    # named location" — and the URI is the entire point here. `internal` is what stops the
+    # path being reachable directly, so nothing publishes a `/_calevate_not_found` URL.
+    #
+    # WHY `/not-found` AND NOT SOME OTHER PATH, stated correctly because the first version
+    # of this comment stated it wrongly. There is NO `/not-found` route: the App Router's
+    # mechanism is `app/not-found.tsx`, which renders for ANY address the router does not
+    # match, `/not-found` included (verified by building this repo's `apps/web` and asking
+    # the running server: `/404`, `/not-found`, `/nope/deep` and `/admin/zzz` each returned
+    # 404 with the designed screen, 26 Aug 2026). So the URI here is simply a stable,
+    # self-describing address that is guaranteed to be unmatched — and any path would do.
+    #
+    # The upstream therefore answers this subrequest with a 404 of its own, which is fine
+    # and was measured rather than assumed: nginx serves the handler's BODY and returns the
+    # ORIGINAL 404 to the client, with no error-page recursion and no 500. Reproduced on
+    # nginx 1.24.0 against a stub upstream returning 404 for the handler URI.
     location = /_calevate_not_found {
         internal;
         proxy_pass http://calevate_web/not-found;

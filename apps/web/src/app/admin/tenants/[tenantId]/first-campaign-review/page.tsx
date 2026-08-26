@@ -41,7 +41,7 @@ import {
   type FirstCampaignHold,
   type FirstCampaignState,
 } from "@/lib/api/firstCampaign";
-import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
+import { viewAsHref } from "@/lib/api/session";
 
 import { useAdminAccess } from "@/app/admin/access";
 
@@ -302,7 +302,7 @@ function WhereItStands({
           a tooltip. */}
       <p className="mt-3 text-xs opacity-80">
         <Link
-          href={`/c/${slug}/campaign-review?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
+          href={viewAsHref(slug, "/campaign-review")}
           className="inline-flex items-center gap-1 font-medium underline"
           title="Read-only. Every page view is recorded in the audit log."
         >

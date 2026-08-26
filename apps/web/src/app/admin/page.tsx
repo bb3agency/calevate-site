@@ -17,7 +17,7 @@ import {
 } from "@/components/ui";
 import { useTenants } from "@/lib/api/admin";
 import { holdRule } from "@/lib/api/holds";
-import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
+import { viewAsHref } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -240,7 +240,7 @@ export default function AdminClientsPage() {
                           session (admin token + X-Impersonate-Org). See
                           lib/api/session.tsx — it selects a credential, it grants none. */}
                       <Link
-                        href={`/c/${tenant.slug}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
+                        href={viewAsHref(tenant.slug)}
                         className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
                         title="Read-only view as this client — every page view is logged"
                       >

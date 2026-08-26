@@ -77,6 +77,56 @@ import { type Session } from "./client";
 export const VIEW_AS_PARAM = "view";
 export const VIEW_AS_ADMIN = "admin";
 
+/**
+ * Where the CLIENT console lives, as seen from the operator console.
+ *
+ * ## The bug this exists for
+ *
+ * "View as client" linked to a RELATIVE `/c/<slug>?view=admin`. That is correct in
+ * development, where both realms are one origin on `localhost:3000`, and it 404s in
+ * production — because the two realms are two hostnames and `admin.` REFUSES `/c/` on
+ * purpose. `infra/nginx/calevate.conf.template` returns 404 there so an operator
+ * hostname cannot serve a client dashboard, which is the isolation D-177 and P7.3 are
+ * about. The link was asking the operator console for a page it is designed never to
+ * serve, and an operator opening view-as got the not-found screen.
+ *
+ * The realm split is right; the link had simply never been told about it. Nothing in a
+ * one-origin dev environment can notice.
+ *
+ * ## Why a declared variable and not string surgery on the hostname
+ *
+ * Deriving `app.` from `admin.` — or from `NEXT_PUBLIC_API_BASE_URL` — would work today
+ * and encode a guess about how these names relate. They are configuration, not a pattern:
+ * a staging deployment, a vanity domain or a single-origin preview all break it, silently
+ * and only in the browser. The name is declared, checked by
+ * `scripts/check_web_env_parity.py` like every other, and `apps/web/.env.example` says
+ * what it is for.
+ *
+ * ## Empty means "same origin", which is what local development is
+ *
+ * Left unset, `clientConsoleUrl` returns the path unchanged and the behaviour is exactly
+ * what it was — one origin, a relative link. That keeps `pnpm dev` working with no
+ * configuration and makes the production value the only thing that has to be right.
+ */
+const CLIENT_CONSOLE_ORIGIN = process.env.NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN ?? "";
+
+/**
+ * A path on the client console, absolute when the realms are on different hostnames.
+ *
+ * Every operator-console link into `/c/...` goes through here. A bare `href="/c/…"` in an
+ * `app/admin/**` file is the defect above, and `tests/viewAsCrossRealm.test.ts` fails on
+ * one.
+ */
+export function clientConsoleUrl(path: string): string {
+  const origin = CLIENT_CONSOLE_ORIGIN.replace(/\/+$/, "");
+  return origin === "" ? path : `${origin}${path}`;
+}
+
+/** The "view as client" destination for one tenant, wherever the client console lives. */
+export function viewAsHref(slug: string, path = ""): string {
+  return clientConsoleUrl(`/c/${slug}${path}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`);
+}
+
 export interface ClientRealm {
   /** The session every hook on a `/c/<slug>` screen must use. */
   session: Session;

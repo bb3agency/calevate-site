@@ -63,7 +63,7 @@ import {
 } from "@/lib/api/admin";
 import { useCaps } from "@/lib/api/caps";
 import { holdRule } from "@/lib/api/holds";
-import { VIEW_AS_ADMIN, VIEW_AS_PARAM } from "@/lib/api/session";
+import { viewAsHref } from "@/lib/api/session";
 import { useRecordTenantAlertOptIn, useTenantAlertOptIn } from "@/lib/api/whatsappAlerts";
 
 import { useAdminAccess } from "@/app/admin/access";
@@ -238,7 +238,7 @@ export default function TenantDetailPage({
               to find and a keyboard never will. D-22 is the promise this link makes, and
               a promise that only appears on hover is not one the operator has read. */}
           <NavLink
-            href={`/c/${tenant.slug}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
+            href={viewAsHref(tenant.slug)}
             icon={<Eye className="h-4 w-4" />}
             title="Read-only. Every page view is recorded in the audit log."
           >

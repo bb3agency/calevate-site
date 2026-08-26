@@ -528,7 +528,12 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
             </div>
           </div>
 
-          {setState.error && <WriteFailure error={setState.error} />}
+          {setState.error && (
+            <WriteFailure
+              error={setState.error}
+              actionLabel={halted ? "Resume outbound calling" : "Halt all outbound calling"}
+            />
+          )}
 
           <label className="block">
             <span className={FIELD_LABEL}>Reason</span>
@@ -655,7 +660,12 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
           </p>
         </NoticeBox>
 
-        {setState.error && <WriteFailure error={setState.error} />}
+        {setState.error && (
+          <WriteFailure
+            error={setState.error}
+            actionLabel={`Switch to “${loadShedModeCopy(target).label}”`}
+          />
+        )}
 
         <form
           className="space-y-3"
@@ -877,7 +887,16 @@ function TmRegistrationPanel({
           <Fact label="Last verified" value={formatIST(registration.verified_at)} />
         </dl>
 
-        {record.error && <WriteFailure error={record.error} />}
+        {record.error && (
+          <WriteFailure
+            error={record.error}
+            actionLabel={
+              makingLive
+                ? "Record registration as active"
+                : `Record as “${tmStatusCopy(status).label}”`
+            }
+          />
+        )}
         {/* The SERVER's `is_live` after the write, never this form's opinion of it. */}
         {record.data && (
           <p className="flex items-center gap-2 text-sm text-ink-muted">
@@ -1680,7 +1699,7 @@ function OutboxReplayPanel({
           </NoticeBox>
         )}
 
-        {replay.error && <WriteFailure error={replay.error} />}
+        {replay.error && <WriteFailure error={replay.error} actionLabel="Resend stuck messages" />}
 
         {/* The SERVER's count, rendered as the result it is. A toast would put the one
             number this control produces on a timer. */}
