@@ -584,7 +584,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
 
       {add.error != null && (
         <div className="mt-3">
-          <WriteFailure error={add.error} />
+          <WriteFailure error={add.error} actionLabel="Add" />
         </div>
       )}
 
@@ -859,7 +859,7 @@ function ConfirmBlock({
         onChange={setTyped}
       />
 
-      {error != null && <WriteFailure error={error} />}
+      {error != null && <WriteFailure error={error} actionLabel={actionLabel} />}
 
       <div className="flex flex-wrap items-center gap-2">
         <button

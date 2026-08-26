@@ -415,7 +415,9 @@ function ErasurePanel({
           {erase.isPending ? "Erasing…" : "Erase this client's data"}
         </button>
       </form>
-      {erase.error != null && <WriteFailure error={erase.error} />}
+      {erase.error != null && (
+        <WriteFailure error={erase.error} actionLabel="Erase this client’s data" />
+      )}
     </Card>
   );
 }

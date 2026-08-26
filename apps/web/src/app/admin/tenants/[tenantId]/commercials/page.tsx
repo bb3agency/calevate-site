@@ -126,7 +126,7 @@ export default function CommercialsPage({
             confirmation={terms.data.loosening_confirmation}
             write={write}
           />
-          {save.error != null && <WriteFailure error={save.error} />}
+          {save.error != null && <WriteFailure error={save.error} actionLabel="Record new terms" />}
           {save.data && (
             <NoticeBox tone={save.data.changed ? "ok" : "neutral"} icon={<CheckCircle2 className="h-5 w-5" />}>
               <p className="text-xs">

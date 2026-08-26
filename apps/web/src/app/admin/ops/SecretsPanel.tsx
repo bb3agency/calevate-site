@@ -372,7 +372,12 @@ function SecretForm({
         );
       }}
     >
-      {save.error && <WriteFailure error={save.error} />}
+      {save.error && (
+        <WriteFailure
+          error={save.error}
+          actionLabel={secret.installed ? "Rotate" : "Install"}
+        />
+      )}
       {test.error && <ProblemNotice error={test.error} />}
 
       {/* THE TEST RESULT, before the key is stored. `TestOutcome` renders the four honest
@@ -627,7 +632,7 @@ export function KeyManagementPanel({
           </>
         )}
 
-        {rewrap.error && <WriteFailure error={rewrap.error} />}
+        {rewrap.error && <WriteFailure error={rewrap.error} actionLabel="Re-lock every key" />}
         {rewrap.data && (
           <NoticeBox
             tone={rewrap.data.unreadable.length > 0 ? "stop" : "ok"}
