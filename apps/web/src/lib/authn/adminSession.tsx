@@ -30,7 +30,11 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { SessionGate } from "@/components/authn/sessionGate";
 import { Skeleton } from "@/components/ui";
 
-import { ADMIN_CONSOLE_PATH, ADMIN_SIGN_IN_PATH, adminAuthn } from "./adminAuthn";
+import {
+  ADMIN_CONSOLE_PATH,
+  ADMIN_SIGN_IN_PATH,
+  adminAuthn,
+} from "./adminAuthn";
 import { RESTORE_DEADLINE_MS, type AuthnSession } from "./realm";
 import { useRealmSession, type RealmSessionState } from "./useRealmSession";
 
@@ -59,7 +63,12 @@ const ADMIN_GUEST_PATHS = [
 export function redirectToAdminSignIn(): void {
   if (typeof window === "undefined") return;
   const here = window.location.pathname;
-  if (ADMIN_GUEST_PATHS.some((path) => here === path || here.startsWith(`${path}/`))) return;
+  if (
+    ADMIN_GUEST_PATHS.some(
+      (path) => here === path || here.startsWith(`${path}/`),
+    )
+  )
+    return;
   window.location.assign(ADMIN_SIGN_IN_PATH);
 }
 
@@ -85,13 +94,19 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [status]);
 
-  return <AdminSessionContext.Provider value={state}>{children}</AdminSessionContext.Provider>;
+  return (
+    <AdminSessionContext.Provider value={state}>
+      {children}
+    </AdminSessionContext.Provider>
+  );
 }
 
 export function useAdminSession(): RealmSessionState {
   const state = useContext(AdminSessionContext);
   if (!state) {
-    throw new Error("useAdminSession must be used inside <AdminSessionProvider>");
+    throw new Error(
+      "useAdminSession must be used inside <AdminSessionProvider>",
+    );
   }
   return state;
 }
@@ -122,6 +137,7 @@ export function AdminSessionGate({
   return (
     <SessionGate
       status={status}
+      realm="admin"
       realmLabel={ADMIN_REALM_LABEL}
       signInPath={ADMIN_SIGN_IN_PATH}
       onRetry={retry}
@@ -159,7 +175,8 @@ export function AdminGuestOnly({ children }: { children: ReactNode }) {
   // A wait while the restore runs, so the sign-in form does not paint and then vanish
   // under a redirect — and `Skeleton` rather than null, per BUILD-LOG §52, because a blank
   // screen is not a loading state.
-  if (status === "restoring" || alreadyIn) return <Skeleton rows={4} label="Checking…" />;
+  if (status === "restoring" || alreadyIn)
+    return <Skeleton rows={4} label="Checking…" />;
   return <>{children}</>;
 }
 

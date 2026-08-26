@@ -1,9 +1,23 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AdminIdleTimeoutModal, ADMIN_IDLE_LOGOUT_MS, ADMIN_IDLE_WARNING_MS } from "@/components/authn/adminIdleTimeoutModal";
+import {
+  AdminIdleTimeoutModal,
+  ADMIN_IDLE_LOGOUT_MS,
+  ADMIN_IDLE_WARNING_MS,
+} from "@/components/authn/adminIdleTimeoutModal";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
-import { ADMIN_WATCHDOG_MS, AdminSessionGate, AdminSessionProvider } from "@/lib/authn/adminSession";
+import {
+  ADMIN_WATCHDOG_MS,
+  AdminSessionGate,
+  AdminSessionProvider,
+} from "@/lib/authn/adminSession";
 import { RESTORE_DEADLINE_MS } from "@/lib/authn/realm";
 import { useRealmSession } from "@/lib/authn/useRealmSession";
 
@@ -56,14 +70,27 @@ async function renderGuarded(routes: Routes) {
 
 describe("§5.5 — the gate is fail-closed", () => {
   it("renders the console only for a live, fully authenticated session", async () => {
-    const view = await renderGuarded({ "GET /v1/auth/admin/session": ADMIN_SESSION });
+    const view = await renderGuarded({
+      "GET /v1/auth/admin/session": ADMIN_SESSION,
+    });
     expect(await screen.findByText("the operator console")).toBeTruthy();
     expect(view.container.textContent).not.toContain("You are signed out");
   });
 
-  it("shows the signed-out screen and NOT the console on a hard refusal", async () => {
-    const view = await renderGuarded({ "GET /v1/auth/admin/session": unauthorized() });
-    await screen.findByText("You are signed out");
+  it("sends the operator to the door and NEVER paints the console on a hard refusal", async () => {
+    // THE PROPERTY IS UNCHANGED AND IS THE WHOLE POINT OF THIS FILE: a refused session
+    // must not render a single pixel of the guarded surface. What changed is the screen
+    // it renders INSTEAD — a terminal "You are signed out" card became a redirect to the
+    // sign-in page (`components/authn/signedOutToast` says why), so the assertion moves
+    // to the copy that stands in during the navigation.
+    //
+    // The negative assertion below is the one that must never be relaxed. If a future
+    // change made the redirect asynchronous enough to paint the children first, this is
+    // what would catch it.
+    const view = await renderGuarded({
+      "GET /v1/auth/admin/session": unauthorized(),
+    });
+    await screen.findByText("Taking you to sign in…");
     expect(view.container.textContent).not.toContain("the operator console");
   });
 
@@ -84,8 +111,12 @@ describe("§5.5 — the gate is fail-closed", () => {
   });
 
   it("waits rather than flashing the console while restoring", async () => {
-    const view = await renderGuarded({ "GET /v1/auth/admin/session": stillLoading() });
-    expect(view.container.textContent).toContain("Checking your operator console session");
+    const view = await renderGuarded({
+      "GET /v1/auth/admin/session": stillLoading(),
+    });
+    expect(view.container.textContent).toContain(
+      "Checking your operator console session",
+    );
     expect(view.container.textContent).not.toContain("the operator console");
   });
 });
@@ -116,7 +147,11 @@ describe("§5.4 — the generation counter", () => {
     );
 
     const view = render(<Probe />);
-    await waitFor(() => expect(view.container.querySelector("output")?.textContent).toBe("restoring"));
+    await waitFor(() =>
+      expect(view.container.querySelector("output")?.textContent).toBe(
+        "restoring",
+      ),
+    );
 
     // A fresh sign-in lands while the restore is still in flight. `signIn` and the second
     // factor both call `reset()`, which is what bumps the generation.
@@ -129,10 +164,16 @@ describe("§5.4 — the generation counter", () => {
     // ...and only now does the old restore answer, with the worst possible answer.
     await act(async () => {
       settle(
-        new Response(JSON.stringify({ type: "urn:calevate:auth/unauthorized", kind: "auth" }), {
-          status: 401,
-          headers: { "content-type": "application/problem+json" },
-        }),
+        new Response(
+          JSON.stringify({
+            type: "urn:calevate:auth/unauthorized",
+            kind: "auth",
+          }),
+          {
+            status: 401,
+            headers: { "content-type": "application/problem+json" },
+          },
+        ),
       );
       await Promise.resolve();
     });
@@ -199,7 +240,9 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
 
   it("extends when the refreshed session is still a complete admin session", async () => {
     vi.useFakeTimers();
-    const calls = stubApi({ "POST /v1/auth/admin/session/refresh": ADMIN_SESSION });
+    const calls = stubApi({
+      "POST /v1/auth/admin/session/refresh": ADMIN_SESSION,
+    });
     const view = render(<AdminIdleTimeoutModal enabled />);
 
     await warn();
@@ -220,7 +263,10 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
   it("signs out when the refreshed session is no longer a complete admin session", async () => {
     vi.useFakeTimers();
     const calls = stubApi({
-      "POST /v1/auth/admin/session/refresh": { ...ADMIN_SESSION, mfa_complete: false },
+      "POST /v1/auth/admin/session/refresh": {
+        ...ADMIN_SESSION,
+        mfa_complete: false,
+      },
       "POST /v1/auth/admin/logout": { revoked: 1 },
     });
     render(<AdminIdleTimeoutModal enabled />);
@@ -263,7 +309,10 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
     });
     expect(view.container.textContent).toContain("could not extend");
     expect(calls.some((c) => c.path.endsWith("/logout"))).toBe(false);
-    expect(view.container.textContent, "the countdown must keep running").toContain("Still there?");
+    expect(
+      view.container.textContent,
+      "the countdown must keep running",
+    ).toContain("Still there?");
   });
 
   /**
