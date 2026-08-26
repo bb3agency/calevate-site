@@ -49,6 +49,7 @@ const CREATED: CreateOrgOut = {
   status: "active",
   agent_id: "0192f0aa-7777-7000-8000-0000000000a1",
   extraction_schema_id: "0192f0aa-7777-7000-8000-0000000000b1",
+  vertical_template: "clinic",
 };
 
 const INTAKE = `${TENANTS}/${CREATED.id}/agents/${CREATED.agent_id}/intake`;

@@ -289,6 +289,10 @@ async def create_organization(
         "agent_id": agent_id,
         "extraction_schema_id": schema_id,
         "status": "onboarding",
+        # Echoed so the wizard's intake step can pick this trade's examples from the
+        # SERVER's answer rather than from the radio button it happens to still hold —
+        # the same place a resumed wizard reads it from.
+        "vertical_template": vertical_template,
         # NOT `plan_tier`: `admin/routes.py` builds an `extra="forbid"` response model
         # straight from this dict, so a new key here is a 500 on the wizard. Signup
         # adds the tier to its own return value, where a caller asked for it.

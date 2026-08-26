@@ -3891,6 +3891,10 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "vertical_template": {
+            "title": "Vertical Template",
+            "type": "string"
           }
         },
         "required": [
@@ -3898,7 +3902,8 @@
           "slug",
           "agent_id",
           "extraction_schema_id",
-          "status"
+          "status",
+          "vertical_template"
         ],
         "title": "CreateOrgOut",
         "type": "object"
@@ -16589,6 +16594,10 @@
             "format": "uuid",
             "title": "Tenant Id",
             "type": "string"
+          },
+          "vertical_template": {
+            "title": "Vertical Template",
+            "type": "string"
           }
         },
         "required": [
@@ -16598,7 +16607,8 @@
           "agent_id",
           "created_at",
           "draft_saved_at",
-          "blockers"
+          "blockers",
+          "vertical_template"
         ],
         "title": "UnfinishedOnboardingOut",
         "type": "object"

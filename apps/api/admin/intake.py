@@ -728,6 +728,15 @@ class UnfinishedOnboarding:
     # `submission_blockers`' own codes, computed from what IS stored. This is the whole
     # point of the list: "unfinished" is a claim, and the codes are the evidence.
     blockers: tuple[str, ...]
+    # WHICH TRADE THIS IS, so a RESUMED wizard shows the right examples.
+    #
+    # The console's intake form fills forty placeholders from the vertical
+    # (`lib/verticalExamples.ts`), and until this field existed it could only do that on
+    # the creation path, where the operator had just picked one in the same component. A
+    # resume had nothing to read and fell back — which is how a coaching centre came to be
+    # described to an operator in a dental clinic's vocabulary. The column has always been
+    # on `organizations`; it simply was not carried out.
+    vertical_template: str
 
 
 # Candidates, cheaply. The predicate is `submitted_at IS NULL` on the sheet — the ONE
@@ -740,7 +749,7 @@ class UnfinishedOnboarding:
 # answers include the client's escalation phone numbers; they are read one tenant at a
 # time under that tenant's own RLS below, the way `admin/holds.py` argues for.
 _UNFINISHED_DIRECTORY = (
-    "SELECT id, name, slug, created_at, intake->>'saved_at' "
+    "SELECT id, name, slug, created_at, intake->>'saved_at', vertical_template "
     "FROM organizations "
     "WHERE deleted_at IS NULL AND status = 'onboarding' "
     "  AND intake->>'submitted_at' IS NULL "
@@ -828,6 +837,7 @@ async def unfinished_onboardings(directory: AsyncSession) -> list[UnfinishedOnbo
                 created_at=org[3],
                 draft_saved_at=_parse_stamp(org[4]),
                 blockers=tuple(submission_blockers(facts)),
+                vertical_template=str(org[5]),
             )
         )
     unfinished.sort(key=lambda row: row.draft_saved_at or row.created_at, reverse=True)

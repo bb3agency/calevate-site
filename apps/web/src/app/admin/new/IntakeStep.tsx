@@ -52,6 +52,7 @@ import {
 import { WIZARD_LANGUAGES } from "./languages";
 
 import type { UseQueryResult } from "@tanstack/react-query";
+import { examplesFor } from "@/lib/verticalExamples";
 
 /**
  * The wizard's intake step — FLOWS §1 step 3, "the real work".
@@ -110,6 +111,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 export function IntakeStep({
   tenantId,
   agentId,
+  vertical,
   state,
   draft,
   onDraftChange,
@@ -117,12 +119,27 @@ export function IntakeStep({
 }: {
   tenantId: string;
   agentId: string;
+  /**
+   * The trade, from the server on both the creation and the resume path.
+   *
+   * EVERY EXAMPLE ON THIS FORM USED TO DESCRIBE A DENTAL CLINIC — "Consultation", "₹500",
+   * "Dr Lakshmi Prasad", "Dentist", "Do you take walk-ins?", "never promise a specific
+   * doctor without checking" — while four of the five verticals we ship are not clinics.
+   * Nothing was pre-filled (these are `placeholder`s, so nothing could be submitted
+   * unchanged), but a placeholder is the fastest instruction on a form, and forty fields
+   * of clinic vocabulary teach an operator to describe a property office as if it had
+   * patients. `lib/verticalExamples.ts` holds one row per trade.
+   */
+  vertical: string;
   state: UseQueryResult<IntakeState>;
   /** `null` until the prefill lands — the form is never rendered from a guess. */
   draft: IntakeDraft | null;
   onDraftChange: (draft: IntakeDraft) => void;
   onContinue: () => void;
 }) {
+  // ONE lookup, read by every field below. Threading twenty strings through this
+  // component would be the same table with more places to get it wrong.
+  const eg = examplesFor(vertical);
   const record = useRecordIntake(tenantId, agentId);
   const saveDraft = useSaveIntakeDraft(tenantId, agentId);
   // `agents:write` — the permission the ROUTE declares (`admin/routes.py`), not a guess
@@ -375,7 +392,7 @@ export function IntakeStep({
                     value={row.label}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ label: e.target.value })}
-                    placeholder="Main branch"
+                    placeholder={eg.branchLabel}
                     className={FIELD}
                   />
                 )}
@@ -402,7 +419,12 @@ export function IntakeStep({
 
         <RowSection
           title="Services and prices"
-          description="The price list is both the knowledge-base seed and the most-asked question, so at least one is required. Leave the price blank for “ask at reception” — that is a real answer."
+          description={
+            "The price list is both the knowledge-base seed and the most-asked question, " +
+            "so at least one is required. Leave the price blank for “" +
+            eg.askOnArrival +
+            "” — that is a real answer."
+          }
           rows={draft.services}
           blank={blankService}
           addLabel="Add a service"
@@ -422,7 +444,7 @@ export function IntakeStep({
                     value={row.name}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ name: e.target.value })}
-                    placeholder="Consultation"
+                    placeholder={eg.serviceName}
                     className={FIELD}
                   />
                 )}
@@ -440,7 +462,7 @@ export function IntakeStep({
                     value={row.price_inr}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ price_inr: e.target.value })}
-                    placeholder="500"
+                    placeholder={eg.servicePrice}
                     className={`${FIELD} font-mono`}
                   />
                 )}
@@ -456,7 +478,7 @@ export function IntakeStep({
                     value={row.notes}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ notes: e.target.value })}
-                    placeholder="Mornings only"
+                    placeholder={eg.serviceNote}
                     className={FIELD}
                   />
                 )}
@@ -488,7 +510,7 @@ export function IntakeStep({
                     value={row.question}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ question: e.target.value })}
-                    placeholder="Do you take walk-ins?"
+                    placeholder={eg.faqQuestion}
                     className={FIELD}
                   />
                 )}
@@ -514,7 +536,12 @@ export function IntakeStep({
 
         <RowSection
           title="Staff names and pronunciations"
-          description="Optional. Spell each name the way it should be SAID — proper nouns work best spelled phonetically, because a mispronounced doctor's name is the first thing a caller notices."
+          description={
+            "Optional. Spell each name the way it should be SAID — proper nouns work " +
+            "best spelled phonetically, because " +
+            eg.staffWhyItMatters +
+            "."
+          }
           rows={draft.staff}
           blank={blankStaff}
           addLabel="Add a person"
@@ -535,7 +562,7 @@ export function IntakeStep({
                     value={row.name}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ name: e.target.value })}
-                    placeholder="Dr Lakshmi Prasad"
+                    placeholder={eg.staffName}
                     className={FIELD}
                   />
                 )}
@@ -551,7 +578,7 @@ export function IntakeStep({
                     value={row.pronunciation}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ pronunciation: e.target.value })}
-                    placeholder="LUCK-shmee pra-SAAD"
+                    placeholder={eg.staffSpoken}
                     className={FIELD}
                   />
                 )}
@@ -567,7 +594,7 @@ export function IntakeStep({
                     value={row.role}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ role: e.target.value })}
-                    placeholder="Dentist"
+                    placeholder={eg.staffRole}
                     className={FIELD}
                   />
                 )}
@@ -596,7 +623,7 @@ export function IntakeStep({
                   value={draft.booking_rules}
                   disabled={!write.allowed}
                   onChange={(e) => update({ ...draft, booking_rules: e.target.value })}
-                  placeholder="Slots every 20 minutes, up to two weeks ahead. Never promise a specific doctor without checking."
+                  placeholder={eg.bookingRules}
                   className={FIELD}
                 />
               )}
@@ -626,7 +653,7 @@ export function IntakeStep({
                     value={row.name}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ name: e.target.value })}
-                    placeholder="Front desk"
+                    placeholder={eg.contactName}
                     className={FIELD}
                   />
                 )}

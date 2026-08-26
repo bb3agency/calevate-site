@@ -52,6 +52,7 @@ import {
 
 import { IntakeStep } from "./IntakeStep";
 import { WIZARD_LANGUAGES } from "./languages";
+import { examplesFor } from "@/lib/verticalExamples";
 
 /**
  * New-client wizard, steps 1, 3 and 8 (FLOWS §1).
@@ -205,6 +206,15 @@ interface WizardAccount {
    *  `CreateOrgOut` carries no name and what was typed is offered separately as what
    *  was submitted — a distinction this screen already draws and keeps. */
   name: string | null;
+  /**
+   * The trade, taken from the SERVER on both paths.
+   *
+   * The intake step fills forty placeholders from it (`lib/verticalExamples.ts`), and
+   * reading it off the response rather than off the radio button in this component is
+   * what makes a RESUMED wizard show the same examples as a fresh one. Before this, the
+   * resume path had nothing to read.
+   */
+  vertical: string;
 }
 
 const createdAccount = (created: CreateOrgOut): WizardAccount => ({
@@ -214,6 +224,7 @@ const createdAccount = (created: CreateOrgOut): WizardAccount => ({
   agent_id: created.agent_id,
   origin: "created",
   name: null,
+  vertical: created.vertical_template,
 });
 
 const resumedAccount = (row: UnfinishedOnboarding): WizardAccount => ({
@@ -225,6 +236,7 @@ const resumedAccount = (row: UnfinishedOnboarding): WizardAccount => ({
   agent_id: row.agent_id,
   origin: "resumed",
   name: row.name,
+  vertical: row.vertical_template,
 });
 
 export default function NewClientPage() {
@@ -309,7 +321,7 @@ export default function NewClientPage() {
                 minLength={2}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Sunrise Clinic"
+                placeholder={examplesFor(vertical).orgName}
                 className={FIELD}
               />
             </label>
@@ -321,7 +333,7 @@ export default function NewClientPage() {
                 minLength={mustChooseSlug ? 3 : undefined}
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
-                placeholder={previewSlug(name) || "sunrise-clinic"}
+                placeholder={previewSlug(name) || examplesFor(vertical).orgSlug}
                 className={`${FIELD} font-mono`}
               />
               <span className={FIELD_HINT}>
@@ -635,6 +647,7 @@ function AfterCreate({
         <IntakeStep
           tenantId={created.id}
           agentId={created.agent_id}
+          vertical={created.vertical}
           state={intake}
           draft={draft}
           onDraftChange={setDraft}

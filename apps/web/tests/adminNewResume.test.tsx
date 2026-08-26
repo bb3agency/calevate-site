@@ -40,6 +40,7 @@ const CREATED: CreateOrgOut = {
   status: "active",
   agent_id: "0192f0aa-7777-7000-8000-0000000000a1",
   extraction_schema_id: "0192f0aa-7777-7000-8000-0000000000b1",
+  vertical_template: "clinic",
 };
 
 const INTAKE = `${TENANTS}/${CREATED.id}/agents/${CREATED.agent_id}/intake`;
@@ -54,6 +55,10 @@ const ABANDONED: UnfinishedOnboarding = {
   slug: "lakeview-dental",
   agent_id: "0192f0bb-8888-7000-8000-0000000000a2",
   created_at: "2026-08-01T04:30:00Z",
+  // DELIBERATELY NOT A CLINIC. The vertical is carried on this row precisely so a
+  // resumed wizard shows the right trade's examples, and a fixture that said "clinic"
+  // would pass whether or not the field was ever read.
+  vertical_template: "real_estate",
   draft_saved_at: "2026-08-05T09:15:00Z",
   blockers: ["business_hours_missing", "escalation_contact_missing"],
 };

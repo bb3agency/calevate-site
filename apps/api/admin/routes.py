@@ -198,6 +198,11 @@ class CreateOrgOut(BaseModel):
     agent_id: UUID
     extraction_schema_id: UUID
     status: str
+    #: Echoed back rather than assumed by the caller. The wizard needs it to choose which
+    #: examples its intake form shows, and reading it from the RESPONSE means the creation
+    #: path and the resume path take the trade from the same place — the server — instead
+    #: of one of them remembering a radio button.
+    vertical_template: str
 
 
 class InviteIn(BaseModel):
@@ -761,6 +766,9 @@ class UnfinishedOnboardingOut(BaseModel):
     # `submission_blockers`' codes for what IS stored. The evidence for the word
     # "unfinished", in the same vocabulary the step itself prints.
     blockers: list[str]
+    # The trade, so a RESUMED wizard shows this business's examples rather than a
+    # clinic's. See `admin/intake.UnfinishedOnboarding` for what was wrong without it.
+    vertical_template: str
 
 
 @router.get(
@@ -812,6 +820,7 @@ async def list_unfinished_onboardings(
             created_at=row.created_at,
             draft_saved_at=row.draft_saved_at,
             blockers=list(row.blockers),
+            vertical_template=row.vertical_template,
         )
         for row in await intake.unfinished_onboardings(session)
     ]

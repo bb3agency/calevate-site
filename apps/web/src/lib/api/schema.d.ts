@@ -6514,6 +6514,8 @@ export interface components {
             slug: string;
             /** Status */
             status: string;
+            /** Vertical Template */
+            vertical_template: string;
         };
         /** CreateSheetEndpointIn */
         CreateSheetEndpointIn: {
@@ -11921,6 +11923,8 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+            /** Vertical Template */
+            vertical_template: string;
         };
         /**
          * UnitSpendOut

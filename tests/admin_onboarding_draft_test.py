@@ -269,6 +269,15 @@ async def test_an_unfinished_onboarding_is_findable_and_says_where_to_resume() -
         "created_at",
         "draft_saved_at",
         "blockers",
+        # The TRADE, carried so a resumed wizard shows this business's examples rather
+        # than a clinic's. Every placeholder on the intake form is chosen from it
+        # (`apps/web/src/lib/verticalExamples.ts`), and before this field existed the
+        # resume path had nothing to read and fell back — which is how a coaching centre
+        # came to be described to an operator in a dental practice's vocabulary. An
+        # exact-set assertion is the right shape for this row and is why the addition
+        # had to be deliberate: it is a list of accounts, and a field nobody meant to
+        # publish is a field nobody reviewed.
+        "vertical_template",
     }
 
 
