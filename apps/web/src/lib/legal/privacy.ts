@@ -83,16 +83,27 @@ export const PRIVACY_POLICY: LegalDocument = {
           text:
             "There is no company behind Calevate and no parent organisation. A sole " +
             "proprietorship has no legal identity separate from the individual who runs " +
-            "it, so the trade name above is a name that one person contracts under, and " +
+            "it, so the trade name above is a name that a sole proprietor contracts " +
+            "under, and " +
             "every duty in this notice is owed to you by that person. Two things follow " +
             "that are yours rather than ours: the liability behind those duties is " +
             "personal and unlimited, with none of the shelter a limited company would " +
             "give — and there is nobody above the contacts in section 14 to escalate to " +
             "internally, which is why the grievance page sends you outside Calevate " +
-            "instead. Being one person is not an exemption from any of it: the rules that " +
-            "govern personal data here today bind a \"body corporate\", and section 43A " +
-            "of the Information Technology Act 2000 defines that term to include a sole " +
-            "proprietorship.",
+            "instead. Being a sole proprietorship is not an exemption from anything on " +
+            "this page. The privacy rules operative in India today — the 2011 " +
+            "sensitive-personal-data rules — are made under section 43A of the " +
+            "Information Technology Act 2000 and bind a \"body corporate\", and that " +
+            "section's own Explanation defines the term to include a sole " +
+            "proprietorship. What section 43A itself does is narrower than it is often " +
+            "made to sound, and we would rather say which: it makes a body corporate " +
+            "liable to pay compensation where it was negligent in implementing and " +
+            "maintaining reasonable security practices for SENSITIVE personal data and " +
+            "that negligence caused someone a wrongful loss or someone else a wrongful " +
+            "gain. It is not the source of the duties in this notice — those come from " +
+            "the 2011 rules, and from the Digital Personal Data Protection Act 2023 " +
+            "when its substantive parts commence (section 12.1) — and nothing here " +
+            "relies on it for authority.",
         },
         {
           kind: "para",
@@ -260,7 +271,15 @@ export const PRIVACY_POLICY: LegalDocument = {
                     "establishment or trade licence), its reference number, the " +
                     "signatory's name, and a reference to where the verification pack is " +
                     "filed. The schema deliberately refuses a twelve-digit bare number, " +
-                    "so an Aadhaar number cannot be stored in that field even by mistake.",
+                    "so an Aadhaar number cannot be stored in that field even by " +
+                    "mistake. That is on purpose and section 29 of the Aadhaar " +
+                    "(Targeted Delivery of Financial and Other Subsidies, Benefits and " +
+                    "Services) Act 2016 is why: it restricts what may be done with " +
+                    "Aadhaar information once you hold it — including a bar on " +
+                    "publishing, displaying or posting an Aadhaar number publicly, and " +
+                    "limits on using or passing on identity information collected for " +
+                    "authentication. Not holding one is the simplest way to stay outside " +
+                    "all of that, so we ask for a public-registry document instead.",
                 },
                 {
                   term: "Regulatory registrations",
@@ -430,9 +449,17 @@ export const PRIVACY_POLICY: LegalDocument = {
               kind: "para",
               text:
                 "The audio is stored in our own object storage, not the voice platform's, " +
-                "and that copy is the system of record. Access is by short-lived signed " +
-                "links only — five minutes — the storage bucket blocks public access at " +
-                "the account level, and objects are encrypted at rest.",
+                "and that copy is the system of record. The storage bucket blocks public " +
+                "access at the account level and objects are encrypted at rest, so the " +
+                "only way to reach a recording is a signed link that expires on its own. " +
+                "How long one lasts is worked out from the recording, not fixed: twice " +
+                "the length of the call, so that somebody who pauses or rewinds is not " +
+                "cut off part-way through, with a floor of five minutes for a short call " +
+                "and a ceiling of two hours and five minutes however long the call was. " +
+                "A twenty-minute call therefore has a link good for forty minutes. Five " +
+                "minutes is what every other kind of signed link on this service gets, " +
+                "and that is deliberate: the link is the key, so a longer one is issued " +
+                "only where the thing it opens is itself long.",
             },
           ],
         },
@@ -475,16 +502,6 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "changes. Two audit entries are written — one when the authority is " +
                 "issued, one when data is actually read — so the record distinguishes " +
                 '"permission was granted" from "data was looked at".',
-            },
-            {
-              kind: "para",
-              text:
-                "\"Our operators\" is one person today: the proprietor named in section " +
-                "1. The controls above are built as " +
-                "though there were many, and that is deliberate rather than " +
-                "over-engineering: the audit record of who read what has to be worth " +
-                "reading when the answer is always the same name, and the day a second " +
-                "person gets an account is not the day to start building it.",
             },
           ],
         },
@@ -647,11 +664,33 @@ export const PRIVACY_POLICY: LegalDocument = {
             "2011 sensitive-personal-data rules govern, and they do carry a transfer " +
             "test: comparable protection at the destination, plus either consent or " +
             "necessity for a contract. The Data Processing Addendum sets out how we meet " +
-            "it, and the one question under those rules that nobody has answered — " +
-            "whether a call recording counts as biometric information, because the 2011 " +
-            "definition of that term includes voice patterns — is stated there rather " +
-            "than resolved by us. What follows is where the data actually goes, which is " +
-            "the part you should not have to discover for yourself.",
+            "it. What follows is where the data actually goes, which is the part you " +
+            "should not have to discover for yourself.",
+        },
+        {
+          kind: "callout",
+          tone: "warning",
+          title: "Is the recording of your call biometric information? Nobody has decided, and it matters",
+          text:
+            "This is the largest unanswered question about this product and we would " +
+            "rather you met it here than found it in a clause. The 2011 rules define " +
+            "biometric information to include VOICE PATTERNS, and they treat sensitive " +
+            "personal data more strictly than ordinary personal data — including on " +
+            "transfer outside India. Whether the recording of an ordinary business " +
+            "telephone call, never used to identify anyone by their voice, is biometric " +
+            "information for that purpose has never been decided by an Indian court or " +
+            "by a regulator, and the definition reads as though it was written for " +
+            "authentication rather than for a call recording. If the answer is yes, the " +
+            "stricter test applies to every leg described below, including the live " +
+            "conversation as it happens — the platform carrying the audio is outside " +
+            "India, and the transcript reaches a language model outside India turn by " +
+            "turn while you are still speaking. We will not put our own answer to an " +
+            "undecided question in front of you. We do the thing that is right under " +
+            "either answer: call audio is handled as though it may be sensitive personal " +
+            "data, every place it goes is named on the sub-processor page, and the " +
+            "question is on the list for the advocate whose review these documents are " +
+            "waiting on. Clause 9 of the Data Processing Addendum states it in the " +
+            "operative contract text, and it is the same question, not a second one.",
         },
         {
           kind: "definitions",
@@ -904,8 +943,12 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "master key that exists only in the process environment and never in the " +
                   "database.",
                 "TLS everywhere with HSTS; object storage buckets block public access at " +
-                  "the account level; recordings are reached only through signed links " +
-                  "that expire in five minutes.",
+                  "the account level; every signed link we issue expires, and all but " +
+                  "one kind expires in five minutes. The exception is a link to a " +
+                  "recording, which is sized to that recording — twice the call's " +
+                  "duration, never less than five minutes and never more than two hours " +
+                  "and five minutes — so that it outlives the audio it opens. Section " +
+                  "4.1 says why.",
                 "Incoming voice-platform webhooks are authenticated by a strict source-IP " +
                   "allowlist plus execution-id de-duplication, and are treated as hints: " +
                   "the authenticated poll back to the platform is the record of truth. " +
@@ -999,15 +1042,22 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "callout",
               tone: "note",
-              title: "The phased commencement, stated plainly",
+              title: "The phased commencement, and why we give it as a period rather than a date",
               text:
-                "The DPDP Rules 2025 were notified on 14 November 2025 with a phased " +
-                "commencement: the Data Protection Board framework from November 2025, " +
-                "the Consent Manager provisions from November 2026, and the substantive " +
+                "The rights above come from an Act that is passed but mostly not yet " +
+                "operative. The DPDP Rules 2025 phase it in, and rule 1 of those Rules " +
+                "does it by COUNTING FROM THEIR OWN PUBLICATION rather than by naming " +
+                "days: the Data Protection Board framework on publication, the Consent " +
+                "Manager provisions twelve months after it, and the substantive " +
                 "obligations — notice, consent, data principal rights and grievance " +
-                "redressal — from 13 May 2027. Until then, the Information Technology Act " +
-                "2000 and the 2011 sensitive-personal-data rules remain the operative law. " +
-                "We are not waiting for 2027: the rights below are already implemented and " +
+                "redressal — eighteen months after it. Eighteen months lands in the " +
+                "middle of May 2027, and we are not going to print a day we have not " +
+                "checked: we have not read the gazette copy ourselves, the sources we " +
+                "have read give the publication date as either 13 or 14 November 2025, " +
+                "and the derived date moves with it. Nothing on this page turns on which " +
+                "of the two it is. Until that point the Information Technology Act 2000 " +
+                "and the 2011 sensitive-personal-data rules remain the operative law. We " +
+                "are not waiting for 2027: the rights below are already implemented and " +
                 "already honoured. We describe the timetable so that you can tell what is " +
                 "a legal entitlement today from what is a commitment we have chosen to " +
                 "make early.",
@@ -1054,8 +1104,14 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "An erasure request, which locates you across calls, transcripts, " +
                   "extractions, leads, campaign lists, stored delivery bodies and archived " +
                   "call documents, carries out the erasure, and produces a certificate " +
-                  "recording what was done, when, and with per-record hashes as evidence. " +
-                  "The certificate states its own limits rather than overclaiming.",
+                  "recording what was done and when. Two levels of evidence sit on it, " +
+                  "and it tells you which is which: for each call record and each lead " +
+                  "record cleared, a one-way hash of that record, so an auditor can " +
+                  "check which rows were reached without the certificate carrying your " +
+                  "number; for everything else it touched — transcript turns, extracted " +
+                  "fields, recordings, campaign list rows, delivered payload bodies, " +
+                  "archived call documents and knowledge-base matches — a count. The " +
+                  "certificate states its own limits rather than overclaiming.",
               ],
             },
             {
@@ -1150,8 +1206,11 @@ export const PRIVACY_POLICY: LegalDocument = {
               detail: "{{SECURITY_CONTACT_EMAIL}}.",
             },
             {
-              term: "By post",
-              detail: "{{LEGAL_ENTITY_NAME}}, {{REGISTERED_ADDRESS}}. Telephone {{CONTACT_PHONE}}.",
+              term: "Who you are dealing with",
+              detail:
+                "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, principal place of business " +
+                "{{REGISTERED_ADDRESS}}. Telephone {{CONTACT_PHONE}}. That address " +
+                "identifies the Data Fiduciary; we do not operate a postal channel.",
             },
           ],
         },

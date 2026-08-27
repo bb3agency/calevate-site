@@ -6,10 +6,19 @@ import type { LegalDocument } from "./types";
  * The reason this is a document rather than a paragraph at the bottom of the privacy
  * notice: three separate instruments each require a published contact and each sets its
  * own clock, and they do not agree. Rule 5(9) of the SPDI Rules 2011 says one month and is
- * the operative privacy rule TODAY. Rule 4(6) of the Consumer Protection (E-Commerce)
- * Rules 2020 says acknowledge in 48 hours, redress in one month. Rule 14(3) of the DPDP
- * Rules 2025 says publish your timeline and in no case exceed ninety days, and its
- * substantive commencement is 13 May 2027.
+ * the operative privacy rule TODAY. Rule 4 of the Consumer Protection (E-Commerce)
+ * Rules 2020 says acknowledge in 48 hours, redress in one month — but only of an
+ * "e-commerce entity", and nobody has analysed whether B2B AI-voice SaaS is one, so §2
+ * prints those two limits with an "if" and says why (27 Aug 2026). The sub-rule NUMBER
+ * is deliberately not published either: three secondary readings reachable from this
+ * environment number it 4(4), 4(5) and 4(6), the primary text is egress-blocked here, and
+ * a citation nobody has opened is exactly the class of claim hard rule 11 forbids
+ * restating. Rule 14(3) of the DPDP
+ * Rules 2025 says publish your timeline and in no case exceed ninety days; its
+ * substantive commencement is EIGHTEEN MONTHS after the DPDP Rules were published in the
+ * gazette — mid-May 2027, and the exact day is not printed because this repository's own
+ * sources give the publication date as 13 or 14 November 2025 and nobody has reached the
+ * gazette (docs/LEGAL-SURFACE.md §9, item 9).
  *
  * Publishing the LONGEST of the three would be lawful and would be a worse product. So the
  * page states one commitment — the shortest — and shows the statutory outer limits beside
@@ -117,8 +126,11 @@ export const GRIEVANCE: LegalDocument = {
               "{{GRIEVANCE_OFFICER_NAME}}, {{GRIEVANCE_OFFICER_DESIGNATION}} — " +
                 "{{GRIEVANCE_OFFICER_EMAIL}}",
               "Rule 5(9), Information Technology (Reasonable Security Practices and " +
-                "Procedures and Sensitive Personal Data or Information) Rules 2011; and " +
-                "rule 4(6), Consumer Protection (E-Commerce) Rules 2020.",
+                "Procedures and Sensitive Personal Data or Information) Rules 2011 — " +
+                "which does require this of us. Rule 4 of the Consumer Protection " +
+                "(E-Commerce) Rules 2020 requires the same of an \"e-commerce entity\"; " +
+                "whether that description reaches a business like ours is not settled, " +
+                "and section 2 says so rather than assuming it either way.",
             ],
             [
               "How your personal data is processed, or exercising a right over it.",
@@ -171,13 +183,15 @@ export const GRIEVANCE: LegalDocument = {
               "Acknowledgement",
               "Within 2 business days, with a reference number and the name of the person " +
                 "handling it.",
-              "48 hours (Consumer Protection (E-Commerce) Rules 2020, rule 4(6)).",
+              "48 hours, under rule 4 of the Consumer Protection (E-Commerce) Rules " +
+                "2020, if those Rules reach us — see the note below.",
             ],
             [
               "Substantive reply",
               "Within 15 business days for most complaints.",
-              "One month (SPDI Rules 2011, rule 5(9); Consumer Protection (E-Commerce) " +
-                "Rules 2020, rule 4(6)).",
+              "One month (SPDI Rules 2011, rule 5(9) — this one does bind us), and the " +
+                "same month under rule 4 of the Consumer Protection (E-Commerce) Rules " +
+                "2020 if those Rules reach us.",
             ],
             [
               "A complaint needing investigation across call records, or one involving a " +
@@ -197,14 +211,38 @@ export const GRIEVANCE: LegalDocument = {
           tone: "note",
           title: "Why two sets of dates",
           text:
-            "The Digital Personal Data Protection Rules 2025 were notified on 14 November " +
-            "2025 with a phased commencement — the Data Protection Board framework from " +
-            "November 2025, Consent Manager provisions from November 2026, and the " +
-            "substantive obligations including grievance redressal from 13 May 2027. Until " +
-            "then the 2011 rules under the Information Technology Act 2000 are the " +
-            "operative privacy law and their one-month clock is the binding one. We are " +
-            "not waiting for 2027 to honour any of it, and the commitments in the middle " +
-            "column apply now.",
+            "The Digital Personal Data Protection Rules 2025 commence in phases, and " +
+            "rule 1 of those Rules sets the phases by counting from the day they were " +
+            "published in the Official Gazette rather than by naming dates — the Data " +
+            "Protection Board framework on publication, the Consent Manager provisions " +
+            "twelve months later, and the substantive obligations including grievance " +
+            "redressal eighteen months later. Eighteen months from a November 2025 " +
+            "publication lands in the middle of May 2027. We do not print the exact day, " +
+            "because we have not read the gazette copy ourselves and the sources we have " +
+            "read disagree by one day about when it was published; the derived date " +
+            "moves with it and nothing on this page turns on which. Until then the 2011 " +
+            "rules under the Information Technology Act 2000 are the operative privacy " +
+            "law and their one-month clock is the binding one. We are not waiting for " +
+            "2027 to honour any of it, and the commitments in the middle column apply " +
+            "now.",
+        },
+        {
+          kind: "callout",
+          tone: "warning",
+          title: "One of those outer limits may not actually apply to us, and we have not settled it",
+          text:
+            "The E-Commerce Rules limits above are printed with an \"if\", and the " +
+            "honest reason is that nobody has done the analysis. Those Rules bind an " +
+            "\"e-commerce entity\" and were written for platforms through which " +
+            "consumers buy goods and services. Calevate sells a subscription to " +
+            "businesses over the internet; whether that makes it an e-commerce entity " +
+            "for the purpose of those Rules is a real question and not one we are going " +
+            "to answer in our own favour, in either direction, in a document about how " +
+            "we handle your complaint. It is on the list for the advocate whose review " +
+            "these documents are waiting on. Nothing about the middle column depends on " +
+            "the answer: the commitments there are ours, they are shorter than every " +
+            "limit in the right-hand column, and rule 5(9) of the 2011 rules — which " +
+            "does bind us — already sets a one-month clock on its own.",
         },
         {
           kind: "callout",
@@ -312,20 +350,29 @@ export const GRIEVANCE: LegalDocument = {
                 "Complain to the Data Protection Board of India. The Digital Personal " +
                 "Data Protection Act 2023 gives a data principal the right to complain to " +
                 "the Board about a Data Fiduciary or a Consent Manager — and we would " +
-                "rather tell you the timing than let you find it out at the Board's door: " +
-                "that right sits in the part of the Act commencing on 13 May 2027, though " +
-                "the Board itself has existed since November 2025. Until that date a " +
-                "complaint about personal data is made under the Information Technology " +
-                "Act 2000 and the 2011 rules made under it, which is exactly why the " +
-                "Grievance Officer named above is the first step and why we publish their " +
-                "name rather than a role title. One thing that changes nothing, stated " +
-                "because it looks as though it should: those duties fall on a \"body " +
-                "corporate\", and section 43A of that Act defines the term in its own " +
-                "Explanation as \"any company and includes a firm, sole proprietorship or " +
-                "other association of individuals engaged in commercial or professional " +
-                "activities\". Calevate being a sole proprietorship rather than a " +
-                "company is therefore not an exemption from anything on this page, and " +
-                "we would rather you read that from us than have to look it up.",
+                "rather tell you the timing than let you find it out at the Board's " +
+                "door: that right sits in the part of the Act that commences eighteen " +
+                "months after the DPDP Rules 2025 were published, which is the middle of " +
+                "May 2027 (section 2 explains why we give it as a period), though the " +
+                "Board itself has existed since November 2025. Until then a complaint " +
+                "about personal data is made under the Information Technology Act 2000 " +
+                "and the 2011 rules made under it, which is exactly why the Grievance " +
+                "Officer named above is the first step and why we publish their name " +
+                "rather than a role title. One thing that changes nothing, stated " +
+                "because it looks as though it should: the 2011 rules bind a \"body " +
+                "corporate\", and section 43A of that Act — the section they are made " +
+                "under — defines the term in its own Explanation as \"any company and " +
+                "includes a firm, sole proprietorship or other association of " +
+                "individuals engaged in commercial or professional activities\". " +
+                "Calevate being a sole proprietorship rather than a company is therefore " +
+                "not an exemption from anything on this page, and we would rather you " +
+                "read that from us than have to look it up. Section 43A itself is not " +
+                "where this page's commitments come from and we are not going to imply " +
+                "that it is: all it does on its own is make a body corporate liable to " +
+                "compensate someone where it was negligent in maintaining reasonable " +
+                "security practices for SENSITIVE personal data and that negligence " +
+                "caused a wrongful loss or a wrongful gain. It is a remedy for one kind " +
+                "of failure, not the source of a duty to answer you.",
             },
             {
               term: "Unsolicited or unlawful commercial calls",

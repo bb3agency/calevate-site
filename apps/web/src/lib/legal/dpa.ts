@@ -247,9 +247,15 @@ export const DPA: LegalDocument = {
             "An erasure request that locates the person across calls, transcript turns, " +
               "extractions, leads, campaign contact lists, the bodies delivered to your own " +
               "systems and the archived raw call documents, carries out the erasure, and " +
-              "produces a certificate recording what was done, where, when, and with " +
-              "per-record hashes as evidence. The certificate is yours to hand to the " +
-              "person who asked.",
+              "produces a certificate recording what was done, where and when. The " +
+              "evidence on it is at two levels of detail and the certificate says which " +
+              "is which: a per-record hash for every CALL RECORD and every LEAD RECORD " +
+              "it cleared, so a later audit can check exactly which rows were reached " +
+              "without the certificate itself carrying anyone's number; and a COUNT for " +
+              "everything else it touched — transcript turns, extracted fields, " +
+              "recordings, uploaded campaign contact rows, the payload bodies delivered " +
+              "to your own systems, the archived raw call documents, and knowledge-base " +
+              "matches. The certificate is yours to hand to the person who asked.",
             "Correction: you can edit a lead record directly.",
           ],
         },
@@ -353,9 +359,16 @@ export const DPA: LegalDocument = {
             "below change on a known date. Section 16 of the DPDP Act permits transfer of " +
             "personal data outside India except to a country the Central Government " +
             "notifies as restricted, and no such notification has been made. It is a " +
-            "permission by absence rather than by grant, and it is not yet in force: the " +
-            "commencement notification brings sections 3 to 17 of the Act, which include " +
-            "section 16, into effect on 13 May 2027. So section 16 neither permits nor " +
+            "permission by absence rather than by grant, and it is not yet in force. " +
+            "The date is DERIVED and we would rather show the derivation than state a " +
+            "day as though the Act contained one: rule 1 of the DPDP Rules 2025 " +
+            "commences the substantive provisions — sections 3 to 17 of the Act, which " +
+            "include section 16 — eighteen months after those Rules were published in " +
+            "the Official Gazette. Published on 13 November 2025, that is 13 May 2027; " +
+            "published on 14 November, it is a day later. We have not read the gazette " +
+            "copy ourselves and our sources differ by that one day, so read it as the " +
+            "middle of May 2027, and note that nothing in this clause turns on which. " +
+            "So section 16 neither permits nor " +
             "restricts these transfers today — it forecloses a restriction that has not " +
             "been made, and we would rather write that than let a shorter sentence read " +
             "as a statutory authorisation we do not yet have.",
@@ -413,10 +426,13 @@ export const DPA: LegalDocument = {
             "2026 the transcript of it reaches a model in the United States turn by turn " +
             "as it is spoken. If the answer is yes, the stricter transfer test applies to " +
             "the conversation itself, which is why the question is worth more to you than " +
-            "its age suggests. It stops mattering on " +
-            "13 May 2027, when the DPDP Act replaces the sensitive-data tier with a single " +
-            "category — and it is live until then, which is why it is in the contract and " +
-            "not in a note.",
+            "its age suggests. It stops mattering when the DPDP Act replaces the " +
+            "sensitive-data tier with a single category — the same middle-of-May-2027 " +
+            "commencement derived in the first paragraph of this clause — and it is live " +
+            "until then, which is the whole window in which your first calls happen. That " +
+            "is why it is in the contract and not in a note, and why the privacy notice " +
+            "(section 8) and the acceptable use policy (section 2.6) both send you back " +
+            "to this callout rather than each writing their own version of it.",
         },
         {
           kind: "para",
@@ -692,9 +708,18 @@ export const DPA: LegalDocument = {
                   "The redaction covers Aadhaar (Verhoeff-checked), PAN, card numbers " +
                   "(Luhn-checked) and one-time-password patterns, plus a model-assisted " +
                   "pass for numbers spoken digit by digit.",
-                "Recordings are held in our own object storage, encrypted at rest, reached " +
-                  "only by signed links valid for five minutes, in buckets where public " +
-                  "access is blocked at the account level.",
+                "Recordings are held in our own object storage, encrypted at rest, in " +
+                  "buckets where public access is blocked at the account level, and " +
+                  "reached only through a signed link that expires. A recording's link " +
+                  "is sized to the recording it opens rather than given a flat window: " +
+                  "twice the call's own duration, so that a listener who pauses, rewinds " +
+                  "and scrubs is not cut off part-way through, with a floor of five " +
+                  "minutes for a short call and a ceiling of two hours and five minutes " +
+                  "— twice the longest call an agent may be configured to run, plus that " +
+                  "floor. Every other file we sign a link for gets the flat five " +
+                  "minutes: the signature is itself the credential, so the window is " +
+                  "widened only for the one artefact whose own length justifies it, and " +
+                  "never across the board.",
                 "Credentials are encrypted at rest with a per-secret key wrapped by a " +
                   "master key that lives only in the process environment and never in the " +
                   "database. Key rotation is supported with an overlap period.",
