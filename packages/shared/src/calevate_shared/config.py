@@ -389,14 +389,34 @@ class Settings(BaseSettings):
     # raw PII reaching Google. `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form
     # of that sentence (`workers/extraction.py`).
     sarvam_api_key: str | None = None
-    # ⚠ THE AI STUDIO DEVELOPER API KEY, AND NO SURFACE IN THIS PRODUCT OPENS THAT DOOR.
+    # ⚠ THE AI STUDIO DEVELOPER API KEY. THIS COMMENT SAID "NO SURFACE IN THIS PRODUCT
+    # OPENS THAT DOOR" AND THAT HAS BEEN FALSE SINCE D-456 — the correction matters more
+    # than the sentence, because a reader trusting it would conclude an installed Gemini
+    # key is inert, and it is not.
+    #
     # `generativelanguage.googleapis.com` is a global host with no region anywhere in the
     # URL, and on the free tier Google states it uses submitted prompts and responses to
     # improve its products with human reviewers able to read them — which for a Processor
     # holding an Indian SMB's callers' transcripts is not a tradeoff, it is a disclosure
-    # we could not make. D-127 disqualified it; D-410 then moved both LLM surfaces to
-    # Azure OpenAI, so there is no Google LLM leg left for this value to reach even by
-    # accident.
+    # we could not make. All of that is still true and is still why this key is barred
+    # from the two surfaces below.
+    #
+    # WHAT CHANGED: D-127 disqualified it for the DASHBOARD leg and D-410 moved both LLM
+    # surfaces to Azure — and then D-456/D-459 reopened the IN-CALL leg on two models the
+    # thinking-off trap does not break. `LlmProvider` carries `"google"`,
+    # `gemini-2.5-flash` and `-flash-lite` are in `SELECTABLE_LLM_MODELS`, and
+    # `ops/model_pricing.py:65` maps the `google` provider to THIS field. So a client who
+    # picks a Gemini agent runs on this credential, inside the engine, on the in-call leg.
+    #
+    # THE TWO BARS THAT DID NOT MOVE, which is the half a reader must not lose:
+    # * The DASHBOARD assist leg. D-127 G-2 is a rule about RAW PII, and the free tier's
+    #   human-review disclosure is why this key is not an assist rung.
+    # * The FIRST POST-CALL EXTRACTION, which reads the raw transcript.
+    #   `GEMINI_EXTRACTION_DEFAULT is False` (`workers/extraction.py`) is the greppable
+    #   form of that sentence and D-410 did not move it.
+    # `gemini-3.*` stays `selectable=False` on its own separate ground — the vendor's
+    # docs say 3.x does not support full thinking-off, and a candidate with no content is
+    # dead air on a phone call.
     #
     # IT IS KEPT, AND THIS IS NOT A DEPRECATION — which is what this comment used to
     # claim, in a paragraph that contradicted itself two sentences later. It said hard

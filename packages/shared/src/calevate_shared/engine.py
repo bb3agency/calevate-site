@@ -566,6 +566,25 @@ SARVAM_DEFAULT_STT: Final = "saaras:v3"
 #: one at all". D-449 added the third case and it is the one that bites: this line still
 #: holding `southindia` under the US declaration is refused BY VALUE, so a posture move that
 #: edited the declaration and forgot the constant cannot reach a green build.
+#:
+#: ⚠ **AND SINCE D-476 (27 Aug 2026) NO OTHER LEG CARRIES AN INDIA CLAIM EITHER.** This
+#: block records that D-449 withdrew the MODEL-residency warranty and that "any document
+#: still promising Indian model residency to a client is out of date". The same sentence is
+#: now true of SPEECH, and the reader who takes comfort from "at least the speech leg is
+#: Indian" is reading the mistake D-476 corrected: "Speech is Sarvam and still Indian" was a
+#: fact about the COMPANY. Sarvam's own privacy policy permits transfer to and processing in
+#: countries outside India — naming US cloud infrastructure (AWS/GCP/Azure) and EU model and
+#: security vendors, under SCCs and adequacy decisions — with the India-storage carve-out
+#: scoped to voice biometric data (Content Studio) and payment data, not Saaras/Bulbul API
+#: traffic. So the AUDIO may leave on the speech leg too, as it is spoken. VENDOR-PUBLISHED:
+#: `www.sarvam.ai/privacy-policy`, read by the founder 27 Aug 2026 and relayed — ⚠ NOT
+#: fetched from this container, where `sarvam.ai` and `docs.sarvam.ai` remain egress-blocked
+#: (403 on CONNECT, re-measured the same day).
+#:
+#: Nothing here is checkable the way the region is, and that asymmetry is the point:
+#: `check_model_residency` can prove a property of a VALUE we control, and cannot prove
+#: anything about where a third party runs. The speech claim was withdrawn rather than
+#: narrowed for exactly that reason — see `apps/web/src/lib/legal/subprocessors.ts` §3.4.
 AZURE_LOCATION: Final = "eastus2"
 
 #: OPENAI DIRECT's DATA-RESIDENCY REGION, and the one place this product spells it.
