@@ -34,7 +34,11 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance import consent
 from apps.api.compliance.consent_routes import ConsentSource, ConsentStatus
-from apps.api.compliance.models import CONSENT_SOURCES
+from apps.api.compliance.models import (
+    CONSENT_SOURCES,
+    RECORDING_ONLY_CONSENT_SOURCES,
+    WITHDRAWAL_ONLY_CONSENT_SOURCES,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.rbac import iter_api_routes
@@ -159,7 +163,7 @@ async def test_another_tenant_can_neither_read_nor_write_a_messaging_consent_row
             )
         ).scalar()
         assert leaked == 0, "another tenant's consent row must not be visible"
-        state = await consent.read_messaging_consent(session, tenant_id=bob, phone_e164=SUBJECT)
+        state = await consent.read_messaging_consent(session, tenant_id=bob, raw_phone=SUBJECT)
     assert state.status == "none" and state.messageable is False
 
     # ...and a write attributed to somebody else's tenant is refused by the policy's
@@ -313,7 +317,7 @@ async def test_a_withdrawal_appends_and_a_later_regrant_appends_again() -> None:
             source="whatsapp_inbound_message",
         )
         assert (
-            await consent.read_messaging_consent(session, tenant_id=tenant_id, phone_e164=SUBJECT)
+            await consent.read_messaging_consent(session, tenant_id=tenant_id, raw_phone=SUBJECT)
         ).messageable is False
 
         await consent.record_messaging_consent(
@@ -325,7 +329,7 @@ async def test_a_withdrawal_appends_and_a_later_regrant_appends_again() -> None:
             evidence={"message_id": "wamid.TEST"},
         )
         final = await consent.read_messaging_consent(
-            session, tenant_id=tenant_id, phone_e164=SUBJECT
+            session, tenant_id=tenant_id, raw_phone=SUBJECT
         )
 
     assert final.messageable is True and final.source == "whatsapp_inbound_message"
@@ -371,7 +375,7 @@ async def test_a_grant_expires_without_being_deleted() -> None:
             },
         )
         state = await consent.read_messaging_consent(
-            session, tenant_id=tenant_id, phone_e164=SUBJECT
+            session, tenant_id=tenant_id, raw_phone=SUBJECT
         )
 
     assert state.status == "granted", "the record survives; it is proof of what happened"
@@ -384,7 +388,7 @@ async def test_a_fresh_grant_is_current_and_says_when_it_lapses() -> None:
     await _grant(tenant_id)
     async with tenant_session(tenant_id) as session:
         state = await consent.read_messaging_consent(
-            session, tenant_id=tenant_id, phone_e164=SUBJECT
+            session, tenant_id=tenant_id, raw_phone=SUBJECT
         )
     assert state.messageable is True
     assert state.expires_at is not None
@@ -406,7 +410,7 @@ async def test_a_number_typed_any_way_reaches_the_same_ledger_key() -> None:
             evidence=EVIDENCE,
         )
         state = await consent.read_messaging_consent(
-            session, tenant_id=tenant_id, phone_e164=SUBJECT
+            session, tenant_id=tenant_id, raw_phone=SUBJECT
         )
     assert state.messageable is True
 
@@ -595,8 +599,27 @@ async def test_a_staff_member_cannot_record_consent_but_can_read_it() -> None:
 def test_the_wire_enums_match_the_constants_the_check_mirrors() -> None:
     """`CONSENT_SOURCES` is the tuple the CHECK mirrors and the Literal is what the
     generated TypeScript client switches on. A member added to one and not the other is
-    a source the API advertises and the database refuses, or the reverse."""
-    assert set(get_args(ConsentSource)) == set(CONSENT_SOURCES)
+    a source the API advertises and the database refuses, or the reverse.
+
+    THE EQUALITY IS NOW AGAINST THE CLIENT-CAPTURABLE SUBSET, and it is still an equality
+    rather than a weakened containment. `in_call_recording_notice` (migration
+    `d7f2a94c61be`) is written by the post-call pipeline and by nothing a client can
+    reach: it records that a caller was TOLD the call was recorded, which is not a
+    permission to message or to dial (DPDP §6's purpose limitation, which is the entire
+    reason `purpose` is a column). Advertising it on this endpoint's Literal would offer
+    a client a source the service refuses (`consent_source_wrong_purpose`) and the
+    database refuses (`ck_consent_ledger_recording_notice_scope`) — the exact defect this
+    test exists to catch, in the other direction.
+    """
+    assert set(get_args(ConsentSource)) == set(consent.GRANT_CAPABLE_SOURCES) | set(
+        WITHDRAWAL_ONLY_CONSENT_SOURCES
+    )
+    # And the recording basis is NOT on the wire, asserted rather than implied.
+    for source in RECORDING_ONLY_CONSENT_SOURCES:
+        assert source in CONSENT_SOURCES, "the ledger must still permit the recording basis"
+        assert source not in get_args(ConsentSource), (
+            "a source only the pipeline may write must not be offered to a client"
+        )
     assert set(get_args(ConsentStatus)) == set(consent.RECORDABLE_STATUSES)
 
 

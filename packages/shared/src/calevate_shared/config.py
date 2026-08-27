@@ -360,9 +360,19 @@ class Settings(BaseSettings):
     bolna_webhook_source_ips: str = Field(
         default=",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS)), max_length=1024
     )
-    # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS this
-    # rate into usage_events.meta so any ledger row can be re-derived (hard rule 7).
-    # A config row, not a live FX call: metering must be reproducible, not current.
+    # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
+    # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
+    #
+    # ⚠ THIS IS NOW THE FALLBACK, NOT THE RATE, and this comment used to say the opposite
+    # ("a config row, not a live FX call: metering must be reproducible, not current").
+    # Both halves of that sentence survive, but they are answered by different things now:
+    # `apps/workers/fx_pull.py` pulls a PUBLISHED reference rate every five minutes into
+    # `fx_rate_observations` and `engine/bolna.py::_cost` converts at it, so metering is
+    # current; and it stays reproducible because the rate, its source and its publication
+    # date are stamped on every ledger row and the observation history is append-only.
+    # This value is what the conversion falls back to when nothing has been pulled or the
+    # published rate has aged past `core/fx.MAX_QUOTE_AGE` — which is why it is still a
+    # number a human owns, still bounded below, and still worth keeping accurate.
     #
     # BOUNDED BECAUSE IT IS MONEY AND IT IS CONSOLE-SETTABLE. `0` is type-valid and
     # makes every Bolna minute cost nothing — the platform bills zero and nobody
@@ -1107,6 +1117,50 @@ class Settings(BaseSettings):
     # The ceiling is absurd on purpose — nobody sells a minute for ₹10,000 — and its job
     # is to catch a decimal point in the wrong place before it reaches a wallet.
     self_serve_inr_per_min: Decimal = Field(default=Decimal("5.00"), gt=0, le=10_000)
+
+    # HOW OLD A LIST'S CONSENT MAY BE BEFORE A CAMPAIGN OVER IT IS REFUSED, in days.
+    #
+    # **THE NUMBER IS NOT OURS AND THE CODE SAYS SO WHEREVER IT IS READ.** What is ours is
+    # the MECHANISM: `campaigns.consent_collected_at` has been a validated, non-future,
+    # source-paired column since the provenance gate shipped and NOTHING read it, so a
+    # list collected in 2019 launched today with a green gate. That is the half this
+    # repository can fix. The THRESHOLD is a legal question — our own research records
+    # that the TCCCPR Second Amendment (12 Feb 2025) time-boxed consent in both directions
+    # (transaction-tied consent to seven days; inferred consent to the life of the
+    # relationship it was inferred from) without stating a period for a marketing list of
+    # the kind a client uploads (`apps/api/compliance/consent.py`, the researched note) —
+    # so the figure belongs to counsel, routed through LEGAL-OPS-PLAYBOOK §20, and this is
+    # a config row precisely so their answer is a value change rather than a release.
+    #
+    # 365 IS A STATED DEFAULT, NOT A FINDING. It is the same window the messaging leg
+    # already applies (`consent.MESSAGING_CONSENT_VALIDITY_DAYS`, itself the outer edge of
+    # the 6-12 month re-confirmation guidance), chosen so the two legs of one product do
+    # not disagree about how long a consent lasts while counsel is deciding. Nobody has
+    # told us 365 is the lawful figure for voice, and no sentence in this tree may say
+    # they have (hard rule 11).
+    #
+    # `0` DISABLES THE AGE CHECK, and is offered because "we do not yet know" is a real
+    # operator position and is better held explicitly than by an operator typing 36500.
+    # Every other blocker on the list — provenance recorded, source not purchased — keeps
+    # running at 0.
+    campaign_consent_max_age_days: int = Field(default=365, ge=0, le=36_500)
+
+    # HOW LONG A PE REGISTRATION VERIFICATION STAYS GOOD FOR, in days.
+    #
+    # `dlt_registrations.verified_at` records when an operator last checked the registrar
+    # against the client's entity. It was SELECTed, returned and never compared to
+    # anything, so a registration verified once was verified forever — while the national
+    # DND scrub beside it expires at midnight (`preference_scrub.scrub_expiry`) and
+    # `KYC_STATUSES` carries `expired`, both for the same reason: a stale compliance
+    # verdict is worse than none, because it is indistinguishable from a fresh one.
+    #
+    # OURS, AND SAID PLAINLY. No registrar publishes an expiry for a PE registration and
+    # this default does not claim one exists — it is the cadence at which WE re-look, and
+    # a registration can be suspended by the registrar on any day between two looks. 365
+    # days matches the annual re-verify rhythm OPERATIONS already keeps for vendor and
+    # regulatory facts. `0` disables the staleness blocker for an operator who wants the
+    # status alone to govern.
+    pe_verification_max_age_days: int = Field(default=365, ge=0, le=36_500)
 
     # R-11's kill switch. Self-serve signup is the sharp edge of D-34 (anyone can sign
     # up and dial), so the public intake is OFF unless someone turned it on, and

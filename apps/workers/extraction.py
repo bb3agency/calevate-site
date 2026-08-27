@@ -112,6 +112,8 @@ from apps.api.core.alerting import record_extraction_failure
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.workers import chat
+from apps.workers.chat import TokenUsage, usage_from_body
 from apps.workers.redaction import redact
 
 log = get_logger(__name__)
@@ -253,29 +255,26 @@ class SarvamExtractor:
         # first, which is the shape of bug that only shows up under load.
         self._timeout_s = timeout_s
 
+    @property
+    def _leg(self) -> chat.ChatLeg:
+        """Sarvam addressed for `workers/chat.py`. `wire_model` IS the model here — the
+        deployment/model split is Azure's, and this leg has none."""
+        return chat.ChatLeg(url=SARVAM_CHAT_URL, api_key=self._api_key, wire_model=self.model_name)
+
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=self._timeout_s) as client:
-            response = await client.post(
-                SARVAM_CHAT_URL,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                json={
-                    "model": self.model_name,
-                    "messages": [
-                        {"role": "user", "content": build_extraction_prompt(spec, transcript)}
-                    ],
-                    "temperature": 0,
-                    "response_format": {"type": "json_object"},
-                },
-            )
-        response.raise_for_status()
-        body = response.json()
-        # `choices` comes back EMPTY when the provider declines to answer (filtered
-        # content, truncated generation). Indexing it blindly turned "the model said
-        # nothing" into an IndexError that escaped the error ladder below and failed
-        # the whole post-call job — losing the call to keep the fields.
-        choices = body.get("choices") or []
-        content = choices[0].get("message", {}).get("content", "") if choices else ""
-        return _first_json_object(str(content))
+        # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
+        # arm that used to live here — the provider declining to answer, which indexed
+        # blindly turns "the model said nothing" into an IndexError that escapes
+        # `extract_call`'s ladder and fails the whole post-call job — is now that module's
+        # `_message_of`, so both legs and every future one inherit it.
+        outcome = await chat.complete(
+            self._leg,
+            [{"role": "user", "content": build_extraction_prompt(spec, transcript)}],
+            timeout_s=self._timeout_s,
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        return _first_json_object(outcome.content)
 
 
 #: How each schema field type is spelled in a JSON Schema Azure's Structured Outputs will
@@ -405,49 +404,13 @@ def build_azure_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
     }
 
 
-@dataclass(frozen=True, slots=True)
-class TokenUsage:
-    """What one model call cost, in the vendor's own count.
-
-    Tokens, not thousands: `billing/ai_quota.ktok()` converts, once, where the money is,
-    because `qty` is `NUMERIC` and a division done here would arrive as a float.
-    """
-
-    prompt_tokens: int
-    output_tokens: int
-
-
-def _azure_usage(body: dict[str, Any]) -> TokenUsage | None:
-    """Azure's `usage` block as our own record, or None if it did not send one.
-
-    NONE IS NOT ZERO and the difference is a billing one: a missing block means we do not
-    know what this call cost, and metering it as zero would quietly give one tenant a
-    free assist and move the platform brake by nothing. `record_ai_assist_usage` is
-    therefore never called on a None, and that is the caller's rule to keep.
-
-    `completion_tokens` IS THE WHOLE OUTPUT LEG AND NOTHING IS ADDED TO IT, which is the
-    one line that changed shape when D-410 left Gemini. Vertex reported `thoughtsTokenCount`
-    SEPARATELY from `candidatesTokenCount`, so the two had to be summed or a reasoning
-    model would be under-metered; on the OpenAI wire format `completion_tokens_details`
-    is a BREAKDOWN of `completion_tokens`, not an addition to it, and summing them would
-    bill a tenant twice for the same tokens. Neither model this platform ships
-    (`AZURE_OPENAI_MODELS`) emits reasoning tokens at all, so the arm is not reachable
-    today — it is written down because "port the Gemini line across" is the tempting edit
-    and it is wrong in the expensive direction.
-    """
-    raw = body.get("usage")
-    if not isinstance(raw, dict):
-        return None
-
-    def _count(key: str) -> int:
-        value = raw.get(key)
-        return value if isinstance(value, int) and value >= 0 else 0
-
-    total_in = _count("prompt_tokens")
-    total_out = _count("completion_tokens")
-    if total_in == 0 and total_out == 0:
-        return None
-    return TokenUsage(prompt_tokens=total_in, output_tokens=total_out)
+#: `TokenUsage` AND `usage_from_body` NOW LIVE IN `workers/chat.py`, and are re-exported
+#: here rather than re-declared. They describe the OpenAI wire format, which three
+#: surfaces now read (this one, the script assist, the in-app copilot); a second
+#: definition beside this one would be a second answer to "did the provider tell us what
+#: this cost", on a question hard rule 7 does not allow two answers to. Existing importers
+#: — `crm/assist.py`, `tests/azure_extraction_test.py` — reach them through this module
+#: exactly as before.
 
 
 class AzureOpenAIExtractor:
@@ -602,38 +565,34 @@ class AzureOpenAIExtractor:
             extra={"status": status, "model": self.model_name, "deployment": self._deployment},
         )
 
-    async def _post(
-        self,
-        client: httpx.AsyncClient,
-        spec: ExtractionSchemaSpec,
-        transcript: str,
-        *,
-        response_format: dict[str, Any],
-    ) -> httpx.Response:
-        """One chat completion. The two callers below differ only in `response_format`."""
-        return await client.post(
-            self._url,
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={
+    async def _ask(
+        self, spec: ExtractionSchemaSpec, transcript: str, *, response_format: dict[str, Any]
+    ) -> chat.ChatOutcome:
+        """One chat completion through the ONE client. The two callers below differ only
+        in `response_format`.
+
+        `follow_redirects=False`, the empty-`choices` arm and the `usage` read all live in
+        `workers/chat.py` now: a redirect off the region-pinned host is a residency
+        question and answering it silently by following the hop is the one thing this leg
+        must not do, and that is now true of every leg rather than of this one.
+        """
+        return await chat.complete(
+            chat.ChatLeg(
+                url=self._url,
+                api_key=self._api_key,
                 # THE DEPLOYMENT, not the model — see the class docstring.
-                "model": self._deployment,
-                "messages": [
-                    {"role": "user", "content": build_extraction_prompt(spec, transcript)}
-                ],
-                "temperature": 0,
-                "response_format": response_format,
-            },
+                wire_model=self._deployment,
+            ),
+            [{"role": "user", "content": build_extraction_prompt(spec, transcript)}],
+            timeout_s=self._timeout_s,
+            temperature=0,
+            response_format=response_format,
+            client=self._client,
         )
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
-        owns_client = self._client is None
-        # `follow_redirects=False` is load-bearing rather than tidy: a redirect off the
-        # region-pinned host is a residency question, and answering it silently by
-        # following the hop is the one thing this leg must not do.
-        client = self._client or httpx.AsyncClient(timeout=self._timeout_s, follow_redirects=False)
         try:
-            response = await self._post(
-                client,
+            outcome = await self._ask(
                 spec,
                 transcript,
                 response_format={
@@ -645,66 +604,51 @@ class AzureOpenAIExtractor:
                     },
                 },
             )
-            if response.status_code == 400:
-                # THE DEGRADE, and its trigger is deliberately ANY 400 rather than a
-                # reading of the error body. The thing we cannot verify is exactly what
-                # this resource says when it refuses `json_schema`, so a discriminator
-                # keyed on `error.code` or `error.param` would be a guess about the very
-                # payload in doubt — and guessing wrong means an outage on a documented
-                # feature. A 400 is refused at request validation: no model time, no
-                # tokens, a few milliseconds. So we simply ask again the weaker way. If
-                # the 400 was really something else (a content filter, a malformed body),
-                # the retry earns the same 400 and the ORIGINAL refusal is the one
-                # reported, which is the right diagnosis.
-                #
-                # NOT MEMOISED, and that is the rejected alternative worth naming: a flag
-                # remembering "this deployment refuses strict" would save one cheap round
-                # trip per assist and would (a) be process-global mutable state needing a
-                # reset seam for tests, and (b) go stale the moment the deployment is
-                # upgraded — locking a fixed resource into the weak promise forever, with
-                # nothing to notice. Paying milliseconds to re-ask is the cheaper mistake.
-                degraded = await self._post(
-                    client, spec, transcript, response_format={"type": "json_object"}
-                )
-                if not degraded.is_error:
-                    log.warning(
-                        "azure_json_schema_unsupported",
-                        extra={
-                            "model": self.model_name,
-                            "deployment": self._deployment,
-                            "consequence": (
-                                "Structured Outputs was refused by this resource, so the "
-                                "assist ran on json_object: valid JSON, but no model-side "
-                                "guarantee that it matches the agent's extraction schema. "
-                                "Confirm the deployment's model is gpt-4o-mini or later."
-                            ),
-                        },
-                    )
-                    response = degraded
-        finally:
-            if owns_client:
-                await client.aclose()
-        if response.is_error:
-            self._log_refusal(response.status_code)
-        response.raise_for_status()
-        body = response.json()
-        self.last_usage = _azure_usage(body)
-        # `choices` comes back EMPTY, or carries a null `content`, when the provider
-        # declines to answer — Azure's content filter is an ordinary response with
-        # `finish_reason: "content_filter"`, not an exception, and Structured Outputs adds
-        # a model-authored `refusal` beside `content` on the same footing. Neither is read
-        # here: `refusal` is the model's prose ABOUT a call transcript, which is not a
-        # thing this module logs or stores (hard rule 6), and both land as "no answer".
-        # Same reasoning as the Sarvam path above — indexing blindly turns "the model said
-        # nothing" into an IndexError, and losing the call to keep the fields is the wrong
-        # trade.
-        choices = body.get("choices") or []
-        content = choices[0].get("message", {}).get("content", "") if choices else ""
+        except httpx.HTTPStatusError as refusal:
+            if refusal.response.status_code != 400:
+                self._log_refusal(refusal.response.status_code)
+                raise
+            # THE DEGRADE, and its trigger is deliberately ANY 400 rather than a reading
+            # of the error body. The thing we cannot verify is exactly what this resource
+            # says when it refuses `json_schema`, so a discriminator keyed on `error.code`
+            # or `error.param` would be a guess about the very payload in doubt — and
+            # guessing wrong means an outage on a documented feature. A 400 is refused at
+            # request validation: no model time, no tokens, a few milliseconds. So we
+            # simply ask again the weaker way.
+            #
+            # NOT MEMOISED, and that is the rejected alternative worth naming: a flag
+            # remembering "this deployment refuses strict" would save one cheap round trip
+            # per assist and would (a) be process-global mutable state needing a reset
+            # seam for tests, and (b) go stale the moment the deployment is upgraded —
+            # locking a fixed resource into the weak promise forever, with nothing to
+            # notice. Paying milliseconds to re-ask is the cheaper mistake.
+            try:
+                outcome = await self._ask(spec, transcript, response_format={"type": "json_object"})
+            except httpx.HTTPStatusError as retry_refusal:
+                # If the 400 was really something else (a content filter, a malformed
+                # body), the retry earns the same refusal and the ORIGINAL one is what is
+                # reported and raised, which is the right diagnosis.
+                self._log_refusal(refusal.response.status_code)
+                raise refusal from retry_refusal
+            log.warning(
+                "azure_json_schema_unsupported",
+                extra={
+                    "model": self.model_name,
+                    "deployment": self._deployment,
+                    "consequence": (
+                        "Structured Outputs was refused by this resource, so the "
+                        "assist ran on json_object: valid JSON, but no model-side "
+                        "guarantee that it matches the agent's extraction schema. "
+                        "Confirm the deployment's model is gpt-4o-mini or later."
+                    ),
+                },
+            )
+        self.last_usage = outcome.usage
         # STILL THE FENCE-STRIPPER AND NOT A BARE `json.loads`. Under strict mode the
         # content is a schema-shaped document and this is a no-op; on the degraded path it
         # is the only thing standing between a fenced answer and an empty extraction. One
         # parse path, correct under both promises.
-        return _first_json_object(str(content or ""))
+        return _first_json_object(outcome.content)
 
 
 @dataclass(frozen=True)
@@ -1590,4 +1534,5 @@ __all__ = [
     "extract_call",
     "get_extractor",
     "run_assist",
+    "usage_from_body",
 ]

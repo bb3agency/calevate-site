@@ -959,7 +959,9 @@ async def test_a_number_already_owned_by_another_tenant_is_a_conflict_not_a_500(
     and its violation has to surface as a clean 409."""
     tenant_a, _ = await _tenant()
     tenant_b, _ = await _tenant()
-    number = f"+9180{uuid.uuid4().int % 100000000:08d}"
+    # A REAL 140-series number, because `provision_number` now checks the prefix against
+    # the series (DoT/PIB PRID 2022249): `+9180…` filed as `"140"` is refused by name.
+    number = f"+91140{uuid.uuid4().int % 10000000:07d}"
 
     async with tenant_session(tenant_a) as session:
         await agents_service.provision_number(

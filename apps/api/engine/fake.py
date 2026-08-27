@@ -135,9 +135,13 @@ SAMPLE_TURNS: tuple[tuple[Speaker, str], ...] = (
 #: otherwise be exercised only against a transport stub — the same argument `raw_document`
 #: makes below.
 #:
-#: THE NUMBERS ARE DELIBERATELY IN-BUDGET AND DELIBERATELY SPREAD. In budget
-#: (`LLM_TTFT_BUDGET_MS` is 350ms) because a fake that alarms on every offline call teaches
-#: developers to ignore the alarm; spread because a distribution over identical samples
+#: THE NUMBERS ARE DELIBERATELY BELOW THE ALARM AND DELIBERATELY SPREAD. Below the alarm
+#: (`_LLM_TTFT_ALARM_MS` is the vendor's 1000ms) because a fake that pages on every offline
+#: call teaches developers to ignore the alarm. They are NOT inside our own budget any more
+#: and were not adjusted to be: `LLM_TTFT_BUDGET_MS` fell from 350ms to 150ms with the
+#: 500ms voice-to-voice target (TRD §4), and a fixture edited to sit under a target it has
+#: no way of meeting would teach the opposite lesson — that the pipeline comfortably makes
+#: it. Spread because a distribution over identical samples
 #: hides every statistic that reads it — break the median and nothing moves. Turn 1 is the
 #: slowest, which is what a real payload does (connection setup rides on it).
 #:

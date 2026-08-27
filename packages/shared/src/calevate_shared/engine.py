@@ -424,8 +424,9 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: **GROUND 1: THE ROUND TRIP WAS ALWAYS THERE AND NOBODY HAD EVER MEASURED IT.**
 #: VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/concepts/security.md:29`: *"By
 #: default, Bolna processes calls on infrastructure in the US (AWS us-east-1)."* The engine
-#: is the thing that calls our Azure deployment, once per conversational turn, inside a
-#: 350ms TTFT budget. So `southindia` did not put the model beside the caller; it put the
+#: is the thing that calls our Azure deployment, once per conversational turn, inside the
+#: TTFT budget (350ms when D-449 was taken; 150ms since the 500ms voice-to-voice target).
+#: So `southindia` did not put the model beside the caller; it put the
 #: model on the far side of a us-east-1 → India → us-east-1 hop from the orchestrator, on
 #: the audio path, on every turn. That cost was recorded (OPERATIONS §2 gate 4, and the
 #: `engine_turn_latency` table exists to settle it) and never paid for, because the pilot
@@ -947,9 +948,10 @@ class LlmPrice:
     different exchange rates: `billing/ai_quota.py` prices the dashboard assist and
     `billing/rates.py` prices the in-call LLM leg. It once shipped as INR literals with the
     fx already folded in, which is right while there is one reader and is the D-103/D-105
-    defect the moment there are two — the vendor publishes dollars, `usd_inr_rate` is a live
-    console value, and a constant that has already multiplied them cannot be re-derived when
-    either moves. So the VENDOR'S fact lives here in the vendor's unit, beside the identifier
+    defect the moment there are two — the vendor publishes dollars, the USD->INR rate MOVES (it
+    is pulled every five minutes, D-475), and a constant that has already multiplied them
+    cannot be re-derived when either moves. So the VENDOR'S fact lives here in the
+    vendor's unit, beside the identifier
     it is a price OF, and every rupee conversion happens at a named rate in `billing/`.
     """
 
@@ -2605,6 +2607,24 @@ class CostBreakdown(BaseModel):
     currency_stated: bool = False
     source_amount: Decimal | None = None
     fx_rate: Decimal | None = None
+    #: WHERE `fx_rate` came from — `"frankfurter:FBIL"` for a published rate, or
+    #: `"configured:usd_inr_rate"` when the pull was missing or stale and the adapter fell
+    #: back to the operator's configured value. `None` on a leg that needed no conversion
+    #: at all (an INR-denominated payload), which is a third state and not a missing one.
+    #:
+    #: WHY THE ROW CARRIES THIS AND NOT ONLY THE NUMBER. `fx_rate` answers "at what rate
+    #: was this converted"; a reconciliation months later asks "and why that rate" — was
+    #: the feed live, or is this one of the calls that ran while it was down? That is not
+    #: re-derivable from anything: the observation history says what was PUBLISHED, never
+    #: which of the two doors a given call came through. It is the same distinction
+    #: `currency_stated` above draws for the currency, and it exists for the same reason —
+    #: the adapter cannot be asked six weeks later what it assumed.
+    fx_source: str | None = None
+    #: The date the SOURCE stamped on `fx_rate`, when it came from one. A reference rate
+    #: is published once a business day, so this is what says whether a Monday call was
+    #: costed at Monday's rate or at Friday's — the difference between a healthy feed and
+    #: one that stopped over the weekend.
+    fx_as_of: date | None = None
 
 
 class RecallOutcome(StrEnum):
@@ -2647,6 +2667,14 @@ class RecallOutcome(StrEnum):
 
 # --- THE LATENCY BUDGET (TRD §4), DECLARED ONCE -----------------------------------------
 #
+# **THE TARGET IS 500ms VOICE-TO-VOICE (founder's decision, 27 Aug 2026), AND THE DECLARED
+# BUDGET DOES NOT FIT INSIDE IT.** That is not a defect in this block; it is the finding
+# this block exists to publish. `voice_to_voice_gap_ms()` is the shortfall, it is POSITIVE
+# today, `latency_budget_composes()` therefore returns False, and both are on the wire so
+# an operator sees the gap on a screen rather than in a CI log nobody watching a console
+# will ever read. The one response this repository forbids itself is the quiet one:
+# relaxing the 500 to whatever the parts happen to add up to.
+#
 # Every number below is a TARGET and NOT ONE OF THEM IS MEASURED. TRD §4a is the register
 # of that: it names each figure, marks it "TARGET — unmeasured", and names the slot a
 # measured number may one day be written into. Nothing here may ever be computed from the
@@ -2654,31 +2682,52 @@ class RecallOutcome(StrEnum):
 # construction and measures nothing, which is the whole reason these live beside the
 # contract instead of inside the report that reads them.
 #
+# **THE ALLOCATION IS A FLOOR ALLOCATION, AND THAT IS WHAT MAKES THE GAP AN ARGUMENT.**
+# Each leg is set to the FASTEST figure its vendor publishes for that stage, not to a
+# share of 500 that would make the arithmetic work. So the sum below is the best case the
+# evidence supports; a pipeline that beat it would be beating every number its own vendors
+# print. Each leaf carries the page and line it was read off, this session.
+#
 # THE COMPOSED TOTALS ARE DERIVED AND NEVER RESTATED. `TURN_BUDGET_MS` is the sum of the
 # three legs the engine times, not a fourth literal, so a session that relaxes one leg
 # cannot leave the total describing the old one. `latency_budget_composes()` is the guard
 # that fails when somebody moves one number and not the others.
 
-#: OUR budget for the LLM leg of one conversational turn, in milliseconds (TRD §4,
-#: "LLM TTFT <= 350ms"). A TARGET, and the only number in this file that is not a
-#: measurement — it is what a measurement is judged against, and it is never copied into
-#: a result. It lives here rather than in an adapter because it is a property of the
-#: product, not of whoever is renting us the audio path this quarter.
+#: WHAT THE BUDGET WAS MISSING UNTIL 27 Aug 2026: deciding that the caller has STOPPED.
 #:
-#: WHY IT MATTERED, AND WHY THE ANSWER MOVED. The engine's orchestrator is US-hosted
-#: (`bolna-findings/mirror/pages/concepts/security.md:29`) and D-410 pinned our Azure
-#: OpenAI deployment to South India, so every turn's LLM call was a US->India->US round
-#: trip on the caller's audio path — a cost this repository recorded and never measured.
-#: D-449 removed the round trip by moving the deployment to `eastus2` (co-located with the
-#: orchestrator's `us-east-1`), at the price of the India residency claim. The budget did
-#: NOT move with it: it is a property of the product, it is still unmeasured, and a target
-#: that relaxed itself whenever the geography got easier would measure nothing.
-LLM_TTFT_BUDGET_MS: Final[float] = 350.0
+#: TRD §4 measured "voice-to-voice" from the caller finishing their sentence, and then
+#: budgeted four stages none of which is the wait that detects the finishing. The engine's
+#: own stage diagram opens with it — *"Endpointing (50-300ms) ← How long before we decide
+#: they're done?"*, and the next line says time-to-first-audio is *"the total of these
+#: stages"* (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/concepts/latency.md:17-31`,
+#: read 27 Aug 2026). A budget that omits a stage is not a budget, so the stage is declared
+#: here and `PIPELINE_BUDGET_MS` contains it.
+#:
+#: 100ms IS THE VENDOR'S OWN FLOOR, NOT AN AMBITION: *"Decrease toward 100ms for fast-paced
+#: sales scripts"* (`latency.md:48`). It is not what we ship — see
+#: `INHERITED_TURN_DETECTION_MS` — and their guidance for OUR callee population points the
+#: other way: *"Increase to 400-500ms for callers who pause mid-sentence (non-native
+#: speakers, elderly)"* (`:48`). Nothing here says 100ms is achievable with acceptable
+#: barge-in behaviour on Telugu telephone speech; it says nobody may claim less.
+ENDPOINTING_BUDGET_MS: Final[float] = 100.0
 
-
-#: OUR budget for the SPEECH-TO-TEXT leg of one turn (`docs/TRD.md:281`, "STT
-#: finalization ≤300ms").
-#: Same class as `LLM_TTFT_BUDGET_MS` and same rule: a target, never a measurement.
+#: OUR budget for the SPEECH-TO-TEXT leg of one turn, measured from the end of the
+#: endpointing wait to the final transcript.
+#:
+#: 70ms IS SARVAM'S OWN FIGURE FOR SARVAM, which is why it is not the 50ms floor of the
+#: engine's generic range. Sarvam's published voice-agent guidance sets LiveKit's
+#: `min_endpointing_delay=0.07` with the comment *"~70ms matches Sarvam STT processing
+#: latency"* (VENDOR-PUBLISHED: `https://raw.githubusercontent.com/sarvamai/skills/main/
+#: voice-agents/SKILL.md:57`, read 27 Aug 2026). It sits inside the engine's own
+#: *"Transcription (50-150ms)"* stage (`latency.md:24`, and `:54`: the final transcript
+#: arrives *"50-150ms after endpointing"*).
+#:
+#: ⚠ NO STREAMING FIGURE FROM SARVAM ITSELF IS READABLE FROM HERE. `docs.sarvam.ai` and
+#: `www.sarvam.ai` are both egress-blocked in this environment (403 on CONNECT, measured
+#: 27 Aug 2026), so their own latency page is UNVERIFIED. The only Sarvam-measured STT
+#: number we could read is a REST, whole-clip 340-420ms (`https://raw.githubusercontent.com/
+#: sarvamai/sarvam-mcp/main/test-outputs/SUMMARY.md:100`, run dated 2026-04-27) — a
+#: different quantity from streaming finalization, and NOT evidence for this leaf.
 #:
 #: ⚠ THE ENGINE'S NUMBER FOR THIS LEG IS IN A UNIT WE HAVE NOT CONFIRMED, and that is a
 #: property of the measurement rather than of this budget. The vendor's field table says
@@ -2688,61 +2737,176 @@ LLM_TTFT_BUDGET_MS: Final[float] = 350.0
 #: latency. The budget stands either way — it is what a caller can afford — but anything
 #: that JUDGES an observation against it has to carry the doubt with it, which is what
 #: `apps/api/ops/engine_latency.LegSummary.unit_verified` exists to do.
-STT_BUDGET_MS: Final[float] = 300.0
+STT_BUDGET_MS: Final[float] = 70.0
+
+#: OUR budget for the LLM leg of one conversational turn, in milliseconds. A TARGET, and
+#: never a measurement — it is what a measurement is judged against, and it is never copied
+#: into a result. It lives here rather than in an adapter because it is a property of the
+#: product, not of whoever is renting us the audio path this quarter.
+#:
+#: **IT WAS 350ms UNTIL 27 Aug 2026 AND THE NAME IS DELIBERATELY UNCHANGED** — it is
+#: imported by `apps/api/engine/bolna.py` and `apps/api/ops/engine_latency.py` and cited by
+#: name across the tree. 150ms is the engine's own published typical TTFT for a model we
+#: offer: *"OpenAI gpt-4.1-mini | ~150ms"* (VERIFIED-VENDOR-DOCS: `latency.md:66`; the same
+#: table gives `gemini-2.5-flash` ~150ms and gpt-4.1 ~200ms). Their stage diagram's range
+#: for this stage is *"LLM first token (100-400ms)"* (`:24`), so 150 is inside it and near
+#: the floor.
+#:
+#: ⚠ ON THE LEG WE ACTUALLY RUN, THIS FIGURE IS UNVERIFIED. Our in-call model is Azure
+#: OpenAI in `eastus2`, and MICROSOFT PUBLISHES NO PER-MODEL TTFT AT ALL: their latency
+#: article gives a formula (`TTLT = TTFT + (TBT x Tokens Generated)`) and a metrics
+#: catalogue, and its only model-choice advice is *"If your use case requires the lowest
+#: latency models ... we recommend the latest GPT-4o mini model"* — with no number
+#: anywhere on the page (VERIFIED-VENDOR-DOCS: `MicrosoftDocs/azure-ai-docs@d002f330`,
+#: `articles/foundry/openai/includes/how-to-latency-content.md:88,151`, `ms.date`
+#: 05/14/2026, read 27 Aug 2026). The same page records a cost this budget does NOT
+#: quantify: *"The addition of content filtering comes with an increase in safety, but also
+#: latency"* (`:191`) — Azure applies it, the vendor's 150ms figure is for OpenAI direct,
+#: and nobody has measured the difference.
+#:
+#: WHY THE GEOGRAPHY IS NO LONGER IN THIS NUMBER. The engine's orchestrator is US-hosted
+#: (`bolna-findings/mirror/pages/concepts/security.md:29`) and D-410 pinned our Azure
+#: OpenAI deployment to South India, so every turn's LLM call was a US->India->US round
+#: trip on the caller's audio path. D-449 removed the round trip by moving the deployment
+#: to `eastus2`, at the price of the India residency claim. What it did NOT remove is the
+#: caller's own crossing — see `INDIA_US_TRANSIT_FLOOR_MS`.
+LLM_TTFT_BUDGET_MS: Final[float] = 150.0
 
 #: OUR budget for the TEXT-TO-SPEECH leg of one turn — time to first AUDIO, not to first
-#: token (`docs/TRD.md:284`, "TTS TTFA ≤300ms streaming"). The streaming qualifier is the whole
-#: number: a synthesizer that returns the finished utterance cannot meet it at any speed.
-TTS_TTFA_BUDGET_MS: Final[float] = 300.0
+#: token. The streaming qualifier is the whole number: a synthesizer that returns the
+#: finished utterance cannot meet it at any speed, and the adapter sends `stream: true`
+#: (`apps/api/engine/bolna.py`, `synthesizer.stream`).
+#:
+#: 80ms is the floor of the engine's own stage range, *"Synthesis first chunk
+#: (80-200ms)"* (`latency.md:24`).
+#:
+#: ⚠ IT IS UNVERIFIED FOR SARVAM, WHICH IS THE SYNTHESIZER WE RUN. The vendor names
+#: *"ElevenLabs Turbo and Cartesia"* as *"the lowest-latency synthesis options"*
+#: (`latency.md:89`) and says nothing numeric about Bulbul; Sarvam's own pages are
+#: egress-blocked here. The only Sarvam-measured synthesis number readable from this
+#: environment is a REST whole-utterance 570-870ms (`sarvam-mcp/test-outputs/SUMMARY.md:91`,
+#: run dated 2026-04-27), which is not a time-to-first-audio and is not evidence for this
+#: leaf either way. This allocation is explicitly PROVISIONAL (TRD §4a).
+TTS_TTFA_BUDGET_MS: Final[float] = 80.0
 
-#: OUR budget for a knowledge-base retrieval inside a turn (`docs/TRD.md:284`, "retrieval
-#: ≤100ms (see §6)"). It is the ONE sub-budget with no engine measurement behind it: the
-#: in-call RAG tool endpoint is ours (CLAUDE.md, "measure it"), the engine's `latency_data`
-#: has no block for it, and `call_engine_latency` therefore holds no sample. It is declared
-#: here because it is part of the composed total a caller experiences, and it is reported
-#: as a target with no distribution beside it rather than quietly left out of the sum.
+#: OUR budget for a knowledge-base retrieval inside a turn (`docs/TRD.md` §4, via §6). It
+#: is the ONE sub-budget with no engine measurement behind it: the in-call RAG tool
+#: endpoint is ours (CLAUDE.md, "measure it"), the engine's `latency_data` has no block for
+#: it, and `call_engine_latency` therefore holds no sample. It is declared here because it
+#: is part of the composed total a caller experiences, and it is reported as a target with
+#: no distribution beside it rather than quietly left out of the sum.
+#:
+#: UNCHANGED AT 100ms, deliberately: it is OUR endpoint and the one leg in this budget
+#: whose floor is not somebody else's to publish. A turn that needs no lookup does not
+#: spend it, which is why T0 compiled context (TRD §6) is the cheapest way to buy it back.
 RETRIEVAL_BUDGET_MS: Final[float] = 100.0
 
-#: The headline targets (`docs/TRD.md:280`: "Voice-to-voice target: **p50 ≤ 1.1s, p95 ≤
-#: 1.8s**"), in
-#: milliseconds so they compose with the legs above without a unit conversion at the point
-#: of comparison.
+#: WHAT THE CALLER'S AUDIO PAYS TO REACH THE ORCHESTRATOR AND COME BACK, AND WHY IT IS
+#: DECLARED RATHER THAN LEFT IN THE HEADROOM.
 #:
-#: NOTHING IN THIS REPOSITORY CAN MEASURE THESE. Both ends of the interval sit on the
-#: caller's PSTN leg and our stack is not in the audio path (D-25) — TRD §4a finding 1. They
-#: are here so the composition can be CHECKED (`latency_budget_composes`) and so a report
-#: can print the whole budget rather than one quarter of it; they are never a verdict about
-#: an engine-reported turn, which is a different and smaller quantity.
-VOICE_TO_VOICE_P50_TARGET_MS: Final[float] = 1100.0
-VOICE_TO_VOICE_P95_TARGET_MS: Final[float] = 1800.0
+#: The engine's own guide: *"A caller in India connecting to a US-hosted telephony provider
+#: adds ~100-200ms round-trip"* (VERIFIED-VENDOR-DOCS: `latency.md:95`, read 27 Aug 2026).
+#: 100 is the floor of that range, on the same floor-allocation rule as every leg above.
+#:
+#: **AND WE CANNOT OPT OUT OF IT WHILE WE HOLD OUR OWN VENDOR KEYS.** Their Indian-server
+#: routing has five requirements, and the fifth is: *"Use Bolna's default provider
+#: integrations. Do not connect your own API keys"* — with the consequence spelled out,
+#: *"If you connect your own API keys for any provider (transcriber, synthesizer, or LLM),
+#: calls will automatically route through US servers regardless of other configuration
+#: settings"* (`bolna-findings/mirror/pages/enterprise/indian-server-configuration.md:63-69`).
+#: This product is BYOK by construction (the founder holds the vendor accounts and installs
+#: the keys), so every call is processed in `us-east-1` (`concepts/security.md:29`) and this
+#: crossing is on the caller's audio path on every single turn.
+INDIA_US_TRANSIT_FLOOR_MS: Final[float] = 100.0
+
+#: WHAT WE ACTUALLY SHIP TODAY FOR THE TURN-DETECTION STAGE, WHICH IS 6.5x ITS BUDGET.
+#:
+#: Two engine defaults we have never overridden, summed: `transcriber.endpointing`
+#: (`default: 250`) and `incremental_delay` (`default: 400`, *"the linear delay to add
+#: before speaking everytime we get a partial transcript from ASR"*) — VERIFIED-VENDOR-DOCS,
+#: `bolna-findings/mirror/pages/api-reference/agent/v2/create.md:1055-1058` and `:418-427`.
+#: Their console documents the same pair as the two "Response Latency" controls and
+#: recommends *"Endpointing around 200-300ms and Linear Delay around 400-500ms"* for
+#: natural conversation (`agent-setup/engine-tab.md:56,64`). Our agent payload sends
+#: neither key (`apps/api/engine/bolna.py`), so every published agent inherits both.
+#:
+#: DECLARED HERE, NOT SILENTLY, because it is the single largest term in the gap and it is
+#: the one term that is a CONFIGURATION rather than a physical cost. It is not part of
+#: `PIPELINE_BUDGET_MS`: this is what we run, and the budget is what we allow.
+#:
+#: ⚠ ONE HALF IS UNVERIFIED: whether `incremental_delay` adds to the endpointing wait on
+#: every turn, or only on turns that arrive as partial transcripts. Two vendor pages
+#: disagree by omission — the stage diagram at `latency.md:17-29` has no linear-delay stage
+#: at all, while the schema and the console both make it a separate wait. Settled by
+#: OPERATIONS §2 gate 4 with a stopwatch, not from a document.
+INHERITED_TURN_DETECTION_MS: Final[float] = 650.0
+
+#: THE HEADLINE TARGET: 500ms from the caller's last syllable to the first sound of the
+#: reply, set by the founder on 27 Aug 2026. It replaces "p50 ≤ 1.1s", which TRD §4 called
+#: an honest target for a cascade pipeline.
+#:
+#: NOTHING IN THIS REPOSITORY CAN MEASURE IT. Both ends sit on the caller's PSTN leg and
+#: our stack is not in the audio path (D-25) — TRD §4a finding 1. It is here so the
+#: composition can be CHECKED (`latency_budget_composes`) and so a report can print the
+#: whole budget rather than one quarter of it; it is never a verdict about an
+#: engine-reported turn, which is a different and smaller quantity.
+#:
+#: FOR SCALE, THE ENGINE'S OWN AMBITION IS LOWER THAN OURS: *"Bolna targets sub-600ms
+#: end-to-end for a natural conversation feel"* (`latency.md:9`).
+VOICE_TO_VOICE_P50_TARGET_MS: Final[float] = 500.0
+
+#: The tail target. ⚠ **SET BY THIS SESSION, NOT BY THE FOUNDER, AND DERIVED FROM NOTHING
+#: MEASURED.** The founder set ONE number (500ms) and it is the typical-reply target; a
+#: p95 below or equal to a p50 is incoherent, and the model has the field, so a figure had
+#: to be written. 800ms is a DECISION and is marked PROVISIONAL in TRD §4a — it is the
+#: first number to change when the founder sets a tail, and no argument in this repository
+#: should be built on it. It is not evidence and must not be quoted as one.
+VOICE_TO_VOICE_P95_TARGET_MS: Final[float] = 800.0
 
 #: What one turn may spend inside the engine's own pipeline: STT + LLM TTFT + TTS TTFA.
 #: DERIVED, never typed — this is the budget `TurnLatency.component_sum_ms` is judged
 #: against, and the two must be the same three legs or the comparison is between different
-#: quantities wearing one name.
+#: quantities wearing one name. ENDPOINTING IS DELIBERATELY NOT IN IT: the engine reports
+#: no endpointing figure, so putting it here would make the target and the observation
+#: different quantities.
 TURN_BUDGET_MS: Final[float] = STT_BUDGET_MS + LLM_TTFT_BUDGET_MS + TTS_TTFA_BUDGET_MS
 
-#: The whole in-call pipeline: the turn above plus one retrieval. Derived for the same
-#: reason, and it is the figure that has to fit inside the voice-to-voice p50 target with
-#: something left over for the network the engine is not measuring.
-PIPELINE_BUDGET_MS: Final[float] = TURN_BUDGET_MS + RETRIEVAL_BUDGET_MS
+#: The whole in-call pipeline: deciding the caller stopped, the turn above, and one
+#: retrieval. Derived for the same reason.
+PIPELINE_BUDGET_MS: Final[float] = ENDPOINTING_BUDGET_MS + TURN_BUDGET_MS + RETRIEVAL_BUDGET_MS
+
+#: THE BEST CASE THE EVIDENCE SUPPORTS: every declared stage at its vendor's published
+#: floor, plus the ocean crossing BYOK pins us to. Derived. This is the figure that is
+#: compared with the founder's target, and the comparison is the deliverable.
+VOICE_TO_VOICE_FLOOR_MS: Final[float] = PIPELINE_BUDGET_MS + INDIA_US_TRANSIT_FLOOR_MS
+
+
+def voice_to_voice_gap_ms() -> float:
+    """By how much the floor-allocated budget MISSES the target. Positive means missed.
+
+    The one number this whole block exists to publish. It is derived from
+    `LatencyBudget.voice_to_voice_headroom_p50_ms` rather than re-added here, so the screen,
+    the guard and the document cannot disagree about it.
+    """
+    return -LATENCY_BUDGET.voice_to_voice_headroom_p50_ms
 
 
 def latency_budget_composes() -> bool:
-    """Do the declared sub-budgets still fit inside the declared headline target?
+    """Do the declared sub-budgets fit inside the declared headline target?
 
-    THE GUARD, and it exists because TRD §4 states six numbers that are only meaningful
-    together: 300 + 350 + 300 + 100 = 1050ms of pipeline against a 1100ms p50, i.e. 50ms of
-    headroom for everything neither we nor the engine measures — the caller's own network,
-    the carrier leg, the orchestrator's hops. Move one leg up by more than that and the
-    sub-budgets no longer describe the target they were cut from, silently.
+    **IT RETURNS FALSE TODAY, AND THAT IS THE HONEST ANSWER, NOT A BROKEN TEST.** 100 + 70
+    + 150 + 80 + 100 + 100 = 600ms of floor-allocated pipeline against a 500ms target: the
+    gap is 100ms before a single leg misses its own floor, and the shipped turn-detection
+    configuration adds 550ms more on top (`INHERITED_TURN_DETECTION_MS`). The guard exists
+    so that state is a value a screen can render and a document can cite — the alternative
+    is a target that quietly becomes whatever the parts add up to, which is the failure
+    every comment in this block is written against.
 
-    ORDERING, NOT EQUALITY. `<=` rather than `==` on purpose: the sub-budgets are a cut of
-    the target with slack deliberately left in it, and an equality would make the arithmetic
-    accidental — the next person to buy back 20ms on the TTS leg would have to widen another
-    leg to keep a test green, which is exactly backwards.
+    ORDERING, NOT EQUALITY. `<=` rather than `==` on purpose: a budget with slack in it is
+    the good case, and an equality would make the next person who buys back 20ms on the TTS
+    leg widen another leg to keep a test green, which is exactly backwards.
     """
-    return PIPELINE_BUDGET_MS <= VOICE_TO_VOICE_P50_TARGET_MS and (
+    return LATENCY_BUDGET.voice_to_voice_headroom_p50_ms >= 0 and (
         VOICE_TO_VOICE_P50_TARGET_MS < VOICE_TO_VOICE_P95_TARGET_MS
     )
 
@@ -2752,33 +2916,48 @@ class LatencyBudget(BaseModel):
 
     Exists so a surface that judges a latency carries every target rather than the one leg
     it happens to summarise — the defect this model was written for is an operator screen
-    printing "target for the first reply: 350 ms" as though it were the budget, when it is
+    printing "target for the first reply: 350 ms" as though it were the budget, when it was
     one of four legs inside a 1.1s voice-to-voice p50.
+
+    **IT NOW ALSO CARRIES THE GAP**, because the budget no longer fits inside the target
+    (see `latency_budget_composes`). `composes` and `voice_to_voice_headroom_p50_ms` are
+    computed here and shipped, so the console states the shortfall in the operator's own
+    words instead of a CI job failing where no operator is looking.
 
     FROZEN, and every field defaults to the module constant above. It is a CARRIER, not a
     second declaration: nothing constructs it with different numbers, and a caller that
     wants the budget wants `LATENCY_BUDGET`.
 
-    The three composed figures are `computed_field`s rather than plain properties so they
-    reach the wire — a browser that had to add the legs up itself would be computing a
-    target, which is the one thing every surface here is forbidden to do.
+    The composed figures are `computed_field`s rather than plain properties so they reach
+    the wire — a browser that had to add the legs up itself would be computing a target,
+    which is the one thing every surface here is forbidden to do.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    #: `docs/TRD.md:281`, "STT finalization ≤300ms". See `STT_BUDGET_MS` for the unit caveat that
-    #: attaches to observations of this leg, not to the target.
+    #: The stage TRD §4 used to omit: deciding the caller has finished. See
+    #: `ENDPOINTING_BUDGET_MS` — vendor floor, not what we ship.
+    endpointing_ms: float = ENDPOINTING_BUDGET_MS
+    #: See `STT_BUDGET_MS` for the unit caveat that attaches to observations of this leg,
+    #: not to the target.
     stt_ms: float = STT_BUDGET_MS
-    #: `docs/TRD.md:282`, "LLM TTFT ≤350ms".
+    #: See `LLM_TTFT_BUDGET_MS`: the figure is the engine's for OpenAI direct, and is
+    #: UNVERIFIED on the Azure deployment we actually call.
     llm_ttft_ms: float = LLM_TTFT_BUDGET_MS
-    #: `docs/TRD.md:284`, "TTS TTFA ≤300ms streaming".
+    #: See `TTS_TTFA_BUDGET_MS`: PROVISIONAL — no Sarvam streaming figure is readable here.
     tts_ttfa_ms: float = TTS_TTFA_BUDGET_MS
-    #: `docs/TRD.md:284`, "retrieval ≤100ms (see §6)". No engine measurement exists for it.
+    #: No engine measurement exists for it; ours to instrument.
     retrieval_ms: float = RETRIEVAL_BUDGET_MS
-    #: `docs/TRD.md:280`, "p50 ≤ 1.1s". Unmeasurable from our side (§4a finding 1).
+    #: The caller's own crossing to a US orchestrator, which BYOK makes unavoidable.
+    india_us_transit_floor_ms: float = INDIA_US_TRANSIT_FLOOR_MS
+    #: What the shipped agent config actually waits before the pipeline starts. NOT part of
+    #: any composed total — it is what we run, against what we allow.
+    inherited_turn_detection_ms: float = INHERITED_TURN_DETECTION_MS
+    #: The founder's number. Unmeasurable from our side (§4a finding 1).
     voice_to_voice_p50_ms: float = VOICE_TO_VOICE_P50_TARGET_MS
-    #: `docs/TRD.md:280`, "p95 ≤ 1.8s". Unmeasurable from our side, and §4a finding 2 records that
-    #: ten pilot calls cannot confirm it either — n >= 59 clean samples can.
+    #: PROVISIONAL, set by this session and not by the founder (§4a). Unmeasurable from our
+    #: side, and §4a finding 2 records that ten pilot calls cannot confirm a tail either —
+    #: n >= 59 clean samples can.
     voice_to_voice_p95_ms: float = VOICE_TO_VOICE_P95_TARGET_MS
 
     @computed_field  # type: ignore[prop-decorator]
@@ -2790,19 +2969,36 @@ class LatencyBudget(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pipeline_ms(self) -> float:
-        """The turn plus one retrieval: every sub-budget TRD §4 lists, added up."""
-        return self.turn_ms + self.retrieval_ms
+        """Endpointing + the turn + one retrieval: every stage inside the engine."""
+        return self.endpointing_ms + self.turn_ms + self.retrieval_ms
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def voice_to_voice_floor_ms(self) -> float:
+        """The pipeline plus the caller's crossing — the best case the evidence supports."""
+        return self.pipeline_ms + self.india_us_transit_floor_ms
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def voice_to_voice_headroom_p50_ms(self) -> float:
-        """What the p50 target leaves for everything nobody here measures.
+        """What the target leaves once the floor-allocated stages are spent.
 
-        The caller's own network, the carrier leg, the orchestrator's hops. Published
-        rather than left to the reader precisely because it is small: 50ms on a 1100ms
-        target is the number that says the budget is a cut of the target and not a wish.
+        NEGATIVE TODAY, and it is published rather than left to the reader precisely
+        because of that: -100ms means the stages already cost more than the caller is
+        allowed to wait, before any leg misses the fastest figure its vendor prints.
         """
-        return self.voice_to_voice_p50_ms - self.pipeline_ms
+        return self.voice_to_voice_p50_ms - self.voice_to_voice_floor_ms
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def composes(self) -> bool:
+        """Does the declared budget fit inside the declared target? False today.
+
+        A FIELD rather than a comparison left to each consumer: the console must state the
+        shortfall, and a screen that re-derived the verdict from two numbers would be
+        computing a target in the place least able to defend it.
+        """
+        return self.voice_to_voice_headroom_p50_ms >= 0
 
 
 #: THE budget. One instance, so no surface can be judged against a private copy.

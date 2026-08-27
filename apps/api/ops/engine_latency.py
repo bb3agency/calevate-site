@@ -6,18 +6,26 @@
 time-to-first-token alone, against the one budget this repository had ever written down —
 so a turn that spent 900ms in the transcriber and 120ms in the model was reported as
 comfortably within target, and the operator screen printed 350ms as though it were the
-whole constraint. TRD §4 declares four sub-budgets adding to 1050ms inside a 1.1s
-voice-to-voice p50; `calevate_shared.engine.LATENCY_BUDGET` is now the single declaration
-of all of them, the composed turn budget is DERIVED from its parts, and every leg here is
-judged against its own. A target is never computed from the observations it judges — TRD
-§4a records that every one of these figures is unmeasured, and the slots where a measured
-number may one day replace them.
+whole constraint. `calevate_shared.engine.LATENCY_BUDGET` is now the single declaration of
+every target TRD §4 carries, the composed totals are DERIVED from their parts, and every
+leg here is judged against its own. A target is never computed from the observations it
+judges — TRD §4a records that every one of these figures is unmeasured, and the slots where
+a measured number may one day replace them.
+
+**AND SINCE 27 Aug 2026 IT ALSO CARRIES A GAP.** The founder set voice-to-voice at 500ms;
+the budget, with every stage allocated at the FASTEST figure its vendor publishes, floors
+at 600ms (`LatencyBudget.voice_to_voice_floor_ms`). So `budget.composes` is False and
+`voice_to_voice_headroom_p50_ms` is negative, and both travel with this report on purpose:
+a shortfall that only a CI job can see is a shortfall nobody watching a console will ever
+read. `LatencyBudget.inherited_turn_detection_ms` is the other half of it — 650ms of
+vendor-default waiting we have never overridden, against a 100ms endpointing budget.
 
 **THE QUESTION THIS ANSWERS, AND WHY IT SURVIVED THE ANSWER.** D-410 pinned the language
 model to an Azure deployment in South India while the engine's orchestrator is US-hosted
 (`bolna-findings/mirror/pages/concepts/security.md:29`), which made every conversational
-turn's LLM call a US->India->US round trip on the caller's audio path, inside a 350ms TTFT
-budget (TRD §4). A us-east↔Mumbai round trip is conventionally quoted at 180-230ms — most
+turn's LLM call a US->India->US round trip on the caller's audio path, inside the TTFT
+budget (TRD §4; 350ms then, 150ms now). A us-east/Mumbai round trip is conventionally
+quoted at 180-230ms — most
 of that budget spent on geography before the model thinks — but that is an estimate off the
 internet, and TRD §4a records that every latency figure in this repo is a TARGET with zero
 measurements behind it.
@@ -153,11 +161,16 @@ LIMIT :cap
 #: TTS TTFA for the same turn — and it is a member of this union rather than a field beside
 #: it so that every leg is summarised by one function under one set of sample-size rules.
 #:
-#: `retrieval` IS DELIBERATELY ABSENT. TRD §4 budgets it at 100ms (§6) and `LatencyBudget`
-#: carries that target, but the engine's `latency_data` has no retrieval block and
-#: `call_engine_latency` therefore holds no sample: the in-call RAG tool endpoint is OURS
-#: and is not instrumented here. A member with no distribution behind it would be a column
-#: of em dashes inviting the reader to conclude retrieval is fast.
+#: `retrieval` AND `endpointing` ARE DELIBERATELY ABSENT, for the same reason and with
+#: different consequences. TRD §4 budgets a retrieval at 100ms (§6) and, since 27 Aug 2026,
+#: an endpointing wait at 100ms; `LatencyBudget` carries both targets. Neither has a sample
+#: here: the engine's `latency_data` has no retrieval block, and it reports no endpointing
+#: figure at all — the wait is INSIDE `time_to_first_audio` (*"Endpointing (50-300ms)"* is
+#: the first stage of the total, `bolna-findings/mirror/pages/concepts/latency.md:17-31`)
+#: but outside `audio_to_text_latency`, which starts at audio in. A member with no
+#: distribution behind it would be a column of em dashes inviting the reader to conclude
+#: the stage is fast — and on endpointing that would be exactly wrong, because the shipped
+#: configuration waits 650ms there (`LatencyBudget.inherited_turn_detection_ms`).
 LatencyLeg = Literal["stt", "llm_ttft", "tts_ttfa", "turn"]
 
 #: The legs in the order a turn spends them, composed leg last. Rendering order is a
@@ -234,8 +247,10 @@ class EngineLatencyReport(BaseModel):
     It carried `llm_ttft_budget_ms` alone, so the console it feeds printed "target for the
     first reply: 350 ms" as though it were the budget — one quarter of a 1.1s voice-to-voice
     p50, presented as the whole constraint. Publishing `LatencyBudget` puts every target on
-    the wire, including the two nothing here can measure and the retrieval leg nothing here
-    samples, so a reader can see what the four numbers add up to instead of inferring it.
+    the wire, including the two nothing here can measure and the two legs nothing here
+    samples, so a reader can see what the stages add up to instead of inferring it — and,
+    since the target became 500ms, whether they add up to MORE than the caller is allowed to
+    wait (`budget.composes`).
     """
 
     window_days: int

@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -69,6 +69,7 @@ from apps.api.compliance.service import (
 )
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
@@ -144,6 +145,11 @@ class _CampaignFacts:
     agent_direction: str | None
     agent_deleted: bool
     consent_source: str | None
+    #: WHEN the list's consent was collected. Written and validated by
+    #: `_validated_provenance` since the provenance gate shipped, and read by NOTHING
+    #: until `_consent_age_blocker` below — the column existed, the date was true, and a
+    #: list collected in 2019 launched today with a green gate.
+    consent_collected_at: datetime | None
 
 
 async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _CampaignFacts:
@@ -160,7 +166,7 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
                 # tenant's own decision, and never a launch blocker.
                 "  a.status AS agent_status, a.ai_disclosure_line, "
                 "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
-                "  c.consent_source "
+                "  c.consent_source, c.consent_collected_at "
                 "FROM campaigns c "
                 "LEFT JOIN dlt_templates t ON t.id = c.dlt_template_id "
                 "LEFT JOIN phone_numbers n ON n.id = c.number_id "
@@ -187,6 +193,7 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         agent_direction=row[11],
         agent_deleted=row[12] is not None,
         consent_source=row[13],
+        consent_collected_at=row[14],
     )
 
 
@@ -216,8 +223,54 @@ async def _entity_blockers(
         blockers.append(LaunchBlocker("consent_provenance_missing", NO_PROVENANCE_REASON))
     elif facts.consent_source in REFUSED_CONSENT_SOURCES:
         blockers.append(LaunchBlocker("consent_source_refused", PURCHASED_LIST_REASON))
+    else:
+        # Only once the source is present and permitted: telling a client their consent
+        # is too old when they have not recorded one at all is the wrong next action, and
+        # a purchased list is refused outright however recent it is.
+        stale = _consent_age_blocker(facts.consent_collected_at)
+        if stale is not None:
+            blockers.append(stale)
 
     return blockers
+
+
+def _consent_age_blocker(collected_at: datetime | None) -> LaunchBlocker | None:
+    """Is this list's consent too old to dial on? SEC-COMP §3's fourth bullet, aged.
+
+    **THE MECHANISM IS OURS; THE NUMBER IS NOT.** `campaigns.consent_collected_at` has
+    been written, enum-paired and refused-if-in-the-future since the provenance gate
+    shipped, and nothing anywhere read it — so the gate proved that a date EXISTED and
+    never that it was recent. Our own research says consent is time-boxed in both
+    directions under the TCCCPR Second Amendment of 12 Feb 2025
+    (`apps/api/compliance/consent.py`, the researched note: transaction-tied consent to
+    seven days, inferred consent to the life of the relationship), and the messaging leg
+    already ages an opt-in for exactly that reason. What that research does NOT give is a
+    period for an uploaded marketing list, so the threshold is
+    `settings.campaign_consent_max_age_days` — a config row whose default (365) is stated
+    as ours-by-analogy with the messaging window and whose authority is counsel, routed
+    through LEGAL-OPS-PLAYBOOK §20 (hard rule 11: no sentence here may claim the number
+    is the law's). `0` turns the age check off and leaves every other provenance blocker
+    running.
+
+    A NULL DATE IS NOT A BLOCKER HERE. `_validated_provenance` makes source and date
+    inseparable — you cannot have one without the other — so by the time this runs a
+    present source means a present date. A row that predates the columns has neither and
+    is already refused by `consent_provenance_missing`, which is the accurate reason.
+    """
+    max_age = get_settings().campaign_consent_max_age_days
+    if max_age <= 0 or collected_at is None:
+        return None
+    collected = collected_at if collected_at.tzinfo else collected_at.replace(tzinfo=UTC)
+    if collected + timedelta(days=max_age) > datetime.now(UTC):
+        return None
+    return LaunchBlocker(
+        "consent_too_old",
+        # The AGE, never the date: a launch preview is a client-facing surface and the
+        # actionable half is "re-collect it", not a timestamp they already have on file.
+        f"The consent recorded for this list is more than {max_age} days old. Calevate "
+        "does not dial a list on a permission that has aged out. Re-confirm the contacts' "
+        "consent and record the new date before launching.",
+    )
 
 
 def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:

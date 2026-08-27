@@ -277,77 +277,238 @@ unchanged, on its own triggers (ROADMAP §5).
 
 ## 4. Latency Budget (the governing constraint)
 
-Voice-to-voice target: **p50 ≤ 1.1s, p95 ≤ 1.8s** (honest target for a cascade pipeline;
-<800ms is aspirational, achieved by masking not magic). Sub-budgets: STT finalization
-≤300ms; LLM TTFT ≤350ms (short system prompt — hot facts only, catalog goes to RAG; a
-bloated prompt raises TTFT and hallucination together; the ~2.5k budget in
-PROMPT-GUIDE §2 stands regardless of engine); TTS TTFA ≤300ms streaming; retrieval ≤100ms (see §6).
-Techniques (required): streaming end-to-end; filler utterances fired the moment a tool
-call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; and the
-shortest network path the declared posture allows — ⚠ **which is NO LONGER an India-only
-one, and this line said it was until 22 Aug 2026.** D-449 moved the language leg to Azure
-OpenAI `eastus2`, beside the engine's US-hosted orchestrator
-(`bolna-findings/mirror/pages/concepts/security.md:29`, AWS us-east-1), precisely to delete
-a us-east-1 → `southindia` → us-east-1 round trip inside this 350ms TTFT budget. Speech
-stays Sarvam and Indian, so the in-call path now crosses the ocean once on the language
-leg by design instead of twice by accident — and the India residency claim was WITHDRAWN
-to buy it, not narrowed. **The rule stands and the MECHANISM now exists for three of the
-four numbers** (D-445; this paragraph said "nothing records them today" until it did):
-`stt_ms`, `llm_ttft_ms` and `tts_ttfa_ms` are captured per TURN in
-`call_engine_latency.turns`, with `time_to_first_audio_ms` and the engine's `region` code
-per call, and `GET /v1/ops/engine-latency` reports p50/p95/max/breach grouped by (engine,
-region) — which is what turns the geography question into a `GROUP BY` instead of an
-argument. What is still unrecorded is voice-to-voice `turn_ms`, which would be our own
-arithmetic over three components the engine times separately, and every one of these is
-the ENGINE measuring its own pipeline rather than an independent measurement of ours.
-`calls.latency` was DROPPED (migration
-`f1a7c39d5be2`): a column that always reads NULL is worse than none, because the next
-reader builds a dashboard on it. Every span this repo opens is on OUR side of the call —
-the post-call pipeline serving the 2-minute lead SLO — so filling it from those would have
-named the engine's 2-3 minute wait for `completed` as a caller-perceived latency.
+**Voice-to-voice target: p50 ≤ 500ms** — from the caller finishing their sentence to
+hearing the reply begin. Set by the founder on 27 Aug 2026; it replaces "p50 ≤ 1.1s, p95 ≤
+1.8s", which this section called *"an honest target for a cascade pipeline"* while calling
+sub-800ms *"aspirational, achieved by masking not magic"*. **That sentence is withdrawn as
+a description of what we now promise, and it is not replaced by a claim that 500ms is
+reachable.** What is true after this change is narrower and is the whole of §4:
 
-**Bolna does document per-component latency** (`latency_data` on Get Execution:
-`time_to_first_audio` plus transcriber/llm/synthesizer blocks), which supersedes the older
-"no per-turn timings" reading — but it is UNVERIFIED against a live account, it is a
-DIFFERENT set of numbers from the four above (voice-to-voice turn latency would be our own
+> **THE DECLARED BUDGET DOES NOT FIT INSIDE THE TARGET, AND NOTHING IN THIS SECTION
+> PRETENDS OTHERWISE.** Allocating every stage at the FASTEST figure its own vendor
+> publishes, the pipeline floors at **600ms** against a 500ms target — a **100ms shortfall
+> before any stage misses its own best case**. `calevate_shared.engine.
+> latency_budget_composes()` returns **False**, `voice_to_voice_gap_ms()` is **+100**, and
+> `GET /v1/ops/engine-latency` ships the shortfall on every report so an operator sees it
+> on the console rather than in a CI log. §4b lists what would have to change; the target
+> was NOT relaxed to make the arithmetic work, which is the one response the founder ruled
+> out.
+
+**p95 ≤ 800ms — PROVISIONAL, set by this session and not by the founder.** One number was
+set (500ms, the typical reply); a p95 at or below a p50 is incoherent and the budget object
+has the field, so a figure had to be written. It rests on nothing measured and nothing
+published: do not build an argument on it, and replace it the moment a tail is set.
+
+### The stages, and the evidence each figure came from
+
+Every allocation below is a FLOOR: the fastest number the responsible vendor prints for
+that stage, read this session at the cited page and line. That is deliberate — a budget cut
+to fit 500ms would prove nothing, while a budget at the vendors' own floors makes the
+shortfall an argument about physics and configuration rather than about our ambition.
+
+| Stage | Budget | Evidence for the floor | Class |
+|---|---|---|---|
+| **Endpointing** (deciding the caller stopped) | 100ms | *"Decrease toward 100ms for fast-paced sales scripts"* — `bolna-findings/mirror/pages/concepts/latency.md:48`; the stage itself is `:17-29` (*"Endpointing (50–300ms)"*) | VERIFIED-VENDOR-DOCS (27 Aug 2026) |
+| **STT finalization** | 70ms | Sarvam's own *"~70ms matches Sarvam STT processing latency"* — `sarvamai/skills`, `voice-agents/SKILL.md:57` (raw.githubusercontent, 27 Aug 2026); inside the engine's *"Transcription (50–150ms)"* (`latency.md:24`, `:54`) | VENDOR-PUBLISHED |
+| **LLM TTFT** | 150ms | *"OpenAI gpt-4.1-mini \| ~150ms"* — `latency.md:66`; stage range *"LLM first token (100–400ms)"* (`:24`) | VERIFIED-VENDOR-DOCS, **but see the Azure caveat below** |
+| **TTS TTFA** (streaming) | 80ms | Floor of *"Synthesis first chunk (80–200ms)"* — `latency.md:24` | VERIFIED-VENDOR-DOCS for the STAGE; **UNVERIFIED for Sarvam** |
+| **Retrieval** (§6) | 100ms | Ours. No vendor bounds it; the in-call RAG endpoint is ours and uninstrumented | TARGET — unmeasured |
+| **India → US → India transit** | 100ms | *"A caller in India connecting to a US-hosted telephony provider adds ~100–200ms round-trip"* — `latency.md:95` | VERIFIED-VENDOR-DOCS |
+| **= floor for one reply** | **600ms** | 100 + (70 + 150 + 80) + 100 + 100, derived in code, never re-typed | |
+
+The prompt discipline that protects the LLM leg is unchanged and matters more at 150ms than
+it did at 350ms: a short system prompt (hot facts only, catalog to RAG; the ~2.5k budget in
+PROMPT-GUIDE §2 stands regardless of engine), because *"Larger prompts increase TTFT"*
+(Microsoft, `azure-ai-docs` `articles/foundry/openai/includes/how-to-latency-content.md:110`)
+and a bloated prompt raises TTFT and hallucination together.
+
+### Three findings that change how every number above should be read
+
+**1. THE BUDGET WAS MISSING A STAGE, AND THAT IS THE MOST IMPORTANT THING IN THIS SECTION.**
+§4 measured from "the caller finishing their sentence" and then budgeted four stages, none
+of which is the wait that DETECTS the finishing. The engine's own stage diagram opens with
+it and says time-to-first-audio is *"the total of these stages"*
+(`concepts/latency.md:17-31`). A budget that omits a stage is not a budget: it was silently
+charging endpointing to the 50ms of headroom the old target left. **And the omitted stage is
+the largest single term in the overrun**: we send neither knob, so every published agent
+inherits `transcriber.endpointing` = **250ms** and `incremental_delay` = **400ms** (the
+*"linear delay to add before speaking everytime we get a partial transcript from ASR"*) —
+`api-reference/agent/v2/create.md:1055-1058` and `:418-427`, matching the console's own
+recommendation of *"Endpointing around 200-300ms and Linear Delay around 400-500ms"*
+(`agent-setup/engine-tab.md:56,64`). **650ms of waiting, against a 100ms budget, before the
+pipeline starts.** ⚠ Whether `incremental_delay` adds on every turn or only on partial
+transcripts is UNVERIFIED — two vendor pages disagree by omission — and gate 4 settles it
+with a stopwatch, not from a document.
+
+**2. BYOK PINS US TO US SERVERS, SO THE OCEAN CROSSING IS NOT OPTIONAL.** Indian-server
+routing has five requirements and the fifth is *"Use Bolna's default provider integrations.
+Do not connect your own API keys"*, with the consequence stated: *"If you connect your own
+API keys for any provider (transcriber, synthesizer, or LLM), calls will automatically route
+through US servers regardless of other configuration settings"*
+(`enterprise/indian-server-configuration.md:63-69`). This product is BYOK by construction,
+so every call is processed in `us-east-1` (`concepts/security.md:29`) and the caller's audio
+crosses the ocean on every turn. It was previously hidden inside "headroom"; it is now
+declared (`INDIA_US_TRANSIT_FLOOR_MS`) because a cost that is on every turn and cannot be
+opted out of is part of the budget, not part of the slack.
+
+**3. THE LLM FIGURE IS THE ENGINE'S, FOR A LEG WE DO NOT RUN.** ~150ms is Bolna's published
+typical TTFT for **OpenAI direct**. We run **Azure OpenAI in `eastus2`**, and **Microsoft
+publishes no per-model TTFT at all**: their latency article gives the formula `TTLT = TTFT +
+(TBT × Tokens Generated)` and a metrics catalogue, and its only model-choice guidance is
+*"If your use case requires the lowest latency models ... we recommend the latest GPT-4o mini
+model"* — with no number anywhere on the page (`MicrosoftDocs/azure-ai-docs@d002f330`,
+`articles/foundry/openai/includes/how-to-latency-content.md:88,151`, `ms.date` 05/14/2026,
+read 27 Aug 2026). The same page names a cost we have not quantified: *"The addition of
+content filtering comes with an increase in safety, but also latency"* (`:191`). So the LLM
+leg's floor is **UNVERIFIED on the leg we actually run**, and the direction of the error is
+unknown.
+
+### Techniques: what is required, and what is actually implemented
+
+Checked in the code this session rather than recalled:
+
+* **Streaming end-to-end — IMPLEMENTED.** The agent payload sends `synthesizer.stream: true`
+  and `transcriber.stream: true` (`apps/api/engine/bolna.py`), and the engine starts
+  synthesising *"as soon as the LLM emits the first sentence"* (`latency.md:77`). There is
+  no further latency to buy here: it is already on.
+* **Filler utterances at tool-call start — IMPLEMENTED.** `actions.pre_call_message` is
+  stored per tool and sent as the vendor's `pre_call_message` on each custom function
+  (`apps/api/engine/bolna.py:791-792`). It masks the external round trip; it does NOT mask
+  the per-turn pipeline, which is what the 500ms target is about.
+* **Brief agent replies enforced in prompt — unchanged**, and `max_tokens` is set explicitly
+  per model rather than inherited (`_llm_trap_settings`), which Microsoft names as a latency
+  lever (*"Set the `max_tokens` parameter on each call as low as possible"*, `:169` region of
+  the same article).
+* **The shortest network path the declared posture allows — done, and spent.** D-449 moved
+  the language leg to `eastus2` beside the orchestrator precisely to delete a
+  us-east-1 → `southindia` → us-east-1 round trip inside the TTFT budget; the India residency
+  claim was WITHDRAWN to buy it, not narrowed. What that did NOT buy back is finding 2's
+  crossing, which is the CALLER's, not the model's.
+* **`synthesizer.buffer_size` — NOT set, and inherited at double the vendor's own advice**:
+  `default: 250` (`create.md:654-657`) against *"A buffer of 100–150 characters is typical"*
+  and *"Smaller buffers start audio sooner"* (`latency.md:89`).
+
+**The measurement mechanism exists for three of the stages.** `stt_ms`, `llm_ttft_ms` and
+`tts_ttfa_ms` are captured per TURN in `call_engine_latency.turns`, with
+`time_to_first_audio_ms` and the engine's `region` code per call, and
+`GET /v1/ops/engine-latency` reports p50/p95/max/breach grouped by (engine, region) — which
+turns the geography question into a `GROUP BY` instead of an argument. **No mechanism exists
+for endpointing or retrieval**: the engine reports no endpointing figure (the wait is inside
+`time_to_first_audio` and outside `audio_to_text_latency`, which starts at audio in), and the
+in-call RAG endpoint is ours and uninstrumented. `calls.latency` was DROPPED (migration
+`f1a7c39d5be2`): a column that always reads NULL is worse than none, because the next reader
+builds a dashboard on it.
+
+**Bolna documents per-component latency** (`latency_data` on Get Execution:
+`time_to_first_audio` plus transcriber/llm/synthesizer blocks) — but it is UNVERIFIED against
+a live account, it is a DIFFERENT set of numbers from voice-to-voice (which would be our own
 arithmetic aligning three components), and its documented `transcriber.turns` entries carry
 recognised TEXT, which a naive mapper would land in a column with no redacted counterpart
 (hard rules 5/6). So it is captured as a fixture at OPERATIONS §2 gate 4, beside the
-stopwatch that can falsify it, and the storage shape is chosen from the payload we actually
-receive — no latency work without measurement, and no measurement invented to fill the gap.
+stopwatch that can falsify it — no latency work without measurement, and no measurement
+invented to fill the gap.
 
 ### 4a. Where the measured numbers replace the targets (gate 4's landing zone)
 
 **Every number in §4 above is a TARGET and we hold zero measurements.** This block is the
-only place a measured number may be written in, and it names the slots so a later reader
-can tell at a glance which figures above have been earned. Nothing here is filled in yet.
+only place a measured number may be written in, and it names the slots so a later reader can
+tell at a glance which figures above have been earned. Nothing here is filled in yet.
 
 | §4 figure | status | replaced by | source |
 |---|---|---|---|
-| voice-to-voice p50 ≤ 1.1s | TARGET — unmeasured | median + its 97.9% order-statistic interval | gate 4 stopwatch/recording, via `scripts/pilot/latency.py` |
-| voice-to-voice p95 ≤ 1.8s | TARGET — unmeasured, and **not confirmable at n=10** (see below) | exceedance count + exact binomial bound | same |
+| voice-to-voice p50 ≤ 500ms | TARGET — unmeasured, and **not reachable by the declared budget** (see the gap above) | median + its 97.9% order-statistic interval | gate 4 stopwatch/recording, via `scripts/pilot/latency.py` |
+| voice-to-voice p95 ≤ 800ms | **PROVISIONAL — set by this session, not by the founder**, and not confirmable at n=10 (see below) | a founder decision first; then exceedance count + exact binomial bound | same |
 | first-greeting delay after pickup | TARGET absent (no figure has ever been set) | its own distribution, kept separate from turn latency | same |
-| STT ≤300ms · LLM TTFT ≤350ms · TTS TTFA ≤300ms | TARGETS — unmeasured | `latency_data` transcriber/llm/synthesizer per turn | Get Execution capture, gate 4 |
+| endpointing ≤100ms | TARGET — unmeasured, **and no mechanism measures it**; the shipped config waits 650ms | a stopwatch against two agents, one per `endpointing`/`incremental_delay` setting | gate 4 |
+| STT ≤70ms · LLM TTFT ≤150ms · TTS TTFA ≤80ms | TARGETS — unmeasured | `latency_data` transcriber/llm/synthesizer per turn | Get Execution capture, gate 4 |
 | retrieval ≤100ms (§6) | TARGET — unmeasured | out of gate 4's scope | TRD §6 bake-off |
+| India→US transit ≥100ms | VENDOR-PUBLISHED range (100–200ms), floor taken | the difference between a `region: in` run and a `region: us` run | gate 4, grouped by `region` |
+| TTS TTFA floor for **Sarvam** | **UNVERIFIED** — `docs.sarvam.ai` and `www.sarvam.ai` are egress-blocked here (403 on CONNECT, 27 Aug 2026) | Sarvam's own published streaming TTFB, or our own measurement | whoever can reach the host, or gate 4 |
+| LLM TTFT floor on **Azure** | **UNVERIFIED** — Microsoft publishes no per-model TTFT, and content filtering adds an unquantified increment | `AzureOpenAITimeToResponse` in Azure Monitor on our own deployment | ops, once the deployment exists |
 
-Three findings from building the harness, recorded here because they change how the
-figures above should be read:
+Findings from building the harness and from the 27 Aug 2026 re-budget, recorded here because
+they change how the figures above should be read:
 
-1. **Voice-to-voice latency is not measurable from our side.** Both ends of the interval
-   sit on the caller's PSTN leg and our stack is not in the audio path (D-25). It is a
-   human with a stopwatch or an offset read off a recording; only `latency_data` is an
-   automatic capture, and it is a different quantity. The harness is a ledger and a
-   comparator, not a measuring instrument.
-2. **Ten calls cannot confirm the p95 leg of gate 4.** "p95 ≤ 1.8s" is "P(turn > 1.8s)
-   ≤ 5%"; ten clean samples bound that at 25.9% (exact binomial, 95% one-sided), and
-   confirming it needs **n ≥ 59** clean samples. Ten calls CAN refute it (three
-   exceedances put the lower bound at 8.7%) and CAN answer the p50 leg. So gate 4 at ten
-   calls has three honest outcomes — PASS, FAIL, INCONCLUSIVE — and INCONCLUSIVE is the
-   expected one. Raising the gate's sample size is a decision for whoever owns it.
+1. **Voice-to-voice latency is not measurable from our side.** Both ends of the interval sit
+   on the caller's PSTN leg and our stack is not in the audio path (D-25). It is a human with
+   a stopwatch or an offset read off a recording; only `latency_data` is an automatic
+   capture, and it is a different quantity. The harness is a ledger and a comparator, not a
+   measuring instrument.
+2. **Ten calls cannot confirm the tail leg of gate 4.** "p95 ≤ T" is "P(turn > T) ≤ 5%"; ten
+   clean samples bound that at 25.9% (exact binomial, 95% one-sided), and confirming it needs
+   **n ≥ 59** clean samples. Ten calls CAN refute it and CAN answer the p50 leg. So gate 4 at
+   ten calls has three honest outcomes — PASS, FAIL, INCONCLUSIVE — and INCONCLUSIVE is the
+   expected one.
 3. **`latency_data` justifies no column until the agreement finding lands.** The storage
-   shape it would justify — and the reason a JSONB blob on `calls` is not it — is written
-   out in `STORAGE_SHAPE_FINDING` in `scripts/pilot/latency.py`. It stays a finding, not a
-   migration, exactly as the paragraph above requires.
+   shape it would justify — and the reason a JSONB blob on `calls` is not it — is written out
+   in `STORAGE_SHAPE_FINDING` in `scripts/pilot/latency.py`.
+4. **A budget that omits a stage is not a budget** (§4 finding 1). The four sub-budgets never
+   contained endpointing, so every reading of "we are within budget" for the last several
+   months would have been a reading against a pipeline missing its longest configurable wait.
+   Endpointing is now a declared leaf and part of `PIPELINE_BUDGET_MS`.
+5. **The vendor's own example is not self-consistent, so `time_to_first_audio` cannot yet be
+   used to check this budget.** `call-latencies.md:22-31` shows `time_to_first_audio: 130.84`
+   on an execution whose own LLM block reports `time_to_first_token: 1633.04` (`:99`) — a
+   total smaller than one of its parts. Until gate 4 captures a real payload, treat the
+   field's DEFINITION (`:37`) as documented and its worked VALUES as illustrative.
+
+### 4b. What would have to change to reach 500ms (evaluated from evidence, ranked by what it buys)
+
+Nothing below is scheduled; each entry says what it buys and on what evidence, or says that
+the figure is unknown. Two of them are configuration and could be done in an hour; the rest
+are decisions with prices attached.
+
+1. **Set `transcriber.endpointing` and `incremental_delay` explicitly — buys up to ~550ms,
+   and it is two integers.** Today: 250 + 400 inherited (`create.md:1055-1058`, `:418-427`).
+   The vendor's own floor for endpointing is 100ms (`latency.md:48`) and their console's
+   fast preset is 200–300 (`engine-tab.md:64`). ⚠ **The price is barge-in behaviour on
+   Telugu telephone speech, and the same page warns our exact population the other way**
+   (*"Increase to 400–500ms for callers who pause mid-sentence (non-native speakers,
+   elderly)"*). This is the largest single term in the gap and the only one that is ours to
+   set — and it moves what every caller HEARS, so it moves on gate 4's stopwatch, never on a
+   document audit.
+2. **Lower `synthesizer.buffer_size` from the inherited 250 toward 100–150 — buys an
+   unquantified part of the TTS leg.** *"Smaller buffers start audio sooner"*, *"A buffer of
+   100–150 characters is typical"* (`latency.md:89`); the schema default is 250
+   (`create.md:654-657`), roughly double the vendor's own advice. **The figure it buys is
+   UNKNOWN** — no page quantifies it — and the price is choppy speech if the synthesiser is
+   slow to respond.
+3. **Give up BYOK on the speech/LLM providers and take the vendor's own integrations — buys
+   up to the 100–200ms crossing** (`latency.md:95`) by making Indian-server routing
+   available (`indian-server-configuration.md:63-69`). **The price is the entire BYOK
+   posture**: our vendor accounts, our rate card, D-410/D-449's model control and the
+   deployment-level retirement control `scripts/check_model_lifecycle.py` consumes. It also
+   requires Plivo telephony and one of their supported provider sets. Evaluated and NOT
+   recommended here; recorded because it is the only documented way to delete the crossing
+   while staying on this engine.
+4. **A faster language model — buys an UNKNOWN amount, and possibly nothing.** The engine's
+   own table puts `gpt-4.1-mini` and `gemini-2.5-flash` at ~150ms and `gpt-4.1` at ~200ms
+   (`latency.md:64-69`), i.e. the spread across the models we offer is ~50ms, and none of
+   those figures is for Azure. Microsoft's only advice is to prefer GPT-4o mini, unnumbered
+   (`how-to-latency-content.md:151`). **This is the lever most people reach for first and the
+   evidence says it is worth less than the endpointing knob by an order of magnitude.**
+5. **A different speech vendor — buys an UNKNOWN amount and costs the product.** The vendor
+   names *"ElevenLabs Turbo and Cartesia"* as lowest-latency TTS and *"Deepgram Nova-3"* as
+   fastest STT (`latency.md:56,89`), but their Indian-language coverage is why we are on
+   Sarvam at all (`concepts/choosing-providers.md:21-22` puts Sarvam against Indian
+   languages), and Telugu is the product. No figure for Sarvam is readable from here, so the
+   size of the trade is unknown in BOTH directions.
+6. **Speculative start on partial transcripts — UNSUPPORTED BY THIS ENGINE, as far as the
+   docs go.** The engine exposes `incremental_delay` (wait longer on partials) and no
+   documented way to start the LLM on a partial and cancel it. **UNVERIFIED**: absence from
+   335 mirrored pages is not proof of absence in the API. It is also the technique whose
+   failure mode is the agent answering a question the caller had not finished asking.
+7. **Leave the rented engine (self-orchestration, TRD §10.5) — buys the architecture, not a
+   number.** It is the only route that puts endpointing, model choice, co-location and
+   speculative execution under our control at once. Its numeric triggers are already written
+   in TRD §10 and none of them is latency; nothing here changes that, and nothing here
+   justifies it either.
+
+**What NONE of these buys is a guarantee.** Even taking the two configuration wins in full,
+the floor-allocated pipeline (600ms) exceeds the target (500ms), and every leg in it is
+already the fastest figure its vendor publishes. **The honest statement to a client is that
+500ms voice-to-voice is not achievable on this pipeline as specified**; what gate 4 can
+establish is what IS achievable, measured, and that number does not exist yet.
 
 ## 5. VoiceEngine Adapter (the portability contract)
 

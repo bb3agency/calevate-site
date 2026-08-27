@@ -30,8 +30,10 @@ already 800 lines of argument about levers. Mounted in `apps/api/main.py` beside
 **WHY THE WRITES TAKE A STEP-UP CONFIRMATION.** These are not incident levers, so the
 case has to be made rather than inherited. `engine` decides which vendor every call in
 the platform is placed through. `self_serve_inr_per_min` is the price every self-serve
-client is charged. `usd_inr_rate` is stamped into `usage_events.meta` and is how a
-billed minute is re-derived a year later (hard rule 7). A stolen admin session that
+client is charged. `usd_inr_rate` is the FALLBACK the USD->INR conversion uses whenever the
+automatic rate pull has nothing fresh (D-475), and the rate a call was actually costed
+at is stamped into `usage_events.meta` — which is how a billed minute is re-derived a
+year later (hard rule 7). A stolen admin session that
 could change any of those with one POST would be able to reprice the platform or divert
 every call, silently, from a tab left open on an unlocked laptop. The confirmation names
 the KEY, so a header captured while raising a pool size cannot switch the engine.

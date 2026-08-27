@@ -29,6 +29,7 @@ import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
 import { NavDrawer } from "@/components/navDrawer";
+import { AdminCopilotDock } from "@/components/copilot/CopilotDock";
 import { OfflineBanner } from "@/components/offline";
 import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
@@ -810,6 +811,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   </main>
                 </div>
               </div>
+              {/* The screen assistant. OUTSIDE the shell `div` (which is `overflow:
+                  hidden`) so its `fixed` launcher and panel are not clipped by it, and
+                  inside `Providers` because the ceiling branch reads the AI allowance
+                  through React Query. It renders nothing at all until the screen on show
+                  declares itself — see `components/copilot/CopilotDock.tsx`. */}
+              <AdminCopilotDock />
             </ToastProvider>
           </AdminMfaGate>
         </Providers>

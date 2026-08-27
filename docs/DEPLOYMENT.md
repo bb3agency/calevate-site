@@ -1472,7 +1472,11 @@ each refusing by name, none pretending to work. Open `admin.calevate.tech/ops` a
 them: engine + `BOLNA_API_KEY`, the Sarvam stack, the four `AZURE_OPENAI_*` values
 (resource, key, deployment, model — D-410), `EMAIL_PROVIDER`
 plus its credential (`RESEND_API_KEY` for `resend`, `SMTP_*` for `smtp`) and
-`ALERTS_EMAIL`, `USD_INR_RATE`, and the GST invoice identity when the entity exists.
+`ALERTS_EMAIL`, `USD_INR_RATE` (the FALLBACK rate, since D-475: vendor costs normally
+convert at the reference rate `apps/workers/fx_pull.py` pulls every five minutes, and
+this value is what they convert at while that pull has nothing fresh — still worth
+setting accurately, and still `on_restart`), and the GST invoice identity when the
+entity exists.
 `POST /v1/ops/secrets/{key}/test` asks the vendor a cheap authenticated question before a
 credential goes live, so a wrong key is refused at the screen rather than at the first
 call. `GET /v1/ops/config` is also the pre-launch audit: it shows every key with its

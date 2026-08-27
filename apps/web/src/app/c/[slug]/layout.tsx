@@ -41,6 +41,7 @@ import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
 import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { NavDrawer } from "@/components/navDrawer";
+import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { OfflineBanner } from "@/components/offline";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
 import { clientAuthn, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
@@ -583,6 +584,12 @@ export default function ClientRealmLayout({
                 <div className="mx-auto max-w-[1280px]">{children}</div>
               </main>
             </div>
+            {/* The screen assistant. INSIDE `ClientRealmProvider`, because it reads the
+                realm session through `useClientSession()` — and therefore also carries a
+                view-as session unchanged when an operator is looking. Outside the
+                scrolling `<main>` so its `fixed` panel is not clipped. It renders nothing
+                until the screen on show declares itself. */}
+            <ClientCopilotDock />
           </ClientRealmProvider>
         </div>
       </ToastProvider>

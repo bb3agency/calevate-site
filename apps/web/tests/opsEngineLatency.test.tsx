@@ -72,20 +72,29 @@ const WINDOW_PATH = (days: number) => `${ENGINE_LATENCY_PATH}?days=${days}`;
  *
  * Not one of these numbers is what TRD §4 declares, and `turn_ms` is deliberately not the
  * sum of the three legs above it. Both choices are the same assertion: the screen prints
- * what the server sent. A fixture carrying 300/350/300/100 and a consistent 950 would pass
- * identically against a bundle that had hardcoded the spec or added the legs up itself,
- * which are precisely the two failures this surface must not have.
+ * what the server sent. A fixture carrying the real budget and a consistent total would
+ * pass identically against a bundle that had hardcoded the spec or added the legs up
+ * itself, which are precisely the two failures this surface must not have.
+ *
+ * `composes: true` here for the same reason it is FALSE in the product: the verdict is the
+ * server's, so the screen must be shown obeying both answers. The false case has its own
+ * test below, on its own fixture.
  */
 const BUDGET: LatencyBudget = {
+  endpointing_ms: 101,
   stt_ms: 311,
   llm_ttft_ms: 371,
   tts_ttfa_ms: 331,
   retrieval_ms: 111,
+  india_us_transit_floor_ms: 101,
+  inherited_turn_detection_ms: 651,
   voice_to_voice_p50_ms: 1171,
   voice_to_voice_p95_ms: 1871,
   turn_ms: 941,
   pipeline_ms: 1051,
+  voice_to_voice_floor_ms: 1151,
   voice_to_voice_headroom_p50_ms: 121,
+  composes: true,
 };
 
 /** One stage's summary. Enough turns to state a median, missing its target. */
@@ -275,12 +284,63 @@ describe("the engine latency report", () => {
     expect(container.textContent).not.toContain("1,013 ms");
     expect(container.textContent).toContain("1,051 ms");
     expect(container.textContent).toContain("121 ms");
+    // The two stages the budget carries and the engine does not measure are BOTH shown,
+    // and the new one is the wait before the reply starts — the stage TRD §4 had no line
+    // for until 27 Aug 2026.
+    expect(container.textContent).toContain("101 ms");
+    expect(container.textContent).toContain("Noticing the caller stopped");
+    expect(container.textContent).toContain("Getting to the engine and back");
+    // What we actually wait today, beside what we allow. A setting, not a goal, and it is
+    // in no total on the panel.
+    expect(container.textContent).toContain("651 ms");
+    expect(container.textContent).toContain("What we actually wait today");
     // The retrieval target is shown, and is explicitly NOT given a measured row.
     expect(container.textContent).toContain("Looking something up");
     const stages = within((await screen.findAllByRole("table"))[0])
       .getAllByRole("row")
       .map((row) => row.textContent ?? "");
     expect(stages.some((row) => row.includes("Looking something up"))).toBe(false);
+  });
+
+  it("states the shortfall when the stage goals do not fit inside the end-to-end goal", async () => {
+    /*
+     * THE FOUNDER'S 500ms, AND THE HONEST ANSWER TO IT. `composes` is the server's verdict
+     * and the three figures beside it are the server's fields: the screen states a
+     * shortfall it did not work out. This is the case that matters in production — the
+     * declared stages floor at 600ms against a 500ms target — and a guard test failing in
+     * CI is invisible to the operator this console is for.
+     */
+    const short: LatencyBudget = {
+      ...BUDGET,
+      voice_to_voice_p50_ms: 501,
+      voice_to_voice_floor_ms: 601,
+      voice_to_voice_headroom_p50_ms: -100,
+      composes: false,
+    };
+    const { container } = renderAdminPage(
+      <EngineLatencyPage />,
+      routes({ [WINDOW_PATH(7)]: report({ budget: short }) }),
+    );
+    await screen.findAllByRole("table");
+
+    expect(container.textContent).toContain("do not fit inside");
+    expect(container.textContent).toContain("501 ms");
+    expect(container.textContent).toContain("601 ms");
+    // The magnitude of the server's negative headroom, under a label that carries the
+    // sign. "-100 ms left over" reads as a rendering bug; "short by 100 ms" is the fact.
+    expect(container.textContent).toContain("Short by");
+    expect(container.textContent).toContain("100 ms");
+  });
+
+  it("says nothing about a shortfall when the server says the budget fits", async () => {
+    /* The verdict is the SERVER's in both directions: a banner that appeared regardless
+       would be this screen holding an opinion about a target, which is the one thing the
+       whole surface refuses to do. The default fixture carries `composes: true`. */
+    const { container } = renderAdminPage(<EngineLatencyPage />, routes());
+    await screen.findAllByRole("table");
+
+    expect(container.textContent).not.toContain("do not fit inside");
+    expect(container.textContent).not.toContain("Short by");
   });
 
   it("says when the unit of a stage's measurement is not confirmed", async () => {

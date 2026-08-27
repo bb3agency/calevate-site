@@ -290,8 +290,9 @@ async def test_a_rerun_that_sees_no_transcript_clears_a_previous_verdict() -> No
 async def test_the_context_load_hands_back_the_agents_ai_disclosure_line() -> None:
     """The seam between the two halves, and the one a rename would break silently.
 
-    `_load_call_context` grew a fifth return value rather than gaining a second query,
-    and nothing else in the pipeline reads the agent's disclosure. If that column is
+    `_load_call_context` grew a fifth (and now a sixth, the RECORDING notice) return value
+    rather than gaining a second query, and nothing else in the pipeline reads the agent's
+    disclosure. If that column is
     ever renamed or the join changes shape, this is what says so — the alternative is a
     matcher fed an empty string, which returns `None` for every call and looks exactly
     like a fleet with no transcripts.
@@ -303,7 +304,7 @@ async def test_the_context_load_hands_back_the_agents_ai_disclosure_line() -> No
     """
     tenant_id, call_id = await _driven(disclosure_line=DISCLOSURE)
 
-    _spec, _version, agent_id, direction, line = await pipeline._load_call_context(
+    _spec, _version, agent_id, direction, line, _notice = await pipeline._load_call_context(
         tenant_id, call_id
     )
 
@@ -328,7 +329,7 @@ async def test_a_withdrawn_ai_notice_certifies_nothing_rather_than_reporting_a_b
             text("UPDATE agents SET ai_disclosure_enabled = false WHERE tenant_id = :t"),
             {"t": tenant_id},
         )
-    _spec, _version, _agent_id, _direction, line = await pipeline._load_call_context(
+    _spec, _version, _agent_id, _direction, line, _notice = await pipeline._load_call_context(
         tenant_id, call_id
     )
 

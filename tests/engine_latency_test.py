@@ -412,9 +412,11 @@ async def test_the_report_groups_by_region_and_that_is_the_gate_4_answer() -> No
 async def test_the_whole_budget_is_on_the_wire_and_the_composed_total_is_derived() -> None:
     """A report that published one leg's target let a console print it as the budget.
 
-    Every figure TRD §4 declares now travels with the report, including the two nothing
+    Every figure TRD §4 declares now travels with the report, including the stages nothing
     here can measure — and the composed turn budget is the SUM of the three legs the engine
-    times, so no consumer adds them up itself.
+    times, so no consumer adds them up itself. `pipeline_ms` adds the endpointing wait to
+    that turn: the stage TRD §4 had no line for until 27 Aug 2026, and the one the engine
+    reports no figure for.
     """
     async with admin_session() as session:
         report = await engine_latency_report(session, days=1)
@@ -424,11 +426,37 @@ async def test_the_whole_budget_is_on_the_wire_and_the_composed_total_is_derived
     assert report.budget.turn_ms == (
         report.budget.stt_ms + report.budget.llm_ttft_ms + report.budget.tts_ttfa_ms
     )
-    assert report.budget.pipeline_ms == report.budget.turn_ms + report.budget.retrieval_ms
+    assert report.budget.pipeline_ms == (
+        report.budget.endpointing_ms + report.budget.turn_ms + report.budget.retrieval_ms
+    )
+    assert report.budget.voice_to_voice_floor_ms == (
+        report.budget.pipeline_ms + report.budget.india_us_transit_floor_ms
+    )
     # And it survives serialization, which is the only form the console ever sees.
     wire = report.model_dump()["budget"]
     assert wire["turn_ms"] == LATENCY_BUDGET.turn_ms
     assert wire["voice_to_voice_p50_ms"] == LATENCY_BUDGET.voice_to_voice_p50_ms
+
+
+async def test_the_shortfall_reaches_the_console_as_a_field_and_not_only_as_a_red_ci_job() -> None:
+    """THE 500ms TARGET, AND THE ANSWER TO IT, ON THE WIRE.
+
+    The founder set voice-to-voice at 500ms on 27 Aug 2026 and the declared stages floor at
+    600ms, so `composes` is False and the headroom is negative. Both travel with every
+    report: a shortfall only CI can see is a shortfall the operator reading this console
+    mid-incident never learns about, and this endpoint is what the runbook opens first.
+    """
+    async with admin_session() as session:
+        report = await engine_latency_report(session, days=1)
+
+    wire = report.model_dump()["budget"]
+    assert wire["composes"] is False
+    assert wire["voice_to_voice_headroom_p50_ms"] == -100.0
+    assert wire["voice_to_voice_floor_ms"] > wire["voice_to_voice_p50_ms"]
+    # The shipped turn-detection configuration is published beside the budget it misses —
+    # 250ms endpointing + 400ms linear delay, both vendor defaults we never overrode.
+    assert wire["inherited_turn_detection_ms"] == 650.0
+    assert wire["inherited_turn_detection_ms"] > wire["endpointing_ms"]
 
 
 async def test_every_leg_is_judged_against_its_own_target_and_retrieval_is_not_faked() -> None:

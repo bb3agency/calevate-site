@@ -3,7 +3,10 @@
     from scripts.pilot.latency import evaluate_gate4, render_gate4_markdown
 
 **What this is, and what it deliberately is not.** TRD §4 carries a full latency budget
-and this repo holds zero measurements of it; `calls.latency` was DROPPED
+and this repo holds zero measurements of it — and since 27 Aug 2026 that budget does not
+fit inside its own headline target (`latency_budget_composes()` is False by 100ms), which
+makes this harness the only thing that can say what the real pipeline costs rather than
+what its vendors publish; `calls.latency` was DROPPED
 (`f1a7c39d5be2`) rather than filled with pipeline timings that are not the caller's
 experience. This module is what turns ten PSTN calls into evidence. It is a LEDGER,
 a STATISTICS pass and a COMPARATOR — **it is not a robot that measures latency**, and
@@ -148,7 +151,9 @@ assert TARGET_P50_MS == VOICE_TO_VOICE_P50_TARGET_MS, (
 assert TARGET_TAIL_MS == VOICE_TO_VOICE_P95_TARGET_MS, (
     "the voice-to-voice p95 target is no longer a whole number of milliseconds; see above"
 )
-TARGET_TAIL_FRACTION = 0.05  # "p95 ≤ 1.8s" == "at most 5% of turns exceed 1.8s"
+TARGET_TAIL_FRACTION = 0.05  # "p95 <= T" == "at most 5% of turns exceed T"; T is
+# `TARGET_TAIL_MS` above and is NOT written out here — it moved once already (1800ms
+# to 800ms, 27 Aug 2026) and a number in this comment would have gone stale silently.
 
 #: One-sided confidence for every bound in this module.
 ALPHA = 0.05
@@ -543,7 +548,7 @@ def summarize_samples(values_ms: Sequence[int], methods: Sequence[str] = ()) -> 
 
 
 class TailFinding(BaseModel):
-    """What ten samples can say about "p95 ≤ 1.8s" — which is less than it sounds.
+    """What ten samples can say about "p95 <= the tail target" — less than it sounds.
 
     "p95 ≤ T" is exactly "P(latency > T) ≤ 5%". That is a claim about a proportion, so
     the honest instrument is an exact binomial bound on the exceedance count, not an

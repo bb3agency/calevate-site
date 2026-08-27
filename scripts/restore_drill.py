@@ -228,6 +228,11 @@ _APPEND_ONLY_PROBE_SET = {
     # correct ledger reported UNPROTECTED. A real value change on `source_note`
     # is what the append-only trigger must refuse.
     "platform_model_prices": "source_note = source_note || 'x'",
+    # D-475: not tenant-scoped either, for `platform_model_prices`' reason. `source_url`
+    # is a real value change the append-only trigger must refuse — and NOT `rate`, which
+    # carries a CHECK constraint: a probe that could fail on the constraint instead of on
+    # the trigger would report a protected ledger as protected for the wrong reason.
+    "fx_rate_observations": "source_url = source_url || 'x'",
 }
 
 
@@ -721,6 +726,15 @@ class RestoreDrill:
             "input_usd_per_mtok, output_usd_per_mtok, attested_by, source_note) "
             f"VALUES ('gpt-4o-mini', now(), 0.1500, 0.6000, '{ADMIN_ID}', "
             "'restore-drill fixture')",
+            # D-475: one pulled rate, for the same reason — `append_only_enforced` needs a
+            # row on `fx_rate_observations` for its FOR EACH ROW trigger to fire against.
+            # The source is marked as a fixture so it can never be mistaken for a real
+            # observation, and the rate is inside the table's CHECK band.
+            "INSERT INTO fx_rate_observations (id, base_currency, quote_currency, rate, "
+            "as_of, source, source_url, observation_key) "
+            f"VALUES ('{_uuid7()}', 'USD', 'INR', 88.000000, current_date, "
+            "'restore-drill:fixture', 'https://example.invalid/fixture', "
+            "'restore-drill-fixture')",
         ]
         for tenant, agent, user, prefix in (
             (TENANT_A, AGENT_A, USER_A, "9111"),

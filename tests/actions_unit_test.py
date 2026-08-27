@@ -20,6 +20,7 @@ from apps.api.actions import execution, whatsapp
 from apps.api.actions.schema import CustomApiConfig, WhatsAppConfig
 from apps.api.actions.service import LoadedTool, _to_spec
 from apps.api.compliance.consent import MessagingConsent
+from apps.api.compliance.service import DispatchDecision
 from apps.api.engine.bolna import _api_tools, _one_api_tool
 from calevate_shared.engine import ActionToolParam, ActionToolSpec
 
@@ -293,6 +294,7 @@ async def test_egress_guard_blocks_a_private_custom_api_url(
 @pytest.mark.asyncio
 async def test_whatsapp_send_blocked_when_not_opted_in(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=False))
     tool = _loaded(
         kind="whatsapp",
@@ -323,8 +325,55 @@ async def test_whatsapp_send_blocked_when_not_opted_in(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
+async def test_whatsapp_send_blocked_when_the_dispatch_gate_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE TWO PATHS ASK THE SAME QUESTION. `workers/whatsapp._send_escalation` has always
+    run `check_dispatch(dlt_governed=False)` before the opt-in; this in-call action path
+    ran only the opt-in — so a number on the tenant's DNC list that had once granted
+    messaging consent was refused by the campaign leg and messaged by this one. One
+    outbound channel, one answer (hard rule 5).
+
+    The consent stub says MESSAGEABLE, so the only thing that can stop this send is the
+    gate. Without it the test would pass on the opt-in refusal and prove nothing.
+    """
+    monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(whatsapp, "check_dispatch", _fake_blocked_dispatch("dnc"))
+    monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
+    tool = _loaded(
+        kind="whatsapp",
+        provider="aisensy",
+        credential_id=uuid4(),
+        config=WhatsAppConfig(recipient_param="caller", template="c", body_params=[]).model_dump(),
+        params=[{"name": "caller", "source": "lead_var", "lead_var": "caller_phone"}],
+    )
+    sent = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal sent
+        sent = True
+        return httpx.Response(200)
+
+    async with _mock_client(handler) as client:
+        result = await execution.execute_action(
+            _FakeSession(),
+            tool=tool,
+            received={"caller": "+919000000000"},
+            source="in_call",
+            client=client,
+            audit=False,
+        )
+    assert result.ok is False
+    assert result.status == "blocked"
+    # The RULE reaches the client's payload, never the number (hard rule 6).
+    assert result.payload == {"error": "whatsapp_blocked_dnc"}
+    assert sent is False
+
+
+@pytest.mark.asyncio
 async def test_whatsapp_send_delivers_when_opted_in(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(execution, "resolve_secret", _fake_secret("KEY"))
+    monkeypatch.setattr(whatsapp, "check_dispatch", _fake_allowed_dispatch())
     monkeypatch.setattr(whatsapp, "read_messaging_consent", _fake_consent(messageable=True))
     tool = _loaded(
         kind="whatsapp",
@@ -362,8 +411,27 @@ def _fake_secret(value: str) -> Any:
     return _resolve
 
 
+def _fake_allowed_dispatch() -> Any:
+    """`check_dispatch` says yes. Stubbed because these are UNIT tests over the executor
+    with a `_FakeSession` — the gate itself is exercised against a real database in
+    `tests/compliance_gate_test.py`, and what THIS suite asserts is that the executor
+    calls it at all and honours a refusal."""
+
+    async def _check(session: Any, **kwargs: Any) -> Any:
+        return DispatchDecision(allowed=True)
+
+    return _check
+
+
+def _fake_blocked_dispatch(rule: str) -> Any:
+    async def _check(session: Any, **kwargs: Any) -> Any:
+        return DispatchDecision(allowed=False, rule=rule, reason="blocked")
+
+    return _check
+
+
 def _fake_consent(*, messageable: bool) -> Any:
-    async def _read(session: Any, *, tenant_id: Any, phone_e164: str) -> MessagingConsent:
+    async def _read(session: Any, *, tenant_id: Any, raw_phone: str) -> MessagingConsent:
         from datetime import UTC, datetime, timedelta
 
         if messageable:

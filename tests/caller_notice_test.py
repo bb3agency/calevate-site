@@ -199,6 +199,95 @@ async def test_the_periods_are_the_tenants_own_retention_rows() -> None:
     assert "200 days" in draft.markdown  # type: ignore[attr-defined]
 
 
+async def test_the_notice_does_not_promise_the_law_requires_the_ninety_days() -> None:
+    """The floor is CALEVATE'S, and the notice a client publishes must say so.
+
+    It read "Some records are kept longer where the law requires it: call recordings are
+    kept for at least 90 days." No primary source for such a requirement exists —
+    SEC-COMP §4 records that TRAI's 90-day figure is the opt-out cooling period and that
+    the two-year commercial-records archive is Unified Licence clause 39.20, binding
+    LICENSEES rather than a telemarketer — and the citation that justified it
+    (LEGAL-SURFACE, "the playbook's 90-day minimum recording retention") pointed at a
+    sentence the playbook does not contain. Retaining personal data on a legal basis that
+    does not exist is itself the DPDP §8(7) breach, so the false attribution was the
+    exposure, not the safeguard.
+
+    Asserted in BOTH directions: the true statement present, the false one gone.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+
+    markdown = (await _draft(tenant_id)).markdown  # type: ignore[attr-defined]
+
+    assert "kept longer where the law requires it" not in markdown
+    assert "90 days" in markdown, "the floor itself is unchanged and still published"
+    assert "Calevate applies to every account as a matter of its own policy" in markdown
+
+
+async def test_the_notice_prints_no_period_for_the_record_nothing_expires() -> None:
+    """`consent_log` has no timer, so the notice may not print one for it.
+
+    The seed ships a `consent_log` retention row (2555 days) and the generator labelled
+    it, so the draft said "The record of what you agreed to: 2555 days" — while
+    `apps.workers.retention._apply_one` returns immediately for that category, and the
+    same document says three lines later that the record "is kept as evidence". One
+    notice, two answers, and the timed one was the false one.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        seeded = (
+            await session.execute(
+                text("SELECT ttl_days FROM retention_policies WHERE data_category = 'consent_log'")
+            )
+        ).scalar()
+    assert seeded is not None, "the fixture must actually have the row that produced the defect"
+
+    draft = await _draft(tenant_id)
+
+    assert not [
+        line
+        for line in draft.retention  # type: ignore[attr-defined]
+        if "agreed to" in line.what.lower()
+    ]
+    assert f"{int(seeded)} days" not in draft.markdown  # type: ignore[attr-defined]
+    # The evidence sentence carries it instead, exactly as `/legal/privacy` §9 does.
+    assert "kept as evidence" in draft.markdown  # type: ignore[attr-defined]
+
+
+async def test_the_notice_offers_no_in_call_mechanism_it_does_not_have() -> None:
+    """LEGAL-SURFACE DP-6: there is no correction path for a transcript or a recording,
+    and voice-runtime has exactly ONE in-call tool — opt-out. The notice told callers
+    "You can tell the assistant during a call" about all four rights, correction included.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+
+    markdown = (await _draft(tenant_id)).markdown  # type: ignore[attr-defined]
+
+    assert "ask us to correct it" in markdown, "the RIGHT is statutory and stays stated"
+    assert "including a correction, reaches us\nby contacting a person" in markdown.replace(
+        "\r\n", "\n"
+    )
+    assert "Asking to stop being called is the one you can do on the call itself" in markdown
+
+
+async def test_the_notice_does_not_condition_recording_on_a_switch_that_does_not_exist() -> None:
+    """LEGAL-SURFACE F-14's exact sentence, corrected on `/legal/privacy` §4.1 and left
+    alive in the generator. `agents` carries `ai_disclosure_enabled` and
+    `recording_notice_enabled` and NO recording switch; what those toggle is the
+    ANNOUNCEMENT. `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE` records that nothing
+    in this repository can turn a call's recording off.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+
+    markdown = (await _draft(tenant_id)).markdown  # type: ignore[attr-defined]
+
+    assert "where recording is switched on for the agent" not in markdown
+    assert "every call on this service is recorded" in markdown
+
+
 async def test_a_draft_ignores_another_tenants_configuration() -> None:
     """Hard rule 1. The generator carries no `tenant_id` predicate — RLS is the isolation
     — and a leak here would publish one business's field list on another's website."""

@@ -861,7 +861,7 @@ async def resolve_escalation_destination(
     and the console can never disagree. That function is where the latest-row-wins
     rule, the validity window and the research behind both are written down.
     """
-    state = await read_messaging_consent(session, tenant_id=tenant_id, phone_e164=phone_e164)
+    state = await read_messaging_consent(session, tenant_id=tenant_id, raw_phone=phone_e164)
     # `messageable`, not `status == "granted"`: an opt-in older than the validity window
     # is a record of something that WAS true. The two differ on exactly the row a
     # five-year-old campaign list would produce.

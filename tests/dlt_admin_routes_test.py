@@ -58,11 +58,22 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")
 
 
-def _e164() -> str:
-    """A run-unique number in the +91 block. `phone_numbers.e164` is globally unique
-    across tenants (`agents/service.py:673`), so a fixed literal would collide with
-    every other suite sharing this Postgres."""
-    return f"+9198{uuid.uuid4().int % 100000000:08d}"
+def _e164(series: str = "standard") -> str:
+    """A run-unique number in the +91 block WHOSE PREFIX MATCHES ITS SERIES.
+
+    Run-unique because `phone_numbers.e164` is globally unique across tenants, so a fixed
+    literal would collide with every other suite sharing this Postgres.
+
+    **AND PREFIX-MATCHED, because `provision_number` now checks.** These fixtures used to
+    hand a `+9198…` MOBILE to a `"160"` provisioning call, which is precisely the state
+    the check exists to refuse — a number filed under a regulated series it does not
+    belong to. DoT's own numbering (PIB PRID 2022249) puts telemarketing on 140xxxxxxx
+    and service/transactional on 160xxxxxxx; the fixture now produces a number a real
+    operator could actually have been issued.
+    """
+    prefix = "98" if series == "standard" else series
+    digits = 10 - len(prefix)
+    return f"+91{prefix}{uuid.uuid4().int % 10**digits:0{digits}d}"
 
 
 async def _make_admin(role: str = "operator") -> str:
@@ -158,7 +169,7 @@ async def test_a_client_owner_cannot_record_any_of_these_telecom_facts() -> None
             "numbers": await http.post(
                 NUMBERS.format(tenant_id=tenant_id),
                 headers=headers,
-                json={"e164": _e164(), "series": "160"},
+                json={"e164": _e164("160"), "series": "160"},
             ),
             "number_status": await http.post(
                 NUMBER_DLT.format(tenant_id=tenant_id, number_id=uuid.uuid4()),
@@ -217,7 +228,7 @@ async def test_provisioning_a_number_returns_it_pending_and_audits_the_series_on
     """
     tenant_id, _slug = await _tenant()
     token = await _make_admin()
-    e164 = _e164()
+    e164 = _e164("160")
     with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
         async with _client() as http:
             response = await http.post(
@@ -261,7 +272,7 @@ async def test_recording_the_registrars_verdict_moves_the_number_and_audits_it(
         created = await http.post(
             NUMBERS.format(tenant_id=tenant_id),
             headers=_auth(token),
-            json={"e164": _e164(), "series": "140"},
+            json={"e164": _e164("140"), "series": "140"},
         )
         number_id = created.json()["id"]
         with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
@@ -298,7 +309,7 @@ async def test_another_tenants_number_is_a_404_and_is_not_moved() -> None:
         created = await http.post(
             NUMBERS.format(tenant_id=other_id),
             headers=_auth(token),
-            json={"e164": _e164(), "series": "160"},
+            json={"e164": _e164("160"), "series": "160"},
         )
         stranger = created.json()["id"]
         crossed = await http.post(
@@ -566,7 +577,7 @@ async def test_a_mistyped_tenant_id_is_a_404_on_every_one_of_these_routes() -> N
             "numbers": await http.post(
                 NUMBERS.format(tenant_id=absent),
                 headers=_auth(token),
-                json={"e164": _e164(), "series": "160"},
+                json={"e164": _e164("160"), "series": "160"},
             ),
             "number_status": await http.post(
                 NUMBER_DLT.format(tenant_id=absent, number_id=uuid.uuid4()),
@@ -618,7 +629,7 @@ async def test_a_genuinely_taken_number_still_says_so() -> None:
     tenant_id, _slug = await _tenant()
     other_id, _other_slug = await _tenant()
     token = await _make_admin()
-    e164 = _e164()
+    e164 = _e164("160")
     async with _client() as http:
         first = await http.post(
             NUMBERS.format(tenant_id=tenant_id),

@@ -379,9 +379,18 @@ async def _admin_token() -> str:
     return f"dev:admin:{admin_id}"
 
 
-def _spare_number() -> str:
-    """A globally unique E.164, because `phone_numbers.e164` is UNIQUE across tenants."""
-    return f"+9198{uuid.uuid4().int % 100_000_000:08d}"
+def _spare_number(series: str = "standard") -> str:
+    """A globally unique E.164 whose PREFIX matches the series it will be filed under.
+
+    Globally unique because `phone_numbers.e164` is UNIQUE across tenants. Prefix-matched
+    because `provision_number` now refuses a mismatch by name: DoT puts service and
+    transactional traffic on 160xxxxxxx and telemarketing on 140xxxxxxx (PIB PRID
+    2022249), so a `+9198…` mobile filed as `"160"` is the defect the check exists for and
+    not a fixture detail.
+    """
+    prefix = "98" if series == "standard" else series
+    digits = 10 - len(prefix)
+    return f"+91{prefix}{uuid.uuid4().int % 10**digits:0{digits}d}"
 
 
 async def test_a_provisioned_number_cannot_name_a_neighbours_agent(
@@ -401,7 +410,7 @@ async def test_a_provisioned_number_cannot_name_a_neighbours_agent(
         response = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
             headers={"Authorization": f"Bearer {token}"},
-            json={"e164": _spare_number(), "series": "160", "agent_id": str(agent_a)},
+            json={"e164": _spare_number("160"), "series": "160", "agent_id": str(agent_a)},
         )
 
     assert response.status_code == 404, response.text
@@ -434,7 +443,7 @@ async def test_provisioning_a_number_against_this_tenants_own_agent_still_works(
         attached = await http.post(
             f"/v1/admin/tenants/{org_b['id']}/numbers",
             headers={"Authorization": f"Bearer {token}"},
-            json={"e164": _spare_number(), "series": "160", "agent_id": str(agent_b)},
+            json={"e164": _spare_number("160"), "series": "160", "agent_id": str(agent_b)},
         )
         # `agent_id` is nullable and a number provisioned before its agent exists is the
         # ordinary onboarding order — the guard must no-op on None, not refuse it.
