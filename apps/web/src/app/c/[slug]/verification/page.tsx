@@ -29,7 +29,23 @@ import { useClientSession } from "@/lib/api/session";
  * `check_dispatch` refuses a self-serve account's outbound with `kyc_missing` /
  * `kyc_not_verified`, `launch_blockers` previews the same two names, and
  * `POST /v1/numbers/purchase` refuses every tier on the same fact. Until now none of
- * those refusals had anywhere to send anyone. So this screen is not a status readout;
+ * those refusals had anywhere to send anyone.
+ *
+ * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE, and it is a decision rather than
+ * an unfinished feature: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`, and
+ * flipping it would be adopting Model A — Calevate holding connections and allocating
+ * them — which `docs/legal/LEGAL-OPS-PLAYBOOK.md` refuses at `:249` for a sole proprietor
+ * with no corporate veil, and again in its stop-list at items 1 and 10. The client takes
+ * the connection in their own name with their own carrier and stays subscriber of record;
+ * the published Terms (clause 3) and Acceptable Use (§2.1) say the same thing, so this
+ * page must not imply otherwise.
+ *
+ * That sentence is also load-bearing for a guard. `scripts/check_docs_drift.py` §5
+ * compares prose that STATES a capability constant's value against the constant itself,
+ * across three prose kinds — markdown, Python docstrings, and the console's JSDoc — and
+ * this file is the console's only such claim, so `tests/capability_claim_guard_test.py`
+ * uses it to prove the TSX scanner still works. Deleting it does not merely lose a true
+ * statement; it leaves that arm of the scanner unproven. So this screen is not a status readout;
  * it is the answer to "what do I do now", and it is written for the worst moment to
  * arrive with no page.
  *
