@@ -44,6 +44,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from dataclasses import replace
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -58,6 +61,7 @@ from apps.api.core.logging import JsonFormatter
 from apps.api.core.rbac import MUTATING_PERMISSIONS, ROLE_PERMISSIONS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.legal import catalogue, readiness, statements
+from apps.api.legal import routes as legal_routes
 from apps.api.legal import service as legal_service
 from apps.api.main import app
 from apps.api.tenancy.models import MEMBER_ROLES
@@ -72,6 +76,12 @@ ACCEPTANCES = "/v1/legal/acceptances"
 
 #: The person's details the "nothing personal in a log line" test searches FOR.
 OWNER_NAME = "Padmavathi Rao"
+
+
+async def _async(value: Any) -> Any:
+    """A coroutine returning `value`, so a `monkeypatch.setattr` can stand in for an
+    `await`ed dependency without each call site writing its own inline async def."""
+    return value
 
 
 def _client() -> AsyncClient:
@@ -803,3 +813,242 @@ async def test_no_log_line_carries_the_accepting_person(
     assert "legal_acceptance_recorded" in rendered, (
         "the write must still be observable — this test must not pass by logging nothing"
     )
+
+
+# --------------------------------------------------------------------------------
+# 8. The arms the first ratchet run found untested
+#
+# `make coverage-ratchet` measured 22 uncovered units in the `compliance-gate` surface
+# after this feature landed — every one of them a branch that only fires when something
+# is actually WRONG with the account. That is the worst class to leave untested on a
+# hard-rule-5 surface: the clean path is exercised by every other test in this file, and
+# the arms that refuse are the ones a client only meets on their worst day.
+#
+# The forbidden response, stated in CLAUDE.md hard rule 10 and repeated here because the
+# temptation is real at 22 units: not `RAISED_BUDGETS`, and never the baseline.
+
+
+def _acceptance(slug: str, version: str) -> legal_service.Acceptance:
+    """An acceptance row as `_headline` reads one. Constructed rather than inserted: these
+    three tests are about the WORDING function, and a database round trip would make them
+    slower without making them truer."""
+    return legal_service.Acceptance(
+        document_slug=slug,
+        document_version=version,
+        statement_version="1",
+        accepted_at=datetime(2026, 1, 1, tzinfo=UTC),
+        accepted_by_user_id=uuid.uuid4(),
+        accepted_by_name="Raghava",
+    )
+
+
+def test_a_blocking_document_never_accepted_says_so_and_is_not_the_generic_state() -> None:
+    """`never_accepted` and `not_required` are different words for different facts.
+
+    The screen decides what to offer from the STATE, so collapsing these two would put an
+    accept control on a document that has nothing to accept, or withhold it from one that
+    does.
+    """
+    spec = _spec("terms")
+    assert spec.blocking
+    sentence, state = legal_routes._headline(spec, None)
+    assert state == "never_accepted"
+    assert sentence == "Not accepted yet."
+
+
+def test_a_document_whose_version_moved_materially_reads_as_needing_reacceptance() -> None:
+    """The MATERIAL arm, which is the one that blocks dialling.
+
+    Distinct from `changed` below: the founder's rule is that a material version re-blocks
+    and a minor one only notifies, so a screen that reported both as "changed" would tell
+    a client nothing was wrong while `agreements_blocker` refused every call.
+    """
+    spec = replace(
+        _spec("terms"),
+        revisions=(
+            catalogue.Revision("1", True, "First published draft."),
+            catalogue.Revision("2", True, "A clause that changes what was agreed."),
+        ),
+    )
+    # `version_of` and NOT a bare "1": the wire version carries the review-state suffix
+    # while `PENDING_LEGAL_REVIEW` stands, and a bare revision trips the REVIEW-STATE arm
+    # of `reacceptance_required` instead of the material one. This test passed on that
+    # accident before the sibling test below exposed it — it was green for a reason that
+    # had nothing to do with materiality.
+    _, state = legal_routes._headline(spec, _acceptance("terms", catalogue.version_of("1")))
+    assert state == "reacceptance_required"
+    assert catalogue.reacceptance_required(spec, catalogue.version_of("1"))
+
+
+def test_a_non_material_revision_notifies_and_does_not_block() -> None:
+    """The `changed` arm — the half of the founder's versioning rule that must NOT block.
+
+    A material revision re-demands acceptance; a minor one (a typo, a subprocessor of a
+    kind already disclosed) shows a banner and blocks nothing. Every document in the
+    catalogue is at its first revision today, so this state is unreachable from real data
+    and would have stayed untested until the first correction we publish — which is
+    exactly when getting it wrong would halt every client's calls over a typo.
+
+    The spec is built here rather than added to the catalogue: a fixture revision in
+    `DOCUMENTS` would ship in the product and appear on `/legal`.
+    """
+    spec = replace(
+        _spec("terms"),
+        revisions=(
+            catalogue.Revision("1", True, "First published draft."),
+            catalogue.Revision(
+                "2", False, "Corrected a spelling. Nothing anybody agreed to moved."
+            ),
+        ),
+    )
+    accepted = catalogue.version_of("1")
+    sentence, state = legal_routes._headline(spec, _acceptance("terms", accepted))
+    assert state == "changed"
+    assert "does not affect what you agreed" in sentence
+    assert not catalogue.reacceptance_required(spec, accepted), (
+        "a cosmetic revision must not re-demand acceptance — that is what blocks dialling"
+    )
+
+
+def test_the_verdict_for_outstanding_agreements_is_its_own_sentence() -> None:
+    """Because it is the only item on the screen a reader can clear without leaving it.
+
+    The generic sentence sends somebody to a list of things that are mostly other
+    people's; this one says the thing they can do in the next thirty seconds.
+    """
+    assert "have not been accepted" in legal_routes._verdict(False, 2)
+    assert legal_routes._verdict(True, 0) == "Nothing is holding up your outgoing calls."
+    generic = legal_routes._verdict(False, 0)
+    assert "whose move each one is" in generic
+    assert "Calls coming in are unaffected" in generic
+
+
+@pytest.mark.asyncio
+async def test_an_acceptance_attributed_to_nobody_is_refused_at_the_handler() -> None:
+    """The defensive arm on `accept`, driven at the function rather than through the router.
+
+    It is unreachable through `requires(..., realm="client")`, which resolves a membership
+    — so a route-level test cannot reach it and it would stay uncovered forever. But the
+    type is `UUID | None`, and hard rule 4 makes this ledger the evidence of who bound the
+    business: a row attributed to nobody is the one thing it must never hold. The branch
+    is kept and covered rather than deleted, because what makes it unreachable today is a
+    dependency's behaviour, not this function's signature.
+    """
+    org = await _org("nouser")
+    principal = SimpleNamespace(tenant_id=org["tenant_id"], user_id=None)
+    async with tenant_session(org["tenant_id"]) as session:
+        with pytest.raises(ProblemError) as raised:
+            await legal_routes.accept(
+                payload=SimpleNamespace(slug="terms", version="1", statement_version="1"),
+                session=session,
+                request=SimpleNamespace(headers={}, client=None),
+                principal=principal,
+            )
+    assert raised.value.status == 403
+    assert "named person" in str(raised.value.detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("attribute", "value", "expected_rule"),
+    [
+        (
+            "account_stopped_blocker",
+            ("account_stopped", "The account is stopped."),
+            "account_stopped",
+        ),
+        ("kyc_blocker", ("kyc_missing", "No verification on file."), "kyc_missing"),
+        (
+            "first_campaign_hold_blocker",
+            ("first_campaign_hold", "Held for review."),
+            "first_campaign_hold",
+        ),
+    ],
+)
+async def test_every_composed_blocker_reaches_the_screen(
+    monkeypatch: pytest.MonkeyPatch, attribute: str, value: tuple[str, str], expected_rule: str
+) -> None:
+    """THE PROPERTY: a gate that refuses a dial is a row a client can read.
+
+    Each of these was already tested where it is DECIDED. What was untested is the
+    composition — that `readiness_rows` asks it and turns its answer into a row — and the
+    composition is the half that breaks silently: somebody adds a blocker to
+    `check_dispatch`, forgets this function, and a client is refused for a reason no
+    screen in the product will name.
+
+    Stubbed rather than driven through real account state, deliberately and with the
+    limit stated: each blocker's own conditions have their own suites, and reproducing
+    seven of them here would test those suites a second time while leaving THIS function's
+    wiring just as unproven. What this pins is that the answer is asked for and is
+    rendered — which is exactly what the ratchet found nothing was pinning.
+    """
+    org = await _org(f"blk-{expected_rule.replace('_', '-')[:8]}")
+    monkeypatch.setattr(readiness, attribute, lambda *a, **k: _async(value))
+    async with tenant_session(org["tenant_id"]) as session:
+        rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+    assert expected_rule in {row.rule for row in rows}
+
+
+@pytest.mark.asyncio
+async def test_the_spend_cap_and_an_empty_wallet_each_reach_the_screen() -> None:
+    """The two boolean gates, which return `True` rather than a pair.
+
+    They are worth their own test because their arms build the row from a CONSTANT the
+    compliance layer owns (`SPEND_CAP_REASON`, `NO_CREDITS_REASON`) rather than from the
+    gate's return value — so a reworded constant has to travel here, and nothing else
+    would notice if it stopped.
+    """
+    org = await _org("wallet")
+    async with tenant_session(org["tenant_id"]) as session:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(readiness, "spend_capped", lambda *a, **k: _async(True))
+            patch.setattr(readiness, "credits_exhausted", lambda *a, **k: _async(True))
+            rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+
+    by_rule = {row.rule: row for row in rows}
+    assert by_rule["spend_cap"].reason == readiness.SPEND_CAP_REASON
+    assert by_rule["no_credits"].reason == readiness.NO_CREDITS_REASON
+
+
+@pytest.mark.asyncio
+async def test_a_platform_wide_halt_is_named_as_ours_rather_than_the_client_s() -> None:
+    """The big red switch, and the reason it earns a row at all.
+
+    A client whose calls stopped because an operator pulled the switch would otherwise
+    read a screen listing only THEIR outstanding items, all of them green, with the calls
+    still not going out. The row exists so the screen never implies the fault is theirs.
+    """
+    org = await _org("brs")
+    async with tenant_session(org["tenant_id"]) as session:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(
+                readiness,
+                "get_platform_status",
+                lambda *a, **k: _async(SimpleNamespace(outbound_halted=True)),
+            )
+            rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+
+    halted = next(row for row in rows if row.rule == "big_red_switch")
+    assert halted.actor == "calevate", "a platform halt must never be the client's move"
+
+
+@pytest.mark.asyncio
+async def test_campaigns_with_no_current_scrub_are_counted_and_pluralised() -> None:
+    """The scrub arm builds its sentence with arithmetic, which is where a screen lies.
+
+    One campaign must read "1 promotional campaign ... has", not "1 campaigns ... have".
+    It is a small thing and it is on the screen a client cites back to us when a caller
+    complains about being called.
+    """
+    org = await _org("scrub")
+    for count, noun, verb in ((1, "campaign ", "has"), (3, "campaigns", "have")):
+        async with tenant_session(org["tenant_id"]) as session:
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(
+                    readiness,
+                    "campaigns_awaiting_scrub",
+                    lambda *a, _n=count, **k: _async(_n),
+                )
+                rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+        row = next(r for r in rows if r.rule == "national_dnd_scrub_missing")
+        assert noun.strip() in row.reason and verb in row.reason
