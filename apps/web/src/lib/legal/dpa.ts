@@ -21,11 +21,16 @@ import type { LegalDocument } from "./types";
  * contract that does not say who the processor is fails at the first thing rule 6 of the
  * DPDP Rules 2025 is read for, so clause 1 now names the supplier and its form. The
  * DPDP Act's definitions turn on "person", not on "company", so the substantive
- * obligations are unchanged — which is the point worth stating, because the natural
- * client worry about a one-person supplier is that the controls are lighter. Clause 3
- * says the operator controls bind the proprietor exactly as they would bind an
- * employee, and that is a property of the code: MFA is required by REALM
- * (`authn/routes.py:298`, `service.MFA_REQUIRED_REALMS`), not by who the operator is.
+ * obligations are unchanged — which is the point worth stating, because a client's
+ * natural worry about a non-corporate supplier is that the controls are lighter. Clause
+ * 3 answers it with the assurance and not with our staffing: the controls bind EVERY
+ * operator account without exception, which is a property of the code — MFA is required
+ * by REALM (`authn/routes.py:298`, `service.MFA_REQUIRED_REALMS`), not by who the
+ * operator is. That bullet used to name the headcount ("one individual … the proprietor
+ * and anyone he engages") and say the same thing twice; the assurance survived and the
+ * composition went (26 Aug 2026, the founder's instruction that these documents stop
+ * disclosing our scale and staffing). Do not put it back: the reader's guarantee does
+ * not depend on how many of us there are.
  *
  * ## The clause numbers in the prose are CROSS-REFERENCES and were wrong
  *
@@ -55,17 +60,16 @@ export const DPA: LegalDocument = {
           kind: "para",
           text:
             "In this Addendum \"we\" means {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, and " +
-            "\"you\" means the client named on the account. It is worth being exact " +
-            "about the first of those, because it is not a company: the Processor here " +
-            "is an individual carrying on business under that name, and that individual " +
-            "and the business are the same legal person. The Digital Personal Data " +
-            "Protection Act 2023 defines a Data Processor as a PERSON who processes " +
-            "personal data on a Data Fiduciary's behalf, so the form changes who signs " +
-            "and changes nothing about what is owed: every obligation below — the " +
-            "security measures in Annex B, the 48-hour breach clock in clause 7, the " +
-            "audit right in clause 10 — binds that individual exactly as it would bind a " +
-            "company, and clause 14.1 of the Terms of Service records that his liability " +
-            "is personal and is not bounded by a company's assets.",
+            "\"you\" means the client named on the account. The Processor is therefore " +
+            "not a company but an individual carrying on business under that name, and " +
+            "that individual and the business are the same legal person. The Digital " +
+            "Personal Data Protection Act 2023 defines a Data Processor as a PERSON who " +
+            "processes personal data on a Data Fiduciary's behalf, so the form changes " +
+            "who signs and changes nothing about what is owed: every obligation below — " +
+            "the security measures in Annex B, the 48-hour breach clock in clause 7, " +
+            "the audit right in clause 10 — binds that individual exactly as it would " +
+            "bind a company, and clause 14.1 of the Terms of Service records that his " +
+            "liability is personal and is not bounded by a company's assets.",
         },
         {
           kind: "para",
@@ -133,14 +137,12 @@ export const DPA: LegalDocument = {
           items: [
             "Everyone we allow near your data is bound by confidentiality obligations that " +
               "survive their engagement.",
-            "Because the supplier is one individual rather than a company, \"our " +
-              "personnel\" today means the proprietor and anyone he engages. The " +
-              "controls in this clause are written to bind him without exception, and " +
-              "that is a property of how they are built rather than a promise about " +
-              "conduct: the second-factor requirement attaches to the operator sign-in " +
-              "realm and not to the person signing in, so there is no owner account it " +
-              "does not apply to, and the audit entries below are written by the same " +
-              "code whoever triggers them.",
+            "The controls in this clause bind every operator account without " +
+              "exception, including ours, and that is a property of how they are built " +
+              "rather than a promise about conduct: the second-factor requirement " +
+              "attaches to the operator sign-in realm and not to the person signing in, " +
+              "so there is no account it does not apply to, and the audit entries below " +
+              "are written by the same code whoever triggers them.",
             "Access is on a need-to-know basis, granted by role, and the map from every " +
               "endpoint to the permission it requires is asserted when the service starts " +
               "rather than reviewed by eye.",
@@ -157,8 +159,8 @@ export const DPA: LegalDocument = {
               "models your agents run. That is done on your instruction or with your " +
               "agreement, never through the support access above, and each of those " +
               "changes writes an audit entry naming the operator, your account and what " +
-              "changed. We say it here because the sentence above, read on its own, " +
-              "would tell you our people cannot change anything on your account.",
+              "changed. It is stated here because the bullet above, read on its own, " +
+              "would tell you we can change nothing on your account.",
           ],
         },
       ],

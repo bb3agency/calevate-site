@@ -23,9 +23,13 @@ import type { LegalDocument } from "./types";
  * complainant were writing to an organisation with desks in it. Three consequences, and
  * each is a sentence a complainant can act on rather than an internal detail:
  *
- * 1. **The three published contacts are one person.** Three instruments each demand a
- *    published contact, so three rows stay — but a page implying three desks would send a
- *    complainant hunting for the right one, and there is no wrong one to pick.
+ * 1. **The three published contacts are not three desks.** Three instruments each demand
+ *    a published contact, so three rows stay — but a page implying three desks would send
+ *    a complainant hunting for the right one, and there is no wrong one to pick. The
+ *    prose says that much and stops there: how many people read those mailboxes is the
+ *    business's own composition, it is owed to nobody, and a complainant's next move does
+ *    not change with the answer (26 Aug 2026 — the founder's instruction that these
+ *    documents stop narrating our staffing and scale).
  * 2. **There is nothing above the person named.** No board, no head office, no second
  *    tier. That is worth SAYING, because the ordinary next move when a company's
  *    grievance officer does not answer is to escalate internally, and here that move does
@@ -33,7 +37,7 @@ import type { LegalDocument } from "./types";
  * 3. **`{{GRIEVANCE_OFFICER_DESIGNATION}}` cannot be "Director".** Nobody holds that
  *    office. `placeholders.ts` records "Proprietor" as the designation for this shape.
  *
- * ## Being one person is not an exemption, and the page says why
+ * ## Being a sole proprietorship is not an exemption, and the page says why
  *
  * The obvious reading of "we are a sole proprietor" is that the corporate data-security
  * duties do not apply. They do. Section 43A of the Information Technology Act 2000 — the
@@ -54,10 +58,22 @@ import type { LegalDocument } from "./types";
  * `docs/LEGAL-SURFACE.md` DP-8: "There is no grievance intake surface, no ticket record
  * and no clock in the product — it is an email address. What closes it: either a mailbox +
  * a written procedure (sufficient at this size), or a `grievances` table. Say which; do
- * not leave it implied." Section 2 now says which. The reference number this page promises
- * is issued by hand in the acknowledgement, which is a real commitment one person can keep
- * and is not the same as a ticketing system — and a page that let a reader infer the
- * second from the first would be overclaiming its own operations.
+ * not leave it implied." Section 2's second callout says which, in the half that is the
+ * reader's business: there is no complaint form, no ticket queue and nothing to sign in
+ * to and watch, so a reader cannot infer a tracking system from a published timetable.
+ * What it no longer narrates is the machinery behind the mailbox — who monitors it and
+ * which steps are done by hand is our composition, not the complainant's remedy, and the
+ * commitments in the middle column stand whatever it is (26 Aug 2026).
+ *
+ * ## There is no postal channel, and the address is still published
+ *
+ * Section 1 offered "By post — {{LEGAL_ENTITY_NAME}}, {{REGISTERED_ADDRESS}}" as a way to
+ * complain. No postal correspondence is serviced, so that was a channel we would not have
+ * answered on a page whose whole subject is answering. The channel is gone and the
+ * ADDRESS is not: it is still printed, as the identification item the Consumer Protection
+ * (E-Commerce) Rules 2020 want displayed and the address a legal notice is served at, and
+ * `placeholders.ts` carries the same distinction so the next editor does not put the
+ * postal line back.
  *
  * ## The name is still a blank, and that is an unmet obligation rather than a formatting gap
  *
@@ -85,9 +101,8 @@ export const GRIEVANCE: LegalDocument = {
           kind: "para",
           text:
             "Three published contacts, because three different instruments each require " +
-            "one. They are not three desks: Calevate is a product operated by " +
-            "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, so the same individual holds all " +
-            "three roles and reads all three mailboxes. Pick whichever fits and do not " +
+            "one. They are not three desks, and Calevate is a product operated by " +
+            "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}. Pick whichever fits and do not " +
             "spend a minute choosing — there is no wrong one, and no complaint is turned " +
             "away for arriving at the wrong address.",
         },
@@ -122,22 +137,24 @@ export const GRIEVANCE: LegalDocument = {
         {
           kind: "para",
           text:
-            "By post: {{LEGAL_ENTITY_NAME}}, {{REGISTERED_ADDRESS}}. By telephone: " +
-            "{{CONTACT_PHONE}}.",
+            "By telephone: {{CONTACT_PHONE}}. We do not operate a postal complaints " +
+            "channel — the mailboxes above and that number are how a complaint reaches " +
+            "us, and we would rather say so than offer a channel we do not service. " +
+            "The supplier's principal place of business is {{REGISTERED_ADDRESS}}; " +
+            "it identifies who you are dealing with and is where a legal notice is " +
+            "served, not a place to send a complaint to.",
         },
         {
           kind: "callout",
           tone: "note",
-          title: "There is nobody above the person named here",
+          title: "There is no internal escalation above the person named here",
           text:
             "Worth knowing before you plan your next move. The usual escalation when a " +
             "company's grievance officer does not answer is to write to someone more " +
-            "senior. That does not exist here: a sole proprietorship has no board, no " +
-            "directors and no head office, and the person named above is the business " +
-            "rather than a first tier of it — which is also why their designation is " +
-            "Proprietor and not Director. If we do not put your complaint right, the next " +
-            "step is not further up this page; it is section 5, and section 5 is outside " +
-            "Calevate altogether.",
+            "senior. There is no such tier here: the supplier is a sole proprietorship, " +
+            "so the person named above is the business rather than a first level of it. " +
+            "If we do not put your complaint right, the next step is not further up this " +
+            "page; it is section 5, and section 5 is outside Calevate altogether.",
         },
       ],
     },
@@ -192,18 +209,16 @@ export const GRIEVANCE: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "What is behind those dates is a monitored mailbox, not a ticketing system",
+          title: "Complaints come to a mailbox — there is no form and no ticket queue",
           text:
-            "A published timetable can read like a support organisation, so here is the " +
-            "mechanism. Your complaint arrives in a mailbox one person monitors and is " +
-            "worked from a written procedure; there is no complaint form in the product, " +
-            "no ticket queue and no automatic clock. The reference number in your " +
-            "acknowledgement is issued by hand and quoted in every message about your " +
-            "complaint after that, which is what makes the commitment checkable by you " +
-            "rather than by us. We say this because the commitments above are real and we " +
-            "intend to keep them, and because a reader who assumed a system was tracking " +
-            "them would be relying on something that does not exist. If a reply is late, " +
-            "chase it — and section 5 does not require you to wait for us either way.",
+            "A published timetable can read like a support portal, so: a complaint is " +
+            "made by writing to one of the addresses in section 1. There is no complaint " +
+            "form in the product, no ticket queue, and nothing you can sign in to and " +
+            "watch. What you get instead is the reference number in your " +
+            "acknowledgement, quoted in every message about your complaint after that, " +
+            "which is what makes the commitments above checkable by you rather than by " +
+            "us. If a reply is late, chase it — and section 5 does not require you to " +
+            "wait for us either way.",
         },
       ],
     },
@@ -308,9 +323,9 @@ export const GRIEVANCE: LegalDocument = {
                 "corporate\", and section 43A of that Act defines the term in its own " +
                 "Explanation as \"any company and includes a firm, sole proprietorship or " +
                 "other association of individuals engaged in commercial or professional " +
-                "activities\". Calevate being one person rather than a company is " +
-                "therefore not an exemption from anything on this page, and we would " +
-                "rather you read that from us than have to look it up.",
+                "activities\". Calevate being a sole proprietorship rather than a " +
+                "company is therefore not an exemption from anything on this page, and " +
+                "we would rather you read that from us than have to look it up.",
             },
             {
               term: "Unsolicited or unlawful commercial calls",
@@ -345,11 +360,11 @@ export const GRIEVANCE: LegalDocument = {
         {
           kind: "para",
           text:
-            "A complaint is recorded with its outcome — in the written procedure section " +
-            "2 describes, not in a system — so that we can see patterns rather than " +
-            "treating each one as an isolated event. The personal data in your " +
-            "complaint is used to investigate and answer it and for nothing else, and it " +
-            "is retained for as long as we need it to demonstrate that we dealt with it " +
+            "A complaint is recorded with its outcome, so that we can see patterns " +
+            "rather than treating each one as an isolated event. The personal data in " +
+            "your complaint is used to investigate and answer it and for nothing else, " +
+            "and it is retained for as long as we need it to demonstrate that we dealt " +
+            "with it " +
             "properly. The Privacy Policy governs it.",
         },
       ],
