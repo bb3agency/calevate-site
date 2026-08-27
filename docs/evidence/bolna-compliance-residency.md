@@ -5,8 +5,20 @@
 > recorded. What does NOT stand is the consolation this document reaches more than once —
 > that the MODEL legs remain Indian, so "the inference does not leave the country" while
 > only the orchestration does (see §5 and §9). D-449 moved the language model to Azure
-> OpenAI `eastus2`. **Only the SPEECH legs are Indian now**, and the caller's transcript
-> crosses the border on every turn as it is spoken. The fork itself gets sharper rather than
+> OpenAI `eastus2`. **Only the SPEECH legs were Indian after that**, and the caller's
+> transcript crosses the border on every turn as it is spoken. ⚠ **AND ON 27 AUGUST 2026
+> (D-476) THE SPEECH HALF WENT TOO — READ THIS BEFORE QUOTING "Sarvam is sovereign" ANYWHERE
+> BELOW.** Sarvam is an Indian COMPANY, which is not a claim about where processing happens:
+> its own privacy policy states that personal data *"may be transferred to and processed in
+> countries outside India"*, naming US cloud infrastructure (AWS, GCP, Azure) and analytics
+> providers and EU model and security vendors, with EU SCCs, adequacy decisions and DPAs as
+> safeguards; the *"Data Localization (Indian Users)"* carve-out storing voice biometric data
+> in India reads as scoped to Content Studio, not to Voice Agents / API traffic. **So the
+> AUDIO may leave India on the speech leg as well.** Its ToS v2.0 (eff. 29 Jul 2026) s.17.5
+> further permits training on Inputs/Outputs/usage data absent a signed order form under
+> s.6.2, which we do not hold — OPERATIONS §2 gate 40. VENDOR-PUBLISHED, read by the founder
+> at `www.sarvam.ai` on 27 Aug 2026 and relayed; ⚠ `sarvam.ai` and `docs.sarvam.ai` remain
+> egress-blocked from this container, so nothing here was fetched. The fork itself gets sharper rather than
 > softer: buying Bolna's Enterprise India routing would put the ORCHESTRATION in India while
 > the model stayed in the US — the mirror image of the position described here, and still
 > not "the call happens in India". Nothing below was re-read or re-measured.
@@ -331,8 +343,11 @@ pages never say how they compose. Added to the gate-9 question list in §6.2.)*
 Neither arm is free and neither is ours alone to choose.
 
 **Arm A — keep BYOK, accept US orchestration (the status quo, now documented).**
-The model legs stay Indian: Sarvam is sovereign by vendor, Azure OpenAI is region-pinned to
-South India, so the inference does not leave the country. The orchestration, the media path
+~~The model legs stay Indian: Sarvam is sovereign by vendor, Azure OpenAI is region-pinned to
+South India, so the inference does not leave the country.~~ **Both halves are withdrawn** —
+Azure OpenAI is `eastus2` (D-449), and "Sarvam is sovereign by vendor" names the COMPANY
+while its own policy permits processing outside India (D-476, 27 Aug 2026; see the banner at
+the top of this file). **No leg of this product supports an India-processing claim.** The orchestration, the media path
 and the platform's copies of recording and transcript are in the US. We keep BYOK's cost
 control, the named-model transparency, and D-410's whole Azure pinning argument. **The DPA
 must say so, and now does.** Cost: the residency story is materially weaker than the

@@ -70,13 +70,19 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
   privacy: {
     title: "Privacy Policy",
     blocking: true,
-    revisions: [{ revision: "1", material: true }],
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: true },
+    ],
     effectiveDate: null,
   },
   terms: {
     title: "Terms of Service",
     blocking: true,
-    revisions: [{ revision: "1", material: true }],
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: true },
+    ],
     effectiveDate: null,
   },
   "acceptable-use": {
@@ -88,13 +94,19 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
   dpa: {
     title: "Data Processing Addendum",
     blocking: true,
-    revisions: [{ revision: "1", material: true }],
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: true },
+    ],
     effectiveDate: null,
   },
   subprocessors: {
     title: "Sub-processors",
     blocking: false,
-    revisions: [{ revision: "1", material: true }],
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: true },
+    ],
     effectiveDate: null,
   },
   refunds: {

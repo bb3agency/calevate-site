@@ -145,8 +145,12 @@ names no region, so the build proves only that one constant spells the region an
 endpoint is constructible outside the builder — that the resource really is in East US 2,
 and that its deployment is Regional Standard rather than Azure's worldwide-by-default
 Global, are attested by a human (OPERATIONS §2 gates 20 and 20c, which survive D-449
-re-aimed rather than retiring). Speech stays Sarvam and Indian; the caller's words reach a
-US model as they are spoken. The third surface is decided the OTHER way and permanently:
+re-aimed rather than retiring). Speech stays Sarvam, which is an Indian COMPANY and not an
+India-only PLACE — corrected 27 Aug 2026, because Sarvam's own privacy policy permits it to
+transfer and process personal data outside India (US cloud infrastructure; EU model and
+security vendors), so the caller's AUDIO may leave on the speech leg as well as the words
+reaching a US model as they are spoken. Sarvam ToS s.17.5 likewise permits training on
+inputs and outputs absent a signed order form (s.6.2), which we do not have. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data Transfers"; Sarvam ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` is still egress-blocked from this container). The third surface is decided the OTHER way and permanently:
 `GEMINI_EXTRACTION_DEFAULT is False`, so the
 first post-call extraction stays on Sarvam because it reads the raw transcript, and D-410
 does not move it. **D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·

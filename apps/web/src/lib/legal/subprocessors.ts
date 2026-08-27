@@ -41,6 +41,33 @@ interface RegisterRow {
  * contingency nobody has selected. Every state traces to a config field or an adapter in
  * the tree, cited in `docs/LEGAL-SURFACE.md`.
  *
+ * ## The speech row's Location cell was WRONG, and it was corrected on 27 August 2026
+ *
+ * It said "India." — one word, no qualification — and the vendor's own published privacy
+ * policy contradicts it. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data
+ * Transfers" and the retention/deletion tables; Sarvam Terms of Service v2.0, effective
+ * 29 July 2026, ss.6.2 and 17.5 — read by the founder at `www.sarvam.ai/privacy-policy`
+ * and `www.sarvam.ai/terms-of-service` on 27 Aug 2026 and relayed). ⚠ NOT read from this
+ * container: `sarvam.ai` and `docs.sarvam.ai` are egress-blocked here, as several comments
+ * in this tree already say, and that is still true — the evidence arrived by a different
+ * route, so do not "re-verify" it with a fetch that will 403.
+ *
+ * Two facts, and each one falsified a sentence a client would have relied on. (1) Personal
+ * data "may be transferred to and processed in countries outside India", the policy naming
+ * United States cloud infrastructure (AWS, GCP, Azure) and analytics providers, European
+ * Union model and security vendors, and other jurisdictions as necessary; the India-storage
+ * carve-out it does state covers voice BIOMETRIC data in the vendor's content-studio
+ * product and payment data, not the Saaras/Bulbul API traffic our calls generate. So the
+ * AUDIO may leave India on the SPEECH leg, not only the transcript on the language leg —
+ * which is the half every other document in this tree had backwards. (2) s.17.5 permits the
+ * vendor to use inputs, outputs and usage data for training its models, subject to its
+ * privacy policy, applicable law and, where required, a declinable consent; it does not
+ * vary by tier, and s.6.2 makes a signed order form the only instrument that can displace
+ * it. Section 3.4 of this document is where both are stated to a client. The register's
+ * Location cell now says India for the COMPANY and not for the data, because a one-word
+ * country in the cell a buyer's counsel reads is the most expensive place in this tree to
+ * be imprecise.
+ *
  * ## Re-audited against the CODE on 26 August 2026, and three vendors were missing
  *
  * F-11 in `docs/LEGAL-SURFACE.md` closed the copy that named vendors we do not use, and
@@ -104,10 +131,23 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     receives:
       "Call audio and the raw, unredacted transcript. This is the one path that " +
       "must see raw text: a callback-number field needs the actual digits.",
-    location: "India.",
+    location:
+      "India for the company; NOT India for the data, and this cell said only " +
+      "India until 27 August 2026. Its published privacy policy states that " +
+      "personal data may be transferred to and processed in countries outside " +
+      "India, and names United States cloud infrastructure (AWS, GCP, Azure) " +
+      "and analytics providers, European Union model and security vendors, and " +
+      "other jurisdictions as necessary to provide the service — with EU " +
+      "Standard Contractual Clauses, adequacy decisions and data-processing " +
+      "agreements as the safeguards. Its India-storage commitments cover voice " +
+      "biometric data in its content-studio product and payment data, not the " +
+      "ordinary speech traffic our calls generate. So the call audio and the " +
+      "transcript may be processed outside India on this leg too.",
     status:
       "Core. It no longer supplies the language model that holds the " +
-      "conversation — that is the next row.",
+      "conversation — that is the next row. Section 3.4 sets out what this " +
+      "vendor's own terms permit it to do with what it receives, including " +
+      "model training.",
   },
   {
     names: ["Microsoft"],
@@ -142,7 +182,10 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "in-call leg — which hears the caller — is new to this vendor. On " +
       "22 August 2026 the region moved out of India; the vendor did not " +
       "change, and neither did the speech provider or the first reading of " +
-      "your transcript, which are Indian and stay Indian.",
+      "your transcript. Read that last part narrowly: those stay with an " +
+      "INDIAN COMPANY, which is not the same as staying in India, and that " +
+      "vendor's own policy permits it to process outside India — its row and " +
+      "section 3.4 say so.",
   },
   {
     names: ["OpenAI"],
@@ -496,7 +539,7 @@ export const SUBPROCESSORS: LegalDocument = {
     },
     {
       id: "cautions",
-      heading: "3. Three things a careful reader should know",
+      heading: "3. Four things a careful reader should know",
       subsections: [
         {
           id: "bolna-residency",
@@ -534,9 +577,15 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "What this does NOT change: the speech provider is Indian, on both call " +
-                "legs, and so is the first pass that reads your transcript and extracts " +
-                "the fields. What it no longer sits alongside is a language model in " +
+                "What this does NOT change: the speech and first-extraction work stays " +
+                "with an Indian company, on both call legs. It does NOT follow that it " +
+                "stays in India, and until 27 August 2026 this paragraph let you read it " +
+                "that way. That vendor's own published privacy policy permits it to " +
+                "transfer personal data to and process it in countries outside India, " +
+                "including on United States cloud infrastructure and with European Union " +
+                "model and security vendors; section 3.4 sets that out with what its " +
+                "terms allow it to do with the data. What none of it sits alongside any " +
+                "more is a language model in " +
                 "India. Until 22 August 2026 this paragraph said the model inference " +
                 "itself did not leave the country; since that date the language model " +
                 "runs in the United States, so both the platform that orchestrates the " +
@@ -690,6 +739,69 @@ export const SUBPROCESSORS: LegalDocument = {
                 "own screen, and it is not by itself a charge: what a client pays, and " +
                 "whether choosing a model changes it, is clause 6.1 of the Terms of " +
                 "Service.",
+            },
+          ],
+        },
+        {
+          id: "speech-vendor-terms",
+          heading: "3.4 What the speech vendor's own terms allow, including model training",
+          blocks: [
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "Your call audio may be processed outside India, and the vendor's terms permit it to train on what it receives",
+              text:
+                "We chose an Indian company for the speech leg and that is still true of " +
+                "the company. Two things in its own published documents are not what an " +
+                "Indian company implies, and this page stated both wrongly until " +
+                "27 August 2026. First, its privacy policy says personal data may be " +
+                "transferred to and processed in countries outside India, and names " +
+                "United States cloud infrastructure (AWS, GCP and Azure) and analytics " +
+                "providers, European Union model and security vendors, and other " +
+                "jurisdictions as necessary to provide the service; the safeguards it " +
+                "names are EU Standard Contractual Clauses, adequacy decisions and " +
+                "data-processing agreements. Its India-storage commitments cover voice " +
+                "biometric data in its content-studio product and payment data, not the " +
+                "ordinary speech traffic a call generates. Second, its terms of service " +
+                "(version 2.0, effective 29 July 2026) permit it, at their paragraph 17.5, to " +
+                "use " +
+                "inputs, outputs and usage data to train its machine-learning models — " +
+                "in accordance with its privacy policy and applicable law, and where " +
+                "required subject to a consent that may be declined or withdrawn, with " +
+                "access to certain of its offerings possibly restricted if it is " +
+                "declined. That clause does not vary by plan: free credits, " +
+                "pay-as-you-go and paid accounts are treated alike.",
+            },
+            {
+              kind: "para",
+              text:
+                "We have not signed an order form or enterprise agreement with that " +
+                "vendor. Paragraph 6.2 of its terms gives a signed order form precedence " +
+                "over the terms, which is the only route by which we could promise you " +
+                "something stronger than the paragraph above — so until we have one we " +
+                "will not write the stronger sentence. Clause 2 of the Data Processing " +
+                "Addendum states what we do and do not promise about training as a " +
+                "result, and if a no-training commitment on this leg is a condition of " +
+                "your signing, tell us before you sign rather than after.",
+            },
+            {
+              kind: "para",
+              text:
+                "What that vendor says about keeping what it receives, so this page is " +
+                "complete rather than only corrected. Content submitted through its " +
+                "APIs — inputs and outputs — is retained by default for 30 days after " +
+                "last access, on a setting it describes as user-configurable; account " +
+                "and profile data for the life of the account plus 90 days unless " +
+                "earlier deletion is requested in writing; voice samples and models " +
+                "until consent is withdrawn plus 30 days; and security incident logs " +
+                "for seven years. On a deletion request it says it deletes within " +
+                "30 days of verifying the request, except where retention is required " +
+                "by law, where the data is needed for ongoing legal proceedings, or " +
+                "where technical limitations prevent deletion — in which case it " +
+                "anonymises instead. One gap we will not paper over: we have not been " +
+                "able to find where in that vendor's console the 30-day content " +
+                "retention is actually changed, so we do not claim to have changed it " +
+                "and we do not describe a control we have not found.",
             },
           ],
         },

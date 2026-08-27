@@ -30,8 +30,30 @@ import type { LegalDocument } from "./types";
  *    here can detect". That is exactly what OPERATIONS §2 gate 20 covers — a person
  *    reading the Location field of the resource that field names — so the notice now
  *    describes the setting and the person, not a guarantee neither of them gives.
- *    Speech, the first reading of the transcript and the application
- *    host (D-180, an Indian VPS) are the legs that remain Indian.
+ *    ⚠ AND SINCE 27 AUGUST 2026 THE SPEECH LEG IS NOT AN INDIA LEG EITHER. This item
+ *    used to end "Speech, the first reading of the transcript and the application host
+ *    (D-180, an Indian VPS) are the legs that remain Indian". The application host still
+ *    is. The speech legs are with an INDIAN COMPANY, which is a different claim: the
+ *    vendor's own privacy policy says personal data "may be transferred to and processed
+ *    in countries outside India", naming United States cloud infrastructure (AWS, GCP,
+ *    Azure) and European Union model and security vendors, under SCCs, adequacy decisions
+ *    and DPAs, and its India-storage carve-out covers voice biometric data in its
+ *    content-studio product and payment data rather than our API traffic. So the AUDIO may
+ *    leave India as it is spoken, on the speech leg — not only the transcript on the
+ *    language leg. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data Transfers"
+ *    — read by the founder 27 Aug 2026 and relayed). ⚠ `sarvam.ai` and `docs.sarvam.ai`
+ *    remain egress-blocked from this container; the evidence came by another route and a
+ *    fetch from here will still fail.
+ * 5. **The training promise is NARROWED to what we can keep, not softened.** "We do not
+ *    use client or caller data to train or fine-tune any model — ours or a vendor's" was
+ *    a promise about other companies' conduct that one of them does not make. Sarvam ToS
+ *    v2.0 (effective 29 July 2026) s.17.5 permits it to use inputs, outputs and usage data
+ *    for training, subject to its privacy policy, applicable law and, where required, a
+ *    consent that may be declined or withdrawn (declining may restrict access to some
+ *    offerings); it does not vary by tier, and s.6.2 makes a signed order form the only
+ *    instrument that displaces it — we have none. So OUR undertaking stands unqualified
+ *    and the VENDOR position is stated rather than promised away, in §6 here, clause 2 of
+ *    the DPA and §3.4 of the sub-processor register.
  * 3. **The Data Fiduciary named in §1 is a PERSON, not a company, and §1 says so.**
  *    Corrected 26 August 2026. The notice opened "Calevate is a product of X … mean that
  *    company", which was false in a way that matters here more than in most documents: a
@@ -402,7 +424,10 @@ export const PRIVACY_POLICY: LegalDocument = {
               title: "What we do not do with it",
               text:
                 "A client's caller data is used to run that client's service and for " +
-                "nothing else. It is not used to train models, it is not pooled across " +
+                "nothing else. WE do not use it to train models — and section 6 says " +
+                "exactly what one of our vendors' own terms permit, because a promise " +
+                "wider than we can keep is worse than the true sentence. It is not " +
+                "pooled across " +
                 "clients, it is not sold, and it is not used to market to callers. The " +
                 "database enforces the separation on every single query, not the " +
                 "application code: each client's rows are isolated by row-level security " +
@@ -619,9 +644,23 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "We do not sell personal data, we do not share it for anyone else's " +
-            "marketing, and we do not use client or caller data to train or fine-tune any " +
-            "model — ours or a vendor's.",
+            "We do not sell personal data and we do not share it for anyone else's " +
+            "marketing. On training we are going to be exact, because this sentence used " +
+            "to be wider than we could keep: WE do not use client or caller data to " +
+            "train, fine-tune or evaluate any model. What a vendor may do with what we " +
+            "send it is that vendor's own term, and one of them says something we have " +
+            "to pass on rather than promise away. The speech provider — the one that " +
+            "hears the call and produces the transcript — publishes terms of service " +
+            "(version 2.0, effective 29 July 2026) which permit it, at their paragraph " +
+            "17.5, to " +
+            "use inputs, outputs and usage data to train its machine-learning models, in " +
+            "accordance with its privacy policy and applicable law and, where required, " +
+            "subject to a consent that may be declined or withdrawn, with access to some " +
+            "of its offerings possibly restricted if it is declined. That clause is the " +
+            "same on every plan it sells, and only a signed order form under paragraph 6.2 " +
+            "of those terms could displace it. We have not signed one. Section 3.4 of " +
+            "the sub-processor page carries the detail, and clause 2 of the Data " +
+            "Processing Addendum is the operative text.",
         },
       ],
     },
@@ -683,7 +722,9 @@ export const PRIVACY_POLICY: LegalDocument = {
             "authentication rather than for a call recording. If the answer is yes, the " +
             "stricter test applies to every leg described below, including the live " +
             "conversation as it happens — the platform carrying the audio is outside " +
-            "India, and the transcript reaches a language model outside India turn by " +
+            "India, the speech provider that turns that audio into text may itself " +
+            "process it outside India under its own published policy, and the " +
+            "transcript reaches a language model outside India turn by " +
             "turn while you are still speaking. We will not put our own answer to an " +
             "undecided question in front of you. We do the thing that is right under " +
             "either answer: call audio is handled as though it may be sensitive personal " +
@@ -696,11 +737,23 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "definitions",
           items: [
             {
-              term: "Speech is processed in India; the language model is processed outside India, and where depends on the model you choose",
+              term: "Speech runs on an Indian COMPANY, which is not the same as staying in India; the language model runs outside India, and where depends on the model you choose",
               detail:
                 "Speech recognition and voice synthesis run on an Indian provider, on " +
                 "both call legs, and so does the first pass that reads your transcript " +
-                "and pulls the fields out of it. The language model on both AI legs — " +
+                "and pulls the fields out of it. That names the COMPANY, not the country " +
+                "the processing happens in, and until 27 August 2026 this notice let you " +
+                "read it as both. That provider's published privacy policy says personal " +
+                "data may be transferred to and processed in countries outside India, " +
+                "and names United States cloud infrastructure and European Union model " +
+                "and security vendors, under Standard Contractual Clauses, adequacy " +
+                "decisions and data-processing agreements; the India-storage commitments " +
+                "it does make cover voice biometric data in its content-studio product " +
+                "and payment data, not the ordinary speech traffic a call generates. So " +
+                "your audio may leave India on the speech leg as well, as it is spoken, " +
+                "and we have withdrawn the sentence that implied otherwise rather than " +
+                "qualifying it. Section 3.4 of the sub-processor page sets out what that " +
+                "vendor's terms permit. The language model on both AI legs — " +
                 "the model that holds the conversation during a call, and the dashboard " +
                 "assistant that works on redacted data — runs on one of several " +
                 "providers you can choose between: Microsoft's Azure OpenAI service " +
@@ -1156,9 +1209,14 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "Copies held by the voice platform are reported as unconfirmed. Their " +
                   "deletion interface is undocumented, and we will not certify a deletion " +
                   "we cannot show.",
-                "Knowledge content a client uploaded is not searched. If your details are " +
-                  "in a document a client uploaded for their agent to answer from, " +
-                  "removing them is manual work on the client's side.",
+                "Knowledge content a client uploaded is SEARCHED for the number, and the " +
+                  "number of matching documents is reported on the erasure certificate — " +
+                  "but nothing in it is edited or deleted. This list said the content was " +
+                  "not searched at all, which was wrong in the client's favour and is " +
+                  "corrected here rather than dropped. So if your details are in a " +
+                  "document a client uploaded for their agent to answer from, the client " +
+                  "is told how many of their documents mention you, and removing them is " +
+                  "manual work on their side.",
                 "Backups age out on their own 35-day cycle.",
               ],
             },

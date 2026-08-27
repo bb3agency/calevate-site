@@ -114,11 +114,26 @@ export const DPA: LegalDocument = {
           kind: "list",
           items: [
             "We do not use your callers' personal data for our own purposes.",
-            "We do not use it to train, fine-tune or evaluate any model, ours or a " +
-              "vendor's, and our vendor arrangements are selected so that submitted content " +
-              "is not used to improve the vendor's products. One consumer-tier model " +
-              "interface was disqualified outright on this ground, and the code refuses the " +
-              "credential that would reach it.",
+            "We do not use it to train, fine-tune or evaluate any model. That is our " +
+              "own undertaking and it is unqualified.",
+            "What a VENDOR may do with what we send it is a different promise, and we " +
+              "will not make one we cannot keep. Until 27 August 2026 this clause said " +
+              "our vendor arrangements were selected so that submitted content is not " +
+              "used to improve a vendor's products. On the speech leg — the vendor that " +
+              "hears the call and produces the transcript — that is not what the vendor's " +
+              "terms say. The terms of service governing its APIs (version 2.0, effective " +
+              "29 July 2026) permit it, at their paragraph 17.5, to use inputs, outputs and " +
+              "usage " +
+              "data to train its machine-learning models, in accordance with its privacy " +
+              "policy and applicable law and, where required, subject to a consent that " +
+              "may be declined or withdrawn — and it states that declining may restrict " +
+              "access to certain of its offerings. That clause applies to every plan it " +
+              "sells, and their paragraph 6.2 gives a signed order form " +
+              "precedence over it, which is the only route to a stronger commitment. We " +
+              "have not signed one, and we would rather tell you that than repeat a " +
+              "sentence we cannot stand behind. Section 3.4 of the sub-processor page " +
+              "carries the detail; if a no-training commitment on that leg is a condition " +
+              "of your signing, tell us before you sign.",
             "We do not pool it across clients, sell it, or share it for anyone's marketing.",
             "If we believe an instruction of yours breaks the law, we will tell you and " +
               "may decline to act on it. Several such refusals are automatic — the " +
@@ -279,7 +294,11 @@ export const DPA: LegalDocument = {
             "fixed when the request runs, and the audio is destroyed on that date without a " +
             "second request. Copies held by the voice platform are reported as unconfirmed, " +
             "because their deletion interface is undocumented and we will not certify a " +
-            "deletion we cannot show. Knowledge content you uploaded is not searched. " +
+            "deletion we cannot show. Knowledge content you uploaded is SEARCHED for the " +
+            "subject's number and the number of matching documents is reported on the " +
+            "certificate, but none of it is edited or deleted — this callout said it was " +
+            "not searched at all, which was wrong and is corrected rather than dropped; " +
+            "clause 8 states the same limit and why it is deliberate. " +
             "Backups age out on their own 35-day cycle.",
         },
       ],
@@ -422,7 +441,9 @@ export const DPA: LegalDocument = {
             "goes is named on the sub-processor page, and the question is on the list for " +
             "the advocate whose review this document is waiting on. Read it as a question " +
             "about the LIVE call and not only about the stored file: the audio is carried " +
-            "by a platform outside India while the call is happening, and since 22 August " +
+            "by a platform outside India while the call is happening, the speech " +
+            "provider that turns it into text may itself process it outside India under " +
+            "its own published policy, and since 22 August " +
             "2026 the transcript of it reaches a model in the United States turn by turn " +
             "as it is spoken. If the answer is yes, the stricter transfer test applies to " +
             "the conversation itself, which is why the question is worth more to you than " +
@@ -439,8 +460,15 @@ export const DPA: LegalDocument = {
           text:
             "The sub-processor page states, for each vendor, where it processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
-            "notice: speech recognition and voice synthesis run on an Indian provider, " +
-            "and so does the first pass that reads the transcript; the language model on " +
+            "notice: speech recognition, voice synthesis and the first pass that reads " +
+            "the transcript run on an Indian provider — a statement about the COMPANY " +
+            "and not about the country, which this clause used to let you read as the " +
+            "same thing. That provider's published privacy policy permits it to transfer " +
+            "personal data to and process it in countries outside India, including on " +
+            "United States cloud infrastructure and with European Union model and " +
+            "security vendors, under standard contractual clauses, adequacy decisions " +
+            "and data-processing agreements, so the call audio and its transcript may be " +
+            "processed outside India on that leg as well; the language model on " +
             "both AI legs runs on one of several providers a client can choose between, " +
             "each named on the sub-processor page with where it processes — the one we " +
             "run by default is a hyperscale provider's service configured for a United " +
@@ -474,8 +502,11 @@ export const DPA: LegalDocument = {
             "provider handles the language leg and where it runs. The single-vendor, " +
             "single-region promise this clause used to make about that leg is " +
             "WITHDRAWN, not narrowed. Speech recognition, voice synthesis and the first " +
-            "pass that reads your transcript are unaffected: they stay with an Indian " +
-            "provider. What the figure beside each model is, and whether choosing a " +
+            "pass that reads your transcript are unaffected BY YOUR MODEL CHOICE: they " +
+            "stay with the same Indian provider, whose own locations and terms are set " +
+            "out above and on the sub-processor page — and an Indian provider is not the " +
+            "same as processing in India, which this clause used to let you read as one " +
+            "claim. What the figure beside each model is, and whether choosing a " +
             "model changes what you pay, is set out in clause 6.1 of the Terms of " +
             "Service.",
         },
@@ -547,8 +578,11 @@ export const DPA: LegalDocument = {
             "whether we can meet it — and on the evidence on the sub-processor page, a " +
             "requirement that the call itself stay in India is one we cannot meet today, " +
             "and since 22 August 2026 neither is a requirement that the language model " +
-            "stay in India. Speech and the first reading of the transcript remain " +
-            "Indian, and the application database is to be hosted in India on the " +
+            "stay in India — and since 27 August 2026 we no longer say the speech leg " +
+            "meets one either: that provider is an Indian company, its own published " +
+            "policy permits it to process outside India, and a localisation duty is " +
+            "about where the processing happens rather than about the flag on the " +
+            "vendor. The application database is to be hosted in India on the " +
             "decision recorded above — a host that is chosen and not yet provisioned, " +
             "so read it as a commitment we are making rather than a machine you can " +
             "point at. If your duty can be met by those alone, " +

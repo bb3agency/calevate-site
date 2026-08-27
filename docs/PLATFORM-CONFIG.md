@@ -62,8 +62,11 @@ then beat it if you can).
   KEEPING A REASON THAT EVAPORATED.** It read *"D-36 chose an all-India model stack; a
   US-hosted KMS ... is a strange place to give that up"* — true when the language leg was
   Indian, and false since **D-449** moved it to Azure OpenAI `eastus2` and WITHDREW the
-  India warranty. Speech is still Sarvam and still Indian, but "we keep everything in
-  India anyway" is not an argument this repository may make any more. **The rejection is
+  India warranty. Speech is still Sarvam — and as of 27 Aug 2026 "still Indian" is a claim
+  about the COMPANY only: Sarvam's own privacy policy permits it to process personal data
+  outside India (US cloud infrastructure, EU model and security vendors), so "we keep
+  everything in India anyway" is not an argument this repository may make any more, and it
+  is now doubly unavailable. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data Transfers"; Sarvam ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` is still egress-blocked from this container). **The rejection is
   unchanged on the grounds above**: it is a new sub-processor on the one secret that
   unlocks all the others, on a one-VPS estate that CLAUDE.md tells us to answer with
   Postgres first. Recorded rather than quietly re-justified, because a decision whose
