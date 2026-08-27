@@ -287,7 +287,12 @@ async def test_publishing_an_agent_with_no_script_is_refused_not_placeholdered()
     assert response.status_code == 422, response.text
     body = response.json()
     assert body["type"].endswith("/agent_has_no_script")
-    assert "intake" in body["remediation"], "the refusal names the step that fixes it"
+    # THE STEP, IN THE READER'S WORDS. This asked for "intake", which is our onboarding
+    # process and not a control anybody sees — and the same refusal is what the CLIENT's
+    # own "Put this agent on the phone" button returns (`POST /v1/agents/{id}/activate`,
+    # `org:manage`), so the sentence has to work for a business owner too. What both
+    # readers do next is identical and is what is asserted now: write the script.
+    assert "script" in body["remediation"], "the refusal names the thing that fixes it"
 
     async with tenant_session(tenant_id) as session:
         row = (

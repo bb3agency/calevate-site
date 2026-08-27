@@ -4,7 +4,10 @@ Phase 1's done-when is "encrypt/decrypt round-trips and every failure mode refus
 name", and the reason each case below is written out rather than summarised as "it
 raises" is that the refusals are not interchangeable:
 
-* `platform_kek_unusable` sends an operator to their environment;
+* `platform_kek_unusable` sends an operator to their environment — through the LOG
+  LINE, not the response body, because both doors into that branch (a sign-in, a
+  client pasting an integration key) belong to somebody who cannot act on an
+  environment variable. The tests below assert the split, not just the code;
 * `platform_secret_unwrappable` sends them to their KEK rotation;
 * `platform_secret_corrupt` sends them to an incident.
 
@@ -20,6 +23,7 @@ suite on the shared event loop.
 from __future__ import annotations
 
 import base64
+import logging
 import os
 
 import pytest
@@ -105,34 +109,73 @@ def test_every_seal_draws_fresh_nonces_and_a_fresh_dek() -> None:
     assert len({s.ciphertext for s in seals}) == 64
 
 
+# --- who each half of the refusal is for --------------------------------------
+
+#: Anything a person in the client console cannot act on. `platform_kek_unusable` is
+#: raised on the sign-in path (`authn/hashing` resolves the ring for the password pepper)
+#: and on the path where a client saves an integration key, so the BODY is read by
+#: somebody who has no environment to edit and no shell to run a command in. The operator
+#: half is asserted in the log instead, by the two helpers below.
+_OPERATOR_ONLY = ("PLATFORM_KEK", "DEV-SETUP", "base64", "python -c", "deployment")
+
+
+def _kek_log(caplog: pytest.LogCaptureFixture) -> logging.LogRecord:
+    """The one `platform_kek_unusable` record — where the operator's fix now lives."""
+    records = [r for r in caplog.records if r.getMessage() == "platform_kek_unusable"]
+    assert len(records) == 1, [r.getMessage() for r in caplog.records]
+    return records[0]
+
+
+def _operator_fix(caplog: pytest.LogCaptureFixture) -> str:
+    return str(getattr(_kek_log(caplog), "fix", ""))
+
+
+def _operator_reason(caplog: pytest.LogCaptureFixture) -> str:
+    return str(getattr(_kek_log(caplog), "reason", ""))
+
+
+def _assert_reader_can_act_on_it(problem: ProblemError) -> None:
+    """The body says what happened and who is fixing it, in nobody's environment."""
+    body = f"{problem.title} {problem.detail} {problem.remediation}"
+    for token in _OPERATOR_ONLY:
+        assert token not in body, f"{token!r} is operator vocabulary in a client-read body"
+
+
 # --- the KEK itself -----------------------------------------------------------
 
 
-def test_an_absent_kek_refuses_by_name_outside_local() -> None:
-    with pytest.raises(ProblemError) as raised:
+def test_an_absent_kek_refuses_by_name_outside_local(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         build_ring(kek=None, retired=None, app_env="prod")
     assert raised.value.code == "platform_kek_unusable"
-    assert "PLATFORM_KEK" in (raised.value.remediation or "")
+    assert "PLATFORM_KEK" in _operator_fix(caplog)
+    _assert_reader_can_act_on_it(raised.value)
 
 
-def test_a_short_kek_is_refused_exactly_like_an_absent_one() -> None:
+def test_a_short_kek_is_refused_exactly_like_an_absent_one(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """D-86's argument, transferred: to a caller they are ONE condition. A refusal that
     fired on absence and accepted a 16-byte key would guard the easier half of one
     mistake — and the operator who pasted a short value would get no signal at all."""
     short = base64.b64encode(b"\x02" * 16).decode()
-    with pytest.raises(ProblemError) as raised:
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         build_ring(kek=short, retired=None, app_env="prod")
     assert raised.value.code == "platform_kek_unusable"
-    assert "16 bytes" in (raised.value.remediation or "")
+    assert "16 bytes" in _operator_reason(caplog)
+    _assert_reader_can_act_on_it(raised.value)
 
 
-def test_a_long_kek_is_refused_too_because_this_is_a_length_not_a_floor() -> None:
+def test_a_long_kek_is_refused_too_because_this_is_a_length_not_a_floor(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """The one place this differs from the HMAC ladder: AES-256 takes a key of exactly
     256 bits. A 40-byte value is not a stronger key, it is not a key."""
-    with pytest.raises(ProblemError) as raised:
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         build_ring(kek=base64.b64encode(b"\x03" * 40).decode(), retired=None, app_env="prod")
     assert raised.value.code == "platform_kek_unusable"
-    assert "40 bytes" in (raised.value.remediation or "")
+    assert "40 bytes" in _operator_reason(caplog)
+    _assert_reader_can_act_on_it(raised.value)
 
 
 def test_a_key_of_any_other_length_cannot_be_constructed_at_all() -> None:
@@ -156,15 +199,18 @@ def test_a_key_of_any_other_length_cannot_be_constructed_at_all() -> None:
     assert len(Kek(kek_id=1, material=b"\x05" * KEK_BYTES).material) == KEK_BYTES
 
 
-def test_a_kek_that_is_not_base64_is_refused_as_an_encoding_problem() -> None:
+def test_a_kek_that_is_not_base64_is_refused_as_an_encoding_problem(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """`validate=True` on the decode is what makes this branch reachable: the permissive
     decoder discards characters outside the alphabet, so a mistyped key would quietly
     decode SHORT and be reported as a length problem — sending the operator to lengthen
     a value that was never in the right alphabet."""
-    with pytest.raises(ProblemError) as raised:
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         build_ring(kek="not a key, obviously!!", retired=None, app_env="prod")
     assert raised.value.code == "platform_kek_unusable"
-    assert "base64" in (raised.value.remediation or "")
+    assert "base64" in _operator_reason(caplog)
+    _assert_reader_can_act_on_it(raised.value)
 
 
 def test_local_gets_a_derived_kek_and_no_other_environment_does() -> None:

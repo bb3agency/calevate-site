@@ -114,9 +114,16 @@ def test_the_certificate_says_which_audio_survived_the_pointer_it_cleared() -> N
     assert entry["outcome"] == "retained_under_legal_floor"
     prose = f"{entry['why']} {entry['authority']}".lower()
     assert str(RECORDING_FLOOR_DAYS) in prose
-    assert "security-compliance §4" in prose, (
-        "a reader with no access to this codebase needs the section by name"
+    # A SOURCE THE READER CAN ACTUALLY OPEN. This asked for "security-compliance §4",
+    # which is an internal blueprint document: the certificate is rendered on the
+    # client's own data-rights screen and handed on to a data principal, and naming a
+    # file they have no copy of makes the citation unverifiable — the opposite of what
+    # `authority` is for. The data-processing agreement is published (`lib/legal/dpa.ts`
+    # §8) and states this same floor, so it is the citation that can be checked.
+    assert "data-processing agreement" in prose, (
+        "a reader with no access to this codebase needs a source they can open"
     )
+    assert "security-compliance" not in prose, "an internal document is not a citation"
     # AND THE FLOOR IS OURS, SAID IN THE CERTIFICATE ITSELF. This used to require
     # "SECURITY-COMPLIANCE §1", which is the section that attributes the 90 days to TRAI
     # — and the certificate said, to a data principal, that the period was one "Indian
@@ -197,7 +204,8 @@ def test_the_filed_certificate_is_readable_without_the_response_around_it() -> N
     document = _certified()
     assert document["limitations"] == list(ERASURE_LIMITATIONS)
     filed = json.dumps(document, ensure_ascii=False).lower()
-    assert "security-compliance §4" in filed
+    assert "data-processing agreement" in filed
+    assert "security-compliance" not in filed, "an internal document is not a citation"
     assert "indian telecom rules require" not in filed
     assert str(RECORDING_FLOOR_DAYS) in filed
 

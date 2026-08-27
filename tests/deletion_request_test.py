@@ -324,7 +324,10 @@ async def test_the_status_of_a_request_is_readable_and_carries_the_proof() -> No
     assert "90" in stated and "recording" in stated, (
         "the TRAI recording floor must be visible to whoever hands this to the subject"
     )
-    assert "consent_ledger" in stated
+    # The consent ledger by what it IS, not by its table name — this asked for
+    # "consent_ledger", a column-store identifier on a screen a shop owner reads and
+    # hands to a data principal.
+    assert "consent records" in stated
 
     # And stated INSIDE the certificate, not only beside it. The envelope is not what
     # gets filed — the proof is, and a proof that lists what it cleared while staying

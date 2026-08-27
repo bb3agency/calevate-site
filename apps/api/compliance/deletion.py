@@ -85,8 +85,10 @@ past the floor, and for audio still inside the 90-day floor writes a row to
 `recording_erasure_holds` carrying a lawful `erase_after` — the earliest instant the floor
 permits destruction — which the retention sweep honours automatically without a second
 request (migration `9c1d3e7a05f4`). `ERASURE_LIMITATIONS` and `ERASURE_EXCEPTIONS` state
-that position and cite both sections, so whoever hands the certificate to a data principal
-is describing a scheduled destruction with a stated date, not standing on an open question.
+that position — in the reader's own terms, citing DPDP rather than our own filenames, and
+naming the floor as Calevate's policy (see `ErasureLimitation`) — so whoever hands the
+certificate to a data principal is describing a scheduled destruction with a stated date,
+not standing on an open question.
 
 An earlier version of this notice told the data principal the audio was "removed by the
 object-store lifecycle rule, which is floored at 90 days". That sentence described a
@@ -298,6 +300,19 @@ class ErasureLimitation:
     a paragraph they can act on, and `authority` cites the rule by section so the claim
     can be checked against the source rather than taken on our word.
 
+    **`authority` MAY ONLY CITE SOMETHING THE READER CAN OPEN**, and that is a
+    correction. The certificate renders on the client's own data-rights screen
+    (`app/c/[slug]/data-rights`), so these strings were reaching a business owner and,
+    through them, a data principal and a regulator — while citing `SECURITY-COMPLIANCE
+    §4`, `docs/evidence/subprocessor-erasure-reach.md`, `OPERATIONS §2 gate 12(f)`,
+    `docs/LEGAL-SURFACE.md` DP-11, "hard rule 4" and a migration revision. None of those
+    is a document that reader has, which turns a citation meant to be CHECKABLE into an
+    appeal to a source they must take on trust — the opposite of the field's purpose.
+    A statute, a published vendor page and "this is our own policy, and we set it" are
+    all checkable; our own filenames are not. Where an entry rests on an internal
+    document, the plain statement goes in `authority` and the internal pointer goes in a
+    comment above the entry, where the person who maintains it reads.
+
     `keyword` is not part of the document. It is the anchor that pins this entry to the
     prose sentence at the same index in `ERASURE_LIMITATIONS`: two lists that say the
     same thing drift, and the pairing test is what stops one of them being widened
@@ -337,17 +352,19 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "this system can reach, play or export it. The audio files themselves are destroyed "
     "by this request too, EXCEPT any that are still inside the "
     f"{RECORDING_FLOOR_DAYS}-day floor Calevate applies to call recordings as a matter "
-    "of its own platform policy (SECURITY-COMPLIANCE §4). Those are not destroyed early "
-    "and they are not kept indefinitely either: each one is scheduled, and the "
+    "of its own platform policy. Those are not destroyed early and they are not kept "
+    "indefinitely either: each one is scheduled, and the "
     "certificate states the date the last of them is destroyed on. Whether an under-age "
     "recording should be destroyed on request ANYWAY is an open decision, and this "
     "notice states the position rather than resolving it.",
-    "consent_ledger entries are retained, and they carry the caller's number. They are "
-    "the append-only proof that the calls were lawful (hard rule 4); destroying them "
-    "would remove the evidence that consent existed. So the number itself survives on "
-    "that ledger even though it is cleared everywhere the calls are stored.",
-    "usage_events are retained. They are an append-only billing ledger carrying no "
-    "personal data, and deleting them would silently rewrite a closed billing period.",
+    "The consent records for these calls are retained, and they carry the caller's "
+    "number. They are the append-only proof that the calls were lawful — an entry can "
+    "be added but never edited or deleted — and destroying them would remove the "
+    "evidence that consent existed. So the number itself survives on that record even "
+    "though it is cleared everywhere the calls are stored.",
+    "The billing records for these calls are retained. They are an append-only ledger "
+    "of minutes and money carrying no personal data, and deleting them would silently "
+    "rewrite a closed billing period.",
     "Call rows survive with their personal fields cleared rather than being deleted, so "
     "the minutes that were billed stay countable.",
     "The voice platform that carried these calls keeps its own copy of the recording "
@@ -368,9 +385,9 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "misleading by omission.",
     "This request record holds the number only until the erasure runs — the queued "
     "worker has to be able to find the subject — and it is cleared in the same write "
-    "that records the proof. What remains afterwards is a one-way hash "
-    "(`subject_ref`), which confirms an erasure to someone who already has the number "
-    "and discloses nothing to anyone who does not.",
+    "that records the proof. What remains afterwards is a one-way reference, which "
+    "confirms an erasure to someone who already has the number and discloses nothing "
+    "to anyone who does not.",
     "If this number is on a do-not-call list — the client's own or the national one — "
     "that entry is retained. Removing it would make the person callable again, which is "
     "the opposite of what suppression is for. A DNC entry records a number and a scope, "
@@ -413,21 +430,24 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "each one has a destruction date fixed at the moment this request ran, and "
             "the audio is deleted automatically on that date without a second request."
         ),
+        # SECURITY-COMPLIANCE §4 is where the floor and the doubt about its authority
+        # are written down for us; the sentence below says both things without citing it,
+        # because the reader has no copy of that document.
         authority=(
-            f"Calevate's own {RECORDING_FLOOR_DAYS}-day recording-retention floor "
-            "(SECURITY-COMPLIANCE §4) — a conservative platform policy, NOT a statutory "
-            "requirement: the statute said to impose it has not been identified, and "
-            "whether one exists is with counsel (SECURITY-COMPLIANCE §4, 'the floor's "
-            "own authority is in doubt') — read against the erasure duty in DPDP §12(3), "
-            "which requires erasure 'unless retention of the same is necessary for the "
+            f"Calevate's own {RECORDING_FLOOR_DAYS}-day recording-retention floor, "
+            "published in section 8 of the data-processing agreement — a conservative "
+            "policy we set ourselves, NOT a statutory requirement: the statute said to "
+            "impose it has not been identified, and whether one exists is a question "
+            "with our counsel — read against the erasure duty in DPDP §12(3), which "
+            "requires erasure 'unless retention of the same is necessary for the "
             "specified purpose or for compliance with any law for the time being in "
             "force'. A retention obligation therefore DEFERS an erasure rather than "
             "cancelling it, and DPDP §8(7)'s storage limitation makes keeping the data "
             "beyond that obligation a breach in itself — which is why the deferral is a "
             "scheduled destruction and not an exemption. Whether an under-age recording "
-            "should be destroyed on request anyway is an open decision recorded in "
-            "SECURITY-COMPLIANCE §4; until it is taken the pointer is cleared at every "
-            "age and no under-age audio is destroyed early."
+            "should be destroyed on request anyway is an open decision we have not yet "
+            "taken; until we do, the pointer is cleared at every age and no under-age "
+            "audio is destroyed early."
         ),
     ),
     ErasureLimitation(
@@ -440,18 +460,27 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "number on the ledger; deleting the entries would destroy the evidence that "
             "the contact was lawful rather than reduce what is known about the person."
         ),
-        authority="Hard rule 4 (append-only ledgers); SECURITY-COMPLIANCE §4.",
+        # Hard rule 4 (append-only ledgers), SECURITY-COMPLIANCE §4.
+        authority=(
+            "Calevate's consent ledger is append-only by design: an entry can be added "
+            "but never edited or deleted, which is the property that lets it prove a "
+            "call was permitted."
+        ),
     ),
     ErasureLimitation(
         what="The billing records for these calls.",
-        keyword="usage_events",
+        keyword="billing records",
         outcome="retained_as_record",
         why=(
-            "Usage events are an append-only billing ledger. They count minutes and "
+            "The billing records are an append-only ledger. They count minutes and "
             "money and name no person, and deleting them would silently rewrite a "
             "billing period that has already been invoiced."
         ),
-        authority="Hard rule 4 (append-only ledgers); hard rule 7 (money).",
+        # Hard rule 4 (append-only ledgers), hard rule 7 (money).
+        authority=(
+            "Calevate's billing ledger is append-only by design and money is never "
+            "restated in place: a correction is a new entry, never a deletion."
+        ),
     ),
     ErasureLimitation(
         what="The call rows themselves.",
@@ -464,8 +493,9 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "What is left is a duration, a timestamp and identifiers that point at no "
             "person."
         ),
+        # SECURITY-COMPLIANCE §4.
         authority=(
-            "SECURITY-COMPLIANCE §4 — erasure removes the personal data, not the fact "
+            "Calevate's erasure policy: erasure removes the personal data, not the fact "
             "that a call happened and was billed."
         ),
     ),
@@ -486,14 +516,16 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "principal those copies are gone until that request has been answered: the "
             "answer is recorded against this erasure and the certificate reports it."
         ),
+        # Our enumeration is `docs/evidence/subprocessor-erasure-reach.md` §1-2, read
+        # against the hash-pinned vendor mirror; the contractual fix is OPERATIONS §2
+        # gate 12(f) and gate 36.
         authority=(
-            "The enumeration is `docs/evidence/subprocessor-erasure-reach.md` §1-2, read "
-            "against the vendor's own mirrored documentation: the Executions surface is "
-            "four GETs and the Calling surface is one POST, so no route deletes an "
-            "execution, a recording or a transcript, while `DELETE /v2/agent/{agent_id}` "
-            "deletes an agent and 'ALL agent data including all batches, all "
-            "executions'. The durable fix is a contractual deletion term, which is "
-            "OPERATIONS §2 gate 12(f) and gate 36 — a signed commercial term, not "
+            "The voice platform's own published API documentation: its executions "
+            "surface only reads, and its calling surface only places calls, so no route "
+            "there deletes one execution, one recording or one transcript — while its "
+            "agent-delete route removes an agent together with 'ALL agent data "
+            "including all batches, all executions'. The durable fix is a deletion term "
+            "in our contract with that platform: a signed commercial agreement, not "
             "something this system can supply."
         ),
     ),
@@ -513,19 +545,23 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "is best removed by never creating it, which is an approval to be applied "
             "for rather than a deletion to be requested."
         ),
+        # `docs/evidence/subprocessor-erasure-reach.md` §3 is the reading;
+        # `docs/LEGAL-SURFACE.md` DP-11 is the missing term; OPERATIONS §2 gate 36 closes
+        # it. The sentence below states all three without naming a document the reader
+        # cannot open.
         authority=(
-            "DPDP §8(7) storage limitation and §12(3) erasure, read against what "
-            "`docs/evidence/subprocessor-erasure-reach.md` §3 could actually establish: "
-            "the speech vendor's retention is UNKNOWN and the model vendor's is "
-            "REPORTED, because both vendors' documentation hosts are refused by this "
-            "environment's egress proxy and neither has a signed processing term "
-            "(`docs/LEGAL-SURFACE.md` DP-11). This entry states the gap rather than "
-            "closing it; closing it is OPERATIONS §2 gate 36."
+            "DPDP §8(7) storage limitation and §12(3) erasure, read against what we have "
+            "actually been able to establish about these two vendors: the speech "
+            "vendor's retention period is unknown to us, and the language vendor's is "
+            "reported rather than confirmed — neither vendor's documentation could be "
+            "retrieved from the environment this system runs in, and neither has yet "
+            "signed a data-processing term with us. This entry states the gap rather "
+            "than closing it; closing it means getting those terms signed."
         ),
     ),
     ErasureLimitation(
         what="This erasure request record.",
-        keyword="subject_ref",
+        keyword="one-way reference",
         outcome="retained_hashed",
         why=(
             "The request held the number only for as long as the erasure took, and it "
@@ -533,7 +569,12 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "is a one-way reference that confirms this erasure to someone who already "
             "knows the number and discloses nothing to anyone who does not."
         ),
-        authority="Hard rule 6 (no personal data in logs or trails); migration f4a8e1c07b62.",
+        # Hard rule 6 (no personal data in logs or trails); migration f4a8e1c07b62.
+        authority=(
+            "Calevate's rule that no personal data is kept in a log or an audit trail: "
+            "the number is replaced by a one-way reference in the same write that "
+            "completes the erasure."
+        ),
     ),
     ErasureLimitation(
         what="Any do-not-call suppression recorded for this number.",
@@ -545,7 +586,12 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "which is the opposite of what suppression is for. The entry records a "
             "number and a scope, and nothing else about the person."
         ),
-        authority="Hard rule 5 (DNC additions propagate before the next dispatch tick).",
+        # Hard rule 5 (DNC additions propagate before the next dispatch tick).
+        authority=(
+            "Calevate's rule that a do-not-call entry takes effect before the next call "
+            "is dispatched. Deleting the entry would put the number back in reach, which "
+            "is why an erasure does not touch it."
+        ),
     ),
     ErasureLimitation(
         what="The knowledge base this client's agents answer from.",
@@ -563,13 +609,16 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "this account's knowledge-base retention period. The live version is kept "
             "while it is live."
         ),
+        # SECURITY-COMPLIANCE §4 is the scope; D-179 closed our two halves;
+        # DATA-MODEL §9 carries the `kb` retention category.
         authority=(
-            "SECURITY-COMPLIANCE §4 enumerates the erasure scope as calls, transcript "
-            "turns, extracted fields, leads and recordings — knowledge-base content is "
-            "not in it, and D-179 closed the two halves of that gap that were ours: "
-            "DATA-MODEL §9's retention categories now include `kb`, which expires "
-            "superseded versions, and this request searches the rest. What is left is a "
-            "judgement about the client's own words, which is theirs to make."
+            "Calevate's erasure scope is calls, transcript turns, extracted fields, "
+            "leads and recordings — knowledge-base content is not a record of a caller "
+            "and is not in it. The two halves of that gap that were ours are closed: "
+            "superseded and rejected knowledge versions now expire under this account's "
+            "knowledge-base retention period, and this request searches the rest. What "
+            "is left is a judgement about the client's own words, which is theirs to "
+            "make."
         ),
     ),
     ErasureLimitation(
@@ -590,11 +639,11 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "DPDP §8(7)'s storage limitation read against §8(5)'s duty to keep "
             "reasonable security safeguards: a backup window is a safeguard, and the "
             "erasure is completed rather than cancelled by it — which is why the window "
-            "is bounded and stated rather than open-ended. The number is "
-            "`infra/backup/README.md`'s retention section, where both arms prune on the "
-            "same clock and the file's own reasoning names this consequence: 'every "
-            "extra day of retention is an extra day in which an erasure request cannot "
-            "fully reach our data.'"
+            "is bounded and stated rather than open-ended. The number is Calevate's "
+            "own backup-retention window — both copies of the backup are pruned on the "
+            "same clock — and we keep it as short as restoring safely allows, for the "
+            "reason it is written down with: every extra day of retention is an extra "
+            "day in which an erasure request cannot fully reach our data."
         ),
     ),
 )

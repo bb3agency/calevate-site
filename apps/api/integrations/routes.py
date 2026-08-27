@@ -96,9 +96,13 @@ def assert_may_opt_into_raw_transcript(payload: CreateEndpointIn, principal: Pri
             kind="validation",
             code="raw_transcript_requires_transcript",
             title="Raw transcript needs the transcript opt-in too",
+            # The two switches named as the integrations screen names them, not as the
+            # wire names them. The wire names are still in `fields[]` below, which is
+            # where a typed caller reads them — the `detail` is the half a person reads.
             detail=(
-                "The unredacted transcript is a widening of the transcript delivery, "
-                "so `include_transcript` must be on for `include_raw_transcript`."
+                "The unredacted transcript widens the redacted one, so “the transcript, "
+                "redacted” has to be switched on before “the transcript, unredacted” "
+                "can be."
             ),
             remediation="Turn on the redacted transcript as well, or turn off the raw one.",
             fields=[

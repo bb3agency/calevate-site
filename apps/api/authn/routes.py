@@ -251,18 +251,41 @@ class RevokedOut(BaseModel):
 
 
 def _require_enabled() -> None:
-    """The cutover flag, read per request so flipping it needs no deploy.
+    """The kill switch, read per request so flipping it needs no deploy.
 
-    403 rather than 404: the route genuinely exists, and an operator mid-cutover has to be
-    able to tell "this deployment has not switched over yet" from "I typed the path wrong".
+    403 rather than 404: the route genuinely exists, and an operator has to be able to
+    tell "sign-in is switched off here" from "I typed the path wrong".
+
+    **THE OLD REMEDIATION WAS FALSE, AND FALSE IS WORSE THAN TECHNICAL.** It read "Sign in
+    through the configured identity provider", written when there was a vendor beside this
+    package. D-177 deleted it: this is the only authentication this product has (see the
+    module docstring), so there is no other provider to be sent to, and the person sent
+    there is a business owner locked out of their own console with an instruction that
+    cannot be followed. `first_party_auth_disabled` is reachable from the client sign-in
+    form, the invitation-redemption page and the password-reset flow alike.
+
+    The operator's half — that a setting, not a bug, is doing this — moves to the log,
+    because the operator is locked out of the console by the same flag and is going to be
+    reading logs anyway. `lib/authn/problems.ts` already renders fixed copy for this code
+    on the sign-in surfaces; the body below is what every OTHER surface shows.
     """
     if not get_settings().first_party_auth_enabled:
+        log.error(
+            "first_party_auth_disabled",
+            extra={"setting": "first_party_auth_enabled", "value": False},
+        )
         raise ProblemError(
             kind="permission",
             code="first_party_auth_disabled",
-            title="First-party sign-in is not enabled",
-            detail="This deployment is not using first-party authentication.",
-            remediation="Sign in through the configured identity provider.",
+            title="Sign-in is switched off",
+            detail=(
+                "Nobody can sign in to Calevate at the moment. This is not a problem "
+                "with your account, your email address or your password."
+            ),
+            remediation=(
+                "Please try again shortly. If you need to get in now, contact Calevate "
+                "and quote the reference on this message."
+            ),
         )
 
 

@@ -475,7 +475,8 @@ def _assert_has_a_script(agent: AgentRow) -> str:
     which business they had reached. Every screen downstream then read `live`.
 
     A missing script is not a value to substitute. It is FLOWS §1's step-3-before-step-7
-    ordering being skipped, and the honest answer is a refusal naming the step. The
+    ordering being skipped, and the honest answer is a refusal naming the missing thing —
+    in the reader's words, not the process's: see the comment at the raise. The
     disclosure line gets this treatment already (non-null by schema, hard rule 5); the
     script had no equivalent guard because the default hid the case.
 
@@ -485,16 +486,29 @@ def _assert_has_a_script(agent: AgentRow) -> str:
     prompt = agent.get("prompt")
     if isinstance(prompt, str) and prompt.strip():
         return prompt
+    # WRITTEN FOR THE OWNER OF THE BUSINESS, because they are the reader who arrives here
+    # most often and the one with least to work with. Two doors reach this: the operator's
+    # `POST /v1/admin/tenants/{id}/agents/{id}/publish`, and the CLIENT's own
+    # `POST /v1/agents/{id}/activate` (`org:manage`, client realm) — the "Put this agent
+    # on the phone" button. The sentence used to be "Publishing it would put a generic
+    # placeholder on the client's phone line … complete the intake step for this client",
+    # which speaks ABOUT the client TO the client: their word is "my agent", not "the
+    # client", they have never heard of a prompt version, and an intake step is our
+    # process, not a control on their screen. The operator's vocabulary moves to the log
+    # line below, which is also the first time this refusal was traceable at all.
+    log.info("agent_publish_refused_no_script", extra={"agent_id": str(agent["id"])})
     raise ProblemError(
         kind="business_rule",
         code="agent_has_no_script",
-        title="This agent has no script yet",
+        title="This agent has nothing to say yet",
         detail=(
-            "The agent has no prompt version, so there is nothing to publish. Publishing "
-            "it would put a generic placeholder on the client's phone line."
+            "Nothing has been written for this agent to say, so there is nothing to put "
+            "on the phone. Putting it live now would answer your callers with a greeting "
+            "that knows nothing about your business — no hours, no prices, no names."
         ),
         remediation=(
-            "Complete the intake step for this client, or write a prompt version, then publish."
+            "Open this agent's script, write what it should say, and save it. Then put "
+            "it on the phone."
         ),
     )
 

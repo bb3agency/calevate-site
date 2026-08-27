@@ -108,7 +108,13 @@ def test_the_engine_entry_states_the_granularity_and_not_just_a_shrug() -> None:
     subject erasure does not."""
     entry = next(e for e in deletion.ERASURE_EXCEPTIONS if e.outcome == deletion.ENGINE_OUTCOME)
     assert "agent" in entry.why.lower()
-    assert "gate 37" in entry.authority or "gate 12(f)" in entry.authority
+    # The REMEDY, not the gate number. `authority` is rendered on the client's own
+    # data-rights screen and reaches a data principal and a regulator through them, so it
+    # cites what that reader can open — the vendor's published documentation and the
+    # contractual fix — while `OPERATIONS §2` gate 12(f)/36 stays in the source comment
+    # above the entry, where the person who closes it reads.
+    assert "contract" in entry.authority.lower()
+    assert "published" in entry.authority.lower()
 
 
 # ---------------------------------------------------------------------------

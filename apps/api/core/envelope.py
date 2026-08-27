@@ -247,18 +247,53 @@ def _decode_kek(raw: str, *, env_var: str) -> bytes:
 
 
 def _unusable_kek(env_var: str, what: str) -> ProblemError:
-    # Never logged with the value, and never with anything derived from it: a length or
-    # a prefix is a search-space reduction on a key. The env var name is the whole
-    # actionable content.
-    log.error("platform_kek_unusable", extra={"env_var": env_var, "reason": what})
+    """The refusal, and the log line that carries what an operator needs to fix it.
+
+    **THE FIX IS IN THE LOG, NOT IN THE BODY, AND THAT IS THE CORRECTION.** This
+    remediation used to read "PLATFORM_KEK is not valid base64. It must be base64 of
+    exactly 32 random bytes - generate one with: python -c ... (DEV-SETUP §4)", and the
+    person most likely to read it is a shop owner in the client console: `authn/hashing`
+    resolves the ring on EVERY sign-in and `actions/credentials.create_credential` seals
+    on every WhatsApp key a client pastes in, so both doors into this branch are client
+    doors. An environment variable, a shell command and an internal document section are
+    three things that reader cannot act on, and the deployment is not theirs to fix.
+
+    Nothing is lost by moving it: `extra` carries the variable, the reason AND the
+    command, `/healthz/ready` already names `PLATFORM_KEK` for an operator
+    (`core/health.py`), and the ops console's Secrets panel documents the key. What the
+    client gets instead is the true statement (something on our side is wrong, nothing of
+    theirs has changed) plus the `trace_id` every problem body carries, which is what
+    turns this into a support conversation rather than a dead end.
+
+    Never logged with the value, and never with anything derived from it: a length or a
+    prefix is a search-space reduction on a key. The variable name is the whole
+    actionable content.
+    """
+    log.error(
+        "platform_kek_unusable",
+        extra={
+            "env_var": env_var,
+            "reason": what,
+            # The operator's half of the old remediation, relocated verbatim so the
+            # person who can act on it still gets every word of it.
+            "fix": (
+                f"{env_var} must be base64 of exactly {KEK_BYTES} random bytes - "
+                f"{_KEK_GENERATE_HINT} (DEV-SETUP §4)"
+            ),
+        },
+    )
     return ProblemError(
         kind="dependency",
         code="platform_kek_unusable",
-        title="This deployment has no usable platform key",
-        detail="The key that unlocks stored credentials is missing or unusable.",
+        title="Something on our side needs attention",
+        detail=(
+            "A part of Calevate that keeps your saved details safe is not set up "
+            "correctly, so we have stopped rather than carry on. Nothing of yours has "
+            "been changed or lost."
+        ),
         remediation=(
-            f"{env_var} {what}. It must be base64 of exactly {KEK_BYTES} random bytes — "
-            f"{_KEK_GENERATE_HINT} (DEV-SETUP §4)."
+            "There is nothing for you to fix. Your Calevate team has been alerted — "
+            "quote the reference on this message if you contact us."
         ),
     )
 

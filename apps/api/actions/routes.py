@@ -31,7 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import credentials as creds
 from apps.api.actions import service
-from apps.api.actions.calendar import authorize_url, calendar_configured, token_exchange_request
+from apps.api.actions.calendar import (
+    authorize_url,
+    calendar_configured,
+    calendar_unavailable,
+    token_exchange_request,
+)
 from apps.api.actions.execution import execute_action
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
@@ -619,13 +624,9 @@ async def calendar_connect(
     """
     assert principal.tenant_id is not None
     if not calendar_configured():
-        raise ProblemError(
-            kind="business_rule",
-            code="calendar_not_configured",
-            title="Google Calendar is not available",
-            detail="This deployment has no Google OAuth client configured yet.",
-            remediation="Ask Calevate to connect the Google project first.",
-        )
+        # ONE wording, in `calendar.py` — this site used to carry its own copy of the
+        # sentence, addressed to an operator, on a screen only a client reaches.
+        raise calendar_unavailable()
     return CalendarConnectOut(authorize_url=authorize_url(state=str(principal.tenant_id)))
 
 

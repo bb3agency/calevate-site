@@ -187,14 +187,16 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "Call rows survive with their personal fields cleared — both numbers, the summary "
     "and the link to the audio — rather than being deleted, so the minutes that were "
     "billed stay countable against the invoices that were issued.",
-    "Audio recordings still inside the 90-day period Indian telecom rules require call "
-    "recordings to be retained for are not destroyed early. They are not kept "
-    "indefinitely either: each is scheduled, and this certificate states the date the "
-    "last of them is destroyed on, which happens without a second request.",
+    "Audio recordings still inside the 90-day floor Calevate applies to call "
+    "recordings as a matter of its own platform policy are not destroyed early. They "
+    "are not kept indefinitely either: each is scheduled, and this certificate states "
+    "the date the last of them is destroyed on, which happens without a second "
+    "request.",
     "Copies held by the voice engine are reported as 'unconfirmed_pending_vendor_api'. "
-    "The engine's deletion API is undocumented (pilot gate), so this certificate does "
-    "not claim a deletion it cannot show. Confirm the engine-side erasure in writing "
-    "before telling the client their data is gone everywhere. The agents themselves are "
+    "The engine's documented interface deletes a whole agent and nothing narrower — an "
+    "enumerated absence, not an open question — so this certificate does not claim a "
+    "deletion it cannot show. Confirm the engine-side erasure in writing before telling "
+    "the client their data is gone everywhere. The agents themselves are "
     "also still configured at the voice platform, and the telephone numbers are still "
     "pointed at them by the telephony provider. This erasure withdraws the routing on "
     "our side, so nothing further reaching those agents is recorded here — but until "
@@ -276,14 +278,24 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "moment this erasure ran, and the nightly sweep destroys it on that date "
             "without anyone filing a second request."
         ),
+        # SECURITY-COMPLIANCE §1 used to be cited here, and it is the section that
+        # attributes the 90 days to TRAI — the attribution `deletion.py`'s docstring
+        # records as unsupported, and which `tests/dpdp_known_gaps_test.py` keeps open as
+        # a gap. A certificate an operator hands to a departing client must not carry a
+        # legal basis we cannot cite: DPDP §8(7) makes retaining personal data on a basis
+        # that does not exist a breach in its own right, so the false citation is itself
+        # the exposure (hard rule 11). SECURITY-COMPLIANCE §4 is where the doubt is
+        # recorded, and the floor is published to clients in the DPA §8.
         authority=(
-            "The 90-day recording-retention floor (SECURITY-COMPLIANCE §1) read against "
-            "DPDP §12(3) — erasure is required 'unless retention of the same is "
+            "Calevate's own 90-day recording-retention floor, published in section 8 "
+            "of the data-processing agreement — a conservative policy we set ourselves "
+            "and NOT a statutory requirement — read against DPDP §12(3): erasure is "
+            "required 'unless retention of the same is "
             "necessary … for compliance with any law', so a retention obligation defers "
             "an erasure rather than cancelling it — and DPDP §8(7), which makes keeping "
             "the data past the end of that obligation a breach in itself. Whether an "
-            "under-age recording should be destroyed on request anyway is the open "
-            "decision recorded in SECURITY-COMPLIANCE §4; nothing here takes it."
+            "under-age recording should be destroyed on request anyway is an open "
+            "decision (SECURITY-COMPLIANCE §4); nothing here takes it."
         ),
     ),
     ErasureLimitation(
@@ -294,9 +306,11 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         keyword="engine",
         outcome="unconfirmed",
         why=(
-            "The engine is a third-party platform and its deletion API is undocumented, "
-            "so this certificate reports engine-side deletion as "
-            "'unconfirmed_pending_vendor_api' rather than claiming something it cannot "
+            "The engine is a third-party platform whose documented interface deletes a "
+            "whole agent and nothing narrower — the absence of a subject-granular "
+            "deletion is enumerated rather than unknown — so this certificate reports "
+            "engine-side deletion as 'unconfirmed_pending_vendor_api' rather than "
+            "claiming something it cannot "
             "show. The agents are also still configured there and the numbers still "
             "route to them. This erasure withdraws the routing on our side — the account "
             "acquires no further caller records — but removing the agents and releasing "
