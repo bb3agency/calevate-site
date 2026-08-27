@@ -85,7 +85,15 @@ DRAFT_WARNING = (
 #: all, and a client whose schema is empty still collects every one of these.
 _INHERENT: tuple[tuple[str, str], ...] = (
     ("Your phone number", "the number the call is made from or to"),
-    ("A recording of the call", "the audio, where recording is switched on for the agent"),
+    # NOT "where recording is switched on for the agent": there is no such switch. What
+    # `agents.recording_notice_enabled` toggles is whether the agent ANNOUNCES the
+    # recording, not whether it happens — recording is unconditional
+    # (`calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`: "nothing in this repository
+    # can turn a call's recording off"), and `_disclosure_paragraph` below already tells
+    # the caller which of the two announcements this client's agents make. This sentence
+    # said otherwise until LEGAL-SURFACE F-14, which corrected `/legal/privacy` §4.1 and
+    # left the generator printing the false condition into every client's own notice.
+    ("A recording of the call", "the audio — every call on this service is recorded"),
     ("A transcript of the call", "what was said, in text"),
     ("A summary of the call", "a short written account of what the call was about"),
     ("When the call happened and how long it lasted", "call times, duration and outcome"),
@@ -98,7 +106,14 @@ _CATEGORY_LABELS: dict[str, str] = {
     "recording": "The recording of your call",
     "transcript": "The transcript of what was said",
     "lead": "The details noted from your call (your enquiry record)",
-    "consent_log": "The record of what you agreed to",
+    # `consent_log` IS DELIBERATELY ABSENT, and its absence is the accurate statement.
+    # The seed ships a `consent_log` retention row (2555 days) and this table used to
+    # label it, so the notice printed "The record of what you agreed to: 2555 days" —
+    # while `apps.workers.retention._apply_one` returns immediately for that category
+    # ("nothing expires it on a timer", hard rule 4's append-only ledger) and the "How
+    # long we keep it" section three lines below says the record "is kept as evidence".
+    # One document, two answers, and the timed one was the false one. The evidence
+    # sentence carries it, exactly as `/legal/privacy` §9 already does.
     "engine_payload": "The technical record of the call from our calling platform",
     "kb": "Superseded versions of the business's own uploaded information",
 }
@@ -310,15 +325,20 @@ PEOPLE FOR MARKETING, SAY SO HERE AND SAY WHAT YOU RELY ON TO DO IT}}}}
 
 {retention}
 
-Some records are kept longer where the law requires it: call recordings are kept for at
-least 90 days, and the record of what you agreed to is kept as evidence that the contact
-was permitted.
+Call recordings are kept for at least 90 days. That is a floor our calling provider
+Calevate applies to every account as a matter of its own policy, not a period we have
+been told the law requires — {{IF YOUR OWN SECTOR REGULATOR SETS A LONGER RECORD-KEEPING
+PERIOD, SAY SO HERE AND NAME IT}}. The record of what you agreed to is kept as evidence
+that the contact was permitted, for as long as we may need to show it.
 
 ## Your rights
 
 You can ask us for a copy of what we hold about you, ask us to correct it, ask us to
-erase it, and ask us to stop calling you. You can tell the assistant during a call, or
-contact us:
+erase it, and ask us to stop calling you.
+
+**Asking to stop being called is the one you can do on the call itself** — say so to
+the assistant, and it is recorded. Everything else, including a correction, reaches us
+by contacting a person:
 
 {BUSINESS_CONTACT}
 

@@ -110,9 +110,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "Calevate. There is no certificate of incorporation to produce, no corporate " +
             "identity number, and no board or director to address a notice to — the " +
             "registration number above is the Udyam (MSME) registration, which is what " +
-            "this shape of business has instead. We would rather you learned that here " +
-            "than from a document that quietly did not exist, and it is worth knowing " +
-            "which way it cuts: our liability to you under clause 14 is a personal " +
+            "this shape of business has instead. It is worth knowing " +
+            "which way that cuts: our liability to you under clause 14 is a personal " +
             "liability, not one bounded by a company's assets. If we later incorporate a " +
             "company to carry on this business, clause 15 says how this agreement moves " +
             "to it.",
@@ -679,8 +678,7 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "shareholder liability to be limited. What limits our liability to you " +
                 "is the paragraph above and nothing else. A client used to a Private " +
                 "Limited counterparty may assume the opposite; the difference, such as " +
-                "it is, runs in your favour rather than ours, which is why we can say " +
-                "it plainly instead of leaving it to be discovered.",
+                "it is, runs in your favour rather than ours.",
             },
             {
               kind: "callout",
@@ -777,9 +775,11 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "No partnership: nothing here makes either party the other's agent, partner " +
               "or employee, except that we act as your registered Telemarketer, which is " +
               "the specific relationship the telecom framework defines.",
-            "Notices: to you at the email on your account; to us at {{SUPPORT_EMAIL}} " +
-              "with a copy by post to {{REGISTERED_ADDRESS}}. A notice terminating this " +
-              "agreement must also be sent by post.",
+            "Notices: to you at the email on your account; to us by email to " +
+              "{{SUPPORT_EMAIL}}. A notice terminating this agreement is given the same " +
+              "way, and no notice under these terms has to be posted — we do not " +
+              "operate a postal correspondence channel, so a notice you post is a " +
+              "notice we may not receive. Send it by email.",
             "Changes: we may amend these terms on 30 days' notice by email to the account " +
               "owner. If you do not accept a change you may terminate before it takes " +
               "effect, and we will refund any prepaid, unused fees for the period after " +
@@ -850,7 +850,14 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             },
             { term: "Data protection", detail: "{{DATA_PROTECTION_CONTACT_EMAIL}}" },
             { term: "Security", detail: "{{SECURITY_CONTACT_EMAIL}}" },
-            { term: "By post", detail: "{{LEGAL_ENTITY_NAME}}, {{REGISTERED_ADDRESS}}" },
+            {
+              term: "Who you are contracting with",
+              detail:
+                "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, principal place of business " +
+                "{{REGISTERED_ADDRESS}} (clause 1). That address identifies the " +
+                "supplier; it is not a correspondence channel, and we do not service " +
+                "post.",
+            },
           ],
         },
       ],

@@ -19,7 +19,10 @@ import {
 } from "@/components/ui";
 import {
   BASIS_COPY,
+  BUDGET_GAP_BODY,
+  BUDGET_GAP_TITLE,
   DEFAULT_WINDOW_DAYS,
+  INHERITED_WAIT_NOTE,
   LEG_COPY,
   UNVERIFIED_UNIT_NOTE,
   WINDOW_CHOICES,
@@ -52,12 +55,18 @@ import { lookup } from "@/lib/lookup";
  *
  * ## It is a REPORT, not a dashboard, and three things follow
  *
- * 1. **Nothing here is derived — including the budget.** Every percentile, every count,
- *    every verdict and every target is the server's own field. TRD §4 declares four
- *    sub-budgets inside a voice-to-voice p50, and the composed totals (`turn_ms`,
- *    `pipeline_ms`, the headroom) arrive already summed, so this bundle never adds two
- *    targets together. `engine_latency.py` withholds a p95 below 20 timed turns and a p50
- *    below 5 and publishes `basis` so the withholding is a fact rather than a gap.
+ * 1. **Nothing here is derived — including the budget and the verdict on it.** Every
+ *    percentile, every count, every verdict and every target is the server's own field.
+ *    TRD §4 declares five stages and a crossing inside a voice-to-voice p50, and the
+ *    composed totals (`turn_ms`, `pipeline_ms`, `voice_to_voice_floor_ms`, the headroom)
+ *    arrive already summed, so this bundle never adds two targets together.
+ *    `engine_latency.py` withholds a p95 below 20 timed turns and a p50 below 5 and
+ *    publishes `basis` so the withholding is a fact rather than a gap.
+ * 1b. **THE SHORTFALL IS STATED, NOT LEFT IN A TEST.** Since the founder set voice-to-voice
+ *    at 500ms (27 Aug 2026) the declared stages no longer fit inside it — `budget.composes`
+ *    is false and the headroom is negative. A guard test failing in CI is invisible to the
+ *    person reading this console mid-incident, so the gap is a banner above the budget, in
+ *    the server's own three numbers.
  * 2. **`budget_breached` has THREE states and is rendered as three, PER LEG.** True is
  *    "the typical reply missed our target for this stage", false is "it did not", and
  *    `null`/absent is "the sample cannot support a median" — which must never render like
@@ -80,10 +89,13 @@ import { lookup } from "@/lib/lookup";
  * measures — because a reader who cannot see what the four stages were cut from has no way
  * to tell whether meeting them would be enough.
  *
- * **Not the lookup leg.** TRD §4 budgets a knowledge-base retrieval at 100ms and the
- * budget panel shows it, but there is no row for it in any group: the engine measures no
- * such stage and the in-call RAG endpoint is ours and uninstrumented. A row of em dashes
- * would read as "fast".
+ * **Not the lookup leg, and not the wait before the reply starts.** TRD §4 budgets a
+ * knowledge-base retrieval at 100ms and an endpointing wait at 100ms, and the budget panel
+ * shows both — but neither has a row in any group. The engine measures no retrieval stage
+ * (the in-call RAG endpoint is ours and uninstrumented) and reports no endpointing figure
+ * at all: that wait is inside its `time_to_first_audio` total and outside the transcriber
+ * timing it publishes. A row of em dashes would read as "fast", and on the endpointing
+ * stage that would be the opposite of the truth — the shipped setting waits 650ms there.
  *
  * **Not gate 4's verdict.** The gate is answered by comparing two rows that both carry a
  * median, and the rule that counts them (`EngineLatencyReport.regions_measured`) is a
@@ -229,6 +241,43 @@ function Report({ report }: { report: EngineLatencyReport }) {
         <StatTile label="Window" value={windowLabel(report.window_days)} />
       </div>
 
+      {/* THE GAP, WHERE AN OPERATOR WILL ACTUALLY SEE IT. `composes` is the server's
+          verdict and the two figures beside it are the server's numbers: this block states
+          a shortfall, it never works one out. Rendered ABOVE the budget panel because it
+          changes how every target below it should be read — they are goals that, added up,
+          exceed the goal they were cut from. */}
+      {report.budget.composes === false && (
+        <NoticeBox
+          tone="warn"
+          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
+          title={BUDGET_GAP_TITLE}
+        >
+          <p className="mt-1">{BUDGET_GAP_BODY}</p>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+            <BudgetItem
+              label="What a caller should wait"
+              value={report.budget.voice_to_voice_p50_ms}
+              note="The end-to-end goal, from the caller finishing their sentence to hearing the reply begin."
+            />
+            <BudgetItem
+              label="What the stages add up to, at best"
+              value={report.budget.voice_to_voice_floor_ms}
+              note="Every stage at the fastest figure its supplier publishes, plus the trip to the engine's servers and back."
+            />
+            {/* A SIGN FLIP, NOT A CALCULATION. `voice_to_voice_headroom_p50_ms` is the
+                server's field and is negative when the stages overrun; "short by 100 ms"
+                is the same fact an operator can act on, where "-100 ms left over" reads
+                as a rendering bug. No target is derived here — the magnitude is the
+                server's number and the label carries the sign. */}
+            <BudgetItem
+              label="Short by"
+              value={-report.budget.voice_to_voice_headroom_p50_ms}
+              note="How much longer the stages take than the end-to-end goal allows. Nothing on this page can close it."
+            />
+          </dl>
+        </NoticeBox>
+      )}
+
       <BudgetPanel budget={report.budget} />
 
       {/* The server says when it stopped counting. A subset described as a distribution is
@@ -287,6 +336,15 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
         here so the parts can be read against the whole.
       </p>
       <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {/* THE STAGE THIS PANEL USED TO HAVE NO LINE FOR. The caller stops speaking and
+            something has to decide that they have — before any of the stages below start.
+            It is first because it happens first, and it has no row in the tables: the
+            engine reports no figure for it. */}
+        <BudgetItem
+          label="Noticing the caller stopped"
+          value={budget.endpointing_ms}
+          note="How long we wait, after the caller stops making a sound, before deciding they have finished their sentence. Nothing measures this stage, and the setting we actually run is far higher — see below."
+        />
         <BudgetItem label={LEG_COPY.stt.label} value={budget.stt_ms} note={LEG_COPY.stt.gloss} />
         <BudgetItem
           label={LEG_COPY.llm_ttft.label}
@@ -328,9 +386,27 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
           note="The same measurement for the slowest 1 reply in 20. Also a stopwatch measurement, and one that needs far more calls than a pilot places."
         />
         <BudgetItem
+          label="Getting to the engine and back"
+          value={budget.india_us_transit_floor_ms}
+          note="The engine runs our calls on servers in the United States and our callers are in India. This is the shortest round trip the supplier publishes for that, and it is on every reply."
+        />
+        <BudgetItem
+          label="Everything, at best"
+          value={budget.voice_to_voice_floor_ms}
+          note="All the stages plus the trip, each at the fastest figure its supplier publishes. Compare it with the end-to-end goal above."
+        />
+        <BudgetItem
           label="Left over for everything else"
           value={budget.voice_to_voice_headroom_p50_ms}
-          note="What the typical-reply goal leaves once all four stages are spent: the phone network, the caller's own connection, and the gaps between the stages nobody times."
+          note="What the typical-reply goal leaves once every stage and the trip are spent: the caller's own connection, their carrier, and the gaps between the stages nobody times. A negative figure means there is nothing left."
+        />
+        {/* WHAT WE ACTUALLY RUN, beside what we allow. It is not part of any total on this
+            panel — it is a setting, not a goal — and it is the one number here an operator
+            can change without changing a supplier. */}
+        <BudgetItem
+          label="What we actually wait today"
+          value={budget.inherited_turn_detection_ms}
+          note={INHERITED_WAIT_NOTE}
         />
       </dl>
     </Card>

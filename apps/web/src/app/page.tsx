@@ -270,8 +270,20 @@ const COMPLIANCE: { icon: typeof Clock; title: string; body: string }[] = [
     icon: Database,
     title: "Recordings are kept for at least 90 days",
     body:
-      "The TRAI floor is enforced by the database itself, so a shorter retention policy " +
-      "cannot be set — not by you and not by us.",
+      // NOT "the TRAI floor". `docs/SECURITY-COMPLIANCE.md:424-432` records that the
+      // floor's own authority is in doubt — TRAI's 90-day figure in the TCCCPR framework
+      // is the opt-out cooling period, and the two-year archive of commercial records is
+      // Unified Licence clause 39.20, which binds licensees rather than a telemarketer —
+      // and it routes the question to counsel rather than answering it. So the page keeps
+      // the enforced FLOOR, which is real (the `recording_ttl_floor` CHECK on
+      // `retention_policies` and `RECORDING_FLOOR_DAYS` in `apps/workers/retention.py`),
+      // and drops the legal attribution, which is a claim about the outside world nobody
+      // here has verified (hard rule 11). `/legal/privacy` and
+      // `compliance/caller_notice.py` already describe it as a platform policy; a
+      // marketing page calling it a regulator's rule is the same claim in the one place a
+      // prospect relies on it.
+      "The 90-day floor is enforced by the database itself, so a shorter retention " +
+      "policy cannot be set — not by you and not by us.",
   },
 ];
 

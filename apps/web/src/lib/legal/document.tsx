@@ -80,18 +80,28 @@ function Prose({ text }: { text: string }) {
   return <>{withPlaceholders(text)}</>;
 }
 
+/**
+ * The reading measure for running prose, independent of the container's width.
+ *
+ * `ch` rather than `rem`: the constraint is a COUNT OF CHARACTERS — the eye loses the
+ * start of the next line somewhere past 75 — and `ch` is the unit that keeps that true
+ * when the font or the root size changes. A `rem` cap re-breaks at every type change and
+ * has to be re-guessed each time.
+ */
+const PROSE_MEASURE = "max-w-[68ch]";
+
 function Block({ block }: { block: LegalBlock }) {
   switch (block.kind) {
     case "para":
       return (
-        <p className="mt-4 text-[15px] leading-7 text-ink-muted">
+        <p className={`mt-4 text-[15px] leading-7 text-ink-muted ${PROSE_MEASURE}`}>
           <Prose text={block.text} />
         </p>
       );
 
     case "list": {
       const className =
-        "mt-4 space-y-2 pl-5 text-[15px] leading-7 text-ink-muted " +
+        `mt-4 space-y-2 pl-5 text-[15px] leading-7 text-ink-muted ${PROSE_MEASURE} ` +
         (block.ordered ? "list-decimal" : "list-disc");
       const items = block.items.map((item) => (
         <li key={item.slice(0, 60)} className="pl-1">
@@ -304,7 +314,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
   return (
     <div className="bg-app">
       <header className="border-b border-line bg-surface/85">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[88rem] flex items-center justify-between gap-4 py-4">
           <Link href="/" className="text-sm font-semibold text-ink">
             Calevate
           </Link>
@@ -317,13 +327,24 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6">
+      {/* THE SHELL WIDENS; THE READING MEASURE DOES NOT. `max-w-3xl` everywhere left a
+          768px column centred in a 2000px window with 600px of nothing on each side —
+          on the one set of pages a reader is most likely to open maximised, because
+          they are reading rather than filling something in.
+
+          The fix is NOT to let the prose run the full width. A line of body text past
+          roughly 75 characters costs the reader the return sweep, and these are the
+          documents where a missed line is a missed clause. So the SHELL takes the
+          screen and each paragraph keeps `PROSE_MEASURE` (~68ch); what actually uses
+          the new room is the metadata row, the tables and the cross-links — the
+          elements that were being squeezed, not the ones that were comfortable. */}
+      <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[88rem] py-10">
         <PendingReviewBanner />
 
         <h1 className="mt-8 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
           {doc.title}
         </h1>
-        <p className="mt-3 text-[15px] leading-7 text-ink-muted">{doc.summary}</p>
+        <p className={`mt-3 text-[15px] leading-7 text-ink-muted ${PROSE_MEASURE}`}>{doc.summary}</p>
 
         <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
           <div className="rounded-card border border-line bg-surface p-4">
@@ -384,7 +405,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
       </main>
 
       <footer className="border-t border-line px-4 py-8 sm:px-6">
-        <p className="mx-auto max-w-3xl text-xs text-ink-faint">
+        <p className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[88rem] text-xs text-ink-faint">
           Calevate — AI phone agents for Indian businesses.
         </p>
       </footer>

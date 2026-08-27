@@ -110,7 +110,12 @@ from apps.api.agents.llm_models import (
     resolve_llm_model,
     unofferable_reason,
 )
-from apps.api.agents.models import AGENT_DIRECTIONS, CALL_CAP_DEFAULT_S, AgentDirection
+from apps.api.agents.models import (
+    AGENT_DIRECTIONS,
+    CALL_CAP_DEFAULT_S,
+    AgentDirection,
+    series_for_e164,
+)
 from apps.api.agents.verification import verify_publish
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -1942,6 +1947,17 @@ async def provision_number(
     later. `dlt_status` starts `pending` and is a separate deliberate step — a number
     is not registered because we typed it in.
 
+    **AND IT IS NOW CHECKED AGAINST THE NUMBER, because it was an operator's typed word
+    and nothing else.** The 140/160 gate enforces on this column, and this INSERT took
+    it verbatim: a `+91 98…` mobile typed `"140"` passed and unlocked promotional
+    dialling; a real 140 number typed `"standard"` passed and unlocked
+    service/transactional dialling. `series_for_e164` reads the answer out of the E.164
+    prefix that was in the same request all along (DoT/PIB PRID 2022249 — see that
+    function), and a disagreement is refused BY NAME rather than corrected silently: the
+    operator has two facts in front of them and one of them is wrong, and which one is
+    not ours to guess. Misclassification here is what the ₹2/₹5/₹10 lakh ladder under the
+    2025 TCCCPR amendments is for (`docs/legal/phone-number-research.md:23`).
+
     The number is globally unique (`phone_numbers.e164`), and the collision is caught
     from the UNIQUE INDEX rather than by probing first — deliberately. A probe runs
     under this tenant's RLS, which hides another tenant's rows, so it would report
@@ -1961,6 +1977,32 @@ async def provision_number(
     the ordinary onboarding order.
     """
     await assert_visible(session, "agent", agent_id)
+    declared = series_for_e164(e164)
+    if declared is None:
+        # 140 and 160 are Indian numbering series. A number outside +91 cannot be one,
+        # and claiming it is would put a foreign header on regulated Indian traffic.
+        if series != "standard":
+            raise ProblemError.business_rule(
+                "number_series_mismatch",
+                f"{e164} is not an Indian number, so it cannot be a {series}-series connection.",
+                remediation=(
+                    "Record a non-Indian number as 'standard', or check the number. "
+                    "The 140 and 160 series exist only within +91."
+                ),
+            )
+    elif declared != series:
+        raise ProblemError.business_rule(
+            "number_series_mismatch",
+            f"This number's own prefix makes it a {declared} number, but it was recorded "
+            f"as {series}.",
+            remediation=(
+                "The series is fixed when the operator issues the number: 140xxxxxxx is "
+                "telemarketing/promotional, 160xxxxxxx is service/transactional, and "
+                "anything else is standard. Correct whichever of the two is wrong — the "
+                "campaign launch gate matches a campaign's classification against this "
+                "field, so a number filed under the wrong series dials the wrong traffic."
+            ),
+        )
     number_id = uuid7()
     try:
         await session.execute(

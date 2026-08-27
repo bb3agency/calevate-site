@@ -50,6 +50,9 @@ import {
   type UnfinishedOnboarding,
 } from "@/lib/api/intake";
 
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
+
 import { IntakeStep } from "./IntakeStep";
 import { WIZARD_LANGUAGES } from "./languages";
 import { examplesFor } from "@/lib/verticalExamples";
@@ -262,6 +265,88 @@ export default function NewClientPage() {
    */
   const [step, setStep] = useState<"intake" | "invite">("intake");
 
+  /*
+   * STEP 1, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * Per-field setters, not a draft object and not the DOM: this component holds five
+   * loose `useState` scalars, so `apply` is five typed calls and nothing about it can be
+   * defeated by how a control listens for events. The two radio groups are `select`s
+   * with the SAME option lists the cards are rendered from, so the assistant cannot
+   * offer a vertical or a language this build does not ship — and the guard on the way
+   * in is a lookup in that list rather than a cast, because a cast here would put a
+   * value the API rejects into a control that then submits it.
+   *
+   * `null` once an account exists (steps 2 and 3): the fields below are no longer on
+   * screen, and step 2 declares itself from inside `IntakeStep`.
+   */
+  useCopilotSurface(
+    created !== null
+      ? null
+      : {
+          route: "/admin/new",
+          title: "New client — account details",
+          realm: "admin",
+          fields: [
+            {
+              id: "new-client-name",
+              label: "Business name",
+              type: "text",
+              value: name,
+              help: "At least 2 characters. The client's own trading name.",
+            },
+            {
+              id: "new-client-slug",
+              label: "Slug",
+              type: "text",
+              value: slug,
+              help: "3-40 characters of a-z, 0-9 and -. Appears in every client URL and cannot be changed later. Left blank it is derived from the business name.",
+            },
+            {
+              id: "new-client-vertical",
+              label: "Business type",
+              type: "select",
+              value: vertical,
+              options: VERTICALS.map((option) => ({ value: option.value, label: option.label })),
+              help: "Sets up the lead fields the agent collects, which become this client's CRM columns.",
+            },
+            {
+              id: "new-client-language",
+              label: "Primary language",
+              type: "select",
+              value: language,
+              options: WIZARD_LANGUAGES.map((option) => ({
+                value: option.value,
+                label: option.label,
+              })),
+            },
+            {
+              id: "new-client-email",
+              label: "Billing email",
+              type: "text",
+              value: email,
+              // Personal data: an operator is typing a named human's address. It leaves
+              // as «EMAIL_1» and comes back as itself (`lib/copilot/redaction.ts`).
+              personal: "email",
+              help: "Where hot-lead alerts and invoices go.",
+            },
+          ],
+          apply: (items) => {
+            for (const item of items) {
+              if (item.field_id === "new-client-name") setName(asText(item.value));
+              else if (item.field_id === "new-client-slug") setSlug(asText(item.value));
+              else if (item.field_id === "new-client-email") setEmail(asText(item.value));
+              else if (item.field_id === "new-client-vertical") {
+                const option = VERTICALS.find((row) => row.value === item.value);
+                if (option) setVertical(option.value);
+              } else if (item.field_id === "new-client-language") {
+                const option = WIZARD_LANGUAGES.find((row) => row.value === item.value);
+                if (option) setLanguage(option.value);
+              }
+            }
+          },
+        },
+  );
+
   const createTenant = useCreateTenant();
   const refusal = refusalReason(createTenant.error);
 
@@ -317,6 +402,10 @@ export default function NewClientPage() {
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Business name</span>
               <input
+                /* The id is the copilot field id (see `useCopilotSurface` above): it is
+                   what the "filled" outline is drawn on. The wrapping label already
+                   associates the two, so nothing else depends on it. */
+                id="new-client-name"
                 required
                 minLength={2}
                 value={name}
@@ -329,6 +418,7 @@ export default function NewClientPage() {
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Slug</span>
               <input
+                id="new-client-slug"
                 required={mustChooseSlug}
                 minLength={mustChooseSlug ? 3 : undefined}
                 value={slug}
@@ -425,6 +515,7 @@ export default function NewClientPage() {
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Billing email</span>
               <input
+                id="new-client-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}

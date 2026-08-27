@@ -9,11 +9,13 @@ WHY IT LIVES IN `apps/workers` AND REUSES THE ASSIST LADDER. CLAUDE.md's Do-NOT 
 model calls out of request handlers; the dashboard-AI assist (`crm/assist.py` +
 `workers/extraction.run_assist`) is the established controlled path, so this is the same
 shape rather than a second one: the SAME `assist_capability` selector decides who answers
-(Azure preferred, Sarvam disclosed-fallback, else a refusal), the SAME `TokenUsage` /
-`_azure_usage` carry what it cost back for metering, the SAME `ASSIST_TIMEOUT_S` bounds each
-leg. Only the PROMPT and the OUTPUT SHAPE differ, because the task differs — drafting a
-script is not extracting a lead — and a different task is exactly when a second request
-shape is warranted rather than a duplicated one.
+(Azure preferred, Sarvam disclosed-fallback, else a refusal), the SAME `workers/chat.py`
+makes the request and reads the `usage` block back for metering, the SAME `ASSIST_TIMEOUT_S`
+bounds each leg. Only the PROMPT and the OUTPUT SHAPE differ, because the task differs —
+drafting a script is not extracting a lead — and a different task is exactly when a second
+request shape is warranted rather than a duplicated one. The two `httpx.post` bodies that
+used to live here were the SECOND and THIRD copies of one request; `workers/chat.py` is the
+one copy, and it is what the in-app copilot's streaming, tool-calling turn is built on.
 
 WHAT IT IS ALLOWED TO SEE (D-127 G-2). Its input is a TENANT-AUTHORED business description
 — the client's own words about their own business — which is the "tenant-authored config"
@@ -37,13 +39,13 @@ from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.workers import chat
+from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     ASSIST_TIMEOUT_S,
     AZURE_PROVIDER,
     SARVAM_CHAT_URL,
     AssistCapability,
-    TokenUsage,
-    _azure_usage,
     _first_json_object,
     assist_capability,
     assist_unavailable,
@@ -164,54 +166,68 @@ def _script_from_model_json(raw: dict[str, object]) -> CallScript:
 async def _draft_via_azure(description: str) -> _RawDraft | None:
     """Ask Azure OpenAI for a draft, or None if it holds no credential or did not answer.
 
-    The request mirrors `AzureOpenAIExtractor.run`'s wire shape — the v1 surface built by
-    the ONE endpoint builder, a static bearer key, Structured Outputs with a degrade to
-    `json_object` — because that is the confirmed-working request against our resource, and
-    a second dialect of it is a second thing to keep in step. It differs only in the prompt
-    and the schema, which is the whole of what this task changes.
+    The request goes through `workers/chat.py`, the ONE chat client — the v1 surface built
+    by the ONE endpoint builder, a static bearer key, Structured Outputs with a degrade to
+    `json_object`. It used to be a hand-rolled `httpx.post` mirroring
+    `AzureOpenAIExtractor.run`'s wire shape, which is exactly the "second dialect of the
+    same request" that module's docstring exists to stop having.
     """
     credentials = azure_credentials()
     if credentials is None:
         return None
     resource, api_key, deployment = credentials
-    url = f"{azure_openai_base_url(resource)}/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}"}
+    leg = chat.ChatLeg(
+        url=f"{azure_openai_base_url(resource)}/chat/completions",
+        api_key=api_key,
+        wire_model=deployment,
+    )
     messages = [
         {"role": "system", "content": _SYSTEM_INSTRUCTION},
         {"role": "user", "content": description},
     ]
-    body: dict[str, object] = {
-        "model": deployment,
-        "messages": messages,
-        "temperature": 0.4,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "calevate_script_draft",
-                "strict": True,
-                "schema": _DRAFT_SCHEMA,
-            },
-        },
+    strict: dict[str, object] = {
+        "type": "json_schema",
+        "json_schema": {"name": "calevate_script_draft", "strict": True, "schema": _DRAFT_SCHEMA},
     }
-    async with httpx.AsyncClient(timeout=ASSIST_TIMEOUT_S) as client:
-        response = await client.post(url, headers=headers, json=body)
-        if response.status_code == 400:
-            # The resource refused Structured Outputs (documented, unobserved here — see
-            # `AzureOpenAIExtractor`). Degrade ONCE to plain json_object; the belt is
-            # `_first_json_object`. No body logged (hard rule 6): it quotes the request.
-            log.warning("script_assist_azure_json_schema_unsupported")
-            body["response_format"] = {"type": "json_object"}
-            response = await client.post(url, headers=headers, json=body)
-    if response.status_code >= 400:
-        log.warning("script_assist_azure_failed", extra={"status": response.status_code})
+    try:
+        outcome = await chat.complete(
+            leg, messages, timeout_s=ASSIST_TIMEOUT_S, temperature=0.4, response_format=strict
+        )
+    except httpx.HTTPStatusError as refusal:
+        if refusal.response.status_code != 400:
+            log.warning(
+                "script_assist_azure_failed", extra={"status": refusal.response.status_code}
+            )
+            return None
+        # The resource refused Structured Outputs (documented, unobserved here — see
+        # `AzureOpenAIExtractor`). Degrade ONCE to plain json_object; the belt is
+        # `_first_json_object`. No body logged (hard rule 6): it quotes the request.
+        log.warning("script_assist_azure_json_schema_unsupported")
+        try:
+            outcome = await chat.complete(
+                leg,
+                messages,
+                timeout_s=ASSIST_TIMEOUT_S,
+                temperature=0.4,
+                response_format={"type": "json_object"},
+            )
+        except httpx.HTTPStatusError as retry_refusal:
+            log.warning(
+                "script_assist_azure_failed",
+                extra={"status": retry_refusal.response.status_code},
+            )
+            return None
+    except httpx.HTTPError:
+        # A transport failure is the same OUTCOME as a refusal for this caller — the
+        # selector is re-asked with `provider_unavailable=True` — and it used to escape
+        # this function entirely, because the old hand-rolled `post` only ever looked at a
+        # status code it had already received.
+        log.warning("script_assist_azure_unreachable")
         return None
-    payload = response.json()
-    choices = payload.get("choices") or []
-    content = choices[0].get("message", {}).get("content", "") if choices else ""
-    raw = _first_json_object(str(content))
+    raw = _first_json_object(outcome.content)
     if not raw:
         return None
-    return _RawDraft(script=_script_from_model_json(raw), usage=_azure_usage(payload))
+    return _RawDraft(script=_script_from_model_json(raw), usage=outcome.usage)
 
 
 async def _draft_via_sarvam(description: str) -> _RawDraft | None:
@@ -223,27 +239,28 @@ async def _draft_via_sarvam(description: str) -> _RawDraft | None:
     settings = get_settings()
     if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
         return None
-    async with httpx.AsyncClient(timeout=ASSIST_TIMEOUT_S) as client:
-        response = await client.post(
-            SARVAM_CHAT_URL,
-            headers={"Authorization": f"Bearer {settings.sarvam_api_key}"},
-            json={
-                "model": SARVAM_DEFAULT_LLM,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM_INSTRUCTION},
-                    {"role": "user", "content": description},
-                ],
-                "temperature": 0.4,
-                "response_format": {"type": "json_object"},
-            },
+    try:
+        outcome = await chat.complete(
+            chat.ChatLeg(
+                url=SARVAM_CHAT_URL,
+                api_key=settings.sarvam_api_key,
+                wire_model=SARVAM_DEFAULT_LLM,
+            ),
+            [
+                {"role": "system", "content": _SYSTEM_INSTRUCTION},
+                {"role": "user", "content": description},
+            ],
+            timeout_s=ASSIST_TIMEOUT_S,
+            temperature=0.4,
+            response_format={"type": "json_object"},
         )
-    if response.status_code >= 400:
-        log.warning("script_assist_sarvam_failed", extra={"status": response.status_code})
+    except httpx.HTTPStatusError as refusal:
+        log.warning("script_assist_sarvam_failed", extra={"status": refusal.response.status_code})
         return None
-    payload = response.json()
-    choices = payload.get("choices") or []
-    content = choices[0].get("message", {}).get("content", "") if choices else ""
-    raw = _first_json_object(str(content))
+    except httpx.HTTPError:
+        log.warning("script_assist_sarvam_unreachable")
+        return None
+    raw = _first_json_object(outcome.content)
     if not raw:
         return None
     return _RawDraft(script=_script_from_model_json(raw))

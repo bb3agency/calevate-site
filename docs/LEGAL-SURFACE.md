@@ -582,9 +582,29 @@ without inventing a fourth set.** The **`scripts/seed.DEFAULT_RETENTION_POLICIES
 (90 / 365 / 1095) are the enforced source of truth**, because they are the numbers the
 nightly sweep actually applies (`apps/workers/retention.py` reads the seeded
 `retention_policies` rows) AND the numbers `/legal/privacy` §9 publishes to callers — the
-enforced-and-published pair is the only one a data principal or a regulator can hold us to,
-and it is consistent with the playbook's "90-day minimum recording retention"
-(`docs/legal/LEGAL-OPS-PLAYBOOK.md` §12.3 / stop-list). **`docs/SECURITY-COMPLIANCE.md` §4's
+enforced-and-published pair is the only one a data principal or a regulator can hold us to.
+
+**⚠ THE CITATION THAT SAT HERE WAS FALSE, AND IS WITHDRAWN (27 Aug 2026).** This sentence
+justified the 90-day floor as "consistent with the playbook's '90-day minimum recording
+retention' (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §12.3 / stop-list)". **The playbook
+contains no such sentence.** `grep -n "90" docs/legal/LEGAL-OPS-PLAYBOOK.md` returns three
+lines and all three are the ₹5,900 DLT registration fee; §12.3 is a list of documents to
+ship and says nothing about a retention period. A repo-internal number was cited to a
+source that does not carry it, and from here it propagated into three client- and
+caller-facing surfaces as a LEGAL REQUIREMENT — the generated caller notice ("kept longer
+where the law requires it"), the DPDP erasure certificate ("the 90-day period Indian
+telecom rules require call recordings to be retained for") and `/legal/privacy` ("the
+90-day telecom retention floor"). All three are reworded, and the floor is now described
+everywhere as what `docs/SECURITY-COMPLIANCE.md` §4 actually supports: **a conservative
+Calevate platform floor whose statutory basis is with counsel.** That section records why
+— TRAI's 90-day figure in the TCCCPR framework is the opt-out cooling period before a
+sender may seek fresh consent, and the two-year commercial-records archive is Unified
+Licence clause 39.20, which binds LICENSEES and not a telemarketer — and it records the
+cost of getting it wrong in this direction: retaining personal data on a legal basis that
+does not exist is itself the DPDP §8(7) storage-limitation breach. The FLOOR is unchanged
+(90 / 365 / 1095 still enforced and still published); only the asserted authority for it
+is. This is hard rule 11's own worked example: a value already in this repo is not
+evidence of itself. **`docs/SECURITY-COMPLIANCE.md` §4's
 older 180 / 730 numbers are STALE and are superseded** — they are a design note that the
 seed and the public notice both moved past, and nothing enforces or publishes them. I have
 not edited SEC-COMP §4 here (it is the founder's + counsel's to reconcile in one release,
@@ -753,17 +773,15 @@ Microsoft entry**, so nothing asserts that the sub-processor receiving raw calle
 disclosed at all. Both halves move in the same change: drop `Clerk`, add `Microsoft`, and
 see FOLLOW-UP-8 for binding the list to a constant instead of a literal.
 
-**What is NOT closed, and it is the reason this entry stays here rather than being
-deleted.** The published sub-processor list is derived from **no constant**. Nothing in the
-tree can notice when our actual vendors and that list diverge, which is how a deleted
-vendor (D-177, 17 Aug) and a replaced one (D-410, 19 Aug) both survived in a client-facing
-legal document until somebody read it. That is the defect class `scripts/check_docs_drift.py`
-§5 exists for — a capability claim bound to a greppable constant rather than to prose — on
-the surface where it is most expensive, and `tests/legal.test.tsx` currently bans specific
-SENTENCES (§6) without being able to check the vendor INVENTORY. **What would close it:** a
-single exported list of sub-processor identities that both the page and a test read, so
-adding or removing a vendor in the tree fails a test that names the document it did not
-reach. Owner: ours. No external dependency.
+**The mechanism half is now CLOSED (27 Aug 2026), and this paragraph is retired.** It said
+the published sub-processor list was "derived from **no constant**" and asked for "a single
+exported list of sub-processor identities that both the page and a test read". That list
+exists: `SUBPROCESSOR_NAMES` (`apps/web/src/lib/legal/subprocessors.ts:392`) is derived
+from the same rows the page renders, and `apps/web/tests/legal.test.tsx` imports it and
+loops over it — asserting the register exports a non-empty inventory, that every name in it
+reaches the rendered document, and by name that the US language-model vendor is on it. So
+adding or removing a vendor in the tree now fails a test that names the document it did not
+reach, which is exactly what was asked for. Nothing outstanding; no external dependency.
 
 ### F-12 — The published documents placed the voice platform in India. Bolna's own documentation says the United States. **CLOSED on the client-facing copy, 20 Aug 2026; the ENGINE decision it reopens is not ours to close.**
 

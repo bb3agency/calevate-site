@@ -24,6 +24,8 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 import {
   FIELD_TYPE_COPY,
@@ -68,6 +70,102 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   const wireFields = toWireFields(rows);
   const dirty = canonical(wireFields) !== savedCanonical;
   const clientError = clientValidationError(rows);
+
+  /*
+   * THE CAPTURE COLUMNS, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * `DraftRow[]` in one `useState`, so the fill is one `setRows` — never the DOM.
+   *
+   * ROWS ARE ADDRESSED BY `uid`, NOT BY INDEX, and that is the point of this
+   * registration rather than a detail of it: this list can be REORDERED while the panel
+   * is open (`move` swaps two rows), so `rows.2.label` names a different variable after a
+   * click that the assistant never saw. `uid` is minted per row and survives the swap.
+   *
+   * `key` is offered only on a NEW row. An existing variable's key is its storage id and
+   * older leads' values are filed under it, so changing it orphans a column's history —
+   * the editor shows it read-only for exactly that reason, and an assistant that could
+   * write it would go round the one guard.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id} — what it writes down",
+    title: "What the agent writes down",
+    realm: "client",
+    fields: rows.flatMap((row, index) => {
+      const at = `variable ${index + 1}`;
+      const fields = [
+        { id: `extraction-${row.uid}-label`, label: `${at} name`, type: "text" as const, value: row.label },
+        {
+          id: `extraction-${row.uid}-type`,
+          label: `${at} type`,
+          type: "select" as const,
+          value: row.type,
+          options: Object.entries(FIELD_TYPE_COPY).map(([value, label]) => ({ value, label })),
+        },
+        {
+          id: `extraction-${row.uid}-required`,
+          label: `${at} required`,
+          type: "bool" as const,
+          value: row.required ? "true" : "false",
+        },
+        {
+          id: `extraction-${row.uid}-reason`,
+          label: `${at} — why the agent asks`,
+          type: "textarea" as const,
+          value: row.reason,
+        },
+      ];
+      if (row.type === "enum") {
+        fields.push({
+          id: `extraction-${row.uid}-enumText`,
+          label: `${at} choices`,
+          type: "textarea" as const,
+          value: row.enumText,
+          // The editor takes one choice per line; a comma-separated answer would become
+          // a single choice containing commas.
+          help: "One choice per line.",
+        } as (typeof fields)[number]);
+      }
+      if (row.isNew) {
+        fields.push({
+          id: `extraction-${row.uid}-key`,
+          label: `${at} storage key`,
+          type: "text" as const,
+          value: row.key,
+          help: "Lower-case, underscores. Left alone it is derived from the name.",
+        } as (typeof fields)[number]);
+      }
+      return fields;
+    }),
+    apply: (items) => {
+      setRows((current) =>
+        current.map((row) => {
+          const patch: Partial<DraftRow> = {};
+          for (const item of items) {
+            const prefix = `extraction-${row.uid}-`;
+            if (!item.field_id.startsWith(prefix)) continue;
+            const member = item.field_id.slice(prefix.length);
+            const text = asText(item.value);
+            if (member === "label") patch.label = text;
+            else if (member === "reason") patch.reason = text;
+            else if (member === "enumText") patch.enumText = text;
+            // Both shapes, for `intakeSurface`'s reason: the server sends a real boolean
+            // for a `bool` field, and a model answering a text field with "true" should
+            // still tick the box rather than write the word into it.
+            else if (member === "required") patch.required = item.value === true || text === "true";
+            // `keyTouched` rides along, exactly as the key input's own `onChange` does:
+            // without it the typed key is thrown away the next time the label changes.
+            else if (member === "key" && row.isNew) {
+              patch.key = text;
+              patch.keyTouched = true;
+            } else if (member === "type" && lookup(FIELD_TYPE_COPY, text) !== undefined) {
+              patch.type = item.value as DraftRow["type"];
+            }
+          }
+          return Object.keys(patch).length === 0 ? row : { ...row, ...patch };
+        }),
+      );
+    },
+  });
 
   function patchRow(uid: string, patch: Partial<DraftRow>) {
     setRows((current) => current.map((row) => (row.uid === uid ? { ...row, ...patch } : row)));

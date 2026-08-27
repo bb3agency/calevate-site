@@ -250,7 +250,13 @@ export const REFUND_POLICY: LegalDocument = {
                 "{{GRIEVANCE_OFFICER_NAME}}, {{GRIEVANCE_OFFICER_DESIGNATION}}, " +
                 "{{GRIEVANCE_OFFICER_EMAIL}}",
             },
-            { term: "By post", detail: "{{LEGAL_ENTITY_NAME}}, {{REGISTERED_ADDRESS}}" },
+            {
+              term: "Who you are dealing with",
+              detail:
+                "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, principal place of business " +
+                "{{REGISTERED_ADDRESS}}. That address identifies the supplier; refund " +
+                "requests are made by email, and we do not operate a postal channel.",
+            },
           ],
         },
       ],

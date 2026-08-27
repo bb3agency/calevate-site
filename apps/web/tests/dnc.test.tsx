@@ -127,16 +127,24 @@ describe("what the list says may be undone", () => {
     expect(container.textContent).toContain("Opted out on a call");
   });
 
-  it("shows a national-list entry, marks it, and does not offer to remove it", async () => {
+  it("shows a platform-wide entry, marks it as OURS, and does not offer to remove it", async () => {
     // Shown deliberately: a number you cannot un-suppress is still a number you should
     // know is suppressed. Hiding it leaves a client wondering why someone is never
     // dialled and unable to find them anywhere.
+    //
+    // AND IT MAY NOT BE CALLED "the national list". A `global` row is a Calevate
+    // platform-wide suppression; `apps/api/compliance/dnc.py` says in terms that it is
+    // "deliberately NOT the national DND register", and the national scrub is a wholly
+    // separate mechanism (`compliance/preference_scrub.py`). This screen is what a client
+    // quotes back to us when a caller complains, so the assertion is inverted as well as
+    // replaced: the false claim must be ABSENT, not merely un-asserted.
     const { container } = await renderList([
       entry({ removable: false, scope: "global", source: "regulator" }),
     ]);
 
     await screen.findByText(PHONE);
-    expect(container.textContent).toContain("national list");
+    expect(container.textContent).toContain("platform-wide");
+    expect(container.textContent).not.toContain("national list");
     expect(container.textContent).toContain("removed by operations only");
     expect(container.textContent).not.toContain("opt-out — cannot be undone");
     expect(removeButtons()).toHaveLength(0);

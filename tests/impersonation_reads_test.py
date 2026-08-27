@@ -89,6 +89,14 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "reached through impersonation; and a price is OUR cost basis, not the "
         "client's to see"
     ),
+    "/v1/ops/fx-rate": (
+        "the USD/INR rate vendor costs are converted at, and how fresh it is (D-475) — "
+        "superadmin ops surface, gated on platform:config for /v1/ops/model-prices' "
+        "reason and never reached from a client dashboard. It is the same class of fact "
+        "as the price above: OUR cost basis and OUR feed's health, not a view of any one "
+        "client. What a client sees of this number is the rupee amount on their own "
+        "invoice, which is already fully reachable through impersonation"
+    ),
 }
 
 

@@ -6,6 +6,7 @@ import {
   useAdminMe,
 } from "@/app/admin/access";
 import { ConfigPanel } from "@/app/admin/ops/ConfigPanel";
+import { FxRatePanel } from "@/app/admin/ops/FxRatePanel";
 import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
 import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
 import { WithheldPanel } from "@/app/admin/withheld";
@@ -98,6 +99,25 @@ export default function OpsConfigPage() {
         />
       ) : (
         <ModelPricingPanel access={mayConfigure} />
+      )}
+
+      {/* The exchange rate, beside the prices for the same reason the prices sit beside the
+          settings: it is configuration that decides money, it is visible and revertible,
+          and it is not a credential — so `platform:config` gates it and the same
+          identity-answered/refused/mount doctrine applies. READ-ONLY: the panel reports
+          what the automatic pull last published and whether money is using it, and the
+          operator's control over it is the `usd_inr_rate` fallback in the settings panel
+          above (`apps/api/ops/fx_routes.py` argues why there is no write here). */}
+      {identityLoading ? (
+        <PanelPending title="Exchange rate" />
+      ) : mayConfigure.refused ? (
+        <WithheldPanel
+          title="Exchange rate"
+          reason={mayConfigure.reason ?? "Your admin account cannot change platform configuration."}
+          subject="This panel would show the US dollar to rupee rate vendor costs are converted at, and how fresh it is."
+        />
+      ) : (
+        <FxRatePanel />
       )}
 
       {/* THE SHARPEST EDGE IN EITHER CONSOLE, so the withheld cards here say LESS than the

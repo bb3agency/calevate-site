@@ -2196,19 +2196,25 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/engine-latency?days=7": {
         window_days: 7,
-        // The whole budget, as TRD §4 declares it and as the server sends it: four
-        // sub-budgets, two voice-to-voice targets, and the three composed figures the
-        // server derives so no browser has to.
+        // The whole budget, as TRD §4 declares it and as the server sends it: five stages,
+        // the crossing to the engine's US servers, what the shipped config actually waits,
+        // two voice-to-voice targets, and the composed figures the server derives so no
+        // browser has to — `composes` among them, false since the 500ms target.
         budget: {
-          stt_ms: 300,
-          llm_ttft_ms: 350,
-          tts_ttfa_ms: 300,
+          endpointing_ms: 100,
+          stt_ms: 70,
+          llm_ttft_ms: 150,
+          tts_ttfa_ms: 80,
           retrieval_ms: 100,
-          voice_to_voice_p50_ms: 1100,
-          voice_to_voice_p95_ms: 1800,
-          turn_ms: 950,
-          pipeline_ms: 1050,
-          voice_to_voice_headroom_p50_ms: 50,
+          india_us_transit_floor_ms: 100,
+          inherited_turn_detection_ms: 650,
+          voice_to_voice_p50_ms: 500,
+          voice_to_voice_p95_ms: 800,
+          turn_ms: 300,
+          pipeline_ms: 500,
+          voice_to_voice_floor_ms: 600,
+          voice_to_voice_headroom_p50_ms: -100,
+          composes: false,
         },
         complete: false,
         groups: [

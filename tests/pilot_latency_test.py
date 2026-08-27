@@ -20,6 +20,7 @@ import pytest
 from scripts.pilot.latency import (
     PASSING_VERDICTS,
     REPORT_PRECISION_MS,
+    TARGET_P50_MS,
     TARGET_TAIL_MS,
     GreetingSample,
     TurnLatencySample,
@@ -80,13 +81,22 @@ RAW_LATENCY_DATA = {
     },
 }
 
-# Ten voice-to-voice samples with real spread, all under the 1.8s tail threshold but
-# straddling the 1.1s p50 target.
-CLEAN_TEN = [900, 950, 1000, 1010, 1050, 1100, 1150, 1200, 1300, 1600]
+# **THESE ARE OFFSETS FROM THE TARGETS, NOT MILLISECONDS, AND THEY USED TO BE MILLISECONDS.**
+# The literals were cut around a 1.1s p50 and a 1.8s tail; when the founder set
+# voice-to-voice at 500ms (27 Aug 2026) every one of them became an exceedance and seven
+# tests failed for a reason that had nothing to do with the statistics they cover. A
+# fixture that encodes a target it does not name is a copy of that target — D-105's defect,
+# in the file that decides whether a pilot gate passed. Written against the targets, they
+# describe the SHAPE each test needs and follow the budget wherever it goes next.
 
-# Ten comfortably fast samples: the whole median interval (x(2)..x(9)) sits under 1.1s,
-# which is what a p50 PASS actually requires. Still spread, so a broken statistic moves.
-FAST_TEN = [600, 650, 700, 720, 750, 800, 850, 900, 950, 1050]
+# Ten voice-to-voice samples with real spread, all under the tail threshold but straddling
+# the p50 target.
+CLEAN_TEN = [TARGET_P50_MS + d for d in (-200, -150, -100, -90, -50, 0, 50, 100, 200, 250)]
+
+# Ten comfortably fast samples: the whole median interval (x(2)..x(9)) sits under the p50
+# target, which is what a p50 PASS actually requires. Still spread, so a broken statistic
+# moves.
+FAST_TEN = [TARGET_P50_MS - d for d in (250, 230, 210, 200, 180, 160, 140, 120, 100, 50)]
 
 
 def _samples(values: list[int], call_ref: str = "pilot-01") -> list[TurnLatencySample]:
@@ -238,7 +248,11 @@ def test_the_median_interval_is_the_tightest_order_statistic_pair_reaching_95_pe
     interval = median_confidence_interval(sorted(CLEAN_TEN))
     assert interval is not None
     assert (interval.low_order_stat, interval.high_order_stat) == (2, 9)
-    assert interval.low_ms == 950 and interval.high_ms == 1300
+    # The 2nd and 9th ORDER STATISTICS of the fixture, named as such rather than as two
+    # milliseconds: the fixture is written against the targets and the interval is a
+    # pair of its own samples, so the assertion has to be about which samples.
+    ordered = sorted(CLEAN_TEN)
+    assert interval.low_ms == ordered[1] and interval.high_ms == ordered[8]
     assert interval.coverage == pytest.approx(0.9785, abs=1e-3)
 
 
@@ -261,9 +275,11 @@ def test_ten_clean_samples_cannot_confirm_the_p95_leg_and_say_so():
 
 
 def test_the_p95_leg_can_still_be_refuted_by_ten_calls():
-    # Three of ten over 1.8s puts the 95% LOWER bound on the exceedance rate at 8.7%,
-    # above the 5% the target allows — beaten on its own terms.
-    values = [900, 950, 1000, 1100, 1200, 1300, 1750, 1900, 2400, 3000]
+    # Three of ten over the tail threshold puts the 95% LOWER bound on the exceedance rate
+    # at 8.7%, above the 5% the target allows — beaten on its own terms.
+    values = [TARGET_TAIL_MS - d for d in (500, 450, 400, 300, 200, 100, 50)] + [
+        TARGET_TAIL_MS + d for d in (100, 400, 700)
+    ]
     finding = evaluate_tail(values, threshold_ms=TARGET_TAIL_MS)
     assert finding.exceedances == 3
     assert finding.exceedance_lower_95 == pytest.approx(0.0873, abs=1e-3)
@@ -271,7 +287,9 @@ def test_the_p95_leg_can_still_be_refuted_by_ten_calls():
 
 
 def test_two_exceedances_in_ten_is_neither_pass_nor_fail():
-    values = [900, 950, 1000, 1100, 1200, 1300, 1400, 1750, 1900, 2400]
+    values = [TARGET_TAIL_MS - d for d in (500, 450, 400, 300, 200, 100, 50, 20)] + [
+        TARGET_TAIL_MS + d for d in (100, 400)
+    ]
     finding = evaluate_tail(values, threshold_ms=TARGET_TAIL_MS)
     assert finding.exceedances == 2
     assert finding.verdict == "INCONCLUSIVE"
@@ -283,7 +301,7 @@ def test_a_confirmable_tail_needs_the_sample_size_the_module_names():
     assert clopper_pearson_upper(0, n) <= 0.05
     assert clopper_pearson_upper(0, n - 1) > 0.05
     # And with that many clean samples the leg genuinely passes.
-    assert evaluate_tail([1000] * n, threshold_ms=TARGET_TAIL_MS).verdict == "PASS"
+    assert evaluate_tail([TARGET_TAIL_MS // 2] * n, threshold_ms=TARGET_TAIL_MS).verdict == "PASS"
 
 
 def test_bounds_are_exact_rather_than_normal_approximations():

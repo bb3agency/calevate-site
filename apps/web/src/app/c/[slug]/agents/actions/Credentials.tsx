@@ -8,9 +8,10 @@
  * are reused across actions.
  */
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 
+import { PasswordInput } from "@/components/passwordInput";
 import {
   DANGER_BUTTON,
   FIELD,
@@ -41,6 +42,7 @@ export function Credentials({ session }: { session: Session }) {
   const [kind, setKind] = useState<CredKind>("aisensy");
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
+  const secretId = useId();
 
   return (
     <div className="space-y-3 rounded-card border border-line bg-app p-4">
@@ -131,16 +133,20 @@ export function Credentials({ session }: { session: Session }) {
             </label>
           </div>
           <div>
-            <label className="block">
-              <span className={FIELD_LABEL}>Secret</span>
-              <input
-                className={FIELD}
-                type="password"
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                required
-              />
+            {/* NOT a wrapping <label> like the two fields above it, and that is the point:
+                the reveal control is a real button, and a button inside the label's click
+                target is a control whose activation the label competes for. `htmlFor` on
+                an explicit id gives the same association with nothing to compete. */}
+            <label htmlFor={secretId} className={`block ${FIELD_LABEL}`}>
+              Secret
             </label>
+            <PasswordInput
+              id={secretId}
+              reveals="secret"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              required
+            />
           </div>
           {create.isError ? <ProblemNotice error={create.error} /> : null}
           <button type="submit" className={PRIMARY_BUTTON_SM} disabled={create.isPending}>

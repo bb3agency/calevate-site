@@ -1,0 +1,317 @@
+"""The shared chat client, driven through httpx's real plumbing.
+
+WHY `httpx.MockTransport` AND NOT A HAND-WRITTEN STAND-IN. Every property this file
+asserts is a property of a REQUEST or of a byte stream — the header the key travels in,
+the keys the body does and does not carry, and the reassembly of frames a provider sends
+one at a time. A stand-in for `httpx` could not get any of those wrong, which is exactly
+what these tests are trying to catch. Same argument `tests/azure_extraction_test.py` makes
+for the extractor it drives.
+
+Nothing here talks to Azure or Sarvam: there is no credential in this environment and
+neither host is reachable from it.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
+from typing import Any
+
+import httpx
+import pytest
+
+from apps.workers import chat
+
+LEG = chat.ChatLeg(
+    url="https://example.invalid/openai/v1/chat/completions", api_key="k", wire_model="dep"
+)
+
+
+def _client(handler: Any) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+def _sse(*frames: dict[str, Any]) -> bytes:
+    return (
+        "".join(f"data: {json.dumps(frame)}\n\n" for frame in frames) + "data: [DONE]\n\n"
+    ).encode()
+
+
+def _chunk(**overrides: Any) -> dict[str, Any]:
+    frame: dict[str, Any] = {"object": chat.CHUNK_OBJECT, "choices": [{"index": 0, "delta": {}}]}
+    frame.update(overrides)
+    return frame
+
+
+def _stream_client(body: bytes) -> httpx.AsyncClient:
+    async def _bytes() -> AsyncIterator[bytes]:
+        # One byte-run per SSE frame, so `aiter_lines` has to do real reassembly rather
+        # than being handed whole lines by the test.
+        for piece in body.split(b"\n\n"):
+            if piece:
+                yield piece + b"\n\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_bytes())
+
+    return _client(handler)
+
+
+# --- the request shape --------------------------------------------------------------
+
+
+async def test_the_key_travels_as_a_static_bearer_and_optional_keys_are_omitted() -> None:
+    """A STATIC KEY in `Authorization: Bearer`, and no key we did not ask for.
+
+    FAILS IF: somebody adds an unconditional `temperature`. `LlmModelSpec.traps` exists
+    because a GPT-5 model REJECTS `temperature: 0.1` at agent create — a helper that always
+    spelled the key would make every caller's request unserveable on a model none of them
+    chose.
+    """
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["headers"] = dict(request.headers)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+
+    async with _client(handler) as client:
+        await chat.complete(LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client)
+
+    assert seen["headers"]["authorization"] == "Bearer k"
+    assert "api-key" not in seen["headers"]
+    assert seen["body"] == {"model": "dep", "messages": [{"role": "user", "content": "q"}]}
+
+
+async def test_a_streamed_request_asks_for_usage() -> None:
+    """`stream_options: {"include_usage": true}`, or the final usage chunk never arrives
+    and every streamed answer is unmeterable."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"data: [DONE]\n\n")
+
+    async with _client(handler) as client:
+        async for _ in chat.stream(
+            LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
+        ):
+            pass
+
+    assert seen["body"]["stream"] is True
+    assert seen["body"]["stream_options"] == {"include_usage": True}
+
+
+# --- the two Azure stream traps ------------------------------------------------------
+
+
+async def test_an_azure_content_filter_annotation_frame_is_discarded_mid_stream() -> None:
+    """The frame Microsoft's own issue #3650 records verbatim, dropped rather than parsed.
+
+    `{"id":"","choices":[],"created":0,"model":"","object":"",...}` is what the
+    asynchronous content filter emits, and it can arrive at any point in the stream rather
+    than only first. Feeding one into an index-addressed accumulator corrupts `choices[0]`.
+
+    FAILS IF: the frame filter is relaxed to "skip the first frame" or to "skip empty
+    choices" — this one is placed BETWEEN two content frames and carries a `choices` key
+    that a naive reader would happily index.
+    """
+    annotation = {
+        "id": "",
+        "choices": [],
+        "created": 0,
+        "model": "",
+        "object": "",
+        "prompt_filter_results": [{"prompt_index": 0, "content_filter_results": {}}],
+    }
+    body = _sse(
+        _chunk(choices=[{"index": 0, "delta": {"content": "Hel"}}]),
+        annotation,
+        _chunk(choices=[{"index": 0, "delta": {"content": "lo"}}, {"index": 1, "delta": {}}]),
+        _chunk(choices=[{"index": 0, "delta": {}, "finish_reason": "stop"}]),
+    )
+    async with _stream_client(body) as client:
+        events = [e async for e in chat.stream(LEG, [], timeout_s=1, client=client)]
+
+    assert [e.text for e in events if e.text is not None] == ["Hel", "lo"]
+    outcome = events[-1].outcome
+    assert outcome is not None
+    assert outcome.content == "Hello"
+    assert outcome.finish_reason == "stop"
+
+
+async def test_tool_call_fragments_are_reassembled_by_index_not_by_position() -> None:
+    """OpenAI's accumulator: address by `index`, replace `index`/`type`, concatenate
+    strings, recurse dicts.
+
+    TWO PARALLEL CALLS, INTERLEAVED, and the second one's fragments arrive FIRST in one
+    frame. A reader that appended by list position would splice the two sets of arguments
+    into one unparseable string — which is the defect `index` exists in the payload to
+    prevent, and the only field the vendor marks required on the chunk.
+    """
+    body = _sse(
+        _chunk(
+            choices=[
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 1,
+                                "id": "b",
+                                "type": "function",
+                                "function": {"name": "second", "arguments": '{"x'},
+                            },
+                            {
+                                "index": 0,
+                                "id": "a",
+                                "type": "function",
+                                "function": {"name": "set_", "arguments": '{"items'},
+                            },
+                        ]
+                    },
+                }
+            ]
+        ),
+        _chunk(
+            choices=[
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"name": "fields", "arguments": '": []}'}},
+                            {"index": 1, "function": {"arguments": '": 1}'}},
+                        ]
+                    },
+                }
+            ]
+        ),
+        _chunk(choices=[{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]),
+    )
+    async with _stream_client(body) as client:
+        events = [e async for e in chat.stream(LEG, [], timeout_s=1, client=client)]
+
+    outcome = events[-1].outcome
+    assert outcome is not None
+    assert [(c.id, c.name, c.arguments) for c in outcome.tool_calls] == [
+        ("a", "set_fields", '{"items": []}'),
+        ("b", "second", '{"x": 1}'),
+    ]
+
+
+# --- the money question --------------------------------------------------------------
+
+
+async def test_a_missing_final_usage_chunk_is_none_and_never_zero() -> None:
+    """The vendor's own note: "If the stream is interrupted or cancelled, you may not
+    receive the final usage chunk". That is its own outcome.
+
+    FAILS IF: `ChatOutcome.usage` ever defaults to `TokenUsage(0, 0)`. A fabricated zero on
+    an append-only ledger is indistinguishable from a real one and moves neither the
+    tenant's ceiling nor the platform brake (hard rule 7, D-140).
+    """
+    body = _sse(_chunk(choices=[{"index": 0, "delta": {"content": "hi"}, "finish_reason": "stop"}]))
+    async with _stream_client(body) as client:
+        events = [e async for e in chat.stream(LEG, [], timeout_s=1, client=client)]
+
+    outcome = events[-1].outcome
+    assert outcome is not None
+    assert outcome.usage is None
+
+
+async def test_the_final_usage_chunk_is_read_off_a_frame_with_no_choices() -> None:
+    """The usage frame carries an EMPTY `choices` array by contract, so a reader that only
+    looked at frames with choices would never see it."""
+    body = _sse(
+        _chunk(choices=[{"index": 0, "delta": {"content": "hi"}, "finish_reason": "stop"}]),
+        _chunk(choices=[], usage={"prompt_tokens": 1200, "completion_tokens": 800}),
+    )
+    async with _stream_client(body) as client:
+        events = [e async for e in chat.stream(LEG, [], timeout_s=1, client=client)]
+
+    outcome = events[-1].outcome
+    assert outcome is not None
+    assert outcome.usage == chat.TokenUsage(prompt_tokens=1200, output_tokens=800)
+
+
+def test_completion_token_details_are_a_breakdown_and_are_not_added() -> None:
+    """Summing `completion_tokens_details` into `completion_tokens` bills a tenant twice
+    for the same tokens. Vertex's `thoughtsTokenCount` WAS separate and had to be summed;
+    porting that line across is the tempting edit and it is wrong in the expensive
+    direction."""
+    usage = chat.usage_from_body(
+        {
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "completion_tokens_details": {"reasoning_tokens": 15},
+            }
+        }
+    )
+    assert usage == chat.TokenUsage(prompt_tokens=10, output_tokens=20)
+
+
+def test_no_usage_block_and_an_all_zero_one_both_read_as_unknown() -> None:
+    assert chat.usage_from_body({}) is None
+    assert chat.usage_from_body({"usage": {"prompt_tokens": 0, "completion_tokens": 0}}) is None
+
+
+# --- the shapes a provider declining to answer produces ------------------------------
+
+
+async def test_an_empty_choices_array_is_no_answer_rather_than_an_indexerror() -> None:
+    """Azure's content filter is an ordinary 200 with `choices: []`. Indexing blindly turns
+    "the model said nothing" into an IndexError that escapes `extract_call`'s ladder and
+    fails a whole post-call job — losing the call to keep the fields."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": []})
+
+    async with _client(handler) as client:
+        outcome = await chat.complete(LEG, [], timeout_s=1, client=client)
+    assert outcome.content == "" and outcome.tool_calls == ()
+
+
+async def test_a_null_content_is_no_answer_too() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": None}}]})
+
+    async with _client(handler) as client:
+        outcome = await chat.complete(LEG, [], timeout_s=1, client=client)
+    assert outcome.content == ""
+
+
+async def test_a_non_2xx_raises_so_a_caller_can_read_the_status() -> None:
+    """`extract_call`'s ladder already catches `httpx.HTTPError`, and the two callers that
+    degrade from Structured Outputs need the 400. A helper that returned an error object
+    instead would put an `if` on every caller's happy path."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"code": "unsupported"}})
+
+    async with _client(handler) as client:
+        with pytest.raises(httpx.HTTPStatusError) as raised:
+            await chat.complete(LEG, [], timeout_s=1, client=client)
+    assert raised.value.response.status_code == 400
+
+
+async def test_a_streamed_non_2xx_raises_before_any_frame_is_read() -> None:
+    """So `run_copilot` can still fall back to the disclosed second leg — which it may only
+    do while nothing has been streamed to the person yet."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": "down"})
+
+    async with _client(handler) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            async for _ in chat.stream(LEG, [], timeout_s=1, client=client):
+                pass
+
+
+async def test_an_unparseable_frame_is_dropped_rather_than_ending_the_stream() -> None:
+    body = b"data: {not json\n\n" + _sse(
+        _chunk(choices=[{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}])
+    )
+    async with _stream_client(body) as client:
+        events = [e async for e in chat.stream(LEG, [], timeout_s=1, client=client)]
+    assert [e.text for e in events if e.text is not None] == ["ok"]

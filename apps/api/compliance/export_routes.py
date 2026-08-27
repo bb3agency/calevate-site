@@ -202,6 +202,23 @@ class SubjectExportErasureOut(Strict):
     recordings_destroyed_by: str | None
 
 
+class SubjectExportDoNotCallOut(Strict):
+    """Whether this number is suppressed, on which list, why and since when.
+
+    Present because `/legal/privacy` §3 lists the do-not-call entry among the data held
+    about a caller, so a disclosure that omitted it was incomplete against our own
+    published notice — and because it is the fact a complainant most often wants
+    confirmed. `scope: "global"` is a platform-wide Calevate suppression rather than this
+    account's own list, and it is disclosed even though it is not the tenant's row: it is
+    still a record held about the subject.
+    """
+
+    suppressed: bool
+    scope: str | None
+    source: str | None
+    added_at: str | None
+
+
 class SubjectExportCountsOut(Strict):
     """What the document contains, stated in the document.
 
@@ -232,6 +249,7 @@ class SubjectExportOut(Strict):
     calls: list[SubjectExportCallOut]
     transcripts: list[SubjectExportTranscriptOut]
     consent: list[SubjectExportConsentOut]
+    do_not_call: SubjectExportDoNotCallOut
     counts: SubjectExportCountsOut
 
 

@@ -27,8 +27,9 @@ dated and append-only; this module reads and writes it.
 
 `LlmPrice.input_usd_per_mtok` is USD/Mtok and `billing/rates.py` converts it to rupees at a
 named FX rate. This module stays in the vendor's unit for the identical reason (hard rule
-7): the vendor publishes dollars, `usd_inr_rate` is a live console value, and a figure that
-has already multiplied the two cannot be re-derived when either moves. Every value in and
+7): the vendor publishes dollars, the USD->INR rate MOVES (it is pulled every five
+minutes, D-475), and a figure that has already multiplied the two cannot be re-derived
+when either moves. Every value in and
 out of here is a `Decimal`, never a float.
 """
 

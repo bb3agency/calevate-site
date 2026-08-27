@@ -31,6 +31,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { PasswordInput } from "@/components/passwordInput";
 import { useToast } from "@/components/interior/toaster";
 import { API_BASE } from "@/lib/api/client";
 import { useAgents } from "@/lib/api/agents";
@@ -848,21 +849,26 @@ function LeadSourcesCard({
           </p>
 
           {isMeta && (
-            <label className="block text-xs text-ink-muted">
-              Your Meta app&apos;s App Secret
-              <input
+            <div className="block text-xs text-ink-muted">
+              {/* NO LONGER A WRAPPING <label>, because the field now carries a real
+                  button: a button inside the label's click target is a control the label
+                  competes with for the click. The accessible name is unchanged — it was
+                  already `aria-label`, which overrode this text before and still does. */}
+              <span className="block">Your Meta app&apos;s App Secret</span>
+              <PasswordInput
                 required
-                type="password"
+                aria-label="Meta App Secret"
+                reveals="app secret"
                 value={appSecret}
                 onChange={(e) => setAppSecret(e.target.value)}
-                aria-label="Meta App Secret"
-                className={`${FIELD} mt-1 block w-full max-w-md font-mono`}
+                wrapperClassName="block w-full max-w-md"
+                className={`${FIELD} font-mono`}
               />
               <span className="mt-1 block text-ink-faint">
                 Meta signs every notification with this, so we cannot generate it. Find it
                 under App settings → Basic in the Meta App Dashboard.
               </span>
-            </label>
+            </div>
           )}
 
           {/* Blocked while the agent list is unreadable, because otherwise the sentence
@@ -1018,17 +1024,18 @@ function LeadSourceRow({
           }}
         >
           {isMeta && (
-            <label className="text-xs text-ink-muted">
-              Your new Meta App Secret
-              <input
+            <div className="text-xs text-ink-muted">
+              <span className="block">Your new Meta App Secret</span>
+              <PasswordInput
                 required
-                type="password"
+                aria-label="New Meta App Secret"
+                reveals="new app secret"
                 value={appSecret}
                 onChange={(e) => setAppSecret(e.target.value)}
-                aria-label="New Meta App Secret"
-                className={`${FIELD} mt-1 block w-56 font-mono`}
+                wrapperClassName="block w-56"
+                className={`${FIELD} font-mono`}
               />
-            </label>
+            </div>
           )}
           <label className="text-xs text-ink-muted">
             Keep the old secret working for

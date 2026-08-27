@@ -32,6 +32,7 @@ import {
   OPS_MODEL_PRICES_PATH,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
+import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 
 import { formatISTInput, istInputToInstant } from "@/components/ui";
 
@@ -151,9 +152,30 @@ function configRoutes(
     // read too — an unrouted one paints a `ProblemNotice` (retry button, alert) onto a
     // screen these cases assert the exact controls of.
     [OPS_MODEL_PRICES_PATH]: modelPrices(),
+    // The exchange-rate panel shares this screen too, and is stubbed for the same reason.
+    [OPS_FX_RATE_PATH]: fxRate(),
     [OPS_SECRETS_PATH]: secretsList(),
     [`${OPS_SECRETS_PATH}/kek`]: kekState(),
     ...extra,
+  };
+}
+
+/** A LIVE published rate — the panel's normal state, with no lever these cases exercise. */
+function fxRate(): FxRate {
+  return {
+    base_currency: "USD",
+    quote_currency: "INR",
+    effective_rate: "88.427500",
+    state: "live",
+    using_fallback: false,
+    fallback_rate: "88.00",
+    published_rate: "88.427500",
+    published_as_of: "2026-08-27",
+    published_source: "frankfurter:FBIL",
+    observed_at: "2026-08-27T04:05:00Z",
+    age_label: "3 minutes ago",
+    max_age_days: 5,
+    history: [],
   };
 }
 

@@ -20,13 +20,17 @@
  *    it is about the MEDIAN turn rather than the worst one. `null` means the sample cannot
  *    support a median — a third state, and "we do not know" must never render the same as
  *    "within budget".
- * 3. **A BUDGET — including by adding two of them together.** TRD §4 declares four
- *    sub-budgets and two voice-to-voice targets, and `LatencyBudget` publishes all six
- *    PLUS the composed totals (`turn_ms`, `pipeline_ms`, `voice_to_voice_headroom_p50_ms`)
- *    already summed. Those three are `computed_field`s on the server precisely so this
- *    bundle never does the arithmetic: a target computed in a browser is a target that
- *    quietly becomes whatever the last build believed, and `lib/api/aiQuota.ts` states the
- *    same doctrine about the one figure where it costs money instead of latency.
+ * 3. **A BUDGET — including by adding two of them together, and including the VERDICT on
+ *    whether it fits.** TRD §4 declares five stages, a crossing the caller cannot avoid
+ *    and two voice-to-voice targets, and `LatencyBudget` publishes all of them PLUS the
+ *    composed totals (`turn_ms`, `pipeline_ms`, `voice_to_voice_floor_ms`,
+ *    `voice_to_voice_headroom_p50_ms`) and `composes` already worked out. Those are
+ *    `computed_field`s on the server precisely so this bundle never does the arithmetic: a
+ *    target computed in a browser is a target that quietly becomes whatever the last build
+ *    believed, and `lib/api/aiQuota.ts` states the same doctrine about the one figure where
+ *    it costs money instead of latency. Since 27 Aug 2026 `composes` is FALSE — the founder
+ *    set voice-to-voice at 500ms and the stages floor at 600ms — so the screen has a
+ *    shortfall to state, in the server's numbers and none of its own.
  * 4. **Gate 4's own verdict.** The gate needs a median from TWO regions to compare, and
  *    `EngineLatencyReport.regions_measured` is the rule that counts them — a Python
  *    `@property`, so it is not on the wire and nothing reads it. Restating it here would be
@@ -274,3 +278,28 @@ export const LEG_COPY: Record<LatencyLeg, { label: string; gloss: string }> = {
  */
 export const UNVERIFIED_UNIT_NOTE =
   "We have not confirmed what unit the engine reports this stage in, so treat the figures on this row as unconfirmed.";
+
+/**
+ * THE SHORTFALL, IN THE OPERATOR'S WORDS — shown when `budget.composes` is false.
+ *
+ * NO NUMBER IN THIS SENTENCE. The gap, the floor and the target are all server fields and
+ * the screen renders them beside this text; a figure typed here would be a second copy of
+ * a target, which is the one thing this module refuses to hold (see 3 above). What the
+ * reader needs from the words is what KIND of problem it is — not a fleet that is running
+ * slow, but a goal the parts cannot add up to however well they run.
+ */
+export const BUDGET_GAP_TITLE = "Our stage goals do not fit inside our end-to-end goal";
+
+export const BUDGET_GAP_BODY =
+  "Every stage below is already set to the fastest figure its supplier publishes, and they still add up to more than the time we have promised a caller will wait. Nothing measured here can close that: it is the goal and the pipeline disagreeing, and TRD \u00a74 lists what would have to change.";
+
+/**
+ * The other half of the gap, and the half that IS ours to change: the waiting the engine
+ * does before it starts working, on settings we have never overridden.
+ *
+ * `inherited_turn_detection_ms` against `endpointing_ms` is the comparison — both server
+ * fields, rendered side by side, because an operator asked to make calls faster should see
+ * first the number that is one integer in a config and not a law of physics.
+ */
+export const INHERITED_WAIT_NOTE =
+  "This is what the engine waits today before it even starts working on a reply, on settings we have never changed from the supplier's defaults. It is the largest single piece of the shortfall and the only one that is ours to set.";

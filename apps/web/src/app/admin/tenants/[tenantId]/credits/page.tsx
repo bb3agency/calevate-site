@@ -54,6 +54,8 @@ import {
 } from "@/lib/api/credits";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * Credits — the wallet an Indian SMB pays into by bank transfer, and the only screen
@@ -401,6 +403,68 @@ function RecordPanel({
     // The last result described a request that is no longer the one in the form.
     save.reset();
   };
+
+  /*
+   * THE TOP-UP FORM, DECLARED TO THE SCREEN ASSISTANT — AND THREE OF ITS FOUR CONTROLS
+   * ARE DELIBERATELY NOT FILLABLE.
+   *
+   * This screen's own header states the rule the registration has to respect: the form
+   * opens EMPTY rather than prefilled, because "the one thing this form must never make
+   * easy is submitting a value the operator did not transcribe". An assistant that could
+   * type the amount and the bank reference would defeat exactly that, and the second
+   * reference box exists to make a MIS-TRANSCRIPTION visible — a machine filling both
+   * would make the two agree by construction and turn double keying into theatre.
+   *
+   * So the three money-bearing controls are sent as `writable: false`: the assistant can
+   * still READ them and is genuinely useful doing so ("this reference is already on the
+   * ledger", "that amount is not two decimal places"), and `useCopilotConversation` drops
+   * a fill naming a read-only field before any screen sees it. The note is fillable
+   * because it is prose about the payment, not the payment.
+   *
+   * The bank reference is personal-adjacent rather than personal: it identifies a
+   * TRANSACTION, not a person, and it is the value the assistant most needs verbatim to
+   * be useful about. It is not redacted, and that is a decision, not an omission.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}/credits",
+    title: "Record a credit top-up",
+    realm: "admin",
+    fields: [
+      {
+        id: "topup-ref",
+        label: "Bank reference",
+        type: "text",
+        value: draft.reference,
+        writable: false,
+        help: "Transcribed from the bank statement by a human. Never machine-filled.",
+      },
+      {
+        id: "topup-ref-confirm",
+        label: "Bank reference (typed again)",
+        type: "text",
+        value: draft.confirm,
+        writable: false,
+        help: "Double keying. Filling this from anything but a second reading would defeat it.",
+      },
+      {
+        id: "topup-amount",
+        label: "Amount (₹)",
+        type: "text",
+        value: draft.amount,
+        writable: false,
+        help: "Transcribed from the statement by a human. Never machine-filled.",
+      },
+      { id: "topup-note", label: "Note", type: "textarea", value: draft.note },
+    ],
+    facts: [
+      { key: "client", label: "Client", value: clientName },
+      { key: "balance_inr", label: "Calling credit on the ledger now (₹)", value: wallet.balance_inr },
+    ],
+    apply: (items) => {
+      const note = items.find((item) => item.field_id === "topup-note");
+      if (note !== undefined) setDraft((previous) => ({ ...previous, note: asText(note.value) }));
+    },
+  });
 
   const reference = normalizeReference(draft.reference);
   const amount = draft.amount.trim();

@@ -26,6 +26,8 @@ import { useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/agents";
 import { useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /**
@@ -143,6 +145,61 @@ export default function KnowledgePage() {
    * empty, and telling a client they have no agents on the strength of a request that
    * never landed is the same lie as an empty state over a failed fetch.
    */
+  /*
+   * THE "TEACH IT SOMETHING" FORM, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * Three loose `useState` scalars, so `apply` is three setter calls — no DOM, no draft
+   * object to thread. The agent picker is offered as a `select` over the SAME query the
+   * control renders from, so the assistant cannot name an agent this account does not
+   * have; a value outside the list is dropped rather than written, because the picker
+   * would render blank and the submit would post an id nobody chose.
+   *
+   * This is the screen where a fill is most obviously worth having: the body is a page of
+   * prose about a business, and "write the cancellation policy from what is in the
+   * intake sheet" is the whole job.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/knowledge",
+    title: "Teach your agent something",
+    realm: "client",
+    fields: [
+      {
+        id: "kb-title",
+        label: "Title",
+        type: "text",
+        value: name,
+        help: "What this note is about — shown in the list, not read to callers.",
+      },
+      {
+        id: "kb-body",
+        label: "What it should know",
+        type: "textarea",
+        value: body,
+        help: "Prose, in the language the agent answers in. It is split into chunks and retrieved during calls.",
+      },
+      {
+        id: "kb-agent",
+        label: "Which agent learns this",
+        type: "select",
+        value: selectedAgentId,
+        options: agentOptions.map((agent) => ({ value: agent.id, label: agent.name })),
+        help: "Knowledge belongs to one agent.",
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id === "kb-title") setName(asText(item.value));
+        else if (item.field_id === "kb-body") setBody(asText(item.value));
+        else if (
+          item.field_id === "kb-agent" &&
+          agentOptions.some((agent) => agent.id === item.value)
+        ) {
+          setAgentId(asText(item.value));
+        }
+      }
+    },
+  });
+
   const hasNoAgents = Boolean(agents.data) && agentOptions.length === 0;
 
   return (
@@ -215,6 +272,9 @@ export default function KnowledgePage() {
               )}
 
               <input
+                /* The copilot field id — what the "filled" outline is drawn on. The
+                   control is named by its own `aria-label`, so nothing else needs it. */
+                id="kb-title"
                 required
                 minLength={2}
                 value={name}
@@ -224,6 +284,7 @@ export default function KnowledgePage() {
                 className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
               />
               <textarea
+                id="kb-body"
                 required
                 minLength={10}
                 rows={8}

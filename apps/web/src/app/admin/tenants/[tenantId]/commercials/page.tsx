@@ -21,6 +21,8 @@ import {
   formatIST,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { flatDraftSurface, type FlatFieldSpec } from "@/lib/copilot/screens/flatDraft";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import {
   loosenedCeilings,
@@ -231,6 +233,29 @@ interface Draft {
   effective_to: string;
 }
 
+/**
+ * What the screen assistant may fill in on this form — the same eleven controls the form
+ * renders, in the same order, keyed by the ids they already carry.
+ *
+ * Written out rather than derived from `Draft`'s keys because a key name cannot say what
+ * a control MEANS: "empty means no ceiling" is the difference between an unlimited
+ * account and a free one, and it is the sentence the model has to read to fill this in
+ * correctly. Every `help` here is the hint already under the control.
+ */
+const COPILOT_FIELDS: readonly FlatFieldSpec<keyof Draft & string>[] = [
+  { id: "terms-setup", key: "setup_fee_inr", label: "Setup fee (₹, one-time)", type: "text", help: "Billed once, on the onboarding month's statement. Empty means none." },
+  { id: "terms-monthly", key: "monthly_fee_inr", label: "Monthly retainer (₹)", type: "text", help: "Empty means no retainer." },
+  { id: "terms-included", key: "included_minutes", label: "Included minutes", type: "number", help: "The monthly allowance before overage. Empty means none included." },
+  { id: "terms-overage", key: "overage_rate_inr", label: "Overage rate (₹ / minute)", type: "text", help: "Four decimal places, published unrounded." },
+  { id: "terms-value", key: "overage_rate_value_inr", label: "Value-tier rate (₹ / minute)", type: "text", help: "Leave EMPTY unless a rate has actually been decided — an unset rate bills everything at the rate above." },
+  { id: "terms-llm-surcharge", key: "llm_model_surcharge_inr", label: "AI model surcharge (₹ / minute)", type: "text", help: "Applies only to a model the client picked. Leave EMPTY unless a number has been decided." },
+  { id: "terms-concurrency", key: "concurrency_ceiling", label: "Concurrent calls", type: "number", help: "Engine capacity for this account." },
+  { id: "terms-cap-spend", key: "hard_cap_spend_inr", label: "Spend ceiling (₹ / month)", type: "text", help: "OUR ceiling. Empty means no ceiling — their dialling is unlimited." },
+  { id: "terms-cap-min", key: "hard_cap_minutes", label: "Minute ceiling (/ month)", type: "number", help: "OUR ceiling. Empty means no ceiling." },
+  { id: "terms-from", key: "effective_from", label: "In effect from", type: "date", help: "A `datetime-local` value (YYYY-MM-DDTHH:MM). Empty = now." },
+  { id: "terms-to", key: "effective_to", label: "Until", type: "date", help: "Empty = until further notice." },
+];
+
 function initialDraft(row: PlanRow | null): Draft {
   return {
     setup_fee_inr: row?.setup_fee_inr ?? "",
@@ -302,6 +327,38 @@ function RecordForm({
     setDraft((prev) => ({ ...prev, [key]: value }));
     save.reset();
   };
+
+  /*
+   * THE TERMS FORM, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * One flat draft of strings, so the fill is one `setDraft` — never the DOM. The ids are
+   * the ones the controls already carry (`terms-*`), so the "filled" outline lands on the
+   * right input without this form growing a second naming scheme.
+   *
+   * `setDraft` directly rather than `set`: `set` also clears the refusal on screen, which
+   * is right for a keystroke and wrong for a fill — the server's words about the values
+   * being filled in beside are exactly what an operator needs left up.
+   *
+   * Nothing here is personal data: it is a commercial agreement between two businesses.
+   */
+  useCopilotSurface(
+    flatDraftSurface(
+      { route: "/admin/tenants/{id}/commercials", title: "Commercial terms", realm: "admin" },
+      draft,
+      COPILOT_FIELDS,
+      setDraft,
+      [
+        {
+          key: "in_effect",
+          label: "Terms in effect now",
+          value:
+            inEffect === null
+              ? "none recorded"
+              : `overage ₹${inEffect.overage_rate_inr}/min, ${inEffect.included_minutes ?? 0} minutes included`,
+        },
+      ],
+    ),
+  );
 
   const payload = toPayload(draft);
   const loosened = loosenedCeilings(inEffect, payload);

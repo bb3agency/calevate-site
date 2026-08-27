@@ -87,6 +87,45 @@ ENGINES = tuple(sorted(SELECTABLE_ENGINES))
 NUMBER_SERIES = ("140", "160", "standard")
 DLT_STATUSES = ("pending", "registered", "blocked")
 
+#: The India country code, and the two regulated national prefixes the series names.
+#:
+#: VERIFIED THIS SESSION against the Department of Telecommunications' own press release
+#: (PIB PRID 2022249, "DoT allots separate numbering series exclusively for service and
+#: transactional voice calls", read 27 Aug 2026): service/transactional calls originate
+#: from **160xxxxxxx**, and "calls from telemarketers for transactional or promotional
+#: calls would start from 140xxxxxxx". A "series" in Indian numbering IS the leading
+#: digits of the ten-digit national number, which is what makes the check below possible
+#: at all. Corroborated by `docs/legal/phone-number-research.md:23`, which quotes DoT's
+#: May-2024 release to the same effect and records the penalty ladder (₹2/₹5/₹10 lakh
+#: under the 2025 TCCCPR amendments) that makes misclassification expensive.
+_INDIA_CC = "+91"
+_REGULATED_PREFIXES: dict[str, str] = {"140": "140", "160": "160"}
+
+
+def series_for_e164(e164: str) -> str | None:
+    """Which `NUMBER_SERIES` this number's own prefix declares — or None if it says.
+
+    Returns None ONLY for a number outside the Indian country code, where the 140/160
+    series do not exist as a concept and no Indian prefix rule can classify the number.
+    Every `+91` number gets an answer: `140`, `160`, or `standard` (i.e. "an ordinary
+    number, not a regulated series").
+
+    WHY THIS IS A FACT AND NOT A PREFERENCE. `phone_numbers.series` is what the campaign
+    launch gate matches against the campaign's classification
+    (`campaigns.service.SERIES_FOR_CLASSIFICATION`: 140 dials promotions, 160/standard
+    dials service and transactional), so it decides whether a promotional campaign may
+    run — and it was an operator's typed word, never checked against the number sitting
+    in the same INSERT. A `+91 98…` mobile typed `"140"` opened promotional dialling from
+    a number that is not a telemarketing header, and a real 140 number typed
+    `"standard"` opened service/transactional dialling from one that is. The prefix was
+    in the row the whole time.
+    """
+    if not e164.startswith(_INDIA_CC):
+        return None
+    national = e164[len(_INDIA_CC) :]
+    return _REGULATED_PREFIXES.get(national[:3], "standard")
+
+
 # The cost-runaway guard (SURFACES §2b:107). NULL on the column means "the platform
 # default", never "unlimited" — `agents/service.py::effective_call_cap` resolves it.
 CALL_CAP_DEFAULT_S = 600

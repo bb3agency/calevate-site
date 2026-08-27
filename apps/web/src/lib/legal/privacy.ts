@@ -1090,7 +1090,8 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "would rewrite a closed billing period.",
                 "Call rows survive with their personal fields cleared, rather than being " +
                   "deleted, so the minutes that were billed stay countable.",
-                "A recording younger than the 90-day telecom retention floor is not " +
+                "A recording younger than the 90-day floor Calevate applies to all " +
+                  "recordings as a platform policy is not " +
                   "destroyed early. It is scheduled: the link to it is cleared " +
                   "immediately so nothing in the product can reach, play or export it, a " +
                   "destruction date is fixed at the moment the request runs, and the audio " +

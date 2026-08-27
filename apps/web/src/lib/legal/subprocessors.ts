@@ -222,9 +222,8 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
       "records, account data.",
     location:
       "{{PRIMARY_HOSTING_LOCATION}} — decided, and nothing has been provisioned " +
-      "yet, because no client data is in production. The blueprint does not " +
-      "require India co-location for this tier, which runs outside the live " +
-      "call path; it was chosen anyway.",
+      "yet, because no client data is in production. This tier runs outside the " +
+      "live call path, so India is not required for it; it was chosen anyway.",
     status: "Core.",
   },
   {

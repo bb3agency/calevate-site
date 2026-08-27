@@ -17,6 +17,7 @@ import { useId, type ReactNode } from "react";
 
 import { CircleAlert } from "lucide-react";
 
+import { PasswordInput } from "@/components/passwordInput";
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice } from "@/components/ui";
 import { signInMessage } from "@/lib/authn/problems";
 
@@ -34,11 +35,20 @@ export function AuthField({
   hint,
   error,
   inputRef,
+  reveals,
   ...input
 }: {
   label: string;
   hint?: ReactNode;
   error?: string | null;
+  /**
+   * The noun the show/hide control names, on a `type="password"` field only.
+   *
+   * Ignored on every other type — there is nothing to reveal. It is a prop rather than a
+   * derivation from `label` because the labels do not read as nouns in that sentence:
+   * "Show type it again" is what the set-password form's second field would produce.
+   */
+  reveals?: string;
   /**
    * For DELIBERATE focus management across a view change — the sign-in form moving to its
    * code step, where the control that had focus has just unmounted and focus would
@@ -47,6 +57,10 @@ export function AuthField({
    */
   inputRef?: React.Ref<HTMLInputElement>;
 } & React.InputHTMLAttributes<HTMLInputElement>) {
+  // `type` is pulled out of the rest rather than read off it, so the two branches below
+  // each receive exactly the props they accept — `PasswordInput` owns the type attribute
+  // (it is the thing the toggle changes) and must not be handed one.
+  const { type, ...rest } = input;
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
@@ -57,14 +71,30 @@ export function AuthField({
       <label htmlFor={id} className={FIELD_LABEL}>
         {label}
       </label>
-      <input
-        id={id}
-        ref={inputRef}
-        className={FIELD}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy || undefined}
-        {...input}
-      />
+      {/* A password field is the same field with a reveal control beside it, so the aria
+          wiring below is written ONCE and handed to whichever renders it. The refusal
+          rendering — `aria-invalid`, `aria-describedby`, the `role="alert"` paragraph —
+          is a property of this component and is untouched by which branch is taken. */}
+      {type === "password" ? (
+        <PasswordInput
+          {...rest}
+          id={id}
+          inputRef={inputRef}
+          reveals={reveals}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy || undefined}
+        />
+      ) : (
+        <input
+          id={id}
+          ref={inputRef}
+          className={FIELD}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy || undefined}
+          type={type}
+          {...rest}
+        />
+      )}
       {hint && (
         <span id={hintId} className={FIELD_HINT}>
           {hint}

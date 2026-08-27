@@ -235,6 +235,17 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "verdict from a fixed six-value vocabulary and two timestamps: no source name, no "
         "chunk, and no engine handle."
     ),
+    "fx_rate_observations": (
+        "platform-scoped. The published USD/INR rate this deployment pulls every five "
+        "minutes (migration b6f21d9c4e07). There is ONE exchange rate for the whole "
+        "platform at an instant — no tenant whose row this could be — so it carries no "
+        "tenant_id rather than a decorative one that would make it LOOK tenant-scoped to "
+        "every column-driven sweep. No client-realm route names it: the conversion reads "
+        "the rate from memory (`core/fx.py`) and the console reads the history behind "
+        "`platform:config` in the admin realm. Holds a currency pair, a NUMERIC rate, two "
+        "dates and a source URL — no PII, no credential, no tenant data. Append-only (see "
+        "APPEND_ONLY_TABLES): it is the evidence behind `usage_events.meta.fx_rate`."
+    ),
     "platform_settings": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). One engine selection, "
         "one calling window, for every client at the same instant — there is no tenant "
@@ -403,5 +414,11 @@ APPEND_ONLY_TABLES = [
     # not un-accept the terms they operated under last month. An UPDATE could only ever
     # rewrite which version somebody agreed to, which is the one fact the row exists to
     # fix in place; a DELETE erases the evidence for the period it covers.
+    # The pulled USD/INR rate (migration b6f21d9c4e07). `usage_events.meta.fx_rate` records
+    # what a call was costed at; this table is the only thing that can say where that
+    # number came from. An UPDATE would let today's correction rewrite the input to a bill
+    # rendered and paid last quarter, which is not a correction but a rewrite of the
+    # evidence — a superseding observation is a NEW row, and the newest publication wins.
+    "fx_rate_observations",
     "legal_acceptances",
 ]

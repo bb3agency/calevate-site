@@ -32,6 +32,7 @@ import {
   OPS_MODEL_PRICES_PATH,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
+import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 
 import { expectNoA11yViolations } from "./a11y";
 import { expectTextCount, problem, stubApi, type Routes } from "./harness";
@@ -189,6 +190,26 @@ const MODEL_PRICES: ModelPrices = {
   as_of: "2026-08-23T00:00:00Z",
 };
 
+// The exchange-rate panel shares the same screen, and is stubbed for the same reason as
+// the prices above: an unstubbed route paints a `ProblemNotice` over a screen these cases
+// assert the exact controls of. A LIVE rate, because the degraded states have their own
+// assertions and this fixture is only here so the screen renders itself.
+const FX_RATE: FxRate = {
+  base_currency: "USD",
+  quote_currency: "INR",
+  effective_rate: "88.427500",
+  state: "live",
+  using_fallback: false,
+  fallback_rate: "88.00",
+  published_rate: "88.427500",
+  published_as_of: "2026-08-27",
+  published_source: "frankfurter:FBIL",
+  observed_at: "2026-08-27T04:05:00Z",
+  age_label: "3 minutes ago",
+  max_age_days: 5,
+  history: [],
+};
+
 /**
  * Merge route tables WITHOUT spreading.
  *
@@ -217,6 +238,7 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       [ADMIN_ME_PATH]: identity,
       [OPS_CONFIG_PATH]: configList([configField()]),
       [OPS_MODEL_PRICES_PATH]: MODEL_PRICES,
+      [OPS_FX_RATE_PATH]: FX_RATE,
       [OPS_SECRETS_PATH]: SECRETS,
       [`${OPS_SECRETS_PATH}/kek`]: KEK,
     },

@@ -283,6 +283,10 @@ class TestRlsCoverage:
         """
         assert set(RLS_EXEMPT_TENANT_COLUMNS) == {
             "audit_log",
+            # D-475: the pulled USD/INR rate. Platform state — one exchange rate for the
+            # whole deployment at an instant, so there is no tenant whose row it could be —
+            # and read only behind `platform:config` in the admin realm.
+            "fx_rate_observations",
             "engine_agent_routes",
             "platform_settings",
             "platform_config_version",

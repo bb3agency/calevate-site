@@ -3188,6 +3188,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/compliance/call-consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record what a customer said about being CALLED (append-only)
+         * @description Appends one row to the consent ledger under the `callback` purpose — the one `check_dispatch` reads before a dial. A withdrawal is a new row with `status: withdrawn`, never an edit. A grant must carry evidence, and your own staff may only record an opt-OUT. Until this endpoint existed the ledger could record only a refusal to be called, never a permission.
+         */
+        post: operations["record_call_v1_compliance_call_consent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/compliance/caller-notice": {
         parameters: {
             query?: never;
@@ -3428,6 +3448,44 @@ export interface paths {
          * @description Appends one row to the opt-in ledger. Withdrawing is a new row with `status: withdrawn`, never an edit of the opt-in it supersedes. Only the account owner can record their own opt-in, and an impersonated session cannot.
          */
         post: operations["record_v1_compliance_whatsapp_alerts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the in-app assistant about this screen — streamed, metered, quota-gated
+         * @description Answers a question about the screen the caller is on, and can fill that screen's form
+         *     fields. Streams `text/event-stream`:
+         *
+         *     * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
+         *     * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
+         *       per response. Every item has been re-validated server-side against the `fields` this
+         *       request declared: a field that is not `writable`, a `select` value outside its own
+         *       `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,
+         *       highlight them, and offer one Undo; nothing is saved until the user presses Save.
+         *     * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
+         *       non-null when a substitute model answered and MUST be shown.
+         *     * `event: error` · `data: {problem+json}` — a refusal that happened after the stream
+         *       opened. Permission, rate-limit and request-validation refusals arrive as ordinary
+         *       problem+json responses with their real status instead.
+         *
+         *     Nothing is stored. `history` is the whole memory of the conversation and dies with the
+         *     request. Metered against the account's AI allowance and refused before a token is spent
+         *     when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
+         *     Requires `org:manage`.
+         */
+        post: operations["ask_copilot_v1_copilot_ask_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4585,6 +4643,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/fx-rate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The USD/INR rate in force, its age and its source
+         * @description What vendor costs are being converted at, and whether anyone should worry.
+         */
+        get: operations["read_fx_rate_v1_ops_fx_rate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/model-prices": {
         parameters: {
             query?: never;
@@ -5626,6 +5704,25 @@ export interface components {
             /** Started At */
             started_at: string | null;
         };
+        /**
+         * CallConsentOut
+         * @description What was recorded. Never the number.
+         *
+         *     There is no `dialable` here, unlike `MessagingConsentOut.messageable`: whether a call
+         *     may be placed is `check_dispatch`'s answer over the halt, the hours, the DNC list and
+         *     the DLT chain as well as this row, and a second verdict on this response would be a
+         *     weaker copy of the real gate.
+         */
+        CallConsentOut: {
+            /** Captured At */
+            captured_at: string | null;
+            /** Expires At */
+            expires_at: string | null;
+            /** Source */
+            source: string | null;
+            /** Status */
+            status: string;
+        };
         /** CallDetailOut */
         CallDetailOut: {
             /**
@@ -6404,6 +6501,130 @@ export interface components {
             /** Phone */
             phone: string;
         };
+        /**
+         * CopilotAskIn
+         * @description `POST /v1/copilot/ask`.
+         */
+        CopilotAskIn: {
+            /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["CopilotFact"][];
+            /**
+             * Fields
+             * @default []
+             */
+            fields: components["schemas"]["CopilotField"][];
+            /**
+             * History
+             * @default []
+             */
+            history: components["schemas"]["CopilotTurn"][];
+            /** Question */
+            question: string;
+            screen: components["schemas"]["CopilotScreen"];
+        };
+        /**
+         * CopilotFact
+         * @description One read-only fact about the screen that is not a form control.
+         */
+        CopilotFact: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /**
+         * CopilotField
+         * @description One form control as the browser sees it.
+         *
+         *     `writable` DEFAULTS TO FALSE, which is the one default in this file that is a security
+         *     decision rather than a convenience. A field the browser forgot to describe is a field
+         *     the copilot may not touch; the opposite default would make an omission in the browser
+         *     half into a write the server permits.
+         *
+         *     `redacted` says the browser has substituted a placeholder for a value it considers
+         *     personal and will substitute the real one back locally. It is a DECLARATION, not a
+         *     permission: `sanitize.assert_redacted` re-runs `redact()` over the whole payload and
+         *     refuses it if anything still matches, so a field the browser forgot to mark is caught
+         *     by the guard rather than by nothing (D-127 G-2, the same belt `run_assist` wears at
+         *     `workers/extraction.py`).
+         */
+        CopilotField: {
+            /** Help */
+            help?: string | null;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Options */
+            options?: components["schemas"]["CopilotOption"][] | null;
+            /**
+             * Redacted
+             * @default false
+             */
+            redacted: boolean;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "text" | "number" | "select" | "bool" | "date" | "textarea";
+            /** Value */
+            value?: string | number | boolean | null;
+            /**
+             * Writable
+             * @default false
+             */
+            writable: boolean;
+        };
+        /**
+         * CopilotOption
+         * @description One choice on a `select`. `value` is what may be written; `label` is what the
+         *     person sees, and is what the model needs in order to map "Telugu" onto `te-IN`.
+         */
+        CopilotOption: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /**
+         * CopilotScreen
+         * @description Where the person is. Used for the prompt and for the audit row — never for
+         *     authorization, which is `requires("org:manage")`'s job and is decided from the
+         *     session, not from a body a caller composes.
+         */
+        CopilotScreen: {
+            /**
+             * Realm
+             * @enum {string}
+             */
+            realm: "client" | "admin";
+            /** Route */
+            route: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * CopilotTurn
+         * @description One earlier turn of this conversation, replayed by the browser.
+         *
+         *     `role` admits `user` and `assistant` and NOT `tool` or `system`: a caller who could
+         *     inject a `system` turn could rewrite the platform rules the static prompt states, and
+         *     a caller who could inject a `tool` turn could claim a fill already succeeded.
+         */
+        CopilotTurn: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+        };
         /** CreateCampaignIn */
         CreateCampaignIn: {
             /**
@@ -7181,21 +7402,28 @@ export interface components {
          *     It carried `llm_ttft_budget_ms` alone, so the console it feeds printed "target for the
          *     first reply: 350 ms" as though it were the budget — one quarter of a 1.1s voice-to-voice
          *     p50, presented as the whole constraint. Publishing `LatencyBudget` puts every target on
-         *     the wire, including the two nothing here can measure and the retrieval leg nothing here
-         *     samples, so a reader can see what the four numbers add up to instead of inferring it.
+         *     the wire, including the two nothing here can measure and the two legs nothing here
+         *     samples, so a reader can see what the stages add up to instead of inferring it — and,
+         *     since the target became 500ms, whether they add up to MORE than the caller is allowed to
+         *     wait (`budget.composes`).
          */
         EngineLatencyReport: {
             /**
              * @default {
-             *       "llm_ttft_ms": 350,
-             *       "pipeline_ms": 1050,
+             *       "composes": false,
+             *       "endpointing_ms": 100,
+             *       "india_us_transit_floor_ms": 100,
+             *       "inherited_turn_detection_ms": 650,
+             *       "llm_ttft_ms": 150,
+             *       "pipeline_ms": 500,
              *       "retrieval_ms": 100,
-             *       "stt_ms": 300,
-             *       "tts_ttfa_ms": 300,
-             *       "turn_ms": 950,
-             *       "voice_to_voice_headroom_p50_ms": 50,
-             *       "voice_to_voice_p50_ms": 1100,
-             *       "voice_to_voice_p95_ms": 1800
+             *       "stt_ms": 70,
+             *       "tts_ttfa_ms": 80,
+             *       "turn_ms": 300,
+             *       "voice_to_voice_floor_ms": 600,
+             *       "voice_to_voice_headroom_p50_ms": -100,
+             *       "voice_to_voice_p50_ms": 500,
+             *       "voice_to_voice_p95_ms": 800
              *     }
              */
             budget: components["schemas"]["LatencyBudget"];
@@ -7720,6 +7948,69 @@ export interface components {
             slug: string;
             /** Tenant Id */
             tenant_id: string;
+        };
+        /**
+         * FxObservationOut
+         * @description One pulled observation, as the panel lists it.
+         */
+        FxObservationOut: {
+            /**
+             * As Of
+             * @description The date the SOURCE published this rate (ISO)
+             */
+            as_of: string;
+            /**
+             * Observed At
+             * Format: date-time
+             * @description When this deployment fetched it
+             */
+            observed_at: string;
+            /**
+             * Rate
+             * @description Units of quote currency per ONE unit of base, as a string
+             */
+            rate: string;
+            /** Source */
+            source: string;
+            /** Source Url */
+            source_url: string;
+        };
+        /**
+         * FxRateOut
+         * @description The rate panel, whole. Every field is required — the config and pricing panels'
+         *     rule: a fact the console must trust is never defaulted, and `null` carries a real
+         *     state rather than an absence.
+         */
+        FxRateOut: {
+            /** Age Label */
+            age_label: string | null;
+            /** Base Currency */
+            base_currency: string;
+            /** Effective Rate */
+            effective_rate: string;
+            /** Fallback Rate */
+            fallback_rate: string;
+            /** History */
+            history: components["schemas"]["FxObservationOut"][];
+            /** Max Age Days */
+            max_age_days: number;
+            /** Observed At */
+            observed_at: string | null;
+            /** Published As Of */
+            published_as_of: string | null;
+            /** Published Rate */
+            published_rate: string | null;
+            /** Published Source */
+            published_source: string | null;
+            /** Quote Currency */
+            quote_currency: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "live" | "stale" | "never_pulled";
+            /** Using Fallback */
+            using_fallback: boolean;
         };
         /**
          * GapDismissIn
@@ -8543,26 +8834,55 @@ export interface components {
          *
          *     Exists so a surface that judges a latency carries every target rather than the one leg
          *     it happens to summarise — the defect this model was written for is an operator screen
-         *     printing "target for the first reply: 350 ms" as though it were the budget, when it is
+         *     printing "target for the first reply: 350 ms" as though it were the budget, when it was
          *     one of four legs inside a 1.1s voice-to-voice p50.
+         *
+         *     **IT NOW ALSO CARRIES THE GAP**, because the budget no longer fits inside the target
+         *     (see `latency_budget_composes`). `composes` and `voice_to_voice_headroom_p50_ms` are
+         *     computed here and shipped, so the console states the shortfall in the operator's own
+         *     words instead of a CI job failing where no operator is looking.
          *
          *     FROZEN, and every field defaults to the module constant above. It is a CARRIER, not a
          *     second declaration: nothing constructs it with different numbers, and a caller that
          *     wants the budget wants `LATENCY_BUDGET`.
          *
-         *     The three composed figures are `computed_field`s rather than plain properties so they
-         *     reach the wire — a browser that had to add the legs up itself would be computing a
-         *     target, which is the one thing every surface here is forbidden to do.
+         *     The composed figures are `computed_field`s rather than plain properties so they reach
+         *     the wire — a browser that had to add the legs up itself would be computing a target,
+         *     which is the one thing every surface here is forbidden to do.
          */
         LatencyBudget: {
             /**
+             * Composes
+             * @description Does the declared budget fit inside the declared target? False today.
+             *
+             *     A FIELD rather than a comparison left to each consumer: the console must state the
+             *     shortfall, and a screen that re-derived the verdict from two numbers would be
+             *     computing a target in the place least able to defend it.
+             */
+            readonly composes: boolean;
+            /**
+             * Endpointing Ms
+             * @default 100
+             */
+            endpointing_ms: number;
+            /**
+             * India Us Transit Floor Ms
+             * @default 100
+             */
+            india_us_transit_floor_ms: number;
+            /**
+             * Inherited Turn Detection Ms
+             * @default 650
+             */
+            inherited_turn_detection_ms: number;
+            /**
              * Llm Ttft Ms
-             * @default 350
+             * @default 150
              */
             llm_ttft_ms: number;
             /**
              * Pipeline Ms
-             * @description The turn plus one retrieval: every sub-budget TRD §4 lists, added up.
+             * @description Endpointing + the turn + one retrieval: every stage inside the engine.
              */
             readonly pipeline_ms: number;
             /**
@@ -8572,12 +8892,12 @@ export interface components {
             retrieval_ms: number;
             /**
              * Stt Ms
-             * @default 300
+             * @default 70
              */
             stt_ms: number;
             /**
              * Tts Ttfa Ms
-             * @default 300
+             * @default 80
              */
             tts_ttfa_ms: number;
             /**
@@ -8586,22 +8906,27 @@ export interface components {
              */
             readonly turn_ms: number;
             /**
+             * Voice To Voice Floor Ms
+             * @description The pipeline plus the caller's crossing — the best case the evidence supports.
+             */
+            readonly voice_to_voice_floor_ms: number;
+            /**
              * Voice To Voice Headroom P50 Ms
-             * @description What the p50 target leaves for everything nobody here measures.
+             * @description What the target leaves once the floor-allocated stages are spent.
              *
-             *     The caller's own network, the carrier leg, the orchestrator's hops. Published
-             *     rather than left to the reader precisely because it is small: 50ms on a 1100ms
-             *     target is the number that says the budget is a cut of the target and not a wish.
+             *     NEGATIVE TODAY, and it is published rather than left to the reader precisely
+             *     because of that: -100ms means the stages already cost more than the caller is
+             *     allowed to wait, before any leg misses the fastest figure its vendor prints.
              */
             readonly voice_to_voice_headroom_p50_ms: number;
             /**
              * Voice To Voice P50 Ms
-             * @default 1100
+             * @default 500
              */
             voice_to_voice_p50_ms: number;
             /**
              * Voice To Voice P95 Ms
-             * @default 1800
+             * @default 800
              */
             voice_to_voice_p95_ms: number;
         };
@@ -10366,6 +10691,29 @@ export interface components {
              */
             status: "granted" | "withdrawn";
         };
+        /** RecordCallConsentIn */
+        RecordCallConsentIn: {
+            /** Call Id */
+            call_id?: string | null;
+            /** Evidence */
+            evidence?: {
+                [key: string]: string;
+            } | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Phone */
+            phone: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "inbound_call_verbal" | "web_form_optin" | "offline_form_optin" | "whatsapp_inbound_message" | "staff_recorded_request";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "granted" | "declined" | "withdrawn";
+        };
         /** RecordConsentIn */
         RecordConsentIn: {
             /** Call Id */
@@ -11396,6 +11744,27 @@ export interface components {
             transcript_turns: number;
         };
         /**
+         * SubjectExportDoNotCallOut
+         * @description Whether this number is suppressed, on which list, why and since when.
+         *
+         *     Present because `/legal/privacy` §3 lists the do-not-call entry among the data held
+         *     about a caller, so a disclosure that omitted it was incomplete against our own
+         *     published notice — and because it is the fact a complainant most often wants
+         *     confirmed. `scope: "global"` is a platform-wide Calevate suppression rather than this
+         *     account's own list, and it is disclosed even though it is not the tenant's row: it is
+         *     still a record held about the subject.
+         */
+        SubjectExportDoNotCallOut: {
+            /** Added At */
+            added_at: string | null;
+            /** Scope */
+            scope: string | null;
+            /** Source */
+            source: string | null;
+            /** Suppressed */
+            suppressed: boolean;
+        };
+        /**
          * SubjectExportErasureOut
          * @description A completed erasure for this subject, and the audio it is still lawfully holding.
          *
@@ -11473,6 +11842,7 @@ export interface components {
             /** Consent */
             consent: components["schemas"]["SubjectExportConsentOut"][];
             counts: components["schemas"]["SubjectExportCountsOut"];
+            do_not_call: components["schemas"]["SubjectExportDoNotCallOut"];
             erasure: components["schemas"]["SubjectExportErasureOut"] | null;
             /** Generated At */
             generated_at: string;
@@ -17849,6 +18219,39 @@ export interface operations {
             };
         };
     };
+    record_call_v1_compliance_call_consent_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordCallConsentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallConsentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_caller_notice_v1_compliance_caller_notice_get: {
         parameters: {
             query?: never;
@@ -18208,6 +18611,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    ask_copilot_v1_copilot_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotAskIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -20293,6 +20729,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineLatencyReport"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_fx_rate_v1_ops_fx_rate_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FxRateOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

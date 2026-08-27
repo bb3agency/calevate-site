@@ -123,11 +123,18 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
   REGISTERED_ADDRESS: {
     describes:
       "The principal place of business, with state and PIN code. NOT a \"registered " +
-      "office\" — a proprietorship has none to register. It is still the address a " +
-      "legal notice is served at, one of the items the Consumer Protection " +
-      "(E-Commerce) Rules 2020 require to be displayed, and half of what " +
-      "`docs/legal/LEGAL-OPS-PLAYBOOK.md:464` calls the minimum credible bar: " +
-      "\"Contact (Indian phone + address + email)\".",
+      "office\" — a proprietorship has none to register. IT IS PUBLISHED AS AN " +
+      "IDENTIFICATION ITEM AND NOT AS A CONTACT CHANNEL, and that distinction is the " +
+      "whole entry: it is the address a legal notice is served at, one of the items " +
+      "the Consumer Protection (E-Commerce) Rules 2020 require to be displayed, and " +
+      "half of what `docs/legal/LEGAL-OPS-PLAYBOOK.md:469` calls the minimum credible " +
+      "bar (\"Contact (Indian phone + address + email)\") — so the token stays and the " +
+      "documents declare the address. What no document offers any more is a POSTAL " +
+      "ROUTE: no postal correspondence is serviced, so every \"write to us at\" is an " +
+      "email address and a termination notice is an email too (26 Aug 2026). Do not " +
+      "re-add a \"By post\" line anywhere — a channel nobody services is worse than no " +
+      "channel — and do not answer that by deleting the token, because the display " +
+      "obligation is unchanged.",
     source: "The founder's decision, and whatever address the Udyam registration carries.",
   },
   CONTACT_PHONE: {

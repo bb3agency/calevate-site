@@ -114,8 +114,24 @@ def test_the_certificate_says_which_audio_survived_the_pointer_it_cleared() -> N
     assert entry["outcome"] == "retained_under_legal_floor"
     prose = f"{entry['why']} {entry['authority']}".lower()
     assert str(RECORDING_FLOOR_DAYS) in prose
-    assert "security-compliance §1" in prose and "§4" in prose, (
-        "a reader with no access to this codebase needs the two sections by name"
+    assert "security-compliance §4" in prose, (
+        "a reader with no access to this codebase needs the section by name"
+    )
+    # AND THE FLOOR IS OURS, SAID IN THE CERTIFICATE ITSELF. This used to require
+    # "SECURITY-COMPLIANCE §1", which is the section that attributes the 90 days to TRAI
+    # — and the certificate said, to a data principal, that the period was one "Indian
+    # telecom rules require". No primary source for that rule has ever been produced;
+    # SEC-COMP §4 records that TRAI's 90-day figure is the opt-out cooling period and
+    # that the two-year commercial-records archive is Unified Licence clause 39.20,
+    # binding LICENSEES and not a telemarketer. Claiming a legal basis we cannot cite is
+    # not the conservative error: DPDP §8(7) makes retention on a non-existent basis the
+    # breach. So the certificate now says whose floor it is, and this asserts BOTH
+    # directions — the true statement present, the false one gone.
+    assert "calevate's own" in prose or "platform" in prose, (
+        "the certificate must say the floor is Calevate's policy, not a statute's"
+    )
+    assert "indian telecom rules require" not in prose, (
+        "a legal basis nobody can cite may not be asserted to a data principal"
     )
     # The authority for DEFERRING rather than refusing, cited where it is relied on.
     assert "dpdp §12(3)" in prose and "§8(7)" in prose, (
@@ -181,7 +197,8 @@ def test_the_filed_certificate_is_readable_without_the_response_around_it() -> N
     document = _certified()
     assert document["limitations"] == list(ERASURE_LIMITATIONS)
     filed = json.dumps(document, ensure_ascii=False).lower()
-    assert "security-compliance §1" in filed
+    assert "security-compliance §4" in filed
+    assert "indian telecom rules require" not in filed
     assert str(RECORDING_FLOOR_DAYS) in filed
 
 

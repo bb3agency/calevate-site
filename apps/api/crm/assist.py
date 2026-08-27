@@ -103,11 +103,11 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
     SARVAM_PROVIDER,
     AssistCapability,
-    TokenUsage,
 )
 
 log = get_logger(__name__)
@@ -120,6 +120,17 @@ ASSIST_FEATURE_RESUMMARISE: Final = "call_resummarise"
 #: `usage_events.meta.feature` for the AI script-writing assist (`agents/script_builder`).
 #: A separate feature name so the ledger can tell a re-summarise from a script draft.
 ASSIST_FEATURE_SCRIPT_DRAFT: Final = "script_draft"
+
+#: `usage_events.meta.feature` for the IN-APP COPILOT (`apps/api/copilot/`), the floating
+#: assistant that answers about a screen and fills its form fields.
+#:
+#: A THIRD name rather than a reuse of `call_resummarise`, for the reason the second one
+#: exists: "which screen spent this" is a query an operator runs against the ledger, and
+#: a copilot turn and a re-summarise cost differently, are triggered differently and would
+#: be investigated differently. One surface, one feature name — and the copilot is the
+#: first surface here that can spend on SEVERAL model turns for one user action, which is
+#: precisely the row an operator will want to be able to isolate.
+ASSIST_FEATURE_COPILOT: Final = "copilot"
 
 
 class MeterableAssist(Protocol):
@@ -397,6 +408,7 @@ async def meter_assist(
 
 
 __all__ = [
+    "ASSIST_FEATURE_COPILOT",
     "ASSIST_FEATURE_RESUMMARISE",
     "ASSIST_FEATURE_SCRIPT_DRAFT",
     "AssistMetering",

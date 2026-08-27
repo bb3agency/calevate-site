@@ -21,14 +21,16 @@ autogenerate is blind to anything it cannot see.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     ForeignKey,
+    Identity,
     Integer,
     LargeBinary,
     Numeric,
@@ -49,7 +51,8 @@ from apps.api.db.base import Base
 #: multiplies by the FX rate and divides by 1,000 downstream — so the precision that
 #: matters is the vendor's published one, not the ledger column's. USD and not INR is
 #: deliberate and matches the rate card's own doctrine (hard rule 7): the vendor publishes
-#: dollars, `usd_inr_rate` is a live console value, and a figure that has already
+#: dollars, the USD->INR rate MOVES (it is pulled every five minutes, D-475), and a
+#: figure that has already
 #: multiplied the two cannot be re-derived when either moves (the D-103/D-105 defect on the
 #: money axis). NUMERIC, never a float.
 USD_PER_MTOK = Numeric(12, 6)
@@ -264,8 +267,71 @@ class PlatformModelPrice(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+#: INR per ONE US dollar, as the source publishes it. NUMERIC(12,6), never a float
+#: (hard rule 7). Six decimals because a reference rate is quoted to four (`88.4275`) and
+#: two spare digits cost nothing, while a `float` would make the stored number differ from
+#: the vendor's published one in the digits an auditor compares.
+FX_RATE = Numeric(12, 6)
+
+
+class FxRateObservation(Base):
+    """One USD→INR rate we pulled, with the provenance to explain a bill months later.
+
+    PLATFORM-SCOPED AND APPEND-ONLY. There is one exchange rate for the whole deployment
+    at an instant — no tenant whose row this could be — so it carries no `tenant_id` and
+    is registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` with that as the written
+    reason. It is in `APPEND_ONLY_TABLES` (hard rule 4) for the reason
+    `platform_model_prices` is: `usage_events.meta.fx_rate` records the rate a call was
+    costed at, and a rate history somebody can edit after the bill was computed from it is
+    not evidence of anything.
+
+    NOT A `Settings` FIELD, deliberately. A row here is written by a machine every five
+    minutes; `platform_settings` rows are written by an operator, carry a per-key revision
+    for optimistic concurrency and land an `audit_log` entry each time. Routing a robot's
+    288 daily writes through that store would put every operator's console edit into a
+    false conflict with a poller and fill a hash-chained human-accountability ledger with
+    machine noise. The two stores stay separate and `Settings.usd_inr_rate` keeps its own
+    job: the FALLBACK money converts at when this table has nothing fresh.
+    """
+
+    __tablename__ = "fx_rate_observations"
+
+    id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), primary_key=True)
+    #: THE ORDER WE LEARNED THINGS. Not `observed_at`: `now()` is TRANSACTION start time in
+    #: Postgres, so two rows written in one transaction share it and a tie between a rate
+    #: and its own correction would be broken at random. Monotonic by construction.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    #: `USD`/`INR` today, and columns rather than an assumption because a pair is exactly
+    #: the fact `engine/bolna.py::_cost` got burned assuming (`currency_stated`): a rate
+    #: whose direction is implied by the module it lives in cannot be checked by a reader.
+    base_currency: Mapped[str] = mapped_column(Text, nullable=False)
+    quote_currency: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Units of `quote_currency` per ONE unit of `base_currency`.
+    rate: Mapped[Decimal] = mapped_column(FX_RATE, nullable=False)
+    #: The date the SOURCE stamped on this rate. Part of the natural key below, because it
+    #: is what makes a five-minute poll of a once-a-day publication idempotent.
+    as_of: Mapped[date] = mapped_column(Date, nullable=False)
+    #: `"<api>:<provider>"` — `frankfurter:FBIL`. Stamped onto every usage row this rate
+    #: converts, so "which rate" and "whose rate" are both answerable later.
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The exact URL that produced it, so a disputed figure can be re-requested rather than
+    #: re-argued.
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    #: When THIS deployment fetched it. Distinct from `as_of` on purpose: the age of the
+    #: DATA and the age of the PULL are different failures with different remedies
+    #: (`core/fx.MAX_QUOTE_AGE` bounds the first, `workers/fx_pull.MAX_PULL_SILENCE` the
+    #: second).
+    observed_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: THE IDEMPOTENCY KEY, and the reason two workers cannot both write one instant:
+    #: `source|base|quote|as_of|rate`. UNIQUE, so the second writer's INSERT is a no-op
+    #: rather than a duplicate row — see the migration for why the RATE is in the key.
+    observation_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+
+
 __all__ = [
+    "FX_RATE",
     "USD_PER_MTOK",
+    "FxRateObservation",
     "PlatformConfigVersion",
     "PlatformEngineHealth",
     "PlatformModelPrice",

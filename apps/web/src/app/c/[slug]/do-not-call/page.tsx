@@ -53,9 +53,16 @@ import { lookup } from "@/lib/lookup";
  * 1. **Adding answers with counts, never numbers.** There is no per-number result to
  *    render, by design. The screen says so rather than leaving the client hunting for
  *    a list that will never come.
- * 2. **Each row says whether it may be undone.** A `global`
- *    entry belongs to the national list; an entry that records a consumer's opt-out is
- *    permanent. Both are SHOWN — a number you cannot un-suppress is still a number you
+ * 2. **Each row says whether it may be undone.** A `global` entry is a Calevate
+ *    platform-wide suppression — a number we will not dial for ANY account, on a
+ *    regulator or operator instruction or on our own permanent refusal after a
+ *    complaint. It is emphatically NOT the national DND register: `compliance/dnc.py`
+ *    says so in terms ("deliberately NOT the national DND register"), and SEC-COMP §152
+ *    repeats it, because NCPR preferences are category-scoped and expire daily and the
+ *    national scrub is a different mechanism entirely (`preference_scrub.py`). This
+ *    screen called it "the national list" in three places, which told the one audience
+ *    that quotes us back to a complaining caller that our internal refusal was a
+ *    statutory registration. An entry that records a consumer's opt-out is permanent. Both are SHOWN — a number you cannot un-suppress is still a number you
  *    should know is suppressed — and neither gets a Remove button, because the API
  *    refuses those (`dnc_global_entry`, `dnc_consumer_optout`) and a button that 400s
  *    teaches a client that our compliance rules are a bug.
@@ -291,7 +298,7 @@ export default function DoNotCallPage() {
               <Verdict tone="stop" icon={<PhoneOff className="h-4 w-4" />}>
                 This number is suppressed — no agent will call it.
                 {check.data.scope === "global"
-                  ? " It is on the national list, so it cannot be removed from this account."
+                  ? " Calevate has suppressed it across the whole platform, so it cannot be removed from this account."
                   : " It was added to your account's list."}
               </Verdict>
             ) : (
@@ -575,7 +582,7 @@ function EntryRow({
         // Shown, never removable: it is not this account's entry, and hiding it would
         // leave a client wondering why a number they can't find is never dialled.
         <span className="rounded-full border border-line bg-app px-2 py-0.5 text-xs font-medium text-ink-muted">
-          national list
+          platform-wide
         </span>
       )}
       {/* Fails VISIBLE: a source this build cannot name still gets its row and its raw

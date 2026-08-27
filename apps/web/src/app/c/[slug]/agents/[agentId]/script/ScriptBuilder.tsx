@@ -31,6 +31,8 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { applyByPaths } from "@/lib/copilot/paths";
 import { useClientSession } from "@/lib/api/session";
 import {
   EMPTY_SCRIPT,
@@ -138,6 +140,97 @@ function Editor({
   const setField = useCallback(<K extends keyof CallScript>(key: K, value: CallScript[K]) => {
     setScript((s) => ({ ...s, [key]: value }));
   }, []);
+
+  /*
+   * THE CALL SCRIPT, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * One typed `CallScript`, so the fill is one immutable update through `setScript`
+   * addressed by PATH (`lib/copilot/paths.ts`). Not the DOM — and this file is the one
+   * that would be most tempting to drive that way, because the native-value-setter
+   * technique in `insertVariable` above is right here. It is the wrong tool for this
+   * job: `insertVariable` writes into whichever control the AUTHOR last focused, at their
+   * caret, which is a DOM fact with no state equivalent. A fill names a field, which is a
+   * state fact, and going through the DOM for it would depend on ids these sub-components
+   * do not have.
+   *
+   * The list rows are addressed by index (`steps.2.instruction`) and `paths.ts` refuses
+   * an index this script does not have rather than growing the array — a step 4 appearing
+   * on a script with three is a step nobody wrote.
+   *
+   * RAW MODE DECLARES ONE FIELD, the body itself: the structured fields are ignored by the
+   * server while `raw_override` is a string, so offering them would be offering to fill in
+   * text that will not be used.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id}/script",
+    title: raw ? "Call script (raw)" : "Call script",
+    realm: "client",
+    fields: raw
+      ? [
+          {
+            id: "script-raw_override",
+            label: "Script body (raw)",
+            type: "textarea",
+            value: script.raw_override ?? "",
+            help: "Sent to the engine verbatim. The structured fields are ignored while this is set.",
+          },
+        ]
+      : [
+          {
+            id: "script-opening_line",
+            label: "Opening line",
+            type: "textarea",
+            value: script.opening_line,
+            help: "The first thing the caller hears, after the compliance sentences.",
+          },
+          ...script.steps.map((step, index) => ({
+            id: `script-steps-${index}-instruction`,
+            label: `Step ${index + 1}`,
+            type: "textarea" as const,
+            value: step.instruction,
+          })),
+          ...script.faqs.flatMap((faq, index) => [
+            {
+              id: `script-faqs-${index}-question`,
+              label: `FAQ ${index + 1} question`,
+              type: "text" as const,
+              value: faq.question,
+            },
+            {
+              id: `script-faqs-${index}-answer`,
+              label: `FAQ ${index + 1} answer`,
+              type: "textarea" as const,
+              value: faq.answer,
+            },
+          ]),
+          {
+            id: "script-faq_fallback",
+            label: "What it says when it does not know",
+            type: "textarea",
+            value: script.faq_fallback,
+          },
+          ...script.end_call_extra_rules.map((rule, index) => ({
+            id: `script-end_call_extra_rules-${index}`,
+            label: `End-of-call rule ${index + 1}`,
+            type: "text" as const,
+            value: rule,
+          })),
+        ],
+    facts: script.variables.map((variable) => ({
+      key: variable.key,
+      label: `Variable {{${variable.key}}}`,
+      value: variable.label,
+    })),
+    apply: (items) =>
+      setScript((current) =>
+        applyByPaths(current, items, (id) =>
+          // `script-steps-2-instruction` -> `steps.2.instruction`. The id is the path
+          // with dots swapped for dashes, the same derivation `intakeFieldId` makes for
+          // the intake sheet, so there is one idea in the codebase and not two.
+          id.startsWith("script-") ? id.slice("script-".length).replace(/-/g, ".") : null,
+        ),
+      ),
+  });
 
   const compiledChars = useMemo(() => (preview ? preview.length : null), [preview]);
 

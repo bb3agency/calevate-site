@@ -102,7 +102,7 @@ import json
 import random
 import re
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from typing import Any, Final, NamedTuple
@@ -144,6 +144,7 @@ from pydantic import ValidationError
 
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
+from apps.api.core.fx import current_fx_quote
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import (
@@ -908,6 +909,13 @@ _PAISE = Decimal("0.0001")
 # and NOT confirmed against a live account — pilot gate 7 (OPERATIONS §2) is where it
 # stops being an assumption. `CostBreakdown.currency_stated` carries the difference into
 # every row, so a wrong guess is discoverable rather than baked in.
+#: What `CostBreakdown.fx_source` says when no published rate was in force and the
+#: conversion fell back to the operator's configured `USD_INR_RATE`. A NAMED constant
+#: because it is a value written into an append-only ledger and read back by whoever is
+#: reconciling it — a string spelled twice is a string that will eventually be spelled
+#: two ways.
+_CONFIGURED_FX_SOURCE = "configured:usd_inr_rate"
+
 _ASSUMED_CURRENCY = "USD"
 # Currencies this adapter can turn into INR. Anything else is refused rather than
 # converted at the wrong rate — see `_cost`.
@@ -1965,8 +1973,9 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
 # evidence rather than a search summary. And D-410 put the language model in South India
 # while their orchestrator stayed in the US (`mirror/pages/concepts/security.md:29`), which
 # made `llm.time_to_first_token` the measurement of a round trip WE chose and nobody ever
-# took — TRD §4 budgets it at 350ms and TRD §4a records that every latency figure in this
-# repo is a target with zero measurements behind it. D-449 has since co-located the model
+# took — TRD §4 budgets it at 150ms (350ms until the 500ms voice-to-voice target landed on
+# 27 Aug 2026) and TRD §4a records that every latency figure in this repo is a target with
+# zero measurements behind it. D-449 has since co-located the model
 # with the orchestrator (`eastus2`), so what this field now measures is whether that was
 # worth the India residency claim it cost.
 #
@@ -1991,9 +2000,10 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
 _LATENCY_TEXT_KEYS: Final = frozenset({"text"})
 
 #: The vendor's OWN definition of a broken LLM leg: *"High LLM Time to First Token
-#: (>1000ms)"* (`call-latencies.md:178`). Deliberately NOT `LLM_TTFT_BUDGET_MS` (350ms,
-#: ours): 350 is the target a report measures against, and paging on it would page on the
-#: geography we already know about. This is the number at which the vendor themselves say
+#: (>1000ms)"* (`call-latencies.md:178`). Deliberately NOT `LLM_TTFT_BUDGET_MS` (150ms,
+#: ours): that is the target a report measures against, and paging on it would page on the
+#: geography we already know about, and the gap only widened when the budget fell to
+#: 150ms. This is the number at which the vendor themselves say
 #: something is wrong, i.e. the one an operator can act on.
 _LLM_TTFT_ALARM_MS: Final = 1000.0
 
@@ -2114,10 +2124,11 @@ def _check_llm_ttft(latency: CallLatency | None, *, engine_call_id: str) -> None
     """Page when a whole call's language-model leg is broken — never when one turn is slow.
 
     THE THRESHOLD IS THE VENDOR'S, NOT OURS, and the difference is what keeps this
-    actionable. Our budget is 350ms (`LLM_TTFT_BUDGET_MS`, TRD §4) and we already expect to
-    miss it: this is a rented audio path with a transcriber, a model and a synthesiser in
-    it, and until D-449 the model sat a US->India->US round trip away from the orchestrator
-    besides. An alarm on 350ms would fire on the known geography, on every call, forever —
+    actionable. Our budget is 150ms (`LLM_TTFT_BUDGET_MS`, TRD §4 — 350ms until the 500ms
+    voice-to-voice target) and we already expect to miss it: this is a rented audio path
+    with a transcriber, a model and a synthesiser in it, and until D-449 the model sat a
+    US->India->US round trip away from the orchestrator besides. An alarm on the budget
+    would fire on the known geography, on every call, forever —
     which is how an alarm gets muted. 1000ms is the
     number the vendor's own bottleneck guide calls a problem (`call-latencies.md:178`), and
     at 1000ms sustained the agent is audibly broken.
@@ -2435,6 +2446,35 @@ class BolnaEngine:
         both supply one). Mirrors `_http`'s own precondition exactly rather than
         restating it — a second copy of that rule is a second thing to get wrong."""
         return bool(self._api_key) or self._client is not None
+
+    def _conversion_rate(self, currency: str) -> tuple[Decimal, str | None, date | None]:
+        """The rate this costing converts at, and where it came from.
+
+        THREE ANSWERS, and which one you get is a fact worth recording (it is, on the row):
+
+        * `INR` — no conversion at all. Rate 1, no source, and multiplying by the USD rate
+          here is the 83x error `_cost`'s branch exists to prevent.
+        * a PUBLISHED rate is installed and inside `core/fx.MAX_QUOTE_AGE` — use it. This
+          is the normal path once `workers/fx_pull.py` has ticked, and inside a worker job
+          it is pinned for the whole job by `fx_scope()`, so a rate that changes between
+          the fetch and the ledger write cannot split one call across two numbers.
+        * nothing published, or it has aged out — fall back to `self._fx_rate`, the
+          operator's configured `USD_INR_RATE` captured when this adapter was built. That
+          is exactly what this adapter did before the pull existed, so the failure
+          direction is "the platform bills as it did last release", never "the platform
+          stops billing". The fallback is not silent: `ops/fx_rates.refresh_fx_snapshot`
+          alarms on a rate past its ceiling and `workers/fx_pull` alarms on a puller that
+          has gone quiet, so an operator hears about it before a month closes.
+
+        Reading `current_fx_quote()` rather than a database is what keeps this legal on
+        `parse_webhook`'s path (hard rule 3): it is one in-memory read and no IO.
+        """
+        if currency == "INR":
+            return Decimal(1), None, None
+        quote = current_fx_quote()
+        if quote is None:
+            return self._fx_rate, _CONFIGURED_FX_SOURCE, None
+        return quote.rate, quote.source, quote.as_of
 
     # --- plumbing ------------------------------------------------------------
 
@@ -3611,7 +3651,14 @@ class BolnaEngine:
 
         # INR needs no conversion, and multiplying it by the USD rate is precisely the
         # 83x error this branch exists to prevent.
-        rate = Decimal(1) if currency == "INR" else self._fx_rate
+        #
+        # READ ONCE, HERE, AND CARRIED AS A LOCAL FOR THE WHOLE BREAKDOWN. Every leg below
+        # multiplies by THIS `rate`, and it is stamped onto the row as `fx_rate`, so a
+        # costing cannot straddle a rate change: the total and its parts are converted at
+        # one number, and that number is on the row that used it. A second read anywhere
+        # in this function would be a few paise of disagreement between a total and its
+        # own legs, which is the kind of defect that gets dismissed rather than found.
+        rate, fx_source, fx_as_of = self._conversion_rate(currency)
         divisor = _MINOR_UNITS_PER_MAJOR.get(currency)
         if divisor is None:
             # THE UNIT IS NOT KNOWN FOR THIS CURRENCY, so there is no honest number to
@@ -3658,6 +3705,15 @@ class BolnaEngine:
             # two halves used different divisors.
             source_amount=Decimal(str(total)) / divisor,
             fx_rate=rate,
+            # WHICH rate, not just what it was. `fx_rate` alone answers "at what number
+            # was this converted"; six months into a reconciliation the question is
+            # "and why THAT number" — was the feed live, which publication date did it
+            # carry, or was this one of the hours we spent on the configured fallback?
+            # That is the same distinction `currency_stated` draws for the currency, and
+            # it is not re-derivable from the row: a rate history can say what was
+            # published, never which of the two doors a given call came through.
+            fx_source=fx_source,
+            fx_as_of=fx_as_of,
         )
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:

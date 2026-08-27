@@ -68,6 +68,7 @@ from arq import cron
 
 from apps.api.core.alert_admission import close_admission
 from apps.api.core.alerting import alert
+from apps.api.core.fx import fx_scope
 from apps.api.core.logging import configure_logging, get_logger
 from apps.api.core.observability import (
     init_observability,
@@ -82,6 +83,7 @@ from apps.api.core.settings import (
     settings_scope,
     validate_bootstrap_env,
 )
+from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
@@ -96,6 +98,7 @@ from apps.workers.dispatcher import (
 from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
+from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
     DIGEST_MINUTE,
@@ -255,6 +258,22 @@ CRON_JOBS = [
     # the alarm going quiet on a transient database error is the whole failure, not a
     # delay in reporting it.
     cron(traced_job(report_overdue_erasures), minute={25}, max_tries=WORKER_MAX_TRIES),
+    # THE FIVE-MINUTE FX PULL. The rate every dollar of vendor cost is converted at, kept
+    # current without a restart (`apps/workers/fx_pull.py` argues the source, the cadence
+    # and the failure ladder). Registered from the job's own `PULL_MINUTES` so the schedule
+    # and its argument cannot drift.
+    #
+    # `run_at_startup` is deliberately NOT set. The rate is not needed to boot — a process
+    # with no published rate converts at the configured fallback, which is what it did
+    # before this job existed — and a deploy of N workers would otherwise fire N
+    # simultaneous requests at a third party for one number none of them urgently needs.
+    #
+    # `max_tries` EXPLICIT for the reason its neighbours give: `cron()` defaults it to 1
+    # and `WorkerSettings.max_tries` does not reach a function carrying its own. A pull
+    # that gave up on its first transient failure would be silent for five minutes, which
+    # is survivable — but the ladder is also what makes the LAST attempt's `alert()`
+    # reachable, and that alert is the only dead-letter this queue has.
+    cron(traced_job(pull_fx_rate), minute=set(PULL_MINUTES), max_tries=WORKER_MAX_TRIES),
     # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is
     # 'before the next dispatch tick' — this cron IS that tick.
     #
@@ -527,6 +546,12 @@ async def startup(ctx: dict[str, Any]) -> None:
     # initialised tracing, every enqueued traceparent would arrive at a process with no
     # provider and the call's trace would end at Redis.
     observability = init_observability("workers")
+    # THE WORKER IS WHERE A CALL'S COST IS CONVERTED (`pipeline._meter`), so it is the
+    # process that most needs the published rate — an API that never meters a call would
+    # be the wrong one to give it to. One line, idempotent, and a worker that did not call
+    # it converts at the configured `usd_inr_rate` exactly as it did before this feature
+    # existed: `start_config_refresher`'s adoption contract, applied to the FX store.
+    start_fx_refresher()
     missing = runtime_config_missing_keys()
     if missing:
         # Log, do not die. `/healthz/ready` is the go-live gate.
@@ -545,6 +570,12 @@ async def startup(ctx: dict[str, Any]) -> None:
 #: Where a job's settings pin lives between the two hooks below. Keyed with a leading
 #: underscore so it cannot collide with anything a job puts in `ctx`.
 _SCOPE_KEY = "_settings_pin"
+#: The same, for the published FX rate. A SECOND pin rather than a field of the first,
+#: because the two values come from different stores and refresh on different clocks —
+#: `Settings` from `platform_settings` on the config sentinel, the rate from
+#: `fx_rate_observations` on its own poll — and folding one into the other would mean a
+#: config change silently re-resolving the rate, or the reverse.
+_FX_SCOPE_KEY = "_fx_pin"
 
 
 async def on_job_start(ctx: dict[str, Any]) -> None:
@@ -569,11 +600,26 @@ async def on_job_start(ctx: dict[str, Any]) -> None:
     scope = settings_scope()
     scope.__enter__()
     ctx[_SCOPE_KEY] = scope
+    # THE RATE IS PINNED THE SAME WAY AND FOR A SHARPER VERSION OF THE SAME REASON. The
+    # post-call pipeline fetches an execution (converting its cost) and then writes the
+    # usage rows; the FX poll refreshes every 60 seconds underneath. Unpinned, a job that
+    # straddled a refresh could convert a call's legs at one rate and re-read another for
+    # anything computed later — a call billed at two rates, in an append-only ledger, off
+    # by a few paise nobody would ever chase. `fx_scope()` resolves once, INCLUDING the
+    # staleness decision, so a job that opened on a fresh rate finishes on it.
+    fx = fx_scope()
+    fx.__enter__()
+    ctx[_FX_SCOPE_KEY] = fx
 
 
 async def on_job_end(ctx: dict[str, Any]) -> None:
     """Release the pin. Runs even when the job raised — arq calls this either way, which
     is what stops a failed job leaking its pin into whatever the worker runs next."""
+    # Innermost first, and each independently: a raising `__exit__` on one must not leak
+    # the other into whatever this worker runs next.
+    fx = ctx.pop(_FX_SCOPE_KEY, None)
+    if fx is not None:
+        fx.__exit__(None, None, None)
     scope = ctx.pop(_SCOPE_KEY, None)
     if scope is not None:
         scope.__exit__(None, None, None)
@@ -592,6 +638,11 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     # Independently and best-effort, in the API's order, for the API's reason: a socket
     # that is already gone is the commonest way each is reached, and none of them may
     # cost the tracing flush that follows.
+    # The FX poll first: it is the only one of these that holds a database session, and a
+    # poll still running while the pool it borrows from is torn down logs a failure that
+    # reads like a real one.
+    with suppress(Exception):
+        await stop_fx_refresher()
     with suppress(Exception):
         await close_redis()
     with suppress(Exception):

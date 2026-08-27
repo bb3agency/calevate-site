@@ -333,16 +333,25 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "startup log line) and held for the life of each server process, so a change "
         "here does not take effect until every server process is restarted.",
     ),
-    # The Bolna adapter captures the rate as `self._fx_rate` when `get_engine()` builds it,
-    # and that instance is cached for the life of the process — so the value that converts
-    # USD engine cost to the INR stamped into `usage_events` is read once at construction,
-    # not per call.
+    # THIS FIELD IS THE FALLBACK, NOT THE RATE, AND THAT CHANGED WHAT IT MEANS RATHER THAN
+    # WHEN IT APPLIES. Vendor cost is normally converted at the PUBLISHED rate that
+    # `apps/workers/fx_pull.py` pulls every five minutes into `fx_rate_observations`, which
+    # reaches `engine/bolna.py::_cost` through `core/fx.py`'s in-memory holder and needs no
+    # restart at all. This value is what that conversion falls back to when nothing has
+    # been pulled yet or the published rate has aged past `core/fx.MAX_QUOTE_AGE` — and on
+    # THAT path it is still captured once, as `self._fx_rate`, when `get_engine()` builds
+    # the adapter and caches it for the life of the process.
+    #
+    # So it stays `on_restart`: `live` would be a promise this field cannot keep, and the
+    # rule this classification exists for is that a label an operator acts on must be true
+    # of the code rather than of the feature's headline.
     "usd_inr_rate": AppliesRule(
         ON_RESTART,
-        "the USD→INR conversion rate is read once when the app starts and held for the "
-        "life of each server process, so a new rate does not reach the cost calculation "
-        "until every server process is restarted. Until then, minutes are still costed "
-        "at the old rate.",
+        "this is the FALLBACK rate, used only while the automatic rate pull has nothing "
+        "fresh — normal conversions already use the published rate and need no restart. "
+        "The fallback itself is read once when the app starts and held for the life of "
+        "each server process, so a new value here does not reach the cost calculation "
+        "until every server process is restarted.",
     ),
     # The Cartesia adapter captures this at construction and `get_engine()` caches the
     # adapter for the life of the process.
@@ -417,6 +426,15 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "the pool it computed, and the next one (≤30s later) uses the new value",
     ),
     "self_serve_inr_per_min": AppliesRule(LIVE),  # billing/service, per quote
+    # Both read through `get_settings()` inside the blocker that uses them, once per
+    # launch preview / dispatch tick — so counsel's answer takes effect within one poll
+    # interval rather than on the next deploy, which is the whole reason they are config.
+    "campaign_consent_max_age_days": AppliesRule(
+        LIVE,
+        "read once per launch check and once per dispatch tick — a tick already running "
+        "keeps the value it read, and the next one (≤30s later) uses the new one",
+    ),
+    "pe_verification_max_age_days": AppliesRule(LIVE),  # compliance/registration, per check
     "self_serve_signup_enabled": AppliesRule(LIVE),  # tenancy/signup, per request
     # D-170. `authn/routes.py::_require_enabled` reads it per request, so the cutover (and
     # the rollback) takes effect on the next call rather than on the next deploy — which is

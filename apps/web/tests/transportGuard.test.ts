@@ -62,6 +62,14 @@ const TRANSPORTS: Record<string, string> = {
     "The AUTHN transport, deliberately separate (D-177): the admin realm and the client " +
     "realm have separate first-party session modules and must not share session logic, " +
     "and this is the one that can run before a session exists.",
+  "lib/copilot/stream.ts":
+    "The SSE transport for POST /v1/copilot/ask. It CANNOT go through `apiRequest`: " +
+    "`readBody` consumes the whole response and resolves once, which is precisely what a " +
+    "`text/event-stream` must not do, and the browser's `EventSource` cannot be used at " +
+    "all because `EventSourceInit` has only `withCredentials` — no method, no headers, no " +
+    "body — so a screen description cannot be POSTed by it. It imports `ApiProblem`, " +
+    "`problemFrom`, `TimeoutProblem` and `API_BASE` from the client rather than " +
+    "re-implementing them, so every refusal still reaches `ProblemNotice` unchanged.",
 };
 
 /** Every `.ts`/`.tsx` under `src`, as repo-relative `/` paths. */
