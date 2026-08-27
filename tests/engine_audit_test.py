@@ -1805,6 +1805,17 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "cost",
         "created_at",
         "currency",
+        # OURS AS MUCH AS THEIRS, and both halves of the TTS pair are the same case. The
+        # adapter WRITES `voice`/`voice_id` into the vendor's `synthesizer.provider_config`
+        # (D-358 — the model used to sit in the `voice` slot) and reads them back, so by
+        # the letter of the rule above they look like vendor nouns. They are not: `voice`
+        # is `VoiceEngine`, `agents.tts_voice`, `agents/voices.py` and `voice_routes.py`,
+        # and `voice_id` is OUR OWN API field name — `SetVoiceIn.voice_id` is what an
+        # operator PATCHes and `AgentVoice.voice_id` is what the pending read answers with.
+        # Banning either would fire forever on the two modules whose subject they are,
+        # which is the definition of a word that proves nothing about a leaked shape.
+        "voice",
+        "voice_id",
         # A GENERIC SAMPLING PARAMETER, not a Bolna noun: every OpenAI-compatible provider
         # and our own `TEMPERATURE_MUST_BE_ONE` trap name it, and `workers/extraction.py`
         # sends one to Sarvam. Finding it outside the adapter proves nothing.

@@ -135,6 +135,15 @@ describe("the landing page's claims", () => {
      * everything — the omission shape §9b of the competitor teardown records. So the
      * card is pinned in BOTH directions: it must still say the Indian half is Indian,
      * and it must say in as many words that the language model is not.
+     *
+     * ⚠ 27 AUG 2026: "the Indian half is Indian" is now a claim about the VENDOR only.
+     * Sarvam's published privacy policy permits it to process personal data outside
+     * India (US cloud infrastructure, EU model and security vendors) — read by the
+     * founder at `www.sarvam.ai/privacy-policy` that day and relayed, since the host is
+     * egress-blocked here. The substring below is still pinned because deleting the
+     * sentence would restore the omission this test exists for; what follows it on the
+     * page now says the vendor being Indian is not a residency claim, and a future edit
+     * that drops THAT qualification is the defect to catch.
      */
     expect(text).toContain("Speech and the first reading of your transcript are Indian");
     expect(text).toContain("Microsoft Azure OpenAI account in the United States");

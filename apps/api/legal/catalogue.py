@@ -159,13 +159,33 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
         slug="privacy",
         title="Privacy Policy",
         blocking=True,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                True,
+                "Speech-leg residency and the model-training promise corrected against "
+                "the speech vendor's published terms and privacy policy: an Indian "
+                "VENDOR is not India-only PROCESSING, and its terms permit training on "
+                "inputs and outputs absent a signed order form.",
+            ),
+        ),
     ),
     LegalDocumentSpec(
         slug="terms",
         title="Terms of Service",
         blocking=True,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                True,
+                "Speech-leg residency and the model-training promise corrected against "
+                "the speech vendor's published terms and privacy policy: an Indian "
+                "VENDOR is not India-only PROCESSING, and its terms permit training on "
+                "inputs and outputs absent a signed order form.",
+            ),
+        ),
     ),
     LegalDocumentSpec(
         slug="acceptable-use",
@@ -177,13 +197,33 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
         slug="dpa",
         title="Data Processing Addendum",
         blocking=True,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                True,
+                "Speech-leg residency and the model-training promise corrected against "
+                "the speech vendor's published terms and privacy policy: an Indian "
+                "VENDOR is not India-only PROCESSING, and its terms permit training on "
+                "inputs and outputs absent a signed order form.",
+            ),
+        ),
     ),
     LegalDocumentSpec(
         slug="subprocessors",
         title="Sub-processors",
         blocking=False,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                True,
+                "Speech-leg residency and the model-training promise corrected against "
+                "the speech vendor's published terms and privacy policy: an Indian "
+                "VENDOR is not India-only PROCESSING, and its terms permit training on "
+                "inputs and outputs absent a signed order form.",
+            ),
+        ),
     ),
     LegalDocumentSpec(
         slug="refunds",

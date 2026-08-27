@@ -73,7 +73,12 @@ def _byok_models(engine: VoiceEngine) -> ModelConfig:
         stt_model="saaras:v3" if caps.is_ours("stt") else None,
         llm_model="sarvam-105b" if caps.is_ours("llm") else None,
         tts_provider="sarvam" if caps.is_ours("tts") else None,
-        tts_voice="bulbul:v3" if caps.is_ours("tts") else None,
+        # THE MODEL AND THE SPEAKER, in the two fields the vendor reads them from (D-358).
+        # `tts_voice` used to carry `bulbul:v3` — a MODEL in the speaker's field — which is
+        # what let an adapter pasting one string into the vendor's `voice` key pass this
+        # suite. Naming the speaker separately is what makes a dropped model detectable.
+        tts_model="bulbul:v3" if caps.is_ours("tts") else None,
+        tts_voice="anushka" if caps.is_ours("tts") else None,
     )
 
 
@@ -1146,7 +1151,7 @@ async def test_a_byok_speech_leg_is_accepted_and_a_dictated_one_is_refused_by_na
     for leg, field, value in (
         ("stt", "stt_model", "saaras:v3"),
         ("llm", "llm_model", "sarvam-105b"),
-        ("tts", "tts_voice", "bulbul:v3"),
+        ("tts", "tts_voice", "anushka"),
     ):
         cfg = _agent_config(
             engine,
@@ -1316,6 +1321,7 @@ async def test_the_llm_leg_round_trips_its_provider_and_endpoint(engine: VoiceEn
             llm_model=model,
             llm_base_url=published_endpoint,
             tts_provider=speech.tts_provider,
+            tts_model=speech.tts_model,
             tts_voice=speech.tts_voice,
         )
         cfg = _agent_config(

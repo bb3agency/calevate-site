@@ -12716,6 +12716,11 @@ export interface components {
              */
             provider: "sarvam";
             /**
+             * Speaker
+             * @enum {string}
+             */
+            speaker: "anushka" | "abhilash" | "manisha" | "vidya" | "arya" | "karun" | "hitesh" | "aditya" | "ritu" | "priya" | "neha" | "rahul" | "pooja" | "rohan" | "simran" | "kavya" | "amit" | "dev" | "ishita" | "shreya" | "ratan" | "varun" | "manan" | "sumit" | "roopa" | "kabir" | "aayan" | "shubh" | "ashutosh" | "advait" | "anand" | "tanya" | "tarun" | "sunny" | "mani" | "gokul" | "vijay" | "shruti" | "suhani" | "mohit" | "kavitha" | "rehan" | "soham" | "rupali";
+            /**
              * Tts Model
              * @constant
              */

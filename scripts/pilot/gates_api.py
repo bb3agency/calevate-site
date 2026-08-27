@@ -38,10 +38,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from apps.api.agents.voices import DEFAULT_SPEAKER, DEFAULT_TTS_MODEL
 from apps.api.core.errors import ProblemError
 from calevate_shared.config import Settings
 from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
+    SARVAM_DEFAULT_STT,
+    SARVAM_STT_PROVIDER,
     AgentConfig,
     CallContext,
     ExecutionListing,
@@ -187,7 +190,7 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
             "`pilot_nonce` exactly as given, then end the call."
         ),
         models=ModelConfig(
-            stt_provider="sarvam",
+            stt_provider=SARVAM_STT_PROVIDER,
             # **`saaras:v3`, NOT `saaras:v2.5`, AND THE TWO ARE DIFFERENT PRODUCTS RATHER
             # THAN TWO VERSIONS.** Both are supported on this engine, so nothing 400s
             # either way — which is exactly why the wrong one was survivable and silent.
@@ -207,10 +210,22 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
             # automatic language detection to original-language transcription. That is a
             # product choice with an unmeasured Telugu quality consequence, and a pilot is
             # for measuring the stack we ship, not for introducing an untested leg into it.
-            stt_model="saaras:v3",
+            # THE PLATFORM CONSTANT, not a fourth hand-typed copy of it. `stt_provider`
+            # above and this line used to be literals here; `SARVAM_DEFAULT_STT` is now
+            # what `agents/service.py::in_call_speech` fills for every published agent, and
+            # a pilot that measured a different transcriber from the one the product ships
+            # would be measuring nothing. Its docstring carries the streaming ground for
+            # v3 over v4 (v4 is Batch/REST only) that the paragraph above reasoned toward
+            # without the evidence.
+            stt_model=SARVAM_DEFAULT_STT,
             llm_model=SARVAM_DEFAULT_LLM,
             tts_provider="sarvam",
-            tts_voice="bulbul:v3",
+            # THE MODEL AND THE SPEAKER, in the two fields the vendor reads them from
+            # (D-358). This said `tts_voice="bulbul:v3"` — a model in the speaker slot,
+            # which is the defect the split exists to fix; a pilot sending the broken body
+            # would have certified it.
+            tts_model=DEFAULT_TTS_MODEL,
+            tts_voice=DEFAULT_SPEAKER,
         ),
         webhook_url=f"{settings.webhook_base_url.rstrip('/')}/hooks/v1/engine/bolna",
     )

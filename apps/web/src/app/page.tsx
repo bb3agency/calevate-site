@@ -868,7 +868,16 @@ export default function Home() {
                      * The residency card, narrowed FOUR times and now WITHDRAWN as an India
                      * claim (D-449, 22 Aug 2026): the declared model region is Azure OpenAI
                      * `eastus2`, still Regional and not Global, speech and first extraction
-                     * untouched and still Sarvam. The card names the American half in the
+                     * untouched and still Sarvam. ⚠ AND ON 27 AUG 2026 THE INDIAN HALF WAS
+                     * NARROWED TOO: Sarvam is an Indian COMPANY, but its published privacy
+                     * policy ("Cross-Border Data Transfers", read by the founder 27 Aug 2026
+                     * and relayed — `sarvam.ai` is egress-blocked from this container) says
+                     * personal data may be processed outside India, naming US cloud
+                     * infrastructure and EU model/security vendors. So the card may say the
+                     * vendor is Indian and may NOT let a reader take that for residency.
+                     * `publicLanding.test.tsx` still pins the substring through "are Indian";
+                     * the qualification follows it in the same sentence. The card names the
+                     * American half in the
                      * same breath as the Indian half, says the region is confirmed by a
                      * person rather than proved by a build, and points at the sub-processor
                      * page. `publicLanding.test.tsx` pins the exact sentences in BOTH
@@ -884,7 +893,13 @@ export default function Home() {
                     term: "Which part runs where, including the part that is not Indian",
                     detail:
                       "Speech and the first reading of your transcript are Indian " +
-                      "services, on every call. The language model is not: it runs on a " +
+                      "services, on every call — an Indian COMPANY, which since " +
+                      "27 August 2026 we no longer let you read as processing that " +
+                      "stays in the country: that vendor's own published privacy policy " +
+                      "permits it to process personal data outside India, including on " +
+                      "United States cloud infrastructure, and the sub-processor page " +
+                      "says so in its own words. The language model is not Indian " +
+                      "either: it runs on a " +
                       "Microsoft Azure OpenAI account in the United States, in the East " +
                       "US 2 region. Until 22 August 2026 that account was in South " +
                       "India and this card said so, and we would rather withdraw the " +

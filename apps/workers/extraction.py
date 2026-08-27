@@ -4,9 +4,18 @@ ONE place that decides what happens when a provider cannot serve.
 Post-call only, never in-call (TRD §7). Three implementations behind two selectors, and
 the split between the selectors is the whole of D-127's G-2/G-7:
 
-- **`SarvamExtractor`** — Sarvam 105B, free per token and sovereign. It is what
+- **`SarvamExtractor`** — Sarvam 105B, run on an INDIAN VENDOR. It is what
   `get_extractor()` returns, and after D-127 it is the ONLY thing `get_extractor()` can
   return besides the offline baseline.
+
+  ⚠ THIS LINE SAID "free per token and sovereign" AND BOTH HALVES WERE WRONG. The chat
+  LLM is priced — ₹29.28/₹10.98/₹73.20 per million input/cached-input/output tokens
+  (`billing/rates.SARVAM_LLM_INR_PER_MTOK`, from the founder's dashboard reading of
+  27 Aug 2026) — so a Sarvam-served pass costs money and D-36's ₹0.00 premise is
+  withdrawn. And "sovereign" was a fact about the COMPANY: Sarvam's own privacy policy
+  permits it to process personal data outside India (D-476). What keeps this pass on
+  Sarvam is D-127 G-7 — it reads the RAW transcript, and G-2 forbids that reaching the
+  assist leg — not residency and not price.
 - **`AzureOpenAIExtractor`** — Azure OpenAI in `AZURE_LOCATION` (D-127 G-1's leg, moved
   to Azure by D-410; the region is `eastus2` since D-449 withdrew the India residency
   claim, and no comment here should imply otherwise). It serves the USER-TRIGGERED work
@@ -259,7 +268,12 @@ class SarvamExtractor:
     def _leg(self) -> chat.ChatLeg:
         """Sarvam addressed for `workers/chat.py`. `wire_model` IS the model here — the
         deployment/model split is Azure's, and this leg has none."""
-        return chat.ChatLeg(url=SARVAM_CHAT_URL, api_key=self._api_key, wire_model=self.model_name)
+        return chat.ChatLeg(
+            url=SARVAM_CHAT_URL,
+            api_key=self._api_key,
+            wire_model=self.model_name,
+            dialect="sarvam",
+        )
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
@@ -582,6 +596,7 @@ class AzureOpenAIExtractor:
                 api_key=self._api_key,
                 # THE DEPLOYMENT, not the model — see the class docstring.
                 wire_model=self._deployment,
+                dialect="openai",
             ),
             [{"role": "user", "content": build_extraction_prompt(spec, transcript)}],
             timeout_s=self._timeout_s,

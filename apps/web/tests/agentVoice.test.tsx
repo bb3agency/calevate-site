@@ -54,10 +54,13 @@ const SET_VOICE_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/voice`;
 
 function voice(over: Partial<Voice> = {}): Voice {
   return {
-    id: "anushka",
+    id: "bulbul:v3:anushka",
     label: "Anushka",
     provider: "sarvam",
     tts_model: "bulbul:v3",
+    // The SPEAKER, which the catalogue now names separately from the model (D-358). An id
+    // is `<tts_model>:<speaker>`; before the split this fixture's `id` was the model.
+    speaker: "anushka",
     gender: "female",
     languages: ["te-IN", "hi-IN", "en-IN"],
     note: "Warm, unhurried; the default for Telugu receptionists.",
@@ -72,8 +75,9 @@ function voice(over: Partial<Voice> = {}): Voice {
 const VOICES: Voice[] = [
   voice(),
   voice({
-    id: "vidya",
+    id: "bulbul:v3:vidya",
     label: "Vidya",
+    speaker: "vidya",
     gender: "female",
     is_default: false,
     verified: true,
@@ -118,8 +122,8 @@ function stored(id: string): NonNullable<AgentVoiceState["configured"]> {
  * row says it is. The interesting cases override it.
  */
 const VOICE_IN_SYNC: AgentVoiceState = {
-  configured: stored("anushka"),
-  live: stored("anushka"),
+  configured: stored("bulbul:v3:anushka"),
+  live: stored("bulbul:v3:anushka"),
   republish_required: false,
   headline: "Callers hear Anushka — the voice platform is holding the configured voice.",
 };
@@ -218,7 +222,7 @@ describe("the voice panel", () => {
     const { container } = await render();
 
     const select = await screen.findByLabelText("Voice");
-    expect((select as HTMLSelectElement).value).toBe("anushka");
+    expect((select as HTMLSelectElement).value).toBe("bulbul:v3:anushka");
     // The detail block follows the selection without anyone touching the control.
     expect(container.textContent).toContain(
       "Warm, unhurried; the default for Telugu receptionists.",
@@ -250,8 +254,8 @@ describe("the voice panel", () => {
     // as labelled data, and the server's own sentence sits above them.
     const { container } = await render({
       [PENDING_PATH]: pendingRoute({
-        configured: stored("vidya"),
-        live: stored("anushka"),
+        configured: stored("bulbul:v3:vidya"),
+        live: stored("bulbul:v3:anushka"),
         republish_required: true,
         headline: "Callers still hear Anushka; Vidya reaches them at the next publish.",
       }),
@@ -259,7 +263,7 @@ describe("the voice panel", () => {
 
     const select = await screen.findByLabelText("Voice");
     // Pre-selection follows CONFIGURED — the operator edits the configuration.
-    expect((select as HTMLSelectElement).value).toBe("vidya");
+    expect((select as HTMLSelectElement).value).toBe("bulbul:v3:vidya");
 
     expect(container.textContent).toContain("Callers hear now");
     expect(container.textContent).toContain("Anushka (bulbul:v3)");
@@ -281,7 +285,7 @@ describe("the voice panel", () => {
     // for a republish, and the screen must not soften that into a green state.
     const { container } = await render({
       [PENDING_PATH]: pendingRoute({
-        configured: stored("vidya"),
+        configured: stored("bulbul:v3:vidya"),
         live: null,
         republish_required: true,
         headline:
@@ -300,7 +304,7 @@ describe("the voice panel", () => {
     const { container } = await render({
       [PENDING_PATH]: {
         ...pendingRoute({
-          configured: stored("vidya"),
+          configured: stored("bulbul:v3:vidya"),
           live: null,
           republish_required: false,
           headline:
@@ -321,7 +325,7 @@ describe("the voice panel", () => {
   it("shows the chosen voice's detail before it is saved", async () => {
     const { container } = await render();
 
-    fireEvent.change(await screen.findByLabelText("Voice"), { target: { value: "vidya" } });
+    fireEvent.change(await screen.findByLabelText("Voice"), { target: { value: "bulbul:v3:vidya" } });
 
     await waitFor(() =>
       expect(container.textContent).toContain("A brisker, more formal read; still Bulbul v3."),
@@ -339,18 +343,18 @@ describe("the voice panel", () => {
     const { container, calls } = await render({
       [SET_VOICE_PATH]: {
         agent_id: AGENT,
-        voice: voice({ id: "vidya", label: "Vidya" }),
+        voice: voice({ id: "bulbul:v3:vidya", label: "Vidya", speaker: "vidya" }),
         agent_status: "live",
         published: true,
         engine_synced: false,
-        live_voice_id: "anushka",
+        live_voice_id: "bulbul:v3:anushka",
         republish_required: true,
         next_step:
           "Publish the agent to send this voice to the engine — until then callers hear the previous voice.",
       },
     });
 
-    fireEvent.change(await screen.findByLabelText("Voice"), { target: { value: "vidya" } });
+    fireEvent.change(await screen.findByLabelText("Voice"), { target: { value: "bulbul:v3:vidya" } });
     fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
 
     await waitFor(() => expect(calls.some((c) => c.path === SET_VOICE_PATH)).toBe(true));
@@ -358,7 +362,7 @@ describe("the voice panel", () => {
     expect(write.method).toBe("PATCH");
     // ONE field. The tenant is in the path the call was made to (`SET_VOICE_PATH`), and
     // sending it twice would be two places to disagree.
-    expect(JSON.parse(write.body!)).toEqual({ voice_id: "vidya" });
+    expect(JSON.parse(write.body!)).toEqual({ voice_id: "bulbul:v3:vidya" });
     // The admin write is NOT impersonating — the impersonation header on a mutation is a
     // guaranteed 403 under D-22.
     expect(write.headers["X-Impersonate-Org"]).toBeUndefined();
@@ -429,16 +433,16 @@ describe("the voice panel", () => {
         type: "urn:calevate:business_rule/unknown_voice",
         title: "Unknown voice",
         detail: "That voice is not in the catalog, so it cannot be set on an agent.",
-        remediation: "Pick one of the available voices: anushka, vidya.",
+        remediation: "Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya.",
         kind: "business_rule",
       }),
     });
 
-    fireEvent.change(await screen.findByLabelText("Voice"), { target: { value: "anushka" } });
+    fireEvent.change(await screen.findByLabelText("Voice"), { target: { value: "bulbul:v3:anushka" } });
     fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
 
     await screen.findByText("That voice is not in the catalog, so it cannot be set on an agent.");
-    expect(container.textContent).toContain("Pick one of the available voices: anushka, vidya");
+    expect(container.textContent).toContain("Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya");
     // Still usable: the operator can pick another entry without reloading.
     expect(screen.getByRole("button", { name: "Set voice" })).toBeTruthy();
   });

@@ -19,58 +19,61 @@ there is no cheaper voice to fall back to and no per-voice rate difference to bi
 **"One quality" is not "one voice".** Clients still choose a PERSONA — a named speaker
 with a gender, tone and language — from Bulbul v3's professional voices; the collapse is
 of the QUALITY dimension (v3 vs v2), not of speaker choice. The `Voice` model keeps its
-persona fields (`gender`, `languages`) for that reason. Today the docs still name no
-speakers (see below), so the catalog offers Bulbul v3 without inventing speaker ids or
-genders; real personas land here the moment the pilot enumerates `GET /me/voices`.
+persona fields for that reason. **THE PERSONAS ARE NOW REAL** — see the next section.
 
 WHAT IS GROUNDED, AND WHERE
 ---------------------------
-Everything the entry below asserts about the MODEL comes from the docs set:
+- **The 44 speaker ids are the vendor's own closed enum.** VERIFIED-VENDOR-SDK:
+  sarvamai==0.1.31 (PyPI wheel), `types/text_to_speech_speaker.py`, read 27 Aug 2026 —
+  `TextToSpeechSpeaker` is a `Literal` of exactly 44 lowercase names, and `SPEAKERS` below
+  is that list, in that order, with nothing added.
+- **The model string is `bulbul:v3`.** VERIFIED-VENDOR-SDK: same wheel,
+  `types/text_to_speech_model.py` (`Literal["bulbul:v2", "bulbul:v3"]`), and Bolna's own
+  example posts it (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`,
+  `create-agent/SKILL.md`: `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh",
+  "voice_id": "ashutosh"}`). Sarvam's dashboard Model Catalogue lists ONLY `bulbul:v3` —
+  no v2 row, no v4 — even though the SDK enum still carries `bulbul:v2`
+  (VENDOR-PUBLISHED (Sarvam dashboard Model Catalogue, indus.sarvam.ai/model-catalogue,
+  read by the founder 27 Aug 2026)). `TtsModel` stays a one-member Literal on that basis.
+- **Telugu on the TTS leg** is the SDK's `types/text_to_speech_language.py`, which lists 11
+  codes INCLUDING `te-IN`, `hi-IN` and `en-IN` (same wheel, same date). That enum is the
+  citation, not the marketing count: the founder could not find a dashboard-rendered list
+  naming `te-IN` against Bulbul v3 specifically, so the claim stays scoped to the enum.
+  `languages` below carries the three the PRODUCT sells (`CreateOrgIn.language`), Telugu
+  first, which is a subset of the enum rather than a re-statement of a count.
 
-- Bulbul V3's language reach — "11 Indian languages" — is docs/TRD.md:77 and D-20.
-  The docs give the COUNT, never the LIST, so `languages` below carries only the three
-  languages the product itself offers (`CreateOrgIn.language` in
-  `apps/api/admin/routes.py`: te-IN, hi-IN, en-IN), Telugu first. That is a subset we
-  can stand behind rather than an enumeration we would be inventing.
-- The id strings are the ones already flowing through our own engine contract:
-  `packages/shared/tests/engine_conformance/contract_test.py:46` uses
-  `tts_voice="bulbul:v3"`, and `apps/api/engine/bolna.py:250` puts exactly this column
-  into the vendor's `synthesizer.provider_config.voice`.
+THE ID SPELLING, WHICH IS A DATA-SHAPE CONTRACT
+------------------------------------------------
+An id is `<tts_model>:<speaker>` — `bulbul:v3:ashutosh` — composed by `voice_id_for()`,
+which is the ONE place the spelling exists. This is the shape this file predicted before
+it could be built ("an id becomes `bulbul:v3:<speaker>` while `tts_model` stays
+`bulbul:v3`"), and it is why `id`, `tts_model` and `speaker` are three fields: several
+personas share one model, and the id has to stay unique across a future second model.
 
-WHAT IS PROVISIONAL (read this before quoting the catalog at anyone)
---------------------------------------------------------------------
-**Every entry here is PROVISIONAL until the Bolna pilot verifies it.** Specifically:
+`agents.tts_voice` holds the ID. `ModelConfig.tts_model` / `ModelConfig.tts_voice` hold
+the SPLIT — the model and the speaker, one per vendor slot — because the adapter must not
+have to know how we spell an id (hard rule 2). `speech_for_voice_id()` is the splitter and
+`voice_id_of()` is its inverse, used by `publish_agent` to record what it sent.
 
-1. **The docs name no voices.** `grep -rn` across `docs/` for speaker names, `voice_id`
-   or a Sarvam voice list returns nothing — the only `voice_id` mention is in a
-   competitor teardown (docs/TRD.md:501, describing *Outpero's* data model). So this
-   catalog offers Bulbul v3 and offers no named speakers, which the docs do not support.
-   No speaker id in this file is invented, because no speaker id is in this file — the
-   persona dimension is real but empty until the pilot reads `GET /me/voices`.
-2. **`bulbul:v3` IS the literal string, and named speakers DO exist (D-358).** Bolna's
-   own `create-agent/SKILL.md` posts `"provider": "sarvam"` with
-   `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh", "voice_id":
-   "ashutosh"}`, and `GET /me/voices` lists the speakers once a TTS provider is
-   configured (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`). So point 1 above is now
-   only half true: the model string is confirmed, and "no Sarvam voice list exists" was
-   a statement about what we could reach, not about what the vendor has. **What this
-   catalog offers is still the MODEL in the `voice` slot, which is the wrong slot** — the
-   adapter sends it as `provider_config.voice` where the vendor wants
-   `provider_config.model`. Fixing it means `ModelConfig` grows a `tts_model` and this
-   catalog grows real speaker ids read from `GET /me/voices`, which needs the account:
-   D-358, and OPERATIONS §2 gate 3 still owns "Confirm **Bulbul V3 is selectable**".
-3. **Which Bulbul v3 speaker sounds best in Telugu is an EAR TEST, not a spec fact**
-   (docs/BRD.md:242 R-10, docs/TRD.md:478). `is_default` below encodes the single-tier
-   default (Bulbul v3), not a measurement of ours.
-4. **`gender` is `None` on the entry, on purpose.** The docs record no speaker genders,
-   so there is nothing to state. The persona fields exist because the UI will need them
-   the moment the pilot enumerates real speakers; leaving `gender` null is the honest
-   value, and inventing "female" for a model id would be worse than an empty column.
-
-When the pilot answers (1)-(3), the shape here already accommodates the result: an id
-becomes `bulbul:v3:<speaker>` while `tts_model` stays `bulbul:v3`, several persona
-entries share one `tts_model`, and `verified` flips to True. That is why `id` and
-`tts_model` are separate fields even though they coincide in today's one-entry catalog.
+WHAT IS STILL PROVISIONAL (read this before quoting the catalog at anyone)
+--------------------------------------------------------------------------
+1. **`verified` is still False on every entry**, and that is not pedantry. The speaker enum
+   is Sarvam's, for Sarvam's own TTS API; what BOLNA's Sarvam provider accepts is their
+   business, and the confirming read is `GET /me/voices` on a live account. OPERATIONS §2
+   gate 3 owns it. Nothing here claims a speaker was heard.
+2. **The SDK does not split the speaker list by model.** `TextToSpeechSpeaker` is one enum
+   for a request that takes `model` and `speaker` as independent fields, so "all 44 work on
+   `bulbul:v3`" is the strongest reading available and is not a vendor statement. Gate 3
+   settles it; a speaker the engine rejects is one line removed from `SPEAKERS`.
+3. **Which speaker sounds best in Telugu is an EAR TEST, not a spec fact** (docs/BRD.md:242
+   R-10, docs/TRD.md:478). `DEFAULT_SPEAKER` below is a PLACEHOLDER pending that test — it
+   is `ashutosh` because that is the speaker the vendor's own worked example uses, which is
+   the only non-invented basis available. It is not a measurement and must not be quoted as
+   one.
+4. **`gender` is `None` on every entry, on purpose.** The SDK carries NO gender metadata for
+   speakers — the field is a bare name Literal — and a name is not evidence of a voice. The
+   persona field stays because a future vendor enumeration may carry it; guessing "female"
+   from "priya" would be exactly the laundering hard rule 11 forbids.
 
 Deliberately absent: **Cartesia**. TRD §10.3 once sketched a "Bulbul v2 → Bulbul v3 →
 Cartesia" ladder as a hedge, not an adoption; the single-tier decision keeps Sarvam
@@ -106,13 +109,16 @@ only knowledge of where the string is pasted into the vendor's JSON.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Final, Literal, get_args
 
 from calevate_shared.engine import SpeechControl, VoiceEngine
 from pydantic import BaseModel, ConfigDict
 
 # The languages the PRODUCT sells today (`CreateOrgIn.language`), Telugu first — we are
 # Telugu-first (BRD §1), so the ordering here is the ordering a picker should render.
+# A subset of the vendor's own 11-code TTS enum (VERIFIED-VENDOR-SDK: sarvamai==0.1.31
+# (PyPI wheel), `types/text_to_speech_language.py`, read 27 Aug 2026), not a claim about
+# the other eight.
 Language = Literal["te-IN", "hi-IN", "en-IN"]
 
 # The one voice model the single-tier decision adopts (TRD §10.1 rate card). Not an
@@ -122,6 +128,134 @@ TtsModel = Literal["bulbul:v3"]
 
 Gender = Literal["female", "male", "neutral"]
 
+# THE VENDOR'S OWN SPEAKER ENUM, COPIED AND NOT CURATED.
+#
+# VERIFIED-VENDOR-SDK: sarvamai==0.1.31 (PyPI wheel), `types/text_to_speech_speaker.py`,
+# read 27 Aug 2026 — `TextToSpeechSpeaker` is a `Literal` of exactly these 44 lowercase
+# names, in this order. Order is preserved because it is the vendor's, and inventing a
+# ranking (alphabetical, "best first") would be a recommendation this file is not entitled
+# to make: which speaker sounds best in Telugu is an ear test (gate 3, BRD R-10).
+#
+# A `Literal` rather than a `frozenset[str]` for `TtsModel`'s reason: a persona entry that
+# names a speaker the vendor does not ship should not type-check.
+Speaker = Literal[
+    "anushka",
+    "abhilash",
+    "manisha",
+    "vidya",
+    "arya",
+    "karun",
+    "hitesh",
+    "aditya",
+    "ritu",
+    "priya",
+    "neha",
+    "rahul",
+    "pooja",
+    "rohan",
+    "simran",
+    "kavya",
+    "amit",
+    "dev",
+    "ishita",
+    "shreya",
+    "ratan",
+    "varun",
+    "manan",
+    "sumit",
+    "roopa",
+    "kabir",
+    "aayan",
+    "shubh",
+    "ashutosh",
+    "advait",
+    "anand",
+    "tanya",
+    "tarun",
+    "sunny",
+    "mani",
+    "gokul",
+    "vijay",
+    "shruti",
+    "suhani",
+    "mohit",
+    "kavitha",
+    "rehan",
+    "soham",
+    "rupali",
+]
+
+#: The 44, as data, so the catalogue is BUILT from the vendor's enum rather than typed a
+#: second time beside it. `get_args` rather than a hand-copied tuple: two spellings of one
+#: list is the drift this repo treats as a defect even when both are right today.
+SPEAKERS: Final[tuple[Speaker, ...]] = get_args(Speaker)
+
+#: THE PLACEHOLDER DEFAULT PERSONA — pending the Telugu ear test (gate 3), NOT a
+#: measurement of ours and not to be quoted as one. It is `ashutosh` for the one
+#: non-invented reason available: it is the speaker in the vendor's own worked example
+#: (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`, `create-agent/SKILL.md`), so it is the
+#: single speaker id for which we have seen an end-to-end Bolna request that names it.
+DEFAULT_SPEAKER: Final[Speaker] = "ashutosh"
+
+#: The one model every persona runs on today. Named so `voice_id_for` and the migration's
+#: backfill cannot disagree about which model the default id carries.
+DEFAULT_TTS_MODEL: Final[TtsModel] = "bulbul:v3"
+
+
+def voice_id_for(tts_model: str, speaker: str) -> str:
+    """THE id spelling, in one place: `<tts_model>:<speaker>`.
+
+    Every catalogue id, the migration's backfill target and `publish_agent`'s mirror write
+    all come through here or through `voice_id_of` below. A second `f"{model}:{speaker}"`
+    anywhere is a second definition of a value stored on agent rows — i.e. a data
+    migration waiting to be caused by a typo.
+    """
+    return f"{tts_model}:{speaker}"
+
+
+def voice_id_of(tts_model: str | None, speaker: str | None) -> str | None:
+    """`voice_id_for`'s inverse-facing partner: the catalogue id a published `ModelConfig`
+    TTS pair names, or None when it names no voice at all.
+
+    `publish_agent` records what it SENT in `agents.live_tts_voice`, and what it sent is
+    the split pair — while the column, `agents.tts_voice` and `publishing.py`'s divergence
+    check are all written in catalogue IDs. Recomposing here rather than re-reading the row
+    keeps `publish_agent`'s own rule (record the config you just handed the engine, never a
+    re-read that a concurrent `set_agent_voice` could have moved underneath you).
+
+    A speaker with no model — the unrecognised free-text id `speech_for_voice_id` passes
+    through — recomposes to itself, so a legacy row still round-trips to the value it holds
+    instead of gaining a prefix nothing wrote.
+    """
+    if speaker is None:
+        return None
+    if tts_model is None:
+        return speaker
+    return voice_id_for(tts_model, speaker)
+
+
+def speech_for_voice_id(voice_id: str | None) -> tuple[str | None, str | None]:
+    """`(tts_model, speaker)` for a stored voice id — THE splitter, and the only one.
+
+    CATALOGUE LOOKUP, NEVER STRING SURGERY, and the difference is a live defect rather
+    than a preference. Splitting on the last colon turns the legacy value `bulbul:v3` into
+    model `bulbul` and speaker `v3` — two strings the vendor has never heard of, sent
+    confidently. The catalogue knows which ids it composed; anything else is not ours to
+    take apart.
+
+    An id we do not recognise returns `(None, voice_id)`: it travels in the speaker slot
+    exactly as it did before this split existed. That is deliberate and is the same
+    argument `_agent_voice` makes in `publishing.py` — `agents.tts_voice` is free text, and
+    a value we no longer offer must read back as itself rather than be dropped or guessed
+    at. Migration `f1c9d4a72b06` backfills the rows this repository actually wrote.
+    """
+    if not voice_id:
+        return (None, None)
+    voice = _BY_ID.get(voice_id)
+    if voice is None:
+        return (None, voice_id)
+    return (voice.tts_model, voice.speaker)
+
 
 class Voice(BaseModel):
     """One selectable voice. Doubles as the API response model — the catalog IS the
@@ -130,23 +264,35 @@ class Voice(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     # Written VERBATIM into `agents.tts_voice`. Stable: it is stored on agent rows, so
-    # renaming one is a data migration, not an edit to this file.
+    # renaming one is a data migration, not an edit to this file. `<tts_model>:<speaker>`,
+    # composed by `voice_id_for` — see the module docstring for why the pair is spelled
+    # into one string here and split back apart in `ModelConfig`.
     id: str
-    # What a human picks from. A persona label (speaker/tone), NOT a quality tier —
-    # there is one quality now (Bulbul v3), so price is not a question this answers.
+    # What a human picks from. A persona label (speaker), NOT a quality tier — there is one
+    # quality now (Bulbul v3), so price is not a question this answers.
+    #
+    # ⚠ IT IS ALSO A WIRE-ADJACENT VALUE, WHICH IS WORTH KNOWING BEFORE EDITING IT. The
+    # vendor's example carries the speaker twice — `"voice": "Ashutosh", "voice_id":
+    # "ashutosh"` — so the capitalised form is what their `voice` key holds. The ADAPTER
+    # derives that from the speaker (hard rule 2: which key gets which casing is a vendor
+    # payload fact and stays inside `apps/api/engine/`); this field is for humans.
     label: str
     provider: Literal["sarvam"]
     # Which Sarvam model serves this voice. Separate from `id` so that named speakers
-    # can be added later without every persona entry becoming its own model.
+    # do not each become their own model.
     tts_model: TtsModel
-    # Telugu first. A subset of Bulbul V3's documented 11 Indian languages (TRD §5) —
-    # the three the product offers, not a claim about the other eight.
+    # THE SPEAKER, which is the half that was missing and the whole of D-358's second
+    # defect: the model string used to be sent in the vendor's speaker slot.
+    speaker: Speaker
+    # Telugu first. The three languages the product offers, a subset of the vendor's own
+    # 11-code TTS enum — not a claim about the other eight.
     languages: tuple[Language, ...]
-    # Always None today: the docs record no speaker genders and we will not invent one.
-    # A persona-selection field, populated once the pilot enumerates real speakers.
+    # ALWAYS None, and it is a decision rather than a gap. The SDK's speaker type is a bare
+    # name Literal carrying NO gender metadata, so there is nothing to state and a name is
+    # not evidence. The field stays for the day a vendor enumeration carries one.
     gender: Gender | None = None
-    # The single-tier default (Bulbul v3), not a measurement (the Telugu ear test is
-    # pilot gate 3).
+    # The picker's default persona. A PLACEHOLDER pending the Telugu ear test (gate 3,
+    # BRD R-10) — see `DEFAULT_SPEAKER` — never a measurement.
     is_default: bool = False
     # False until the Bolna pilot confirms the string is selectable (OPERATIONS §2
     # gate 3). Shipped as data so the admin UI can label the choice honestly.
@@ -155,32 +301,51 @@ class Voice(BaseModel):
     note: str
 
 
-CATALOG: tuple[Voice, ...] = (
-    Voice(
-        id="bulbul:v3",
-        label="Bulbul v3",
+#: The shared half of every entry's `note`. One sentence, composed once: 44 hand-written
+#: notes would be 44 chances to state a different price for one rate card.
+_NOTE: Final = (
+    "Sarvam Bulbul v3 — the single voice quality, ₹30 per 10k characters. Which speaker "
+    "suits Telugu best is an ear test nobody has run yet (pilot gate 3), and the speaker "
+    "list is Sarvam's own; Bolna's acceptance of it is confirmed by GET /me/voices."
+)
+
+
+def _entry(speaker: Speaker) -> Voice:
+    """One persona from one speaker id. Built rather than typed for `SPEAKERS`' reason:
+    every field except the name is identical across the 44, so writing them out would be a
+    45th place for the price sentence and the language tuple to drift."""
+    return Voice(
+        id=voice_id_for(DEFAULT_TTS_MODEL, speaker),
+        # `.capitalize()`, matching the vendor's own `"voice": "Ashutosh"` /
+        # `"voice_id": "ashutosh"` pair. A display rule inferred from one worked example,
+        # not a vendor statement — it decides what a human reads in a dropdown, and the
+        # adapter's `voice` key is derived independently in `engine/bolna.py`.
+        label=speaker.capitalize(),
         provider="sarvam",
-        tts_model="bulbul:v3",
+        tts_model=DEFAULT_TTS_MODEL,
+        speaker=speaker,
         languages=("te-IN", "hi-IN", "en-IN"),
         gender=None,
-        is_default=True,
+        is_default=speaker == DEFAULT_SPEAKER,
         verified=False,
-        note=(
-            "The single voice quality (supersedes the old v3/v2 ladder). ₹30 per 10k "
-            "characters. Named Bulbul v3 personas land here once the pilot reads "
-            "GET /me/voices (D-358); which speaker sounds best in Telugu is an ear test."
-        ),
-    ),
-)
+        note=_NOTE,
+    )
+
+
+CATALOG: tuple[Voice, ...] = tuple(_entry(speaker) for speaker in SPEAKERS)
 
 _BY_ID: dict[str, Voice] = {voice.id: voice for voice in CATALOG}
 
 # One quality, and exactly one default. Cheap enough to assert at import rather than hope
-# for. `tts_model` is a single-member Literal, so "every entry is Bulbul v3" is enforced
-# by the type; the assertions guard the two things the type cannot: id uniqueness (persona
-# entries added later must not collide) and a single default persona for the picker.
+# for. `tts_model` and `speaker` are Literals, so "every entry is Bulbul v3" and "no
+# invented speaker" are enforced by the type; the assertions guard the two things the type
+# cannot: id uniqueness across personas, and a single default persona for the picker.
 assert len(_BY_ID) == len(CATALOG), "duplicate voice id in CATALOG"
 assert sum(1 for voice in CATALOG if voice.is_default) == 1, "exactly one default persona"
+
+#: The id the migration backfills a bare `bulbul:v3` row to, and the one the picker
+#: pre-selects. Named so the two cannot disagree.
+DEFAULT_VOICE_ID: Final = voice_id_for(DEFAULT_TTS_MODEL, DEFAULT_SPEAKER)
 
 
 def get_voice(voice_id: str) -> Voice | None:
@@ -266,15 +431,23 @@ def voice_selection_capability(engine: VoiceEngine | None = None) -> VoiceSelect
 
 __all__ = [
     "CATALOG",
+    "DEFAULT_SPEAKER",
+    "DEFAULT_TTS_MODEL",
+    "DEFAULT_VOICE_ID",
     "ENGINE_DICTATES_TTS_REASON",
+    "SPEAKERS",
     "Gender",
     "Language",
+    "Speaker",
     "TtsModel",
     "Voice",
     "VoiceSelectionCapability",
     "default_voice",
     "get_voice",
     "is_supported_voice",
+    "speech_for_voice_id",
+    "voice_id_for",
+    "voice_id_of",
     "voice_ids",
     "voice_selection_capability",
 ]

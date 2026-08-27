@@ -69,6 +69,33 @@ export const ACCEPTABLE_USE: LegalDocument = {
             {
               kind: "para",
               text:
+                "The instrument behind everything in this section 2 is the Telecom " +
+                "Commercial Communications Customer Preference Regulations, 2018 (as " +
+                "amended), made by the Telecom Regulatory Authority of India. It is " +
+                "what creates the Principal Entity and Telemarketer roles, the " +
+                "registration of headers and templates, the number series in section " +
+                "2.2, the preference registers in section 2.3 and the calling window in " +
+                "section 2.4. We name it once, here, so that your adviser can read our " +
+                "obligations against the regulation rather than against our summary of " +
+                "it; the rest of this policy calls it the commercial-communications " +
+                "framework.",
+            },
+            {
+              kind: "para",
+              text:
+                "The Telecommunications Act 2023 sits behind that framework and is worth " +
+                "knowing about even though it does not address you or us directly. Its " +
+                "section 28 places the duties about unsolicited \"specified messages\" — " +
+                "prior consent, and the do-not-disturb registers — on the licensed " +
+                "access provider, which is your telephone operator, rather than on a " +
+                "Principal Entity or a Telemarketer. They reach the two of us through " +
+                "the 2018 regulations above and through the terms of the connection you " +
+                "hold in your own name, which is also why the identity checks in section " +
+                "2.8 attach to a telecom connection rather than to your Calevate account.",
+            },
+            {
+              kind: "para",
+              text:
                 "A campaign will not launch until all of these exist and are active. The " +
                 "product checks each one separately and tells you which is missing.",
             },
@@ -295,6 +322,25 @@ export const ACCEPTABLE_USE: LegalDocument = {
                 "operates for you. Every call an agent handles is recorded, the agent " +
                 "says so when asked, and a caller who wants the audio gone is an erasure " +
                 "request you can run from your own screen.",
+            },
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "An open question about recordings that your adviser should see",
+              text:
+                "Raised here because it belongs to the decision you are making in this " +
+                "section, not because we have an answer. The 2011 " +
+                "sensitive-personal-data rules define biometric information to include " +
+                "voice patterns, and sensitive personal data carries a stricter transfer " +
+                "test than ordinary personal data. Whether the recording of an ordinary " +
+                "business call is biometric information for that purpose has never been " +
+                "decided by an Indian court or by a regulator. If it is, the stricter " +
+                "test reaches every call your agents handle — and it reaches the live " +
+                "conversation, not only the stored file. We are not resolving it for " +
+                "you and we are not resolving it for us: it is with the advocate whose " +
+                "review these documents are waiting on, and clause 9 of the Data " +
+                "Processing Addendum sets it out in full, with the privacy notice's " +
+                "section 8 saying the same thing to a caller.",
             },
           ],
         },

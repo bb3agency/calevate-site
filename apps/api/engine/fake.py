@@ -507,6 +507,12 @@ class FakeEngine:
                 llm_provider=cfg.models.llm_provider if self.capabilities.is_ours("llm") else None,
                 llm_base_url=cfg.models.llm_base_url if self.capabilities.is_ours("llm") else None,
                 tts_provider=cfg.models.tts_provider if self.capabilities.is_ours("tts") else None,
+                # THE TTS LEG IS A PAIR NOW (D-358), and both halves are gated together.
+                # A real adapter reads the model and the speaker back out of two vendor
+                # keys, so a fake that round-tripped only the speaker would let the
+                # conformance suite pass an adapter that dropped the model — the same
+                # argument the LLM endpoint above makes one line up.
+                tts_model=cfg.models.tts_model if self.capabilities.is_ours("tts") else None,
                 tts_voice=cfg.models.tts_voice if self.capabilities.is_ours("tts") else None,
             ),
             models_readable=True,

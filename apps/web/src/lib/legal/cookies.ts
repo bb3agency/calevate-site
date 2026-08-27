@@ -35,6 +35,19 @@ import type { LegalDocument } from "./types";
  * the finding about naming trackers this site does not have; the mirror-image defect is
  * not naming the one item it does, so it is now section 3 rather than a silence.
  *
+ * ## And the home page turned out NOT to be exempt, which §1 asserted until 27 Aug 2026
+ *
+ * `src/app/page.tsx:423` mounts `components/authn/marketingAccountNav`, which calls
+ * `useRealmSession(clientAuthn, "guest")`; a restore that answers `ok` runs
+ * `rememberSession(authn.realm)` (`src/lib/authn/useRealmSession.ts:125`) and that writes
+ * `calevate.authn.had-session.client`. So a visitor who ALREADY HOLDS a live client
+ * session has that one key written by the home page, on the client realm only. The
+ * legal pages remain genuinely clean — nothing under `src/app/legal/` mounts a session
+ * hook — and a visitor with no session gets nothing anywhere. §1 said "there is exactly
+ * one item of browser storage anywhere on this service, it is not on these pages", which
+ * was right about the item and wrong about the page, in the direction that matters: it
+ * denied a write that happens.
+ *
  * Nothing else writes to the browser: `set_cookie` appears in exactly one module in the
  * backend (`apps/api/authn/cookies.py`), no code in `apps/web/src` touches
  * `document.cookie`, and there is no `localStorage` anywhere in the tree.
@@ -73,10 +86,15 @@ export const COOKIE_NOTICE: LegalDocument = {
             "No third-party fonts. The typeface is served from our own server, so your " +
               "browser makes no request to a font provider.",
             "No embedded video, no chat widget, no third-party script of any kind.",
-            "No local storage and no session storage on the home page or on these legal " +
-              "pages. There is exactly one item of browser storage anywhere on this " +
-              "service, it is not on these pages, and section 3 describes it rather than " +
-              "leaving you to find it.",
+            "No local storage anywhere on this service, and — on these legal pages — no " +
+              "session storage either. The home page is one narrow exception and we " +
+              "would rather state it than round it off: if you are already signed in to " +
+              "a client dashboard, the header on the home page checks with our server " +
+              "so that it can offer you your console instead of a sign-in link, and a " +
+              "successful check leaves a single mark in session storage. That is the " +
+              "same one item section 3 describes, it is the only item of browser storage " +
+              "anywhere on this service, and a visitor who is not signed in never gets " +
+              "it.",
           ],
         },
         {
@@ -168,8 +186,13 @@ export const COOKIE_NOTICE: LegalDocument = {
               detail:
                 "A single mark saying that a session existed in this browser tab. It " +
                 "holds no identifier, no name and nothing that distinguishes you from " +
-                "anyone else who has ever signed in. Your dashboard tab writes it while " +
-                "you are signed in, and the sign-in page reads it once and deletes it as " +
+                "anyone else who has ever signed in. It is written by any page of ours " +
+                "that confirms with our server that this tab holds a live session — a " +
+                "dashboard tab, and also the home page, whose header asks about a client " +
+                "session so that it can point you at your console rather than at a " +
+                "sign-in form. It is never written for someone who is not signed in, so " +
+                "a stranger arriving at the home page gets no storage at all. The " +
+                "sign-in page reads it once and deletes it as " +
                 "it reads. It exists so that the sign-in page can tell \"your session " +
                 "just ended\" from \"you have never signed in here\" — which our server " +
                 "genuinely cannot do, because an expired session cookie and an absent one " +
@@ -198,8 +221,10 @@ export const COOKIE_NOTICE: LegalDocument = {
           kind: "para",
           text:
             "Your browser lets you block or delete cookies and site storage for any " +
-            "site. Blocking them for calevate.tech has no effect on the home page or " +
-            "these legal pages, because they set none. Blocking them for the dashboard " +
+            "site. Blocking them for calevate.tech has no effect on these legal pages, " +
+            "because they set none, and none on the home page beyond the mark in " +
+            "section 3 — which you only ever had if you were signed in. Blocking them " +
+            "for the dashboard " +
             "signs you out and stops you signing back in, since the cookie is the " +
             "sign-in; blocking storage alone costs you only the sentence described in " +
             "section 3.",

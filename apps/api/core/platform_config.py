@@ -535,12 +535,21 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     ),
     # Read at the point of use, per call or per request.
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
-    # D-127 disqualified the AI Studio Developer API this key opens and D-410 removed the
-    # last Google LLM leg, so nothing sends it anywhere. It is still `live` and that is
-    # not a fiction: `assist_capability()` reads it per call, and its presence is what
-    # turns the generic "no credential" refusal into the one an operator who installed the
-    # wrong thing needs. Setting it changes the SENTENCE, not the endpoint — within one
-    # poll interval, which is what `live` claims.
+    # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
+    # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,
+    # no Google LLM leg — and D-456/D-459 then reopened exactly that leg: `LlmProvider`
+    # carries `"google"`, `gemini-2.5-flash` and `-flash-lite` are SELECTABLE for the
+    # IN-CALL leg, and `ops/model_pricing.py:65` maps that provider to THIS key. So this
+    # is the credential a client-selected Gemini agent runs on, and an operator who
+    # installed it was being told by this file that it reached nothing.
+    #
+    # `live` is unchanged and is still honest for both readings: `assist_capability()`
+    # reads it per call, and `offerable_models()` gates a Gemini choice on its presence —
+    # both within one poll interval, which is what `live` claims.
+    #
+    # What is NOT reopened, and is the half worth keeping: Gemini serves no DASHBOARD
+    # assist and no extraction pass. D-127 G-2 forbids raw PII on that leg and
+    # `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form of it.
     "gemini_api_key": AppliesRule(LIVE),
     # OpenAI direct (D-456's third declared leg). `live`, and CHECKED against its own
     # danger rather than inherited from the family: `needs_republish` warns that a cached

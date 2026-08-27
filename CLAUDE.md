@@ -115,10 +115,39 @@ deployment is **Regional Standard and NOT Global** (gate 20c). Gates 20/20b/20c/
 SURVIVE D-449 re-aimed; none retires, because the posture still pins one region and is
 still Regional Standard. Global is Azure's DEFAULT and processes worldwide, so it does not
 downgrade the promise from India to America — it deletes the only enforceable property the
-posture has left. Speech is still Sarvam and still Indian, and the first extraction pass is
-still Sarvam; what leaves India is the transcript, on every turn, as it is spoken — which is
-why OPERATIONS §2 gate 37(a) (is a voice recording SPDI biometric data?) now governs the
-LIVE CONVERSATION and not only the archive. **OpenAI direct is still not adopted, but the
+posture has left. Speech is still Sarvam and the first extraction pass is still Sarvam.
+**⚠ "AND STILL INDIAN" WAS WITHDRAWN ON 27 AUG 2026, AND THIS LINE USED TO SAY IT — READ
+THE CORRECTION BEFORE REPEATING EITHER HALF.** Sarvam is an Indian COMPANY; that is not a
+residency claim, and the sentence that "what leaves India is the transcript" was wrong in
+the direction that matters — **the AUDIO may leave too, on the SPEECH leg, before any
+language model sees a word.** Sarvam's own privacy policy ("Cross-Border Data Transfers")
+says personal data *"may be transferred to and processed in countries outside India"*,
+naming **United States** cloud infrastructure (AWS, GCP, Azure) and analytics providers and
+**European Union** model and security vendors, with EU SCCs, adequacy decisions and DPAs as
+the safeguards; its *"Data Localization (Indian Users)"* carve-out storing **voice biometric
+data in India** reads as scoped to **Content Studio**, not to Voice Agents / API traffic, and
+payment data is likewise India-stored. **Two more facts from the same reading, both
+load-bearing.** (a) Sarvam **ToS v2.0, effective 29 July 2026, s.17.5** permits Sarvam to use
+Inputs, Outputs and usage data **to train its models**, per its Privacy Policy and applicable
+law and *"(where required) subject to your consent, which you may decline or withdraw"*, with
+access to certain Offerings possibly restricted if declined — **it does not vary by tier**
+(free credits, Starter PAYG and paid alike), and **s.6.2** makes a signed order form or
+enterprise agreement the ONLY instrument that can displace it. We have none, so **the
+client-facing "no vendor trains on your data" promise is NARROWED, not softened**: ours is
+unqualified, the vendor position is disclosed (`/legal/dpa` cl.2, `/legal/privacy` §6,
+`/legal/subprocessors` §3.4). (b) Retention, for any sub-processor description: content
+(Inputs/Outputs) 30 days after last access by default and described as user-configurable —
+⚠ **nobody has located where that setting is changed, so do not write that we changed it**;
+account data account + 90 days; voice samples until consent withdrawal + 30 days; security
+incident logs 7 years; deletion within 30 days of request verification save for legal
+retention, live proceedings, or technical limits (anonymised instead).
+**EVIDENCE CLASS: VENDOR-PUBLISHED** (Sarvam Terms of Service v2.0, eff. 29 July 2026,
+ss.6.2/17.5, and Sarvam Privacy Policy — read by the founder at `www.sarvam.ai` on
+27 Aug 2026 and relayed). **⚠ `sarvam.ai` and `docs.sarvam.ai` REMAIN EGRESS-BLOCKED FROM
+THIS CONTAINER** — the evidence arrived by another route; a fetch from here still 403s, and
+saying "read this session" of it would be false. All of which is why OPERATIONS §2 gate
+37(a) (is a voice recording SPDI biometric data?) now governs the LIVE CONVERSATION and not
+only the archive, and why it now bites the SPEECH leg too. **OpenAI direct is still not adopted, but the
 reason everyone quotes is SPENT**: D-448 refused it because it offers no Indian INFERENCE,
 and D-449 stopped asking for Indian inference, so that ground no longer discriminates.
 Azure is retained on an enterprise DPA, modified abuse monitoring, deployment-level model

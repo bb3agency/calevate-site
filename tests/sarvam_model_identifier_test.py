@@ -75,6 +75,7 @@ whatever the DEFAULT is, which keeps working the next time it moves.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Final
 
@@ -84,6 +85,7 @@ from calevate_shared.engine import (
     GOOGLE_DIRECT_MODELS,
     LLM_MODEL_NAMES,
     SARVAM_DEFAULT_LLM,
+    SARVAM_DEFAULT_STT,
     SARVAM_RETIRED_LLMS,
     SARVAM_TRANSLATING_STT,
 )
@@ -191,6 +193,51 @@ def test_the_default_is_not_itself_retired() -> None:
     assert SARVAM_DEFAULT_LLM not in SARVAM_RETIRED_LLMS, (
         f"{SARVAM_DEFAULT_LLM} is in the retired set and is also the default this repo "
         "sends on every extraction"
+    )
+
+
+def test_the_platform_default_transcriber_does_not_translate() -> None:
+    """THE BLIND SPOT THE SCAN ABOVE CANNOT SEE, and it opened the moment the STT leg got a
+    default.
+
+    `test_no_shipped_module_configures_a_translating_sarvam_transcriber` skips
+    `CANONICAL_HOME` — it has to, because that file is where the banned names are DEFINED.
+    `SARVAM_DEFAULT_STT` now lives in that same file and is what every published agent
+    sends, so a future edit swapping it to a translating identifier would be invisible to
+    every other check in this repository: nothing 400s, the pilot goes green, and the
+    symptom is a Telugu caller's opt-out that our matchers never see.
+
+    The whole point of the ban is that this failure has no vendor-side signal. A default
+    that carries it fails HERE, in CI, rather than on a phone call.
+    """
+    assert SARVAM_DEFAULT_STT not in SARVAM_TRANSLATING_STT, (
+        f"{SARVAM_DEFAULT_STT} is the transcriber every agent now publishes with AND is in "
+        "the translating set — it returns an English translation rather than the caller's "
+        "own words, on a Telugu-first product. Pick an original-language model."
+    )
+
+
+def test_the_platform_default_transcriber_is_a_model_the_engine_lists() -> None:
+    """The second half of "the default is real": the engine has to accept it.
+
+    VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/transcriber/sarvam.md`
+    (fetched 20 Aug 2026) — the four Sarvam STT models Bolna's own page lists. That page is
+    read here rather than restated, so a default that drifts to an identifier their engine
+    does not list (`saaras:v3-realtime`, say, which is Sarvam-direct and beta) fails in CI
+    instead of arriving as a vendor rejection at agent-create time on a live account.
+
+    NOT an assertion that the SDK enum and this list agree — they do not, and neither is
+    wrong. See `SARVAM_DEFAULT_STT`'s own comment: Bolna's page says what their engine
+    ACCEPTS, the SDK says what Sarvam currently SHIPS, and `saaras:v3` is in both.
+    """
+    page = (REPO_ROOT / "bolna-findings/mirror/pages/providers/transcriber/sarvam.md").read_text(
+        encoding="utf-8"
+    )
+    listed = set(re.findall(r"\b(?:saaras|saarika):v[0-9.]+", page))
+    assert listed, "the vendor page named no Sarvam STT model — has the mirror moved?"
+    assert SARVAM_DEFAULT_STT in listed, (
+        f"{SARVAM_DEFAULT_STT} is what every agent publishes and the engine's own "
+        f"transcriber page does not list it. It lists: {sorted(listed)}."
     )
 
 

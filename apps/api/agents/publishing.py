@@ -811,7 +811,13 @@ async def engine_drift_for(
             target, config = (
                 engine_agent_ref,
                 _variant_config(
-                    tenant_id, row, UUID(str(arm[0])), str(arm[1]), str(arm[3]), str(arm[2])
+                    tenant_id,
+                    row,
+                    UUID(str(arm[0])),
+                    str(arm[1]),
+                    str(arm[3]),
+                    str(arm[2]),
+                    engine=engine,
                 ),
             )
         else:
@@ -840,7 +846,7 @@ async def engine_drift_for(
                         "This agent is not on the voice platform, so there is nothing to compare."
                     ),
                 )
-            target, config = ref, _to_config(tenant_id, row)
+            target, config = ref, _to_config(tenant_id, row, engine=engine)
 
     return await _drift_of(engine, agent_id, target, config)
 

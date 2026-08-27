@@ -858,7 +858,7 @@ async def test_the_publish_config_is_built_from_the_posture_not_the_legacy_colum
     await _with_script(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
         agent = await _load_agent(session, tenant_id, agent_id)
-        config = _to_config(tenant_id, agent)
+        config = _to_config(tenant_id, agent, engine=get_engine())
 
     assert "STALE BUNDLE" not in config.opening_line
     assert config.opening_line == bundled_disclosure_line(

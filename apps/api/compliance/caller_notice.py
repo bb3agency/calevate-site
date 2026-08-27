@@ -67,6 +67,17 @@ log = get_logger(__name__)
 # The blanks only the client can fill, spelled the way the public legal documents spell
 # theirs so the two are recognisably one convention.
 BUSINESS_NAME = "{{YOUR REGISTERED BUSINESS NAME}}"
+#: The IDENTIFICATION address, and it is a separate blank from `BUSINESS_CONTACT` on
+#: purpose. `_open_questions` has always told the client to "put your registered business
+#: name and address in, in place of every blank" — and there was no address blank to put
+#: it in, so a client following the instruction to the letter published a notice that
+#: identified them by name only. Consumer-protection display duties are about saying WHO
+#: and WHERE the business is, which is not the same as offering a place to write to; it is
+#: rendered under "Who is responsible" for that reason and never as a correspondence
+#: route, matching `/legal/privacy` §14, `/legal/terms` §17 and `/legal/refunds` §7, which
+#: all print the supplier's address as identification and say plainly that no postal
+#: channel is operated.
+BUSINESS_ADDRESS = "{{YOUR REGISTERED BUSINESS ADDRESS}}"
 BUSINESS_CONTACT = "{{YOUR CONTACT FOR DATA QUESTIONS — NAME, EMAIL, PHONE}}"
 
 #: The disclaimer, in the response and at the top of the rendered text. Both, deliberately:
@@ -303,9 +314,11 @@ def _render(draft: CallerNoticeDraft) -> str:
 
 ## Who is responsible
 
-{BUSINESS_NAME} decides what is collected on these calls and why. Our calling and AI
-assistant are operated for us by Calevate, which processes this information only on our
-instructions.
+{BUSINESS_NAME}, of {BUSINESS_ADDRESS}, decides what is collected on these calls and why.
+That address is here so you know who and where we are; it is not a channel for writing to
+us about your information — use the contact under "Your rights" below for that. Our
+calling and AI assistant are operated for us by Calevate, which processes this information
+only on our instructions.
 
 ## Being told what you are speaking to
 
@@ -392,7 +405,10 @@ def _open_questions(agents: list[dict[str, Any]]) -> list[str]:
     skips.
     """
     questions = [
-        "Put your registered business name and address in, in place of every blank.",
+        "Put your registered business name and your registered business address in, in "
+        'place of every blank. The address identifies you under the "Who is '
+        'responsible" heading; it is not offered to callers as a place to send things, '
+        "so if you do want post, add that yourself and say so.",
         "Name the person who answers data questions for your business, with an email "
         "and a phone number that are actually monitored.",
         "If you call people who have not contacted you first, say what permits you to — "
@@ -418,6 +434,9 @@ def _open_questions(agents: list[dict[str, Any]]) -> list[str]:
 
 
 __all__ = [
+    "BUSINESS_ADDRESS",
+    "BUSINESS_CONTACT",
+    "BUSINESS_NAME",
     "DRAFT_WARNING",
     "CallerNoticeDraft",
     "CollectedItem",

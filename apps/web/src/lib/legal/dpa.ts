@@ -114,11 +114,26 @@ export const DPA: LegalDocument = {
           kind: "list",
           items: [
             "We do not use your callers' personal data for our own purposes.",
-            "We do not use it to train, fine-tune or evaluate any model, ours or a " +
-              "vendor's, and our vendor arrangements are selected so that submitted content " +
-              "is not used to improve the vendor's products. One consumer-tier model " +
-              "interface was disqualified outright on this ground, and the code refuses the " +
-              "credential that would reach it.",
+            "We do not use it to train, fine-tune or evaluate any model. That is our " +
+              "own undertaking and it is unqualified.",
+            "What a VENDOR may do with what we send it is a different promise, and we " +
+              "will not make one we cannot keep. Until 27 August 2026 this clause said " +
+              "our vendor arrangements were selected so that submitted content is not " +
+              "used to improve a vendor's products. On the speech leg — the vendor that " +
+              "hears the call and produces the transcript — that is not what the vendor's " +
+              "terms say. The terms of service governing its APIs (version 2.0, effective " +
+              "29 July 2026) permit it, at their paragraph 17.5, to use inputs, outputs and " +
+              "usage " +
+              "data to train its machine-learning models, in accordance with its privacy " +
+              "policy and applicable law and, where required, subject to a consent that " +
+              "may be declined or withdrawn — and it states that declining may restrict " +
+              "access to certain of its offerings. That clause applies to every plan it " +
+              "sells, and their paragraph 6.2 gives a signed order form " +
+              "precedence over it, which is the only route to a stronger commitment. We " +
+              "have not signed one, and we would rather tell you that than repeat a " +
+              "sentence we cannot stand behind. Section 3.4 of the sub-processor page " +
+              "carries the detail; if a no-training commitment on that leg is a condition " +
+              "of your signing, tell us before you sign.",
             "We do not pool it across clients, sell it, or share it for anyone's marketing.",
             "If we believe an instruction of yours breaks the law, we will tell you and " +
               "may decline to act on it. Several such refusals are automatic — the " +
@@ -247,9 +262,15 @@ export const DPA: LegalDocument = {
             "An erasure request that locates the person across calls, transcript turns, " +
               "extractions, leads, campaign contact lists, the bodies delivered to your own " +
               "systems and the archived raw call documents, carries out the erasure, and " +
-              "produces a certificate recording what was done, where, when, and with " +
-              "per-record hashes as evidence. The certificate is yours to hand to the " +
-              "person who asked.",
+              "produces a certificate recording what was done, where and when. The " +
+              "evidence on it is at two levels of detail and the certificate says which " +
+              "is which: a per-record hash for every CALL RECORD and every LEAD RECORD " +
+              "it cleared, so a later audit can check exactly which rows were reached " +
+              "without the certificate itself carrying anyone's number; and a COUNT for " +
+              "everything else it touched — transcript turns, extracted fields, " +
+              "recordings, uploaded campaign contact rows, the payload bodies delivered " +
+              "to your own systems, the archived raw call documents, and knowledge-base " +
+              "matches. The certificate is yours to hand to the person who asked.",
             "Correction: you can edit a lead record directly.",
           ],
         },
@@ -273,7 +294,11 @@ export const DPA: LegalDocument = {
             "fixed when the request runs, and the audio is destroyed on that date without a " +
             "second request. Copies held by the voice platform are reported as unconfirmed, " +
             "because their deletion interface is undocumented and we will not certify a " +
-            "deletion we cannot show. Knowledge content you uploaded is not searched. " +
+            "deletion we cannot show. Knowledge content you uploaded is SEARCHED for the " +
+            "subject's number and the number of matching documents is reported on the " +
+            "certificate, but none of it is edited or deleted — this callout said it was " +
+            "not searched at all, which was wrong and is corrected rather than dropped; " +
+            "clause 8 states the same limit and why it is deliberate. " +
             "Backups age out on their own 35-day cycle.",
         },
       ],
@@ -353,9 +378,16 @@ export const DPA: LegalDocument = {
             "below change on a known date. Section 16 of the DPDP Act permits transfer of " +
             "personal data outside India except to a country the Central Government " +
             "notifies as restricted, and no such notification has been made. It is a " +
-            "permission by absence rather than by grant, and it is not yet in force: the " +
-            "commencement notification brings sections 3 to 17 of the Act, which include " +
-            "section 16, into effect on 13 May 2027. So section 16 neither permits nor " +
+            "permission by absence rather than by grant, and it is not yet in force. " +
+            "The date is DERIVED and we would rather show the derivation than state a " +
+            "day as though the Act contained one: rule 1 of the DPDP Rules 2025 " +
+            "commences the substantive provisions — sections 3 to 17 of the Act, which " +
+            "include section 16 — eighteen months after those Rules were published in " +
+            "the Official Gazette. Published on 13 November 2025, that is 13 May 2027; " +
+            "published on 14 November, it is a day later. We have not read the gazette " +
+            "copy ourselves and our sources differ by that one day, so read it as the " +
+            "middle of May 2027, and note that nothing in this clause turns on which. " +
+            "So section 16 neither permits nor " +
             "restricts these transfers today — it forecloses a restriction that has not " +
             "been made, and we would rather write that than let a shorter sentence read " +
             "as a statutory authorisation we do not yet have.",
@@ -409,22 +441,34 @@ export const DPA: LegalDocument = {
             "goes is named on the sub-processor page, and the question is on the list for " +
             "the advocate whose review this document is waiting on. Read it as a question " +
             "about the LIVE call and not only about the stored file: the audio is carried " +
-            "by a platform outside India while the call is happening, and since 22 August " +
+            "by a platform outside India while the call is happening, the speech " +
+            "provider that turns it into text may itself process it outside India under " +
+            "its own published policy, and since 22 August " +
             "2026 the transcript of it reaches a model in the United States turn by turn " +
             "as it is spoken. If the answer is yes, the stricter transfer test applies to " +
             "the conversation itself, which is why the question is worth more to you than " +
-            "its age suggests. It stops mattering on " +
-            "13 May 2027, when the DPDP Act replaces the sensitive-data tier with a single " +
-            "category — and it is live until then, which is why it is in the contract and " +
-            "not in a note.",
+            "its age suggests. It stops mattering when the DPDP Act replaces the " +
+            "sensitive-data tier with a single category — the same middle-of-May-2027 " +
+            "commencement derived in the first paragraph of this clause — and it is live " +
+            "until then, which is the whole window in which your first calls happen. That " +
+            "is why it is in the contract and not in a note, and why the privacy notice " +
+            "(section 8) and the acceptable use policy (section 2.6) both send you back " +
+            "to this callout rather than each writing their own version of it.",
         },
         {
           kind: "para",
           text:
             "The sub-processor page states, for each vendor, where it processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
-            "notice: speech recognition and voice synthesis run on an Indian provider, " +
-            "and so does the first pass that reads the transcript; the language model on " +
+            "notice: speech recognition, voice synthesis and the first pass that reads " +
+            "the transcript run on an Indian provider — a statement about the COMPANY " +
+            "and not about the country, which this clause used to let you read as the " +
+            "same thing. That provider's published privacy policy permits it to transfer " +
+            "personal data to and process it in countries outside India, including on " +
+            "United States cloud infrastructure and with European Union model and " +
+            "security vendors, under standard contractual clauses, adequacy decisions " +
+            "and data-processing agreements, so the call audio and its transcript may be " +
+            "processed outside India on that leg as well; the language model on " +
             "both AI legs runs on one of several providers a client can choose between, " +
             "each named on the sub-processor page with where it processes — the one we " +
             "run by default is a hyperscale provider's service configured for a United " +
@@ -458,8 +502,11 @@ export const DPA: LegalDocument = {
             "provider handles the language leg and where it runs. The single-vendor, " +
             "single-region promise this clause used to make about that leg is " +
             "WITHDRAWN, not narrowed. Speech recognition, voice synthesis and the first " +
-            "pass that reads your transcript are unaffected: they stay with an Indian " +
-            "provider. What the figure beside each model is, and whether choosing a " +
+            "pass that reads your transcript are unaffected BY YOUR MODEL CHOICE: they " +
+            "stay with the same Indian provider, whose own locations and terms are set " +
+            "out above and on the sub-processor page — and an Indian provider is not the " +
+            "same as processing in India, which this clause used to let you read as one " +
+            "claim. What the figure beside each model is, and whether choosing a " +
             "model changes what you pay, is set out in clause 6.1 of the Terms of " +
             "Service.",
         },
@@ -531,8 +578,11 @@ export const DPA: LegalDocument = {
             "whether we can meet it — and on the evidence on the sub-processor page, a " +
             "requirement that the call itself stay in India is one we cannot meet today, " +
             "and since 22 August 2026 neither is a requirement that the language model " +
-            "stay in India. Speech and the first reading of the transcript remain " +
-            "Indian, and the application database is to be hosted in India on the " +
+            "stay in India — and since 27 August 2026 we no longer say the speech leg " +
+            "meets one either: that provider is an Indian company, its own published " +
+            "policy permits it to process outside India, and a localisation duty is " +
+            "about where the processing happens rather than about the flag on the " +
+            "vendor. The application database is to be hosted in India on the " +
             "decision recorded above — a host that is chosen and not yet provisioned, " +
             "so read it as a commitment we are making rather than a machine you can " +
             "point at. If your duty can be met by those alone, " +
@@ -692,9 +742,18 @@ export const DPA: LegalDocument = {
                   "The redaction covers Aadhaar (Verhoeff-checked), PAN, card numbers " +
                   "(Luhn-checked) and one-time-password patterns, plus a model-assisted " +
                   "pass for numbers spoken digit by digit.",
-                "Recordings are held in our own object storage, encrypted at rest, reached " +
-                  "only by signed links valid for five minutes, in buckets where public " +
-                  "access is blocked at the account level.",
+                "Recordings are held in our own object storage, encrypted at rest, in " +
+                  "buckets where public access is blocked at the account level, and " +
+                  "reached only through a signed link that expires. A recording's link " +
+                  "is sized to the recording it opens rather than given a flat window: " +
+                  "twice the call's own duration, so that a listener who pauses, rewinds " +
+                  "and scrubs is not cut off part-way through, with a floor of five " +
+                  "minutes for a short call and a ceiling of two hours and five minutes " +
+                  "— twice the longest call an agent may be configured to run, plus that " +
+                  "floor. Every other file we sign a link for gets the flat five " +
+                  "minutes: the signature is itself the credential, so the window is " +
+                  "widened only for the one artefact whose own length justifies it, and " +
+                  "never across the board.",
                 "Credentials are encrypted at rest with a per-secret key wrapped by a " +
                   "master key that lives only in the process environment and never in the " +
                   "database. Key rotation is supported with an overlap period.",

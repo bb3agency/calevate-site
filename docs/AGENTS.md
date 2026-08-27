@@ -49,8 +49,16 @@ field can carry one, and that no endpoint is constructible outside the builder �
 resource's actual region and its **Regional-not-Global** deployment type are attested by a
 human (OPERATIONS §2 gates 20 and 20c, which survive D-449 re-aimed at East US 2). Global is
 Azure's default and processes worldwide, so it would delete the region claim rather than
-downgrade it. Speech remains Sarvam and Indian; the transcript reaches a US model on every
-turn. **(b) The credential FIELD NAMES are SETTLED and the guess we shipped was WRONG**
+downgrade it. Speech remains Sarvam — an Indian COMPANY, which is NOT a residency claim and
+was written here as one until 27 Aug 2026. Sarvam's own privacy policy says personal data
+*"may be transferred to and processed in countries outside India"*, naming US cloud
+infrastructure (AWS/GCP/Azure) and EU model and security vendors; its India-storage carve-out
+covers voice biometric data in Content Studio and payment data, not the Saaras/Bulbul API
+traffic our calls generate. So the AUDIO may leave India on the speech leg as well as the
+transcript reaching a US model on every turn. Its ToS s.17.5 also permits training on
+Inputs/Outputs/usage data (declinable consent where required, same on every tier), and only
+a signed order form under s.6.2 can displace it — we have none, so the client-facing
+no-training promise is narrowed to OUR conduct. VENDOR-PUBLISHED (Sarvam Privacy Policy, "Cross-Border Data Transfers"; Sarvam ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` is still egress-blocked from this container). **(b) The credential FIELD NAMES are SETTLED and the guess we shipped was WRONG**
 (D-417): their Azure provider takes four flat entries — `AZURE_OPENAI_API_KEY`,
 `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION`
 (`bolna-findings/mirror/pages/providers.md:40,96-102`) — so four `POST /providers` calls,

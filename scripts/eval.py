@@ -887,7 +887,10 @@ def render_comparison(runs: Sequence[ProviderRun], meta: Mapping[str, Any]) -> s
     lines += [
         "- **It cannot move the FIRST post-call extraction off Sarvam.** That pass reads "
         "the RAW transcript because a callback-number field needs the actual digits, and "
-        "D-127 G-2/G-7 keeps it sovereign for that reason alone — "
+        "D-127 G-2/G-7 keeps it on an INDIAN VENDOR for that reason alone — and "
+        '"sovereign", which this line used to say, is not what that buys: Sarvam\'s own '
+        "privacy policy permits it to process personal data outside India (D-476, "
+        "27 Aug 2026) — "
         "`GEMINI_EXTRACTION_DEFAULT is False`, a constant D-410 deliberately did not move "
         "when it took both LLM surfaces to Azure OpenAI. An `azure` column that wins every "
         "field here changes what serves the user-triggered assist, over the REDACTED copy, "

@@ -520,6 +520,64 @@ _GPT5_TEMPERATURE: Final = 1
 _NO_REASONING: Final = "none"
 
 
+def _synthesizer_config(models: ModelConfig) -> dict[str, str]:
+    """`provider_config` for the Sarvam voice provider: the model and the speaker, in the
+    three keys the vendor's own example carries.
+
+    VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`, `create-agent/SKILL.md`:
+    `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh", "voice_id":
+    "ashutosh"}`. Three keys for two facts — the speaker appears twice, once as a display
+    name and once as an id — and BOTH are sent, because the example sends both and
+    guessing which one their provider actually reads is the guess this whole change exists
+    to stop making. `voice` is the capitalised form and `voice_id` the lowercase one, which
+    is the only relationship the example shows; deriving it here rather than carrying a
+    label through `ModelConfig` keeps the vendor's casing convention inside the adapter
+    (hard rule 2).
+
+    ABSENT KEYS RATHER THAN NULLS, and that is the pre-existing behaviour preserved: an
+    agent with no voice configured used to send `{"voice": null}` and now sends `{}`. The
+    engine picking its own speaker for an agent that named none is the same outcome; what
+    changed is that we no longer assert a null where the vendor expects a string, which is
+    the shape a schema-validating endpoint rejects outright.
+
+    A voice id we do not recognise arrives here as a speaker with NO model
+    (`voices.speech_for_voice_id`), so it is sent in `voice`/`voice_id` alone — byte for
+    byte what a legacy `bulbul:v3` row sent before this split, rather than a silent
+    upgrade to a model slot on a value the catalogue cannot vouch for.
+    """
+    config: dict[str, str] = {}
+    if models.tts_model is not None:
+        config["model"] = models.tts_model
+    if models.tts_voice is not None:
+        config["voice"] = models.tts_voice.capitalize()
+        config["voice_id"] = models.tts_voice
+    return config
+
+
+def _read_speaker(voice_id: str | None, voice: str | None) -> str | None:
+    """The SPEAKER an agent object came back holding, from whichever of the two keys the
+    engine echoed.
+
+    `voice_id` FIRST because it is the one we can compare without touching it: our
+    speakers are lowercase by the vendor's own enum, so a `voice_id` echo equals
+    `ModelConfig.tts_voice` exactly and the drift verdict is a string equality.
+
+    `voice` is the fallback and it is LOWERCASED, which is a normalisation and is named as
+    one. We send that key capitalised (`_synthesizer_config`), so lowering recovers the id
+    for the shape we send; for anything else it is identity on a value already lowercase.
+    Without it, an engine that echoes only the display name would report a mismatch on
+    every agent forever — a false drift alarm being exactly what `_agent_models` must not
+    manufacture. WHICH of the two their platform stores is not settled here; OPERATIONS §2
+    gate 3 observes it on the first live publish, and reading both is what makes the answer
+    arrive as data rather than as a reviewer's guess.
+    """
+    if voice_id:
+        return voice_id
+    if voice:
+        return voice.lower()
+    return None
+
+
 def _llm_trap_settings(models: ModelConfig) -> dict[str, object]:
     """The `llm_config` keys that make THIS model's request legal, from its declared traps.
 
@@ -1713,7 +1771,7 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     """`(selections, readable)` — the BYOK choices the agent is RUNNING, in our terms.
 
     The read half of the `EngineCapabilities` BYOK claim (D-93). `update_agent` sends
-    `llm_agent.model`, `synthesizer.provider`/`provider_config.voice` and
+    `llm_agent.model`, `synthesizer.provider`/`provider_config.{model,voice,voice_id}` and
     `transcriber.provider`/`model`; without a way to read them back, "the engine is using
     Bulbul v3" was a claim resting on a 2xx — the same ACCEPTED-versus-APPLIED gap
     `AgentSnapshot.system_prompt` was introduced to close, for the setting that decides
@@ -1856,7 +1914,16 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
             llm_provider=llm_provider,
             llm_base_url=base_url,
             tts_provider=leaf("synthesizer", "provider"),
-            tts_voice=leaf("synthesizer", "provider_config", "voice"),
+            tts_model=leaf("synthesizer", "provider_config", "model"),
+            # BOTH SPEAKER KEYS, via one reader — see `_read_speaker`. Reading `voice`
+            # alone (which is what this line did while `voice` held a MODEL) would compare
+            # a display name against our lowercase speaker id and report drift on every
+            # agent; reading `voice_id` alone would report None on an engine that echoes
+            # only the other one.
+            tts_voice=_read_speaker(
+                leaf("synthesizer", "provider_config", "voice_id"),
+                leaf("synthesizer", "provider_config", "voice"),
+            ),
         ),
         True,
     )
@@ -2679,34 +2746,32 @@ class BolnaEngine:
                                     **_llm_trap_settings(cfg.models),
                                 },
                             },
-                            # MARKED ASSUMPTION, AND THE EVIDENCE IS AGAINST IT (D-358).
-                            # `cfg.models.tts_voice` holds a MODEL string — `bulbul:v3` or
-                            # `bulbul:v2`, per `agents/voices.py`, which says outright that
-                            # it "offers a choice of MODEL ... and offers no named speakers"
-                            # because no Sarvam speaker list was known. It is sent in the
-                            # `voice` key.
+                            # THE MODEL AND THE SPEAKER, IN THE TWO KEYS THE VENDOR
+                            # READS THEM FROM — and until D-358's second half landed we
+                            # sent one string in the wrong one of them.
                             #
-                            # The vendor's own Sarvam example puts those in DIFFERENT keys:
-                            # `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh",
-                            # "voice_id": "ashutosh"}` (VERIFIED-VENDOR-REPO,
-                            # `create-agent/SKILL.md`), and `GET /me/voices` exists to list
-                            # the speakers once a TTS provider is configured. So we are
-                            # very likely naming a model where a speaker belongs, and
-                            # naming no model at all.
+                            # `cfg.models.tts_voice` used to hold a MODEL (`bulbul:v3`)
+                            # and it was sent as `provider_config.voice`, so every agent
+                            # named a model where a speaker belongs and named no model at
+                            # all. The vendor's own worked example is unambiguous:
+                            # `"provider_config": {"model": "bulbul:v3", "voice":
+                            # "Ashutosh", "voice_id": "ashutosh"}` (VERIFIED-VENDOR-REPO,
+                            # `bolna-ai/skills@28b24aa`, `create-agent/SKILL.md`).
                             #
-                            # NOT "FIXED" HERE, and the restraint is the point: moving the
-                            # string to `model` leaves `voice` unset and the engine picks
-                            # whichever speaker it likes, which changes what every client's
-                            # caller HEARS on the strength of one example in a prose file.
-                            # Splitting it properly needs `ModelConfig` to carry a
-                            # `tts_model` beside `tts_voice`, and the voice catalog to carry
-                            # real speaker ids — which come from `GET /me/voices` on a live
-                            # account. Both halves are named in D-358; the second is the
-                            # external blocker (an account), and OPERATIONS §2 gate 3
-                            # already owns the question.
+                            # WHAT UNBLOCKED IT was a speaker list. The comment that used
+                            # to sit here declined to move the string because "moving it
+                            # to `model` leaves `voice` unset and the engine picks
+                            # whichever speaker it likes" — correct at the time, and dead
+                            # now: Sarvam's own SDK enumerates all 44 speakers
+                            # (VERIFIED-VENDOR-SDK: sarvamai==0.1.31 (PyPI wheel),
+                            # `types/text_to_speech_speaker.py`, read 27 Aug 2026), so a
+                            # speaker CAN be named. `agents/voices.py` carries them and
+                            # `agents/service.py::in_call_speech` splits our catalogue id
+                            # into the pair; this adapter never parses that id (hard
+                            # rule 2 — the id spelling is ours, not a payload shape).
                             "synthesizer": {
                                 "provider": cfg.models.tts_provider,
-                                "provider_config": {"voice": cfg.models.tts_voice},
+                                "provider_config": _synthesizer_config(cfg.models),
                                 "stream": True,
                             },
                             "transcriber": {

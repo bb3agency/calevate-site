@@ -180,6 +180,7 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
         url=f"{azure_openai_base_url(resource)}/chat/completions",
         api_key=api_key,
         wire_model=deployment,
+        dialect="openai",
     )
     messages = [
         {"role": "system", "content": _SYSTEM_INSTRUCTION},
@@ -245,6 +246,7 @@ async def _draft_via_sarvam(description: str) -> _RawDraft | None:
                 url=SARVAM_CHAT_URL,
                 api_key=settings.sarvam_api_key,
                 wire_model=SARVAM_DEFAULT_LLM,
+                dialect="sarvam",
             ),
             [
                 {"role": "system", "content": _SYSTEM_INSTRUCTION},

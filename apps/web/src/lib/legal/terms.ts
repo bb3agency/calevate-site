@@ -433,8 +433,10 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "The Data Processing Addendum governs our handling of Caller Data and forms " +
             "part of this agreement. In summary: you are the Data Fiduciary, we are your " +
             "Data Processor, we act on your documented instructions, we do not use your " +
-            "callers' data for our own purposes or to train any model, and the " +
-            "sub-processors we use are named.",
+            "callers' data for our own purposes or to train any model OF OURS, what a " +
+            "vendor's own terms permit that vendor to do is stated rather than promised " +
+            "away (clause 2 of that Addendum, which was narrowed on 27 August 2026 for " +
+            "exactly that reason), and the sub-processors we use are named.",
         },
         {
           kind: "para",
@@ -466,8 +468,11 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "when the agreement does, subject to clause 14.",
             "Improving the product never means learning from your callers. We do not use " +
               "your Client Data or your Caller Data to train, fine-tune or evaluate any " +
-              "model, ours or a vendor's — clause 2 of the Data Processing Addendum is " +
-              "the operative promise and nothing in this clause cuts it back. What we own " +
+              "model. That is our own undertaking; what a vendor's terms permit that " +
+              "vendor to do with what we send it is a separate question, and clause 2 of " +
+              "the Data Processing Addendum states it rather than promising on every " +
+              "vendor's behalf — that clause is the operative text and nothing here cuts " +
+              "it back or widens it. What we own " +
               "is the generic product: the code, the prompts we wrote, the schemas we " +
               "ship. Not anything derived from your conversations.",
             "Neither of us may use the other's name or marks publicly without written " +

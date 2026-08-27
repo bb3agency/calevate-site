@@ -23,7 +23,20 @@ import pytest
 from apps.workers import chat
 
 LEG = chat.ChatLeg(
-    url="https://example.invalid/openai/v1/chat/completions", api_key="k", wire_model="dep"
+    url="https://example.invalid/openai/v1/chat/completions",
+    api_key="k",
+    wire_model="dep",
+    dialect="openai",
+)
+
+#: The same request aimed at the other vendor. Every property below that differs between
+#: the two is a property of the ENVELOPE, not of the body — which is why "it is
+#: OpenAI-compatible" was not enough to get either of them right.
+SARVAM_LEG = chat.ChatLeg(
+    url="https://example.invalid/v1/chat/completions",
+    api_key="k",
+    wire_model="sarvam-105b",
+    dialect="sarvam",
 )
 
 
@@ -80,7 +93,69 @@ async def test_the_key_travels_as_a_static_bearer_and_optional_keys_are_omitted(
 
     assert seen["headers"]["authorization"] == "Bearer k"
     assert "api-key" not in seen["headers"]
+    assert "api-subscription-key" not in seen["headers"]
     assert seen["body"] == {"model": "dep", "messages": [{"role": "user", "content": "q"}]}
+
+
+async def test_the_sarvam_leg_sends_its_key_raw_in_the_header_sarvam_actually_reads() -> None:
+    """`api-subscription-key: <key>`, with NO `Authorization` header at all.
+
+    THE REGRESSION THIS PINS IS A SHIPPED ONE. `_headers` returned `Authorization: Bearer`
+    for every leg under a docstring asserting Sarvam took the same, and it does not:
+    VERIFIED-VENDOR-SDK `sarvamai==0.1.31` (PyPI wheel), `core/client_wrapper.py:39` sets
+    `headers["api-subscription-key"]` and has no `Authorization` branch, and the same
+    wheel's `chat/raw_client.py:189` posts to the very endpoint `SARVAM_CHAT_URL` names.
+    So every request on the disclosed fallback leg was a 401 waiting for the first
+    deployment configured with a Sarvam key and no Azure one.
+
+    FAILS IF: somebody re-unifies the two headers. The `Authorization` assertion is the
+    load-bearing half — sending BOTH would make the leg work and would still be wrong,
+    because it puts a credential in a header the vendor does not read and our own log
+    redaction reaches by a different entry.
+    """
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["headers"] = dict(request.headers)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+
+    async with _client(handler) as client:
+        await chat.complete(
+            SARVAM_LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
+        )
+
+    assert seen["headers"]["api-subscription-key"] == "k"
+    assert "authorization" not in seen["headers"]
+
+
+async def test_a_streamed_sarvam_request_omits_the_stream_options_key_sarvam_has_no_slot_for() -> (
+    None
+):
+    """`stream` yes, `stream_options` no.
+
+    VERIFIED-VENDOR-SDK: `sarvamai==0.1.31`, `chat/raw_client.py:191-215` builds its
+    request body from a fixed key list that does not include `stream_options`. Sending an
+    unknown key risks a 400, which would turn the working fallback into a refusal — and
+    we lose nothing by omitting it, because the vendor's `ChatCompletionChunk` carries its
+    own optional `usage` block (`types/chat_completion_chunk.py:41`).
+
+    A stream that ends without one leaves `usage is None`, which means "we do not know
+    what this cost" and never "it was free" — the direction hard rule 7 requires.
+    """
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"data: [DONE]\n\n")
+
+    async with _client(handler) as client:
+        async for _ in chat.stream(
+            SARVAM_LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
+        ):
+            pass
+
+    assert seen["body"]["stream"] is True
+    assert "stream_options" not in seen["body"]
 
 
 async def test_a_streamed_request_asks_for_usage() -> None:

@@ -1372,6 +1372,149 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
     return failures
 
 
+# --- 4d. the STT rate card, the other half of the speech leg ---------------------------
+#
+# WHY THIS EXISTS SEPARATELY FROM 4b. Same defect, second leg, different UNIT — and the
+# unit is the whole reason it was missed. TTS is billed per CHARACTER and had a code home
+# (`TTS_INR_PER_10K_CHARS`) and a check the day the rate card was written; STT is billed
+# per unit of AUDIO TIME and had NEITHER until now. The ₹30/hour figure lived in §10.1
+# prose and, blended with four other legs, inside `SELF_SERVE_COST_FLOOR_INR_PER_MIN` —
+# a money figure with no code home and nothing able to notice a vendor move, which is
+# D-103/D-105 exactly.
+#
+# BOTH SPELLINGS, AND THEY ARE CHECKED AGAINST EACH OTHER TOO, for 4b's reason: §10.1's
+# Sarvam card quotes the vendor's own unit ("₹30 / hour") and the per-call-minute table
+# below it re-expresses the same rate as "₹0.50". A doc that disagrees with ITSELF about a
+# price is the cheapest version of this failure and the likeliest to survive review,
+# because each table reads fine alone.
+#
+# THE DIARIZATION ROW IS EXCLUDED, DELIBERATELY AND BY NAME. §10.1 prices STT with
+# diarization at ₹45/hour, and it is a real vendor rate — but nothing in this repository
+# enables diarization, so there is no code constant for it and there must not be one
+# (`billing/rates.py` states why). Reconciling that row against `STT_INR_PER_HOUR` would
+# report drift on a document that is right; silently letting a bare `₹.../hour` regex
+# swallow it would be worse, because it would then be the row that has to stay ₹30 for the
+# check to pass. So the exclusion is a named predicate rather than a regex accident.
+#
+# EVIDENCE LADDER. Unlike 4b's rates, this one is **VENDOR-PUBLISHED**: the Sarvam
+# dashboard Model Catalogue prices `saaras:v3` and `saaras:v4` at ₹30/hour of audio (and
+# ₹45/hour with diarization), read by the founder on 27 Aug 2026 and relayed. This
+# container still cannot fetch Sarvam (`docs.sarvam.ai`, `www.sarvam.ai` → 403 on CONNECT,
+# re-measured the same day), so what THIS check proves is the narrower thing it can: that
+# the doc and the code state ONE rate, so the next correction has one place to land.
+
+#: `| Speech-to-Text **and Translate** (Saaras) | ₹30 / hour |` and the per-call-minute
+#: table's `| STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |` — every ₹/hour spelling
+#: of the STT rate, in whichever table it appears.
+_DOC_STT_PER_HOUR = re.compile(
+    r"₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*(?:hour|hr)\b",
+    re.IGNORECASE,
+)
+#: The third cell of `| STT — … | ₹30/hr | **₹0.50** |`: the per-call-minute figure. Read
+#: from the CELL rather than by matching "₹0.50" anywhere on the line, so the rate column
+#: beside it cannot be mistaken for it.
+_DOC_STT_PER_MINUTE = re.compile(
+    r"^\|[^|\n]*\|[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)",
+)
+
+
+def _is_stt_row(line: str) -> bool:
+    """A §10.1 table row pricing the STT leg we actually run.
+
+    Diarization is excluded by name: it is a different rate for a feature this repository
+    does not enable (`billing/rates.py::STT_INR_PER_HOUR`), so it is not a claim about
+    `STT_INR_PER_HOUR` and must not be reconciled against it.
+    """
+    if not line.startswith("|") or "diariz" in line.lower():
+        return False
+    return "speech-to-text" in line.lower() or line.lower().startswith("| stt")
+
+
+def doc_stt_rates_per_hour(text: str | None = None) -> list[Decimal]:
+    """Every ₹/hour STT figure §10.1 states, in document order.
+
+    A LIST, not a set, and not a single value: §10.1 states the rate on three separate
+    rows (plain STT, Saaras, and the rate column of the per-call-minute table), and a
+    vendor move that lands on two of them is exactly the half-applied edit this is for.
+    """
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    body = _section(document, TTS_RATE_HEADING, "\n### ")
+    if body is None:
+        return []
+    return [
+        _decimal(amount)
+        for line in body.splitlines()
+        if _is_stt_row(line)
+        for amount in _DOC_STT_PER_HOUR.findall(line)
+    ]
+
+
+def doc_stt_rates_per_minute(text: str | None = None) -> list[Decimal]:
+    """Every per-call-minute STT figure §10.1 states, in document order."""
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    body = _section(document, TTS_RATE_HEADING, "\n### ")
+    if body is None:
+        return []
+    return [
+        _decimal(amount)
+        for line in body.splitlines()
+        if _is_stt_row(line)
+        for amount in _DOC_STT_PER_MINUTE.findall(line)
+    ]
+
+
+def stt_rate_card_drift(text: str | None = None) -> list[str]:
+    """TRD §10.1's STT rate against `billing/rates.py::STT_INR_PER_HOUR`. Both directions,
+    both spellings, and the two spellings against each other.
+
+    AN EMPTY READING IS A FAILURE, not a pass — `llm_cost_curve_drift`'s argument. A guard
+    that cannot find its subject has not verified it, and the way this check dies quietly
+    is a table reword that leaves the money unguarded while the gate still prints OK.
+    """
+    from apps.api.billing.rates import STT_INR_PER_HOUR, stt_rate_inr_per_minute
+
+    per_hour = doc_stt_rates_per_hour(text)
+    per_minute = doc_stt_rates_per_minute(text)
+    if not per_hour:
+        return [
+            f"{_rel(TRD)} §10.1 states no `₹N / hour` STT rate at all. The STT leg is a "
+            "third of the per-minute cost model and `billing/rates.py::STT_INR_PER_HOUR` "
+            "is priced against that row; restore it or delete this check deliberately."
+        ]
+    if not per_minute:
+        return [
+            f"{_rel(TRD)} §10.1's per-call-minute table states no STT figure. It is the "
+            "spelling the ₹/hour rate is consumed in and the one a founder reads; restore "
+            "it or delete this check deliberately."
+        ]
+    failures = [
+        f"{_rel(TRD)} §10.1 prices the STT leg at ₹{rate}/hour on one row and "
+        f"₹{per_hour[0]}/hour on another — the same rate, stated twice, disagreeing"
+        for rate in per_hour[1:]
+        if rate != per_hour[0]
+    ]
+    failures += [
+        f"{_rel(TRD)} §10.1 quotes the STT leg at ₹{rate}/call-minute, and its own "
+        f"₹{per_hour[0]}/hour rate is ₹{per_hour[0] / 60}/minute — the same rate, stated "
+        "in two units, disagreeing"
+        for rate in per_minute
+        if rate != _at_doc_precision(per_hour[0] / 60, rate)
+    ]
+    failures += [
+        f"{_rel(TRD)} §10.1 prices the STT leg at ₹{per_hour[0]}/hour and "
+        f"`billing/rates.py::STT_INR_PER_HOUR` holds ₹{STT_INR_PER_HOUR}. The cost model "
+        "and the code are one number"
+    ] * (per_hour[0] != STT_INR_PER_HOUR)
+    failures += [
+        f"{_rel(TRD)} §10.1 quotes ₹{rate}/call-minute and "
+        f"`billing/rates.py::stt_rate_inr_per_minute()` computes "
+        f"₹{_at_doc_precision(stt_rate_inr_per_minute(), rate)}"
+        for rate in per_minute
+        if rate != _at_doc_precision(stt_rate_inr_per_minute(), rate)
+    ]
+    return failures
+
+
 # --- 4c. the LLM per-minute figures mirror the function that computes them -------------
 #
 # WHY THIS EXISTS SEPARATELY FROM 4b. That one guards a rate the biller charges; this one
@@ -2250,6 +2393,7 @@ def main() -> int:
         ("the rate-zone table and the nginx template disagree", rate_zone_drift()),
         ("the cost model and the biller price a TTS rung differently", tts_rate_card_drift()),
         ("the cost model and the code disagree on the in-call LLM leg", llm_cost_curve_drift()),
+        ("the cost model and the biller price the STT leg differently", stt_rate_card_drift()),
         ("the legal catalogue and the web bundle disagree", legal_catalogue_drift()),
         ("a deferral that no longer holds", stale_deferrals()),
         ("prose states a capability constant's value, and the tree disagrees", capability_drift()),
@@ -2277,6 +2421,8 @@ def main() -> int:
         f"{len(compliance_section_tokens())} names in SEC-COMP §3 still in the code, "
         f"{len(doc_rate_zones())} rate zones declared, "
         f"{len(doc_tts_rates())} TTS rungs priced identically by TRD §10.1 and the biller, "
+        f"{len(doc_stt_rates_per_hour()) + len(doc_stt_rates_per_minute())} STT rate "
+        f"statements in TRD §10.1 agreeing with `STT_INR_PER_HOUR`, "
         f"{sum(len(points) for points in doc_llm_cost_points().values())} in-call LLM cost "
         f"points, across {len(doc_llm_cost_points())} models, matching "
         f"`llm_cost_inr_per_minute`, "

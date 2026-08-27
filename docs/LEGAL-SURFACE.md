@@ -290,9 +290,29 @@ requirement for a sub-64-bit authenticator looks like when it is taken seriously
   ⚠ **AND SINCE D-449 (22 Aug 2026) THE STATEMENT IS NOT AN INDIA STATEMENT AT ALL.** The
   region is `eastus2`. The client-facing India warranty is WITHDRAWN across `/legal/dpa`,
   `/legal/privacy`, `/legal/subprocessors` and the public landing page; the speech legs
-  remain Sarvam and Indian, and the caller's transcript reaches a US model on every turn as
-  it is spoken. Read everything below as a claim about a NAMED REGION and an accurate
+  remain SARVAM, and the caller's transcript reaches a US model on every turn as
+  it is spoken. ⚠ **This sentence used to end "the speech legs remain Sarvam and Indian" —
+  see the 27 Aug 2026 correction immediately below: that was a claim about the VENDOR, and
+  the vendor's own policy permits it to process outside India.** Read everything below as a claim about a NAMED REGION and an accurate
   sub-processor disclosure, never as localisation.
+
+  ⚠ **AND ON 27 AUG 2026 THE SPEECH LEG STOPPED BEING AN INDIA CLAIM AS WELL.** Everything
+  in this document that read *"the speech legs remain Sarvam and Indian"* was a claim about
+  the VENDOR being Indian, written in places where a reader takes it as a claim about where
+  the data is processed. Sarvam's own privacy policy says personal data *"may be transferred
+  to and processed in countries outside India"*, naming US cloud infrastructure (AWS, GCP,
+  Azure) and analytics providers and EU model and security vendors, under SCCs, adequacy
+  decisions and DPAs; the *"Data Localization (Indian Users)"* carve-out storing voice
+  biometric data in India reads as scoped to Content Studio, not Voice Agents / API traffic.
+  **So the AUDIO may leave India on the speech leg, not only the transcript on the language
+  leg.** A second finding lands on the training promise rather than on residency: **ToS
+  s.17.5** permits Sarvam to use Inputs, Outputs and usage data to train its models (subject
+  to its Privacy Policy, applicable law and, where required, a declinable consent, with some
+  Offerings possibly restricted if declined), it does **not vary by tier**, and **s.6.2**
+  makes a signed order form the only instrument that can displace it — **we hold none**, so
+  the client-facing "no vendor trains on your data" sentence was NARROWED to our own conduct
+  rather than softened (`/legal/dpa` cl.2, `/legal/privacy` §6, `/legal/terms` §§7-8,
+  `/legal/subprocessors` §3.4 — new). VENDOR-PUBLISHED (Sarvam Privacy Policy "Cross-Border Data Transfers"; ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` remains egress-blocked here).
 
   Two consequences a lawyer reading this should have in front of them. **(1)** The
   strongest residency statement this product can make about its LLM legs is an attestation
@@ -415,7 +435,10 @@ to any client who bought on that sentence.
    deployment type are attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by
    the build**, and any public copy that implies otherwise is the misrepresentation this
    finding is about. Speech (Sarvam) and the first post-call extraction pass remain Indian
-   services and may still be described as such.
+   SERVICES in the sense that the vendor is an Indian company — ⚠ and since 27 Aug 2026 that
+   is the ONLY sense in which they may be described as such: the vendor's own policy permits
+   processing outside India, so "Indian service" may not be written where a reader will take
+   it for residency (see the correction in §4 above).
 
 **⚠ AND THE NARROWED REPLACEMENT ON THE LANDING PAGE IS NOW WRONG TOO, IN TWO WAYS. Read
 this before quoting anything above as closed.** `apps/web/src/app/page.tsx` (the residency
@@ -437,8 +460,10 @@ LANGUAGE leg is Microsoft's on BOTH surfaces, so "the one model endpoint that is
 [Indian]" now carries every word the caller speaks rather than a redacted dashboard query.
 
 **What the page may truthfully say** — narrower again, and after D-449 it may not claim
-India for the language leg at all: speech (Sarvam) and the first post-call extraction pass
-are Indian services; the language model runs on a Microsoft Azure OpenAI account
+India for the language leg at all, nor (after the 27 Aug 2026 correction in §4) India
+PROCESSING for the speech leg: speech (Sarvam) and the first post-call extraction pass run
+on an Indian company whose own policy permits it to process outside India, and the landing
+page now says both halves in one sentence; the language model runs on a Microsoft Azure OpenAI account
 **configured for East US 2**, no code path can send it anywhere else without editing one
 frozen constant, **and the account's region and deployment type are confirmed by a person
 against the provider's console and filed as evidence** — checked, not proved by a build.
@@ -450,7 +475,11 @@ guard working, not an obstacle.
 I did not edit `page.tsx` — it is outside my scope. **FOLLOW-UP-2 is now CLOSED (verified by
 reading the file 24 Aug 2026), not pending.** The residency tile in
 `apps/web/src/app/page.tsx` no longer carries the old Vertex/Mumbai sentence; it now reads
-that speech and the first reading of the transcript are Indian services *"on every call"*,
+that speech and the first reading of the transcript are Indian services *"on every call"*
+— ⚠ **qualified on 27 Aug 2026**: the card now says in the same sentence that this names an
+Indian COMPANY and not a place, because that vendor's published privacy policy permits it to
+process personal data outside India (US cloud infrastructure; EU model and security
+vendors); the pinned substring is unchanged and the qualification follows it —
 that the language model *"is not: it runs on a Microsoft Azure OpenAI account in the United
 States, in the East US 2 region"*, that until 22 August 2026 the account was in South India
 and the card said so, that the only thing the code still does is *"pin the model to that one
@@ -831,8 +860,10 @@ is true today.
 **What survived of the residency story on 20 Aug 2026, and what D-449 then withdrew:** the
 MODEL legs were Indian — Sarvam sovereign by vendor, Azure OpenAI region-pinned to South
 India — so the inference did not leave the country while the ORCHESTRATION did. **Since
-D-449 only the SPEECH legs are Indian.** The language model is `eastus2`, so the caller's
-transcript crosses the border on every turn. §4's model-residency paragraph is re-aimed,
+D-449 only the SPEECH legs were Indian — and since 27 Aug 2026 not even those, because that
+was a fact about the VENDOR and its own policy permits processing outside India.** The
+language model is `eastus2`, so the caller's transcript crosses the border on every turn,
+and the audio may cross it too. §4's model-residency paragraph is re-aimed,
 not deleted: the gates survive, the guarantee does not.
 
 ### F-13 — The DPA warranted that no setting could move the model region. A console field decides it. **CLOSED on the copy, 22 Aug 2026. The mechanism gap is real and is owned by a gate, not by a build.**

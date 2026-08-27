@@ -121,7 +121,10 @@ D-02's ThinnestAI pick), gated on the pilot scorecard.
 Models (per-agent config, BYOK):
 - STT: **Sarvam Saaras V3** (22 Indian languages, streaming, code-mixed) — their docs
   supersede our original Saarika v2.5 pick [docs-verified Jul 2026]. Auto-available when
-  Sarvam is the speech provider. Gate A-2: compare bundled/managed Sarvam tier.
+  Sarvam is the speech provider. ⚠ **An Indian vendor is not an India-processing claim**:
+  Sarvam's privacy policy permits transfer to and processing in countries outside India (US
+  cloud infrastructure; EU model and security vendors), and its ToS s.17.5 permits training
+  on Inputs/Outputs/usage data absent a signed order form under s.6.2 — we hold none. VENDOR-PUBLISHED (Sarvam Privacy Policy "Cross-Border Data Transfers"; ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` remains egress-blocked from this container). Gate A-2: compare bundled/managed Sarvam tier.
 - LLM: **Azure OpenAI in East US 2 — `AZURE_LOCATION` (`eastus2`), default
   `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) — on BOTH LLM surfaces (D-410,
   superseding D-400/D-404 on the in-call leg and D-127 on the dashboard leg; **the region
@@ -714,8 +717,14 @@ scorecard — D-31]:
   having: the MODEL legs stayed Indian (Sarvam sovereign by vendor; Azure OpenAI pinned to
   South India by gates 20/20b/20c), so the inference did not leave the country while the
   orchestration did. **D-449 WITHDREW THE LANGUAGE HALF OF THAT** — Azure OpenAI is
-  `eastus2`, so only the SPEECH legs remain Indian and the transcript reaches a US model on
-  every turn. The gates survive re-aimed; the claim does not. The fork — accept US orchestration and say so in the DPA, or move to their
+  `eastus2`, so the transcript reaches a US model on every turn. ⚠ **AND ON 27 AUG 2026 THE
+  SPEECH HALF WENT TOO.** This line read *"only the SPEECH legs remain Indian"*. Sarvam is an
+  Indian COMPANY; its own privacy policy says personal data *"may be transferred to and
+  processed in countries outside India"*, naming US cloud infrastructure (AWS/GCP/Azure) and
+  EU model and security vendors, and its India-storage carve-out covers voice biometric data
+  in Content Studio and payment data rather than Saaras/Bulbul API traffic. So no leg of this
+  product carries an India-processing claim any more; what remains Indian is the application
+  host. VENDOR-PUBLISHED (Sarvam Privacy Policy "Cross-Border Data Transfers"; ToS v2.0 eff. 29 Jul 2026 ss.6.2/17.5 — read by the founder 27 Aug 2026 and relayed; `sarvam.ai` remains egress-blocked from this container). The gates survive re-aimed; the claim does not. The fork — accept US orchestration and say so in the DPA, or move to their
   integrations and lose BYOK — is gates 9 and 12, laid out in
   `docs/evidence/bolna-compliance-residency.md` §5. SEC-COMP §4's cross-border row is the
   client-facing statement of the same fact.
@@ -884,7 +893,7 @@ Only H3 touches the retrieval layer. H1 is orchestration, H2 is our existing pip
 | # | Horizon | Lifetime | Owner / store | Cost | In-call latency |
 |---|---|---|---|---|---|
 | **H1** | In-call working memory — the running dialogue the agent reasons over | the call only; **discarded at hangup** | the ENGINE's orchestrator (the LLM message array) | no line item — LLM input tokens, already inside the ₹0.10–0.24/min LLM leg (§10.1) | 0ms (nothing is retrieved) |
-| **H2** | Call-level durable memory — transcript, AI summary, extraction fields, sentiment, resolved/needs-follow-up | retention policy (90-day recording floor) | OURS — Postgres, written by the post-call pipeline (§8) | Sarvam extraction ₹0.00/call — free per token, and this pass has never run on a paid vendor (`GEMINI_EXTRACTION_DEFAULT is False`) | n/a (post-call) |
+| **H2** | Call-level durable memory — transcript, AI summary, extraction fields, sentiment, resolved/needs-follow-up | retention policy (90-day recording floor) | OURS — Postgres, written by the post-call pipeline (§8) | ⚠ Sarvam extraction is **NOT ₹0.00/call** — `sarvam-105b` is priced per token (₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out, §10.1's correction note). The pass has never run on a NON-Sarvam vendor (`GEMINI_EXTRACTION_DEFAULT is False`), which is a different statement from free, and it currently meters nothing | n/a (post-call) |
 | **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | forever | managed RAG/memory service (D-28) | provider unit cost | injected **pre-call** via the context webhook (~5s budget), never mid-call |
 
 H1 is not a component we build, buy, or key: the engine holds the conversation for the
@@ -1255,12 +1264,14 @@ can be re-checked when a rate moves. **Assumption used throughout:** the agent s
 call-minute**. That ratio is itself unmeasured — it is the single biggest lever on the TTS
 line and is a pilot measurement (gate 12).
 
-**Sarvam rate card, read live from `sarvam.ai/api-pricing` on 11 Aug 2026** (this supersedes
-the July figures and corrects two of our own doc errors — see the two ⚠ notes below):
+**Sarvam rate card, read live from `sarvam.ai/api-pricing` on 11 Aug 2026 and RE-READ off
+the founder's own Sarvam dashboard on 27 Aug 2026** (`indus.sarvam.ai/model-catalogue` and
+`indus.sarvam.ai/pricing/buy-credits`; this supersedes the July figures and corrects two of
+our own doc errors — see the ⚠ notes below):
 
 | Sarvam API | Published rate |
 |---|---|
-| **Sarvam 105B / 30B (chat LLM)** | ⚠ **Free per token** — *and no longer our LLM leg (D-400, D-410). Kept on the card because it is the disclosed dashboard-assist fallback, and because a rate we walked away from is worth being able to walk back to. Walking back is not free: Sarvam has no member in Bolna's `LLMProvider`, so an in-call return means `provider: "custom"` — the credential path retired gate 16c put in doubt.* |
+| **Sarvam 105B (`sarvam-105b`, chat LLM)** | **₹29.28 / 1M input · ₹10.98 / 1M cached input · ₹73.20 / 1M output** — ⚠ **NOT free; see the correction note below** — *and no longer our LLM leg (D-400, D-410). Kept on the card because it is the disclosed dashboard-assist fallback, and because a rate we walked away from is worth being able to walk back to. Walking back is not free: Sarvam has no member in Bolna's `LLMProvider`, so an in-call return means `provider: "custom"` — the credential path retired gate 16c put in doubt.* |
 | Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |
 | Speech-to-Text | ₹30 / hour |
 | Speech-to-Text **and Translate** (Saaras) | ₹30 / hour |
@@ -1274,7 +1285,7 @@ universal across APIs. **Rate limits are the real constraint, not price** — 60
 > rate (₹30 / 10,000 chars) and one client price (₹5.00/min, `self_serve_inr_per_min`).
 > Bulbul v2 was live at half the v3 rate (which corrected D-20's "appears discontinued");
 > it is simply no longer offered, so it and its cost rows are gone from this card.
-> ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — Sarvam's LLM is genuinely free per token, which made a paid LLM leg avoidable on COST grounds; the founder took one anyway, first on Vertex and then on Azure OpenAI — South India at D-410, `eastus2` since D-449 — for the reasons in D-400, D-410 and D-449. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
+> ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — D-36 recorded Sarvam's LLM as free per token, which was read at the time as making a paid LLM leg avoidable on COST grounds (**that premise is now withdrawn — see the correction note below**); the founder took a paid leg anyway, first on Vertex and then on Azure OpenAI — South India at D-410, `eastus2` since D-449 — for the reasons in D-400, D-410 and D-449. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
 
 **Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
 ~900 characters/minute of speech → **360–540 TTS characters per call-minute**. That ratio is
@@ -1289,7 +1300,39 @@ unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
 | LLM — `gemini-2.5-flash-lite` on Google Gemini Developer API *(the cheapest leg we offer, and cheaper than the platform default — so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
 | LLM — `gemini-2.5-flash` on Google Gemini Developer API *(the vendor's own production recommendation; thinking budget zeroed by the engine)* | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |
 | LLM — `gpt-5.4-mini` on OpenAI direct `us` *(the engine's own voice recommendation, and the dearest thing we offer)* | $0.75/$4.50 per 1M tok | **₹0.54 (1 min) / ₹0.85 (5 min) / ₹1.24 (10 min)** |
-| LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback)* | free per token | ₹0.00 |
+| LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and the extraction pass — **not an in-call leg**, so no per-minute curve is derived for it)* | ₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out | **not ₹0.00 — see the correction note** |
+
+> ⚠⚠ **CORRECTION (27 Aug 2026): THE SARVAM CHAT LEG IS NOT FREE, AND THIS DOCUMENT
+> PRICED IT AT ₹0.00 EVERYWHERE.** The founder read his own Sarvam dashboard on 27 Aug 2026
+> — Model Catalogue (`indus.sarvam.ai/model-catalogue`) and the buy-credits pricing modal
+> (`indus.sarvam.ai/pricing/buy-credits`) — and `sarvam-105b` (and
+> `sarvam-105b-conversations`) are priced **₹29.28 / 1M input tokens, ₹10.98 / 1M cached
+> input, ₹73.20 / 1M output**. D-36's "free per token" premise, which this section reasoned
+> from and which `calevate_shared/engine.py`, `workers/script_assist.py` and
+> `copilot/service.py` each restate, is **withdrawn**. The card now lives in code at
+> `billing/rates.py::SARVAM_LLM_INR_PER_MTOK`, where it is a REFERENCE with no path to
+> `unit_cost_paid` (hard rule 7). **What follows from it and is NOT yet fixed:** the
+> disclosed dashboard-assist fallback and the post-call extraction pass run on a leg that
+> costs real money and are metered at ₹0.00 — a fabricated zero on an append-only ledger.
+> The metering call sites are the fix, and they are tracked separately from this card.
+> ⚠ **One gap this correction does NOT close:** `sarvam-105b` is described as "always-on
+> reasoning" and the pricing modal shows only Input / Cached input / Output — whether
+> hidden reasoning tokens are billed at the Output rate is **not stated anywhere the
+> founder could find**. If they are, this leg costs MORE than the card says. Do not assume
+> either way; an invoice line against a request of known token counts settles it.
+>
+> ⚠ **The same reading CONFIRMS the speech legs and CONTRADICTS one of our own notes.**
+> Confirmed: `saaras:v3` **and** `saaras:v4` both at **₹30 / hour** of audio (₹45/hour with
+> diarization, which this product does not enable), and `bulbul:v3` at **₹30 / 10,000
+> chars**. Contradicted: an Aug 2026 search-summary claim, recorded in `billing/rates.py`
+> and marked REPORTED-NOT-READ, that Sarvam had shipped **Bulbul v4** — the dashboard
+> catalogue lists **no v4 row at all**, and no price for `bulbul:v2` either. The STT rate
+> now has a code home (`billing/rates.py::STT_INR_PER_HOUR`, `stt_cost_inr`) and
+> `scripts/check_docs_drift.py` §4d diffs it against this section in both directions and
+> across both spellings, exactly as §4b already does for TTS.
+> ⚠ **Rate limits are per ACCOUNT, not per key** (same reading): 40 requests/minute on
+> `sarvam-105b` chat at the Starter tier, pooled across every key on the account — a second
+> key buys no capacity.
 
 ⚠ **Every LLM rate above is the vendor's published LIST price and none of them is what a
 bill is computed from.** The authoritative billing figure is an **operator attestation** —
@@ -1393,7 +1436,7 @@ to reconcile — do not build on it without direct verification.)*
 | Input | Value | Confidence |
 |---|---|---|
 | STT (Sarvam) | ₹0.50/min | **verified rate** |
-| LLM (Sarvam 105B) | ₹0.00 — free per token | **verified rate** *(theirs; ours moved to a paid leg at D-400, to Azure OpenAI at D-410 and to `eastus2` at D-449, so this row is a statement about a COMPETITOR's inputs and not about ours)* |
+| LLM (Sarvam 105B) | ⚠ **NOT ₹0.00** — ₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out (founder's dashboard reading, 27 Aug 2026; the "free per token" figure this row carried is withdrawn — see §10.1's correction note) | **VENDOR-PUBLISHED** *(theirs; ours moved to a paid leg at D-400, to Azure OpenAI at D-410 and to `eastus2` at D-449, so this row is a statement about a COMPETITOR's inputs and not about ours)* |
 | TTS by tier | Sarvam → Smallest → Cartesia | **verified from their code** |
 | Telephony (India mobile) | ₹0.35–0.50/min | estimate |
 | Orchestration | **unknown** | ⚠ **NOT ESTABLISHED — see below** |

@@ -88,24 +88,83 @@ TTS_INR_PER_10K_CHARS: Final[Decimal] = Decimal("30.0000")  # Bulbul v3
 # when a captured payload proves the model is reported (D-358, OPERATIONS §2 gate 7).
 ENGINE_REPORTS_TTS_MODEL = False
 
-# THE OPEN VENDOR QUESTION ON THIS CARD, recorded here rather than left to be rediscovered
-# — **REPORTED, NOT READ** (`billing/payments.py`'s three-rung ladder; `sarvam.ai` and
-# `docs.sarvam.ai` are refused by this environment's egress proxy and no request has ever
-# been made to them from this repository).
+# THE OPEN VENDOR QUESTION ON THIS CARD, recorded here rather than left to be rediscovered.
 #
-# Aug 2026 search summaries report that Sarvam has shipped **Bulbul v4** and describe it
-# as the current TTS model, **at the same ₹30 / 10,000 chars**. So the MONEY above is
-# unaffected and nothing here is wrong today. What is exposed is the IDENTIFIER: the
-# single-tier decision names Bulbul v3 as the one voice and `apps/api/agents/voices.py`
-# is the catalog that pins it. D-105 is the precedent for why that matters more than it
-# looks — Sarvam retired an LLM identifier under us and requests naming it began to FAIL,
-# with the symptom appearing at post-call time as "extraction is empty".
+# **THIS ENVIRONMENT STILL CANNOT READ SARVAM.** `sarvam.ai` and `docs.sarvam.ai` are
+# refused by this container's egress proxy (CONNECT → 403, re-measured 27 Aug 2026, by
+# `curl` and by the fetch tool), and no request has ever been made to them from this
+# repository. That sentence has not changed and must not be deleted; what changed is that
+# it is no longer the only way to reach the vendor.
 #
-# Closing it needs two things NEITHER of which is a code change from here: a first-party
-# read of the pricing and model pages (a vendor account, or an egress route to
-# `docs.sarvam.ai`), and a founder decision about whether the canonical stack moves to
-# v4. Until both exist this stays a marked assumption, not a silent premise.
+# ⚠ **THE SEARCH-SUMMARY "BULBUL V4 HAS SHIPPED" CLAIM IS NOT BORNE OUT, AND THIS BLOCK IS
+# WHERE IT LIVED.** This paragraph used to record — explicitly marked REPORTED-NOT-READ —
+# that Aug 2026 search summaries described a shipped Bulbul v4 at the same rate. The
+# founder holds a Sarvam account and read the dashboard Model Catalogue and Pricing page
+# (`indus.sarvam.ai/model-catalogue`, `indus.sarvam.ai/pricing/buy-credits`) on 27 Aug 2026
+# and relayed the reading here: the catalogue lists **`bulbul:v3` and no v4 row at all**,
+# and no dashboard price for `bulbul:v2` either. TTS is confirmed at **₹30 / 10,000 chars
+# for `bulbul:v3`** — exactly `TTS_INR_PER_10K_CHARS`, so no money moves — and the
+# identifier `apps/api/agents/voices.py` pins is the one the vendor actually publishes.
+#
+# EVIDENCE CLASS of that correction: **VENDOR-PUBLISHED (Sarvam dashboard Model Catalogue
+# and Pricing page, read by the founder 27 Aug 2026, relayed).** It is a first-party
+# reading with a named reader and a date; it is NOT a page this container fetched.
+#
+# **THE LESSON IS RULE 11 LANDING ON THE BLOCK WRITTEN TO GUARD AGAINST IT.** A summary of
+# a summary was recorded honestly, with its class marked, and was still wrong about the
+# vendor's catalogue — which is why the correction is kept here in full rather than
+# deleted: the next reader needs to inherit that a REPORTED vendor fact survived review for
+# weeks, not just the corrected identifier.
+#
+# `ENGINE_TTS_MODEL_GENERATION_VERIFIED` STAYS FALSE, deliberately, and the flip was
+# considered. It does not mean "we know which model generation Sarvam ships" — the
+# catalogue reading answers that. It means the ENGINE tells us which model actually
+# synthesized a given call, which is still false: the engine is Bolna, not Sarvam, its
+# `ExecutionSnapshot` carries no synthesizer field, and no dashboard reading can change
+# what a webhook payload contains. D-358 (a live capture on OPERATIONS §2 gate 7) is still
+# the only thing that flips it.
 ENGINE_TTS_MODEL_GENERATION_VERIFIED = False
+
+
+# --- THE STT LEG: priced per unit of AUDIO TIME, not per character --------------------
+#
+# The SECOND half of the speech rate card, and until now the half with no code home at
+# all. The ₹30/hour figure lived in TRD §10.1 prose and, blended with four other legs,
+# inside `SELF_SERVE_COST_FLOOR_INR_PER_MIN` — so a vendor price move could land in the
+# doc with nothing in code to notice, or here with nothing in the doc to notice. That is
+# the D-103/D-105 shape arriving on the money axis one leg over from where
+# `scripts/check_docs_drift.py` §4b already guards the TTS rate; §4d guards this one now,
+# in both directions and across §10.1's two spellings of it (₹/hour and ₹/minute).
+#
+# ⚠ **EVIDENCE CLASS: VENDOR-PUBLISHED (Sarvam dashboard Model Catalogue,
+# `indus.sarvam.ai/model-catalogue` and `indus.sarvam.ai/pricing/buy-credits`, read by the
+# founder on 27 Aug 2026 and relayed here).** The catalogue prices **both `saaras:v3` and
+# `saaras:v4` at ₹30 per hour of audio** — the same rate on both model versions, so a
+# version move does not move this number — and ₹45/hour with diarization. This is a
+# first-party reading with a named reader and a date; it is NOT a page this container
+# fetched (see the egress note above, still true). TRD §10.1's own "verified rate" label at
+# `docs/TRD.md:1395` was, until that reading, a repo-internal claim standing on itself,
+# which hard rule 11 says is not evidence; it now stands on the reading.
+#
+# **THE DIARIZATION RATE IS DELIBERATELY NOT A CONSTANT HERE.** ₹45/hour is real and sits
+# on the same card, but nothing in this repository enables diarization: a case-insensitive
+# scan of `apps/`, `packages/`, `scripts/` and `docs/` for `diariz` finds exactly one hit —
+# the TRD row itself. Pricing a feature we do not turn on would put a figure in the margin
+# model that no call can produce, and the first reader to find it would reasonably assume
+# we are billed it. It becomes a constant the day something asks the transcriber for
+# speaker labels, and not before.
+STT_INR_PER_HOUR: Final[Decimal] = Decimal("30.0000")  # Saaras (STT + Translate)
+
+#: Seconds per hour, named because two functions below divide by it and a bare `3600` in
+#: either is where a units error hides — this module's whole subject is that a rate has a
+#: unit attached to it.
+_SECONDS_PER_HOUR = Decimal("3600")
+
+#: Minutes per hour, named for the same reason: TRD §10.1 states this rate in BOTH
+#: spellings and the per-minute one is DERIVED here rather than restated as a second
+#: constant. A literal `Decimal("0.50")` beside the hourly figure would be exactly the
+#: two-homes-for-one-fact defect §4d exists to catch, living inside the module §4d reads.
+_MINUTES_PER_HOUR = Decimal("60")
 
 _CHARS_UNIT = Decimal("10000")
 
@@ -267,6 +326,101 @@ def llm_reference_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
             f"{model!r} has no published reference price; this repository lists "
             f"{sorted(PRICED_LLM_MODELS)}"
         ) from None
+
+
+# --- THE SARVAM CHAT LEG, WHICH IS NOT FREE ------------------------------------------
+#
+# ⚠ **THE FINDING: "SARVAM 105B IS FREE PER TOKEN" IS FALSE, AND THIS REPOSITORY IS BUILT
+# ON IT IN THREE PLACES.** D-36 priced the Sarvam chat LLM at ₹0.00 and TRD §10 reasoned
+# the margin from that zero; `calevate_shared/engine.py` (~:355) restates it, and
+# `workers/script_assist.py:236` and `copilot/service.py` (~:330) go further and meter
+# NOTHING for a Sarvam-served assist on the strength of it. The founder's dashboard reading
+# contradicts it outright: `sarvam-105b` and `sarvam-105b-conversations` are priced per
+# token, below.
+#
+# EVIDENCE CLASS: **VENDOR-PUBLISHED (Sarvam dashboard Model Catalogue,
+# `indus.sarvam.ai/model-catalogue`, and the buy-credits pricing modal,
+# `indus.sarvam.ai/pricing/buy-credits`, read by the founder on 27 Aug 2026 and relayed
+# here).** Not fetched from this container — those hosts are egress-blocked here as
+# `docs.sarvam.ai` is (403 on CONNECT, re-measured 27 Aug 2026).
+#
+# **IN RUPEES, NOT DOLLARS, WHICH IS WHY THIS IS NOT AN `LlmPriceAttestation` AND NOT AN
+# `LLM_MODELS` ROW.** Three structural reasons, each of which would have to be broken to
+# force it into the existing table:
+#
+# * Sarvam publishes and bills in INR. `LlmPrice` and `LlmPriceAttestation` are USD per
+#   million tokens by construction, converted once at `LIST_PRICE_USD_INR`; feeding this
+#   card through them would mean inventing a dollar figure nobody ever read and then
+#   converting it back, so the rupee a client is reasoned about would move with an fx rate
+#   that has nothing to do with the invoice.
+# * `LLM_MODELS` is the set a CLIENT may pick for the IN-CALL leg. Sarvam is not on offer
+#   there (`SELECTABLE_LLM_MODELS` is the five in `agents/llm_models.py`); it is the
+#   disclosed dashboard fallback (D-127 G-7) and the post-call extraction pass. A seat in
+#   that catalogue would say something false about what the product offers.
+# * It carries a CACHED-INPUT rung, which `LlmPrice`'s two-legged `{in, out}` shape has no
+#   slot for at all.
+#
+# **NO PATH TO `unit_cost_paid`, EXACTLY AS THE CATALOGUE CARD HAS NONE** (hard rule 7).
+# `llm_inr_per_ktok` is the one door to a bill and it does not read this constant — it
+# raises for `sarvam-105b`, today with "not a model this repository knows", because the
+# identifier has no `LLM_MODELS` entry. What that means in practice is worth stating
+# plainly rather than leaving to be discovered: a Sarvam-served assist currently records NO
+# cost row at all, which is a FABRICATED ZERO on an append-only ledger — the same defect
+# `_sum_usage` and `usage_from_body` argue against in the other direction. Closing it is a
+# change at the metering call sites, not here.
+#
+# ⚠ **AN OPEN GAP THIS CARD DOES NOT RESOLVE, flagged by the founder and carried rather
+# than guessed: `sarvam-105b` is described as "always-on reasoning", and the pricing modal
+# shows Input / Cached input / Output with NO separate reasoning-token line.** Whether
+# hidden reasoning tokens are billed at the Output rate is not stated anywhere they could
+# find. If they are, the effective cost of this leg is HIGHER than this card says, and on a
+# short answer it could be higher by a multiple. Do not assume either way — an invoice line
+# against a request of known token counts settles it.
+#
+# ⚠ **CAPACITY IS PER ACCOUNT, NOT PER KEY.** The Starter tier allows 40 requests/minute on
+# `sarvam-105b` chat, and the limit pools across every key on the account — issuing a
+# second key buys no capacity. Same reading, same date. Nothing here rate-limits anything;
+# it is recorded because "free per token" tends to be read as "unmetered", and the binding
+# constraint on this leg was always the request rate rather than the price.
+
+#: Sarvam's published `sarvam-105b` chat price, in **INR per MILLION tokens**, the vendor's
+#: own unit and its own currency. `cached_in` is the discounted rung for input the vendor
+#: served from its own prompt cache; it is on the card and is priced here so that a future
+#: meter reading `prompt_tokens_details` has a rate to use rather than a reason to invent
+#: one. NUMERIC, never float (hard rule 7).
+SARVAM_LLM_INR_PER_MTOK: Final[Mapping[str, Decimal]] = MappingProxyType(
+    {
+        "in": Decimal("29.28"),
+        "cached_in": Decimal("10.98"),
+        "out": Decimal("73.20"),
+    }
+)
+
+#: The one identifier this card prices. `sarvam-105b-conversations` is listed by the vendor
+#: at the same three figures, so it is deliberately NOT a second entry: one price, one home
+#: (`calevate_shared.engine.SARVAM_DEFAULT_LLM` is the identifier the code sends).
+SARVAM_PRICED_LLM: Final = "sarvam-105b"
+
+
+def sarvam_llm_reference_inr_per_ktok() -> Mapping[str, Decimal]:
+    """`{"in", "cached_in", "out"}` in ₹ per 1,000 tokens — a REFERENCE, never a charge.
+
+    Per THOUSAND for the reason `billing/models.py` gives for `ktok`: that is the unit
+    `usage_events` counts an LLM leg in, so a meter built on this figure multiplies rather
+    than divides. Quantized at `MONEY_Q` for `_usd_mtok_to_inr_ktok`'s reason — a price the
+    ledger cannot store is a price it cannot honour — which is why this is a function
+    rather than a second mapping literal: one conversion, stated once.
+
+    It is NOT `llm_inr_per_ktok` and must not be mistaken for it: that function is the one
+    door to `unit_cost_paid` and reads an operator attestation or a verified catalogue
+    figure. This one answers only "what does Sarvam's dashboard list this at".
+    """
+    return MappingProxyType(
+        {
+            leg: (inr_per_mtok / Decimal("1000")).quantize(MONEY_Q, rounding=ROUNDING)
+            for leg, inr_per_mtok in SARVAM_LLM_INR_PER_MTOK.items()
+        }
+    )
 
 
 # --- THE OPERATOR-ATTESTED BILLING PRICE ---------------------------------------------
@@ -584,6 +738,67 @@ def tts_cost_inr(chars: int) -> Decimal:
     if chars < 0:
         raise ValueError("character count cannot be negative")
     return (tts_rate_inr_per_char() * Decimal(chars)).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def stt_rate_inr_per_second() -> Decimal:
+    """Exact, unquantized: ₹30/hour is ₹0.008333… per second and no 4-decimal rupee holds
+    it. Callers multiply by a duration and quantize ONCE — the same contract
+    `tts_rate_inr_per_char` above has with its callers, for the same reason.
+
+    **PER SECOND, because that is the unit a call's duration exists in everywhere in this
+    codebase**: `ExecutionSnapshot.duration_s`, `workers/pipeline.py::_billable_seconds`,
+    the `stt_s` usage rows it writes, `agents/models.py::CALL_CAP_MAX_S`. A per-minute
+    signature would push `duration_s / 60` onto every caller — a lossy division done N
+    times in place of an exact multiplication done once, and the arithmetic this module
+    exists to keep out of the rest of the tree.
+    """
+    return STT_INR_PER_HOUR / _SECONDS_PER_HOUR
+
+
+def stt_rate_inr_per_minute() -> Decimal:
+    """The same rate in TRD §10.1's other spelling (₹0.50/min), DERIVED and never restated.
+
+    Exact and unquantized for `stt_rate_inr_per_second`'s reason. This exists so the doc's
+    per-minute cell has something in code to be diffed against
+    (`scripts/check_docs_drift.py` §4d) without a second constant that could disagree with
+    the first.
+    """
+    return STT_INR_PER_HOUR / _MINUTES_PER_HOUR
+
+
+def stt_cost_inr(duration_s: int) -> Decimal:
+    """What `duration_s` seconds of Saaras transcription cost us, at Sarvam's list rate.
+
+    ⚠ **A MODEL FIGURE, NEVER A BILL — and unlike the TTS half this leg HAS a real
+    counterpart on the ledger, so the distinction is sharper here than it is one function
+    up.** What reaches `usage_events.unit_cost_paid` for STT is the ENGINE's own reported
+    per-leg cost: `CostBreakdown.stt_inr` (`engine/bolna.py::_cost`, `leg("transcriber")`),
+    divided by the call's billable seconds in `workers/pipeline.py::_meter` to make a price
+    per unit of `qty`. Nothing on that path consults this function and nothing may: the
+    engine rents its own Sarvam account, so what IT charges us is a fact about ITS invoice,
+    while this card is a fact about Sarvam's list. Two numbers with two meanings — "what we
+    pay" and "what the vendor lists" — and they are never the same variable again, which is
+    the argument `llm_cost_inr_per_minute` makes for the LLM leg arriving on the speech one.
+
+    **THE VENDOR'S BILLING GRANULARITY IS UNKNOWN, AND IS NOT IMPUTED.** The catalogue
+    prices "per hour of audio"; whether a request is billed on exact audio duration, on
+    whole seconds, or rounded up to some minimum billable unit is stated nowhere the
+    founder could find and nowhere this container can reach. So this prices the seconds it
+    is given and invents no minimum — the refusal `tts_cost_inr` makes about character
+    counts, on the axis where this leg could be guessed. The consequence is stated rather
+    than hidden: if Sarvam rounds a request up, this is a **FLOOR** on our real cost, so
+    the margin model errs toward reporting a thinner margin than we have and can never
+    quietly report a fatter one. A Sarvam invoice line against a request of known duration
+    is what settles it.
+
+    Zero is zero (a call that transcribed nothing costs nothing); a negative duration is
+    refused rather than priced, because a negative cost on a usage event is a credit issued
+    by an arithmetic accident — the same argument `tts_cost_inr` makes, and the one
+    `_billable_seconds` had to make on the live money path.
+    """
+    if duration_s < 0:
+        raise ValueError("audio duration cannot be negative")
+    return (stt_rate_inr_per_second() * Decimal(duration_s)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
 #: THE BLENDED ALL-IN COST OF ONE SELF-SERVE CALL-MINUTE, used to MODEL MARGIN — never to
@@ -976,7 +1191,10 @@ __all__ = [
     "PRICED_LLM_MODELS",
     "REFERENCE_CALL",
     "ROUNDING",
+    "SARVAM_LLM_INR_PER_MTOK",
+    "SARVAM_PRICED_LLM",
     "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
+    "STT_INR_PER_HOUR",
     "TTS_INR_PER_10K_CHARS",
     "CommittedPlanMargin",
     "LlmPriceAttestation",
@@ -994,6 +1212,10 @@ __all__ = [
     "llm_surcharge_applies",
     "llm_surcharge_billed_inr",
     "prepaid_billed_inr",
+    "sarvam_llm_reference_inr_per_ktok",
+    "stt_cost_inr",
+    "stt_rate_inr_per_minute",
+    "stt_rate_inr_per_second",
     "surchargeable_models_are_dearer",
     "tts_cost_inr",
     "tts_rate_inr_per_char",

@@ -155,7 +155,7 @@ async def _vendor_holds_the_agent(
     """
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
-    await engine.update_agent(agent_ref, _to_config(tenant_id, row))
+    await engine.update_agent(agent_ref, _to_config(tenant_id, row, engine=engine))
 
 
 async def _kb_verdict(engine: FakeEngine, ref: str) -> str | None:

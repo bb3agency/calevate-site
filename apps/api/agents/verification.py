@@ -156,6 +156,17 @@ def _voice_expected(engine: VoiceEngine, cfg: AgentConfig) -> str | None:
     addresses nothing on their side and `AgentSnapshot.models.tts_voice` is None BY
     CONTRACT. Comparing against it there would report every publish on such an engine as
     a mismatch, which is the failure mode that teaches an operator to ignore the verdict.
+
+    ⚠ **THE SPEAKER ONLY, NOT THE MODEL, AND THAT IS DELIBERATE SINCE D-358.** The TTS leg
+    now sends two strings — `provider_config.model` and `provider_config.voice`/`voice_id`
+    — and `AgentSnapshot.models.tts_model` reads the first one back. It is not compared
+    here, because whether their platform ECHOES that key is exactly what OPERATIONS §2
+    gate 3 has not answered yet: an engine that stores the model and reports it under
+    another name would make `held_model` None, and `judge` turns a None into
+    `state="unreadable"` — so every publish in the product would stop reporting as applied
+    on an unanswered vendor question. The speaker is the string an operator PICKED and the
+    one a caller HEARS, so it is the one worth refusing a publish over. When gate 3 says
+    what comes back, adding the model here is one line and a `checked` entry.
     """
     if not engine.capabilities.is_ours("tts"):
         return None

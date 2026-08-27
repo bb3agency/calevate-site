@@ -12,6 +12,13 @@ defect even when every copy works: the fourth caller (the in-app copilot) needed
 STREAMING, neither of which any copy had, and adding them to one copy would have made the
 three permanently different.
 
+**AND THE FIRST OF THOSE FOUR FACTS WAS FALSE, WHICH IS THE BEST ARGUMENT THIS FILE HAS.**
+The key does NOT travel in `Authorization: Bearer` on both legs — Sarvam reads it from
+`api-subscription-key` and reads nothing else (`ChatDialect`, `_AUTH_HEADER`). Three
+copies of a wrong fact is three sites to find; one copy was one edit. The lesson for the
+next reader is the sharper half: consolidating did not DISCOVER the error, because the
+error was consistent everywhere. Reading the vendor's own client did.
+
 WHAT IS AND IS NOT IN HERE. This module knows the OpenAI chat wire format and nothing
 else. It does not know what a transcript is, what an extraction schema is, which provider
 should serve a request (`extraction.assist_capability` is the ONE selector), what a token
@@ -29,7 +36,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 import httpx
 
@@ -139,6 +146,23 @@ def usage_from_body(body: Mapping[str, Any]) -> TokenUsage | None:
     return TokenUsage(prompt_tokens=total_in, output_tokens=total_out)
 
 
+#: WHICH VENDOR'S SPELLING OF THE OPENAI CHAT FORMAT A LEG SPEAKS.
+#:
+#: "OpenAI-compatible" is a claim about the BODY, and both our providers honour it. It is
+#: not a claim about the envelope, and this repository shipped for months believing it
+#: was: the credential header and the set of optional request keys a provider will accept
+#: both differ, and neither difference is visible from the response of a request that
+#: works.
+#:
+#: TWO MEMBERS, NOT A BOOLEAN, and not a per-difference flag either. A `sends_bearer:
+#: bool` beside a `supports_stream_options: bool` would let a caller assemble a
+#: combination no vendor implements, which is how a "configuration" grows states nobody
+#: has ever run. A closed vocabulary of vendors we have actually read the client for
+#: cannot: each member is a citation, and adding one means reading a third vendor's
+#: client first.
+ChatDialect = Literal["openai", "sarvam"]
+
+
 @dataclass(frozen=True, slots=True)
 class ChatLeg:
     """Where one chat completion goes, already addressed.
@@ -152,11 +176,20 @@ class ChatLeg:
     `packages/shared/src/calevate_shared/engine.py` is the single constructor
     `scripts/check_model_residency.py` grants the tree's one host literal to; a second
     place that assembled a URL would be the exact thing that check exists to refuse.
+
+    **`dialect` HAS NO DEFAULT, AND THAT IS THE FIX RATHER THAN AN INCONVENIENCE.** The
+    defect this field exists to close was a DEFAULT: `_headers` returned
+    `Authorization: Bearer` for every leg, under a docstring asserting that Sarvam took
+    the same, and the assertion was simply false. A default here would have carried that
+    bug forward for whichever leg somebody forgot — so every construction site names its
+    vendor, mypy refuses the ones that do not, and getting it wrong requires typing the
+    wrong vendor rather than typing nothing.
     """
 
     url: str
     api_key: str
     wire_model: str
+    dialect: ChatDialect
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,15 +242,46 @@ class StreamEvent:
     outcome: ChatOutcome | None = None
 
 
-def _headers(leg: ChatLeg) -> dict[str, str]:
-    """A STATIC API KEY in `Authorization: Bearer`, on both legs.
+#: The credential header each dialect actually reads, from each vendor's OWN client.
+#:
+#: * `openai` — `Authorization: Bearer`. Azure's v1 surface takes a static key in exactly
+#:   this header (D-410): never an `api-key:` header, never a query parameter, never an
+#:   OAuth handshake.
+#: * `sarvam` — `api-subscription-key`, and NOTHING ELSE. VERIFIED-VENDOR-SDK:
+#:   `sarvamai==0.1.31` (PyPI wheel), `core/client_wrapper.py:39`, read 27 Aug 2026 —
+#:   `get_headers()` builds a User-Agent and five Fern telemetry headers and then sets
+#:   `headers["api-subscription-key"]`. There is no `Authorization` branch in it at all.
+#:   The same SDK's `chat/raw_client.py:189` posts to `v1/chat/completions` against base
+#:   `https://api.sarvam.ai`, which is `SARVAM_CHAT_URL` character for character — so this
+#:   is the vendor's own client hitting our exact endpoint with a different credential
+#:   header than we were sending.
+#:
+#: **WHAT THIS COST, said plainly because the shape is more instructive than the fix.**
+#: The line this replaces sent Bearer on both legs, and the docstring above it asserted
+#: that Sarvam "takes the same" — an assertion nobody could have made from a source,
+#: because the leg has never been exercised: this environment holds no Sarvam key and
+#: `api.sarvam.ai` is egress-blocked from it. So the disclosed Sarvam fallback — the rung
+#: `assist_capability` drops to when Azure is absent, which is the rung a deployment with
+#: only a Sarvam key runs on for EVERY assist — would have 401'd on its first request, and
+#: the symptom would have been "the assistant is broken" on a console, not a wire error
+#: anyone was watching. Hard rule 11 is the rule this violated, and it violated it in the
+#: costly direction: the value was in our own code, which made it look verified.
+_AUTH_HEADER: Final[dict[ChatDialect, str]] = {
+    "openai": "Authorization",
+    "sarvam": "api-subscription-key",
+}
 
-    Azure's v1 surface takes exactly this (D-410) — never an `api-key:` header, never a
-    query parameter, never an OAuth handshake — and Sarvam's OpenAI-compatible chat takes
-    the same. One spelling, in one place, so `tests/azure_extraction_test.py`'s assertions
-    about the header are assertions about every caller.
+
+def _headers(leg: ChatLeg) -> dict[str, str]:
+    """This leg's credential, in the header ITS vendor reads.
+
+    The key travels raw on `sarvam` and prefixed on `openai`, which is the vendors'
+    difference and not a choice of ours. `core/logging.REDACT_KEYS` masks both names, so
+    neither reaches a log by either spelling — check there before adding a third.
     """
-    return {"Authorization": f"Bearer {leg.api_key}"}
+    if leg.dialect == "sarvam":
+        return {_AUTH_HEADER["sarvam"]: leg.api_key}
+    return {_AUTH_HEADER["openai"]: f"Bearer {leg.api_key}"}
 
 
 def _request_body(
@@ -249,7 +313,24 @@ def _request_body(
             body["tool_choice"] = tool_choice
     if stream:
         body["stream"] = True
-        body["stream_options"] = dict(STREAM_OPTIONS)
+        # `stream_options` IS AN OPENAI-DIALECT KEY AND SARVAM'S REQUEST HAS NO SLOT FOR
+        # IT. VERIFIED-VENDOR-SDK: `sarvamai==0.1.31` (PyPI wheel),
+        # `chat/raw_client.py:191-215`, read 27 Aug 2026 — the vendor's own client builds
+        # its request body from exactly fourteen keys (`messages`, `model`, `temperature`,
+        # `top_p`, `reasoning_effort`, `max_tokens`, `stream`, `stop`, `n`, `seed`,
+        # `frequency_penalty`, `presence_penalty`, `wiki_grounding`, `tools`,
+        # `tool_choice`) and `stream_options` is not among them.
+        #
+        # WHY OMITTING IT COSTS US NOTHING HERE, which is the part worth checking before
+        # assuming a degradation. `STREAM_OPTIONS` exists to make the provider append a
+        # final usage-bearing frame; Sarvam's `ChatCompletionChunk` carries an optional
+        # `usage` block of its own (`types/chat_completion_chunk.py:41`, same wheel), so
+        # `usage_from_body` reads a Sarvam stream by the same path it reads an Azure one.
+        # If a Sarvam stream turns out to end without one, `ChatOutcome.usage` is `None`,
+        # which throughout this repository means "we do not know what this cost" and never
+        # "it was free" — the safe direction, and the one hard rule 7 requires.
+        if leg.dialect == "openai":
+            body["stream_options"] = dict(STREAM_OPTIONS)
     return body
 
 
@@ -541,6 +622,7 @@ async def stream(
 __all__ = [
     "CHUNK_OBJECT",
     "STREAM_OPTIONS",
+    "ChatDialect",
     "ChatLeg",
     "ChatMessage",
     "ChatOutcome",
