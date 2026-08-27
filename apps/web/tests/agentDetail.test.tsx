@@ -104,6 +104,9 @@ function storedVoice(id: TtsModel, label: string): NonNullable<PendingState["voi
       label,
       provider: "sarvam",
       tts_model: id,
+      // Fixed rather than derived from `id`: this helper is keyed on the MODEL, and the
+      // speaker is the other half of the pair the catalogue now carries (D-358).
+      speaker: "anushka" as const,
       gender: null,
       languages: ["te-IN"],
       note: "",

@@ -409,6 +409,66 @@ SARVAM_RETIRED_LLMS: Final = frozenset(
 #: entry here.
 SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 
+#: The vendor NAME the speech-to-text leg is looked up under on the engine's own provider
+#: table. `sarvam` is the string Bolna's transcriber page is written about
+#: (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers/transcriber/sarvam.md`,
+#: fetched 20 Aug 2026), and it is the same spelling `scripts/pilot/gates_api.py` already
+#: configures by hand for pilot gate 1.
+SARVAM_STT_PROVIDER: Final = "sarvam"
+
+#: THE PLATFORM DEFAULT IN-CALL TRANSCRIBER, and it exists because there was none.
+#:
+#: ═══ WHY THIS IS A CONSTANT AND NOT A COLUMN DEFAULT ═══
+#:
+#: `agents.stt_provider` / `agents.stt_model` are nullable Text columns with **no writer
+#: anywhere in this tree** — no route, no service, no seed, no migration default. Every
+#: read site (`agents/service.py::_to_config`, `engine/bolna.py`) faithfully forwarded the
+#: NULL, so every published agent sent `{"provider": null, "model": null}` in its
+#: `transcriber` block and the engine chose its own default transcriber. On a Telugu-first
+#: product that is not a cosmetic omission: what the caller actually SAID is the input to
+#: every compliance-shaped thing downstream (`workers/redaction.py`'s transliterated Telugu
+#: digit words, `compliance/optout.py`'s romanised Telugu opt-out phrases), and none of it
+#: matches an English transcript. `engine/capabilities.py::require_speech_leg` returns
+#: early on `None`, so nothing caught it either.
+#:
+#: ═══ WHY `saaras:v3` AND NOT `saaras:v4`, WHICH IS THE HALF A REVIEWER WOULD WAVE
+#: THROUGH ═══
+#:
+#: **`saaras:v4` CANNOT STREAM.** Sarvam's own Model Catalogue shows v4 supporting Batch
+#: and REST only — not streaming/WebSocket — and their docs state that live captions over
+#: WebSocket still run on Saaras v3; v3 supports Streaming, Batch and Diarization
+#: (VENDOR-PUBLISHED (Sarvam dashboard Model Catalogue, indus.sarvam.ai/model-catalogue,
+#: and docs.sarvam.ai, read by the founder 27 Aug 2026) — `docs.sarvam.ai` is refused by
+#: this environment's egress proxy, so nothing here fetched it). An in-call transcriber on
+#: a live phone call is a streaming consumer by construction, so v4 is not "the newer
+#: identifier we declined to pick": it is unusable on this leg. A future Saaras that DOES
+#: stream would be a real decision, and what would settle it is one reading of the Model
+#: Catalogue showing Streaming against its row plus a Telugu regression run over
+#: `tests/fixtures/golden_transcripts.json`.
+#:
+#: **A NEWER ID EXISTS AND IS DELIBERATELY NOT ADOPTED.** `saaras:v3-realtime` powers
+#: `wss://api.sarvam.ai/speech-to-text-realtime/ws`, and Sarvam's streaming-STT page says
+#: verbatim that Realtime Streaming (`saaras:v3-realtime`, beta) supersedes that endpoint
+#: for new voice-agent and live-transcription work (same reading, same date). It is
+#: BETA-labelled by the vendor, carries no separately listed price, is absent from the
+#: SDK's own `SpeechToTextModel` enum, and — decisively — it is a SARVAM-DIRECT endpoint
+#: while our STT runs INSIDE the engine. Bolna's transcriber page lists four Sarvam models
+#: and that is not one of them, so sending it would be a guess about what their engine
+#: accepts. Recorded here; not shipped.
+#:
+#: **THE ENGINE'S LIST AND THE VENDOR'S SDK DISAGREE, AND NEITHER IS WRONG.** Bolna lists
+#: `saarika:v2.5`, `saaras:v2.5`, `saaras:v3`, `saaras:v4` (VERIFIED-VENDOR-DOCS:
+#: `bolna-findings/mirror/pages/providers/transcriber/sarvam.md`, fetched 20 Aug 2026);
+#: Sarvam's current SDK enumerates only `saaras:v3` and `saaras:v4`
+#: (VERIFIED-VENDOR-SDK: sarvamai==0.1.31 (PyPI wheel), `types/speech_to_text_model.py`,
+#: read 27 Aug 2026). Bolna's page says what their engine ACCEPTS; the SDK says what Sarvam
+#: currently SHIPS. Do not "fix" one against the other. `saaras:v2.5` is separately and
+#: permanently banned by `SARVAM_TRANSLATING_STT` above, for a better reason.
+#:
+#: `saaras:v3` is in BOTH readings, and `docs/TRD.md:122` already names Saaras V3 as the
+#: product's STT pick — so this constant moves nothing; it makes the pick reach the wire.
+SARVAM_DEFAULT_STT: Final = "saaras:v3"
+
 
 #: THE Azure region this platform's Azure OpenAI resource lives in. **East US 2 (D-449).**
 #:
@@ -2048,6 +2108,30 @@ class ModelConfig(BaseModel):
     #: today: neither allow-listed Azure model is GPT-5-class.
     llm_traps: tuple[LlmModelTrapName, ...] = ()
     tts_provider: str | None = None
+    #: WHICH SARVAM TTS MODEL, e.g. `bulbul:v3` — a sibling of `stt_model`, and it did not
+    #: exist until D-358's second half landed. The model used to travel in `tts_voice`,
+    #: which put a MODEL string in the slot a vendor reads a SPEAKER out of: the engine's
+    #: Sarvam voice provider takes `{"model": "bulbul:v3", "voice": "Ashutosh", "voice_id":
+    #: "ashutosh"}` (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`,
+    #: `create-agent/SKILL.md`). One string cannot be both, and the one we were sending
+    #: named the model in the speaker's place and named no model at all.
+    #:
+    #: SPLIT RATHER THAN PARSED, and that is the field's whole justification. The catalogue
+    #: id an operator picks (`agents.tts_voice`, e.g. `bulbul:v3:ashutosh`) encodes the
+    #: pair, but `agents/voices.py` owns that spelling — an adapter that split the id on a
+    #: colon would be a second definition of our own id format living inside a vendor
+    #: module, which is the direction hard rule 2 exists to prevent. So the split happens
+    #: once, at `agents/service.py::_to_config`, against the catalogue.
+    tts_model: str | None = None
+    #: THE SPEAKER, not the model — `ashutosh`, `anushka`, one of the 44 the vendor
+    #: enumerates (VERIFIED-VENDOR-SDK: sarvamai==0.1.31 (PyPI wheel),
+    #: `types/text_to_speech_speaker.py`, read 27 Aug 2026). See `tts_model` above for what
+    #: this used to hold and why that was wrong.
+    #:
+    #: An id we do not recognise still travels here verbatim with `tts_model` unset, which
+    #: is EXACTLY the pre-split behaviour: `agents.tts_voice` is free text (`voices.py`
+    #: says why), and a value we no longer offer must still reach the engine as itself
+    #: rather than be dropped or guessed at.
     tts_voice: str | None = None
 
     @model_validator(mode="after")

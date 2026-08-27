@@ -82,6 +82,8 @@ from uuid import UUID
 from calevate_shared.call_script import substitute_variables
 from calevate_shared.engine import (
     LLM_MODELS,
+    SARVAM_DEFAULT_STT,
+    SARVAM_STT_PROVIDER,
     AgentConfig,
     CallContext,
     DisclosurePosture,
@@ -117,6 +119,7 @@ from apps.api.agents.models import (
     series_for_e164,
 )
 from apps.api.agents.verification import verify_publish
+from apps.api.agents.voices import speech_for_voice_id, voice_id_of
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -125,7 +128,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
-from apps.api.engine import get_engine, require_capability
+from apps.api.engine import engine_capabilities, get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.legal.service import assert_agreements_accepted
@@ -773,7 +776,84 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     return decided
 
 
-def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:
+class InCallSpeech(TypedDict):
+    """The four `ModelConfig` speech fields `in_call_speech` decides, as a shape.
+
+    Total rather than `NotRequired`, unlike `InCallLLM`, and the difference is real: the
+    LLM arms differ in ARITY (a passthrough leg names no endpoint at all), while every
+    speech arm answers all four slots — the answer is just `None` on the ones nothing
+    configured. Spelling them optional would hide that.
+    """
+
+    stt_provider: str | None
+    stt_model: str | None
+    tts_model: str | None
+    tts_voice: str | None
+
+
+def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
+    """The speech legs' `ModelConfig` fields for one agent — the STT twin of `in_call_llm`.
+
+    ═══ WHY THIS EXISTS: THE STT LEG WAS NEVER WRITTEN, SO EVERY AGENT PUBLISHED A NULL
+    TRANSCRIBER. ═══
+
+    `agents.stt_provider` and `agents.stt_model` are nullable Text columns and **nothing in
+    this tree has ever written them** — no route, no service, no seed, no migration
+    default. `_to_config` read them faithfully, the adapter forwarded them faithfully, and
+    every published agent sent `"transcriber": {"provider": null, "model": null}`. The
+    engine then chose its own default transcriber, on a Telugu-first product, with no
+    symptom anywhere: `require_speech_leg` returns early on `None`, the read-back compares
+    null against whatever came back, and the only place the truth appears is a transcript
+    that quietly is not Telugu. `SARVAM_DEFAULT_STT` is what should have been going.
+
+    ⚠ **THE DEFAULT IS FILLED ONLY WHERE THE LEG IS OURS TO FILL**, which is the half a
+    reviewer would drop and the half that would have broken working agents.
+    `require_speech_leg("stt", ...)` REFUSES a non-None STT selection on an engine whose
+    transcriber is its own product (`EngineCapabilities.stt == "engine"`). Filling a
+    platform default unconditionally would therefore make every agent on such an engine
+    UNPUBLISHABLE — a fix for a silent defect that causes a loud one. So the question is
+    put to the engine, exactly as `voice_selection_capability` and `fake.py`'s snapshot put
+    it: `capabilities.is_ours("stt")`.
+
+    On a dictated engine the ROW's values still travel verbatim rather than being dropped.
+    That is deliberate and it is `require_speech_leg`'s own argument: dropping a selection
+    is the quiet option that leaves a screen offering a choice nothing honours. Refusing it
+    is that guard's job, not this resolver's, and today no row holds one anyway.
+
+    THE TTS HALF IS A SPLIT, NOT A DEFAULT, and it fills nothing. `agents.tts_voice` holds
+    OUR catalogue id (`bulbul:v3:ashutosh`); the vendor's Sarvam provider wants the model
+    and the speaker in two different keys. `speech_for_voice_id` is the one splitter and it
+    is a CATALOGUE LOOKUP — see its docstring for why splitting the string would turn the
+    legacy value `bulbul:v3` into the model `bulbul`. No default is invented here: an agent
+    with no voice configured still publishes with none, which is `voice_selection_capability`
+    and the picker's business, not this function's.
+
+    `engine` is a PARAMETER rather than a `get_engine()` call inside, for the reason
+    `engine_capabilities`' own docstring gives: all four `_to_config` call sites already
+    hold the adapter they are about to publish against (`_call_prompt_for`, `publish_agent`,
+    `publish_variant`, `publishing.engine_drift_for`), and a second factory read here could
+    answer for a different instance from the one being called — a capability check on the
+    wrong evidence. Threading it also makes the drift computation and the publish path
+    provably ask the same engine, which is what stops a drift sweep reporting a mismatch it
+    manufactured itself.
+    """
+    tts_model, speaker = speech_for_voice_id(agent["tts_voice"])
+    if not engine_capabilities(engine).is_ours("stt"):
+        return InCallSpeech(
+            stt_provider=agent["stt_provider"],
+            stt_model=agent["stt_model"],
+            tts_model=tts_model,
+            tts_voice=speaker,
+        )
+    return InCallSpeech(
+        stt_provider=agent["stt_provider"] or SARVAM_STT_PROVIDER,
+        stt_model=agent["stt_model"] or SARVAM_DEFAULT_STT,
+        tts_model=tts_model,
+        tts_voice=speaker,
+    )
+
+
+def _to_config(tenant_id: UUID, agent: AgentRow, *, engine: VoiceEngine) -> AgentConfig:
     settings = get_settings()
     return AgentConfig(
         tenant_id=str(tenant_id),
@@ -793,8 +873,6 @@ def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:
         # column on this row can reach.
         opening_line=compose_opening_line(posture_of(agent)),
         models=ModelConfig(
-            stt_provider=agent["stt_provider"],
-            stt_model=agent["stt_model"],
             # The LLM leg is resolved, not read: see `in_call_llm` for why the endpoint
             # and the identifier it addresses cannot be configured apart (D-410).
             #
@@ -811,7 +889,10 @@ def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:
             # different: somebody asked for it, so it goes.
             **in_call_llm(chosen_llm_model(agent)),
             tts_provider=agent["tts_provider"],
-            tts_voice=agent["tts_voice"],
+            # BOTH SPEECH LEGS THROUGH ONE RESOLVER, for `in_call_llm`'s reason: the STT
+            # default is engine-conditional and the TTS pair is a split, and either one
+            # spelled inline here would be a second expression of it in the drift path.
+            **in_call_speech(agent, engine=engine),
         ),
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
         # The cost-runaway guard. Resolved here rather than defaulted in the model, so
@@ -850,7 +931,7 @@ def _call_prompt_for(
     """
     if engine.capabilities.hosts_agents():
         return None
-    prompt = compose_engine_prompt(_to_config(tenant_id, agent))
+    prompt = compose_engine_prompt(_to_config(tenant_id, agent, engine=engine))
     if merge_values:
         # DIAL-TIME merge of the structured builder's `{{ }}` fields, applied to the
         # composed prompt so the platform-rules block underneath is substituted too (it
@@ -1164,7 +1245,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             "This agent is archived, so it cannot be published.",
             remediation="Restore the agent first, then try again.",
         )
-    config = _to_config(tenant_id, agent)
+    config = _to_config(tenant_id, agent, engine=engine)
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
     # renders, so publish is where a tool change reaches live calls (the "Apply to live
     # calls" action, same mechanism as a voice or cap change). Empty tuple when the master
@@ -1249,7 +1330,13 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             # was never sent. Written inside the same transaction as `engine_agent_ref`
             # and after the vendor call, so a vendor failure rolls the mirror back with
             # it and our row never over-promises (the `kb.publish_source` ordering).
-            "live_voice": config.models.tts_voice,
+            # RECOMPOSED FROM THE CONFIG, not re-read from the row and not the bare
+            # speaker. `ModelConfig` carries the SPLIT pair the vendor's two keys take;
+            # this column, `agents.tts_voice` and `publishing.py::voice_diverged` are all
+            # written in catalogue IDs, so recording `config.models.tts_voice` alone here
+            # would record `ashutosh` against a configured `bulbul:v3:ashutosh` and report
+            # every published agent as permanently diverged.
+            "live_voice": voice_id_of(config.models.tts_model, config.models.tts_voice),
             "live_provider": config.models.tts_provider,
             "verify_state": verdict.stored_state,
             # NULL unless something was actually proven. A timestamp on an `unreachable`
@@ -1321,6 +1408,8 @@ def _variant_config(
     label: str,
     body: str,
     disclosure: str,
+    *,
+    engine: VoiceEngine,
 ) -> AgentConfig:
     """The agent's own config with the arm's identity, script and disclosure substituted.
 
@@ -1340,7 +1429,7 @@ def _variant_config(
     `engine_agent_routes`, which is written below and is the only mapping any inbound
     path consults.
     """
-    return _to_config(tenant_id, agent).model_copy(
+    return _to_config(tenant_id, agent, engine=engine).model_copy(
         update={
             "agent_id": str(variant_id),
             "name": f"{agent['name']} [variant {label}]",
@@ -1397,7 +1486,9 @@ async def publish_variant(
     """
     agent = await _load_agent(session, tenant_id, agent_id)
     engine = get_engine()
-    config = _variant_config(tenant_id, agent, variant_id, label, body, disclosure_line)
+    config = _variant_config(
+        tenant_id, agent, variant_id, label, body, disclosure_line, engine=engine
+    )
     if existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref

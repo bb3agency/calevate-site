@@ -200,6 +200,7 @@ def test_the_published_webhook_url_is_a_route_voice_runtime_serves() -> None:
     string search would pass on a copy that had moved into a comment.
     """
     from apps.api.agents.service import _to_config
+    from apps.api.engine import get_engine
 
     agent: dict[str, object] = {
         "id": uuid4(),
@@ -223,7 +224,7 @@ def test_the_published_webhook_url_is_a_route_voice_runtime_serves() -> None:
         "tts_voice": "anushka",
         "max_call_duration_s": 600,
     }
-    published = urlsplit(_to_config(uuid4(), agent).webhook_url).path
+    published = urlsplit(_to_config(uuid4(), agent, engine=get_engine()).webhook_url).path
     served = voice_paths()
     assert any(
         published == route.replace("{engine}", engine)

@@ -54,6 +54,7 @@ import uuid
 from typing import Any
 
 import pytest
+from apps.api.agents.voices import DEFAULT_VOICE_ID
 from apps.api.core.rbac import iter_api_routes
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
@@ -94,7 +95,10 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {"max_call_duration_s": 300},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {"body": PROMPT_BODY},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {"version": 1},
-    "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {"voice_id": "bulbul:v3"},
+    # THE CATALOGUE'S OWN DEFAULT, not a literal. A voice id is `<tts_model>:<speaker>`
+    # since D-358, and this route validates membership before it looks the tenant up — so a
+    # stale literal here would 422 and this census would stop measuring the 404 it is about.
+    "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {"voice_id": DEFAULT_VOICE_ID},
     # An EMPTY variable list is a valid body (a schema may capture nothing extra), so the
     # route validates and reaches the tenant lookup — which 404s for a tenant that names
     # nothing. A non-empty body would work too; empty is the minimal one that gets past
