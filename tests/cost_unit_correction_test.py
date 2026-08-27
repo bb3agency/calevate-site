@@ -45,6 +45,7 @@ from apps.workers.pipeline import _meter
 from calevate_shared.engine import CostBreakdown, ExecutionSnapshot
 from scripts import correct_cost_unit
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 #: 120 seconds of telephony at ₹0.0125/s = ₹1.50, plus a ₹0.30 platform leg. Under the
 #: divisor bug these are one hundredth of what the vendor charged.
@@ -69,6 +70,11 @@ async def _published_tenant() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"fakeagent_cu_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:

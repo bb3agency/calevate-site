@@ -45,3 +45,27 @@ export function clientConsoleUrl(path: string): string {
   const origin = CLIENT_CONSOLE_ORIGIN.replace(/\/+$/, "");
   return origin === "" ? path : `${origin}${path}`;
 }
+
+/**
+ * Read once at module scope, for `CLIENT_CONSOLE_ORIGIN`'s reason: `NEXT_PUBLIC_*` is
+ * inlined at build time and cannot change while the page is open.
+ */
+const ADMIN_CONSOLE_ORIGIN = process.env.NEXT_PUBLIC_ADMIN_CONSOLE_ORIGIN ?? "";
+
+/**
+ * A path on the OPERATOR console, absolute when the realms are on different hostnames.
+ *
+ * The mirror of `clientConsoleUrl`, added because the defect class is symmetric and the
+ * other half reached production too: the impersonation banner's "Exit and return to the
+ * admin console" called `window.location.assign("/admin")` from a page served on
+ * `app.calevate.tech`, where nginx answers `location ^~ /admin { return 404; }`. An
+ * operator finishing a view-as session — the one moment they are guaranteed to be on the
+ * client hostname — got the not-found screen instead of their console.
+ *
+ * The same is true of every `/admin` destination on the AUTH screens, which are served on
+ * the apex, and the apex refuses `/admin` as well.
+ */
+export function adminConsoleUrl(path: string): string {
+  const origin = ADMIN_CONSOLE_ORIGIN.replace(/\/+$/, "");
+  return origin === "" ? path : `${origin}${path}`;
+}

@@ -679,7 +679,10 @@ class FakeEngine:
                 code="engine_capability_absent",
                 title="The voice platform cannot do that",
                 detail=f"The voice platform in use does not provide numbers in: {spec.series}.",
-                remediation="Contact us and we will provision a number for your account.",
+                remediation=(
+                    "Numbers are taken on the client's own operator account — Calevate "
+                    "does not supply them."
+                ),
             )
         e164 = "+9111" + self._stable_id("n", spec.series, spec.purpose or "")[-8:].replace(
             "abcdef", "123456"

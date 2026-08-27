@@ -133,6 +133,41 @@ describe("a refused signup", () => {
     expect(pageText()).not.toContain("Sri Sai Dental Care is set up");
   });
 
+  it("sends an unverified account to confirm its address, and keeps a way back", async () => {
+    /**
+     * `email_not_verified` is a STEP, not a fault, and it is the ORDINARY state of a
+     * brand-new account: `POST /v1/auth/signup` now requires `users.email_verified_at`
+     * (`tenancy/signup.py::assert_email_verified`), and D-185 deliberately leaves an
+     * account redeemed from an invitation unverified, because possession of a forwarded
+     * link is not proof of the mailbox.
+     *
+     * Rendered through `ProblemNotice` this would be a red "something went wrong" over a
+     * form the person can resubmit forever. What it must be instead is a signpost to the
+     * door that clears it — and a way back, because the fix happens in another tab.
+     */
+    await submit({
+      [SIGNUP]: problem(422, {
+        type: "https://calevate.tech/problems/email_not_verified",
+        title: "Confirm your email address first",
+        detail: "Your email address has not been confirmed yet.",
+        remediation: "Open your account settings and enter the code we send you.",
+      }),
+    });
+
+    expect(await screen.findByText("Confirm your email address first")).toBeTruthy();
+    // The server's own instruction, not a second copy of the rule in this file.
+    expect(pageText()).toContain("Open your account settings and enter the code we send you.");
+    // The door, and the way back. Without the first this is a dead end; without the
+    // second the person retypes five fields after verifying in another tab.
+    const link = screen.getByRole("link", { name: /Confirm my address/ });
+    expect(link.getAttribute("href")).toBe("/auth/account");
+    expect(screen.queryByRole("button", { name: "I have done that" })).not.toBeNull();
+    // And it is not dressed as either of the other two closures, which have different
+    // lifetimes and different instructions.
+    expect(pageText()).not.toContain("Signing up online is closed");
+    expect(pageText()).not.toContain("Sri Sai Dental Care is set up");
+  });
+
   it("offers a retry for load-shedding, because that closure clears by itself", async () => {
     await submit({
       [SIGNUP]: problem(503, {

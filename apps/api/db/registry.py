@@ -17,6 +17,7 @@ from apps.api.flags import models as flags_models
 from apps.api.insights import models as insights_models
 from apps.api.integrations import models as integrations_models
 from apps.api.kb import models as kb_models
+from apps.api.legal import models as legal_models
 from apps.api.ops import models as ops_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
@@ -37,6 +38,7 @@ __all__ = [
     "insights_models",
     "integrations_models",
     "kb_models",
+    "legal_models",
     "ops_models",
     "quality_models",
     "reliability_models",
@@ -120,6 +122,11 @@ TENANT_TABLES = [
     # surface, and no other tenant may see it. Absence is the default, so most tenants
     # have no rows at all.
     "tenant_feature_flags",
+    # The client's acceptance of the published legal documents (migration a9d4e70c31b8).
+    # Tenant data: it names one client's owner and what they agreed to, and it is read by
+    # that client's own readiness screen and by every outbound gate. Append-only — see
+    # APPEND_ONLY_TABLES below.
+    "legal_acceptances",
     "retention_policies",
     # Which tenants the nightly retention sweep must visit that the engine bridge cannot
     # name (D-368, migration b2e6f10c94d7). Its policy is HAND-WRITTEN like `dnc_list`'s
@@ -391,4 +398,10 @@ APPEND_ONLY_TABLES = [
     # rewrap exception: the blanket `calevate_forbid_mutation` applies, so every column is
     # immutable once written and there is no UPDATE this table ever needs.
     "platform_model_prices",
+    # Acceptance of a legal document is CONTRACT FORMATION, not consent: there is no
+    # withdrawal row and no status column, because a client who ends the engagement does
+    # not un-accept the terms they operated under last month. An UPDATE could only ever
+    # rewrite which version somebody agreed to, which is the one fact the row exists to
+    # fix in place; a DELETE erases the evidence for the period it covers.
+    "legal_acceptances",
 ]

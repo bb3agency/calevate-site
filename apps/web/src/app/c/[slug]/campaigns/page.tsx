@@ -418,7 +418,7 @@ function PlatformOutageNotice({ reason }: { reason: string }) {
         <p className="mt-1 text-ink-muted">
           Our own{" "}
           <TermGloss term="telemarketer (TM)">
-            the company registered to place calls on a business&apos;s behalf
+            the business registered to place calls on another business&apos;s behalf
           </TermGloss>{" "}
           registration with the{" "}
           <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registrar is

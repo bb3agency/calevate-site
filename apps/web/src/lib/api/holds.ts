@@ -77,7 +77,7 @@ export interface HoldRule {
 export const HOLD_RULES: Record<string, HoldRule> = {
   kyc_missing: {
     label: "Identity not filed",
-    blocks: "All outbound calling, and a number purchase on any tier.",
+    blocks: "All outbound calling, on any tier — and their own operator asks for the same documents.",
     remedy: "Chase the business's registration details, then record the verification.",
     screen: (tenantId) => `/admin/tenants/${tenantId}/kyc`,
     cta: "Identity (KYC)",
@@ -85,7 +85,7 @@ export const HOLD_RULES: Record<string, HoldRule> = {
   },
   kyc_not_verified: {
     label: "Identity not verified",
-    blocks: "All outbound calling, and a number purchase on any tier.",
+    blocks: "All outbound calling, on any tier — and their own operator asks for the same documents.",
     remedy: "Something is on file and is not cleared — check it and record the outcome.",
     screen: (tenantId) => `/admin/tenants/${tenantId}/kyc`,
     cta: "Identity (KYC)",

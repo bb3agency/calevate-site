@@ -119,8 +119,9 @@ describe("the verification gate under failure", () => {
 
   it("offers nothing to press — no upload, no self-verification, no number to buy", async () => {
     // The three controls this screen must never grow, asserted as one: every one of them
-    // is a refusal the client would reach by clicking. `number_purchase_available` is the
-    // server's own selector for the third, and it is false for every account today.
+    // is a refusal the client would reach by clicking. The third can never exist at all —
+    // Calevate does not supply numbers (Model B), and `number_purchase_available` is the
+    // server's own selector saying so for every account in every deployment.
     const { container } = await renderClientPage(<VerificationPage />, {
       [KYC_PATH]: record(),
       [PE_REGISTRATION_PATH]: PE_ACTIVE,
@@ -156,18 +157,27 @@ describe("the verification gate under failure", () => {
     expect(container.textContent).toContain("Not on file");
   });
 
-  it("keeps the number-purchase card a sentence rather than a control", async () => {
-    // Verified, and still no form: the second half of `number_purchase_available` is
-    // whether this deployment has a telephony provider at all, and it does not. A button
-    // whose only outcome is an error costs the client a support ticket.
+  it("tells a verified client where their number comes from, and never offers to get one", async () => {
+    // Verified, and still no control — because there is nothing we could sell them. The
+    // card has to survive two ways: it must not promise that Calevate obtains a number
+    // (Model B, published Terms clause 3), and it must name the operators and what to
+    // send back, or the client comes back with a support ticket.
     const { container } = await renderClientPage(<VerificationPage />, {
       [KYC_PATH]: record({ status: "verified", is_verified: true, verified_at: "2026-03-01T06:00:00Z" }),
       [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     await screen.findByText(SCREEN);
-    expect(container.textContent).toContain("not available in Calevate yet");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Calevate does not sell, rent or supply telephone numbers");
+    expect(text).toContain("Exotel");
+    expect(text).toContain("Plivo");
+    expect(text).toContain("Vobiz");
+    expect(text).toContain("subscriber of");
     expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(container.textContent).not.toContain("Buy a number");
+    expect(text).not.toContain("Buy a number");
+    // The Model A promises this screen used to make, named so they cannot come back.
+    expect(text).not.toContain("we will arrange");
+    expect(text).not.toContain("We buy and register numbers");
   });
 });

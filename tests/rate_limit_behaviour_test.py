@@ -28,6 +28,7 @@ from collections.abc import Iterator
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.authn.cookies import cookie_name
 from apps.api.core import middleware, ratelimit
 from apps.api.core.ratelimit import LimitProfile
 from apps.api.core.settings import get_settings
@@ -399,3 +400,106 @@ async def test_the_signup_quota_fails_closed_when_the_same_redis_is_gone(
     assert refused.status_code == 503, refused.text
     assert refused.json()["type"].endswith("/signup_unavailable")
     assert refused.headers.get("Retry-After") == "60"
+
+
+# --- 4. the credential is a COOKIE, and the per-caller dimension had collapsed ---------
+
+
+async def test_a_signed_in_session_is_its_own_bucket_even_though_it_sends_no_bearer_token(
+    tight: None,
+) -> None:
+    """THE COLLAPSE, and it is the mirror of the bearer test above for the credential we
+    actually ship.
+
+    `_subjects` read `Authorization` and nothing else, and since D-177 a real session is a
+    `__Host-` cookie — `core.auth._credential` refuses anything but the local `dev:` token
+    on that header. So on every production request the bearer read returned `None`, the
+    caller subject fell through to the ADDRESS, and the "per-caller" ceiling was a
+    per-address ceiling for the whole authenticated API.
+
+    THE ORDER MATTERS AND IS THE SCENARIO, not a convenience. The session signs in FIRST
+    — which is what mints its bucket and charges the address one unit, per the rule above —
+    and the flood starts afterwards. That is the real shape of the incident: staff are
+    already working when a stranger on the same carrier NAT begins hammering the API. A
+    session appearing for the FIRST time mid-flood is still refused, deliberately: minting
+    is charged to the address and the address is spent, which is the same answer an
+    anonymous request would get and is the property that stops a rotator escaping.
+
+    Before the cookie arm, the second request below was counted in the address's spent
+    bucket and got a 429 — a member of staff locked out of the console by a stranger, with
+    no credential involved and nothing in the app able to tell the two apart. It must now
+    be refused by the AUTHENTICATOR (401) rather than by the limiter (429).
+    """
+    shared = _address()
+    session = f"{cookie_name('client')}={uuid.uuid4().hex}"
+    async with _client(_trusted_peer()) as http:
+        edge = {"CF-Connecting-IP": shared}
+        # 1. Already signed in and working. Mints the session bucket; the address pays one.
+        first = await http.get("/v1/agents", headers={**edge, "Cookie": session})
+        assert first.status_code != 429, f"the session was refused before any flood: {first.text}"
+
+        # 2. A stranger on the same address spends what is left of it.
+        for _ in range(4):
+            last = await http.get("/v1/agents", headers=edge)
+        assert last.status_code == 429, f"the address budget was not spent: {last.text}"
+
+        # 3. The same session asks for another page.
+        signed_in = await http.get("/v1/agents", headers={**edge, "Cookie": session})
+    assert signed_in.status_code != 429, (
+        "a signed-in session was refused by the LIMITER for sharing an address with a "
+        "flood — the per-caller dimension has collapsed to per-address again"
+    )
+    assert signed_in.status_code == 401, signed_in.text
+
+
+async def test_an_office_on_cookies_is_not_throttled_for_being_several_people(
+    tight: None,
+) -> None:
+    """The control, mirroring the bearer version: minting is charged, requests are not.
+
+    Two staff, two sessions, one NAT, six requests against `per_client=3`. Each session
+    spends its own three and the address pays two units — one per session first seen — so
+    nothing is refused. Charge the address per REQUEST and the fourth call here is a 429
+    for somebody who did nothing wrong.
+    """
+    one, two = uuid.uuid4().hex, uuid.uuid4().hex
+    async with _client(_trusted_peer()) as http:
+        edge = {"CF-Connecting-IP": _address()}
+        codes = [
+            (
+                await http.get(
+                    "/v1/agents",
+                    headers={**edge, "Cookie": f"{cookie_name('client')}={session}"},
+                )
+            ).status_code
+            for _ in range(3)
+            for session in (one, two)
+        ]
+    assert 429 not in codes, f"a shared address was throttled for holding two sessions: {codes}"
+
+
+async def test_rotating_the_cookie_buys_no_more_room_than_presenting_none(tight: None) -> None:
+    """A fresh cookie per request must not be an escape from the address ceiling.
+
+    The rule the bearer arm states — PRESENTING A CREDENTIAL NEVER BUYS MORE ROOM THAN
+    PRESENTING NONE — has to hold for the cookie arm too, or the collapse is fixed in the
+    honest direction and reopened in the dishonest one: a stranger sending an invented
+    session cookie on every request would get a brand-new bucket each time. The mint is
+    charged to the address, so a rotator is refused at exactly the point an anonymous
+    flood from the same address would have been.
+    """
+    shared = _address()
+    async with _client(_trusted_peer()) as http:
+        codes = [
+            (
+                await http.get(
+                    "/v1/agents",
+                    headers={
+                        "CF-Connecting-IP": shared,
+                        "Cookie": f"{cookie_name('client')}={uuid.uuid4().hex}",
+                    },
+                )
+            ).status_code
+            for _ in range(6)
+        ]
+    assert 429 in codes, f"rotating a cookie escaped the address ceiling: {codes}"

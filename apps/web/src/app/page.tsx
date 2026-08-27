@@ -80,7 +80,7 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  *   the region is confirmed by a person, not proved by a build. A softer verb over the
  *   wider implication, or a firmer one over the narrow claim, are the same
  *   misrepresentation, so `publicLanding.test.tsx` bans both shapes. Certifications
- *   (SOC 2, ISO 27001, HIPAA) are absent because the company holds none.
+ *   (SOC 2, ISO 27001, HIPAA) are absent because we hold none.
  *
  * ## The redesign, section by section — each reads from a shipped surface
  *

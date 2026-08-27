@@ -849,7 +849,7 @@ function TmRegistrationPanel({
         <p className="text-sm text-ink-muted">
           Calevate is the registered{" "}
           <TermGloss term="telemarketer (TM)">
-            the company registered with India&apos;s telecom system to place calls on a
+            the business registered with India&apos;s telecom system to place calls on a
             client&apos;s behalf
           </TermGloss>
           ; each client is its own{" "}

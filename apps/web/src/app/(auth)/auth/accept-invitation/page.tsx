@@ -46,6 +46,7 @@ export default function AcceptInvitationPage() {
             Accept your invitation
           </h1>
           <SetPasswordForm<AcceptedInvitation>
+            realm="client"
             submitLabel="Accept and create my account"
             askForName
             intro={

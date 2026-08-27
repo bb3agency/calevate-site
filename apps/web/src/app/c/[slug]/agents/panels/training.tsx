@@ -26,6 +26,7 @@ import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import type { Agent } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /** What a knowledge submission's state means, in the client's words. Mirrors the wording
  *  on `/c/<slug>/knowledge`, which is the screen that owns the full list. */
@@ -51,6 +52,8 @@ const KB_STATUS_COPY: Record<string, string> = {
  */
 export function TrainingPanel({ agent }: { agent: Agent }) {
   const session = useClientSession();
+  // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
+  const eg = useVerticalExamples();
   const sources = useKbSources(session);
   const submit = useSubmitKnowledge(session);
   const write = useWriteAccess(session, "kb:write", "teach this agent");
@@ -115,7 +118,7 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
               minLength={2}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Clinic hours"
+              placeholder={`e.g. ${eg.knowledgeTitle}`}
               className={FIELD}
             />
           </label>

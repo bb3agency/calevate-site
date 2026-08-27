@@ -53,6 +53,7 @@ from apps.workers.settings import WorkerSettings
 from arq import Retry
 from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 FEES = "A consultation costs 500 rupees and is payable at reception."
 HOURS = "The clinic is open from 9am to 8pm, Monday to Saturday."
@@ -206,6 +207,11 @@ async def _agent_with_knowledge(
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"fakeagent_kbd_{uuid.uuid4().hex[:8]}"
     # `engine_agent_ref` ONLY — deliberately not `status = 'live'`, which the other KB

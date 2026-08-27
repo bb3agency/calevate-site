@@ -43,6 +43,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine.capabilities import ENGINE_CAPABILITY_ABSENT, EngineCapabilityAbsentError
 from apps.api.engine.fake import EXTERNAL_DEPLOYMENT_CAPABILITIES, FakeEngine
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 # NO `pytestmark = pytest.mark.asyncio` HERE, DELIBERATELY. `pyproject.toml` sets
 # `asyncio_mode = "auto"`, so every `async def test_` is collected as a coroutine test with
@@ -85,6 +86,11 @@ async def _publishable_agent() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
     async with tenant_session(tenant_id) as session:
         await prompts.write_prompt_version(
@@ -179,6 +185,11 @@ async def test_the_refusal_comes_before_the_agent_row_is_even_read(
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id = uuid.UUID(str(created["id"]))
     agent_id = uuid.UUID(str(created["agent_id"]))
 
@@ -260,6 +271,11 @@ async def test_the_dial_prompt_merges_the_leads_variables_where_the_engine_carri
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id = uuid.UUID(str(created["id"]))
     agent_id = uuid.UUID(str(created["agent_id"]))
     async with tenant_session(tenant_id) as session:

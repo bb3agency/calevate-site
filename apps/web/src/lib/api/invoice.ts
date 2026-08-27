@@ -36,7 +36,7 @@ type Schemas = components["schemas"];
  * The invoice document, from the generated schema.
  *
  * Two fields decide what this document IS rather than what it says. `document_type` is
- * `"tax_invoice"` or `"proforma"`, and the heading is rendered from it and never from a
+ * `"tax_invoice"` or `"bill_of_supply"`, and the heading is rendered from it and never from a
  * literal — CGST s.32 forbids an unregistered person collecting tax, so a document
  * without the Rule 46 identity particulars must not present itself as a tax invoice.
  * `document_blockers` names the exact environment variables standing between this

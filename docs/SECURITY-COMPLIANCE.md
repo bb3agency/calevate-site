@@ -97,9 +97,14 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 
 DLT role model (corrected): the **client is the Principal Entity (PE)** — calls are made
 on their behalf, under their identity and templates; **Calevate is the registered
-Telemarketer (TM)** linked to each client PE. Calevate's TM registration (requires our
-entity — Risk R-01) is the company-level blocker; each client's PE registration
-(~₹5,900 first TSP) is an onboarding-wizard step we execute for them (part of setup fee).
+Telemarketer (TM)** linked to each client PE. Calevate's TM registration follows Udyam
+(the entity is decided — a sole proprietor trading as Calevate, `docs/legal/
+LEGAL-OPS-PLAYBOOK.md` §0/§3) and is the PLATFORM-level blocker; each client's PE
+registration (~₹5,900 first TSP) is theirs to take out in their own name on the
+registrar's portal, and theirs to bind our TM-ID to (playbook §10.4). We cannot file it
+for them — we do not hold their DLT login — so what onboarding does is walk them through
+it, draft the template content for them to file, accept the PE–TM chain on our side, and
+record the registrar's verdict.
 
 A campaign cannot launch unless ALL of — each bullet now naming the blocker
 `campaigns.service.launch_blockers` returns, so a screen, a test and this section can
@@ -187,6 +192,26 @@ cite the same string:
   arrive stops a RUNNING campaign at the next tick. Released once, no later campaign is
   refused on this rule. Deliberately not asked by `check_dispatch`, which also serves the
   D-21 single-lead button and the instant callback — neither is a campaign.
+- **The client has accepted the agreements that bind them** — `agreements_not_accepted`.
+  The four blocking documents are the Terms of Service, the Privacy Policy, the Data
+  Processing Addendum and the Acceptable Use Policy (LEGAL-OPS-PLAYBOOK §13, which lists
+  the DPA as "client signs or clickwrap"); the other four published documents are notices
+  we owe the client and are read, never accepted. It is ONE rule name rather than one per
+  document, because the client's next action is the same whichever is outstanding and the
+  screen that names them is one click away. Asked in `launch_blockers`, in
+  `dispatch_blockers` — a MATERIAL new version can fall due while a campaign is
+  mid-flight — AND in `check_dispatch`, which is the only gate the D-21 single-lead
+  button and the instant-callback webhook pass through; and raised rather than listed by
+  `agents.service.publish_agent`, because putting an agent on the phone under a DPA
+  nobody has agreed to is processing a client's callers' data with no instrument covering
+  it. Only the organisation OWNER may accept (`org:manage`, client realm, refused to an
+  impersonating operator), and acceptance is recorded per document per version in the
+  append-only `legal_acceptances` ledger with the exact wording the person was shown.
+  **Acceptance is currently PROVISIONAL and says so on the screen**: the documents have
+  not been through legal review (`PENDING_LEGAL_REVIEW`), so every version carries a
+  `+pre-review` suffix and every acceptance is re-demanded when that changes — which is a
+  property of the version string, not a special case. LEGAL-OPS-PLAYBOOK §13: "Templates
+  + draft banner are not a defence."
 - Per-tenant caps (`spend_state`) not exceeded (`spend_cap`), and the prepaid wallet not
   exhausted (`no_credits`). The effective ceiling is `LEAST(admin, client)` — a client may
   lower their own at will and may never loosen it past the admin's (SURFACES §2b) — and a
@@ -596,6 +621,40 @@ Identity & access
     whole control. Declaring the gate there would refuse the action outright rather than
     tighten it. BACKEND-PATTERNS §7 used to list raw-transcript access without saying
     which realm it meant; it now says both halves explicitly.
+- **Password policy is NIST SP 800-63B-4 §3.1.1.2, and the minimum length is PER REALM**
+  — 15 characters on the client realm, 12 on the admin realm. That looks backwards and is
+  not: §3.1.1.2 makes 15 a SHALL for a password "used as a single-factor authentication
+  mechanism" and permits as few as 8 for one "only used as part of multi-factor
+  authentication processes". `MFA_REQUIRED_REALMS` is `{"admin"}` (D-170), so the CLIENT
+  password is the whole of the authentication and the admin password is one factor of two.
+  The client realm was therefore the one sitting under the SHALL while the stricter-looking
+  admin realm was already compliant. Admin keeps 12 rather than spending the concession
+  down to 8.
+  - **It is enforced at the STORE, not at the routes.** `credentials.set_password` is the
+    only writer of `auth_credentials.password_hash`, and it calls
+    `authn/policy.assert_password_allowed` before it hashes — so invitation redemption,
+    reset confirmation, admin bootstrap and the dev seed are all covered by construction
+    rather than by whoever remembered. It is deliberately NOT applied on the verify path:
+    raising a floor changes what may be STORED, never what may be PRESENTED, so nobody is
+    locked out of an account they can still sign into.
+  - **A blocklist, which §3.1.1.2 also requires and which did not exist before**: the whole
+    password is compared — never substrings, which is the same clause — against the service
+    name, the account's own address and its derivatives, keyboard walks and short
+    repetitions. The refusal names WHICH ("SHALL provide the reason for rejection") and the
+    browser renders that reason at the field. Composition rules are absent because the
+    revision forbids them ("SHALL NOT impose other composition rules").
+  - ⚠ **The breach-corpus half is OPEN and has no placeholder.** NIST names previous breach
+    corpuses first among what a blocklist may include; both hosts that serve one are
+    egress-blocked from the build environment, so a corpus could only have been typed, and
+    a hand-written "most common breached passwords" list is an unverified fact wearing an
+    authoritative look (hard rule 11). `apps/api/authn/policy.py` records what closes it —
+    a named, pinned source — and why an empty set with a branch above it was written and
+    then deleted.
+  - Passwords are NFC-normalized before hashing, on the set path and the verify path alike
+    (one function, `hashing._peppered`). NFC and not the -3 revision's NFKC: compatibility
+    folding rewrites characters an Indic-script typist entered deliberately, which on a
+    Telugu-first product turns the default case into the error case. NFC is the identity on
+    ASCII, so no stored hash changes meaning.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. The two ADMIN tiers are managed
   from `/v1/admin/operators` — superadmin-only, step-up confirmed, audited — and
   `superadmin` holds every permission by derivation, so a new one is superadmin-only until

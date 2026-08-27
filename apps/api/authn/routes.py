@@ -44,6 +44,7 @@ trying to work out why nobody can sign in.
 | cross-site request | 403 | `cross_site_request` |
 | spent reset/invite token | 422 | `invalid_reset_token` / `invitation_invalid` |
 | password too short/long | 422 | `password_length` |
+| password on the blocklist | 422 | `password_unacceptable` |
 | failure budget spent | 429 | `too_many_attempts` |
 | request budget spent | 429 | `rate_limited` (middleware) |
 
@@ -128,6 +129,14 @@ class LoginIn(BaseModel):
     # same constants rather than two numbers that could drift. Pydantic refuses an
     # over-long body before it reaches the HMAC, which is the point: an unbounded password
     # on an unauthenticated route is a free CPU sink.
+    # `MIN_PASSWORD_CHARS` IS THE ABSOLUTE FLOOR, NOT THE POLICY. The real minimum is per
+    # realm (`authn/policy.py`: 15 for the client realm, which has no second factor, per
+    # SP 800-63B-4 §3.1.1.2), and it cannot be expressed here because these models are
+    # shared by both realm routers — the realm is a closure constant of `_realm_router`,
+    # not a field. So Pydantic bounds the SHAPE and `credentials.set_password` enforces
+    # the POLICY, which is also the placement that catches the routes nobody remembered.
+    # The refusal a caller meets for 13 characters on the client realm is therefore
+    # `password_length` from `policy`, with the right number in it, rather than a bare 422.
     password: str = Field(min_length=MIN_PASSWORD_CHARS, max_length=MAX_PASSWORD_CHARS)
 
 

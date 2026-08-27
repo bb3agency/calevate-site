@@ -21,6 +21,7 @@ from apps.api.ingest.service import normalize_phone
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 SECRET = "ingest-secret-for-tests"
 
@@ -52,6 +53,11 @@ async def _tenant_with_ingest(
         created_by=None,
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away. Every dial gate now refuses an organisation that has not accepted them, so a
+    # fixture without this makes `check_dispatch` report `agreements_not_accepted` in
+    # place of the ingest rule (`dnc`, `destination_not_india`) under test.
+    await accept_agreements(uuid.UUID(str(tenant_id)))
     webhook_id = uuid.uuid4()
     ref = f"fakeagent_ing_{uuid.uuid4().hex[:8]}"
 

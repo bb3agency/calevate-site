@@ -141,6 +141,23 @@ export function isSignupDeferred(error: unknown): error is ApiProblem {
   return error instanceof ApiProblem && error.code === "signup_load_shed";
 }
 
+/**
+ * Is this refusal "confirm your email address first"?
+ *
+ * A THIRD first-class refusal, for the same reason as the other two: it is a normal step
+ * rather than a fault. `POST /v1/auth/signup` requires `users.email_verified_at`
+ * (`apps/api/tenancy/signup.py::assert_email_verified`), and D-185 deliberately does NOT
+ * set it when an invitation is redeemed — possession of a forwarded link is not proof of
+ * the mailbox — so a brand-new account arrives here unverified as the ORDINARY case.
+ *
+ * Rendered as a red "something went wrong" it would be the worst kind of dead end: the
+ * person has done nothing wrong, the fix takes thirty seconds, and the door
+ * (`/auth/account`, D-174) already exists. So the page sends them there and back.
+ */
+export function isSignupUnverified(error: unknown): error is ApiProblem {
+  return error instanceof ApiProblem && error.code === "email_not_verified";
+}
+
 export function useSignup() {
   return useMutation({
     mutationFn: (payload: SignupIn) =>

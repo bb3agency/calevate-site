@@ -85,10 +85,16 @@ export const ACCEPTABLE_USE: LegalDocument = {
                   "`pe_registration_missing`, `pe_registration_not_active` and " +
                   "`tm_link_not_active`, in that order — an authorisation cannot be active " +
                   "for a registration that does not exist.",
-                "The header registered against the number you are calling from " +
-                  "(`number_not_registered`), and an approved voice template for the kind " +
-                  "of campaign you are running (`dlt_template_missing`, " +
-                  "`dlt_template_not_approved`, `dlt_template_mismatch`).",
+                "The number you are calling from, and the header registered against it " +
+                  "(`number_not_registered`). The connection must be one you hold in " +
+                  "your own name with an Indian operator — you are the subscriber of " +
+                  "record for it, not us, and we neither sell nor rent telephone " +
+                  "numbers. A header registered to somebody else, or registered for one " +
+                  "class of message and used for another, is the same category of breach " +
+                  "as the number-series misuse in section 2.2. You also need an approved " +
+                  "voice template for the kind of campaign you are running " +
+                  "(`dlt_template_missing`, `dlt_template_not_approved`, " +
+                  "`dlt_template_mismatch`).",
               ],
             },
             {

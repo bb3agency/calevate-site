@@ -41,6 +41,7 @@ from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 from tests.member_invitations_test import mailed_invitation_token
 
 PUBLISH = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish"
@@ -116,6 +117,14 @@ async def _new_client(token: str) -> tuple[UUID, UUID, str]:
         )
     assert response.status_code == 201, response.text
     body = response.json()
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away. `publish_agent` now refuses an organisation that has not accepted them, and
+    # this wizard fixture ends in a publish: without this, every case below reports
+    # `agreements_not_accepted` instead of the onboarding step it is about. In production
+    # the owner accepts them from their own console before the agent goes live; there is
+    # no operator surface that can do it for them, which is why this is recorded here
+    # rather than added to the wizard.
+    await accept_agreements(UUID(str(body["id"])))
     return UUID(body["id"]), UUID(body["agent_id"]), slug
 
 

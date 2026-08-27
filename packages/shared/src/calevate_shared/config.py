@@ -1176,10 +1176,12 @@ class Settings(BaseSettings):
 
     # WHO CALEVATE IS ON AN INVOICE (SLICE AL). Rule 46 of the CGST Rules makes the
     # supplier's legal name, registered address and GSTIN mandatory particulars of a tax
-    # invoice, and Rule 46(g) makes the HSN/SAC of the supply one too. All four are a
-    # FOUNDER DECISION that has not been taken — ROADMAP M0 has no legal entity and
-    # therefore no GST registration — so they are config with NO DEFAULT and no
-    # placeholder. A hardcoded specimen GSTIN would be the worst possible outcome: an
+    # invoice, and Rule 46(g) makes the HSN/SAC of the supply one too. The LEGAL PERSON
+    # is settled — Calevate is a trade name of a sole proprietor (`docs/legal/
+    # LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`) — but the REGISTRATION is not: we are not
+    # registered for GST and are not required to be at present turnover (§4), so there is
+    # no GSTIN to print and no tax to collect. They are therefore config with NO DEFAULT
+    # and no placeholder. A hardcoded specimen GSTIN would be the worst possible outcome: an
     # official-looking document that fails validation in the recipient's return months
     # later, and CGST s.32 prohibits an unregistered person from collecting tax at all.
     #
@@ -1190,11 +1192,13 @@ class Settings(BaseSettings):
     # and because changing them is a corporate event that should move with the deploy
     # that ships the new letterhead, not a row somebody can edit in a console.
     #
-    # UNSET IS A SUPPORTED STATE and is what every environment is in today:
+    # UNSET IS A SUPPORTED STATE, it is what every environment is in today, and while we
+    # are not GST-registered it is the CORRECT state rather than a gap:
     # `billing/gst.py::SupplierIdentity.is_registered` is False, the document renders as
-    # a PROFORMA that names the missing keys, and it refuses the "Tax Invoice" heading
-    # rather than printing an invalid one. It does NOT change what the client owes —
-    # `invoice.py` argues why a forgotten variable must never silently move money.
+    # a BILL OF SUPPLY (CGST Rule 49) that names the missing keys, and it refuses the
+    # "Tax Invoice" heading rather than printing an invalid one. It does NOT change what
+    # the client owes — `invoice.py` argues why a forgotten variable must never silently
+    # move money.
     gst_supplier_legal_name: str | None = Field(default=None, max_length=200)
     gst_supplier_address: str | None = Field(default=None, max_length=1000)
     # 15 characters. Its first two digits are the supplier's State and are what decides
@@ -1204,7 +1208,7 @@ class Settings(BaseSettings):
     # characters, and an exact `min_length=15` here was WRONG — caught by
     # `invoice_gst_test`, which feeds a 14-character value on purpose. `billing/gst.py`
     # already degrades gracefully on a malformed one: `parse_gstin` treats it as ABSENT,
-    # the document renders as a PROFORMA naming the missing key, and nothing about what
+    # the document renders as a bill of supply naming the missing key, and nothing about what
     # the client owes moves. Enforcing the exact length in the MODEL converts that
     # designed degradation into a process that will not boot, because `Settings()` is
     # constructed before anything can explain itself. The rule this field settles for
@@ -1216,7 +1220,7 @@ class Settings(BaseSettings):
     # crore aggregate turnover, 6 above it (Notification 78/2020-CT). WHICH code an AI
     # voice-agent subscription falls under is the accountant's call, not this repo's.
     # Capped, not checked, for the same reason as the GSTIN above: `_SAC_RE` in
-    # `billing/gst.py` is the semantic gate and it degrades to a proforma.
+    # `billing/gst.py` is the semantic gate and it degrades to a bill of supply.
     gst_supply_sac: str | None = Field(default=None, max_length=16)
 
     # THE KEY THAT OPENS THE CREDENTIAL STORE (PLATFORM-CONFIG §3). Base64 of exactly 32

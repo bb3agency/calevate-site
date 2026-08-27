@@ -243,6 +243,43 @@ def session_cookie_present(cookie_header: str | None) -> bool:
     )
 
 
+def session_cookie_value(cookie_header: str | None) -> str | None:
+    """The session token in this raw `Cookie:` header, whichever realm and name carries it.
+
+    A REAL PARSE, unlike `session_cookie_present` above, and the difference is the point:
+    that function answers "should the origin check run", where a false positive costs a
+    check that would have passed anyway. This one answers "which bucket does this request
+    count against", where a wrong answer silently merges two callers' budgets — so a
+    substring test that matched a cookie named `x__Host-calevate_client_session_backup`
+    would be a defect rather than a harmless over-approximation.
+
+    THE VALUE IS NEVER AUTHENTICATED HERE and must not be treated as a credential. This
+    runs before routing and before authentication, exactly like the bearer-token read it
+    sits beside — nothing at this layer can tell a session from a guess. It is a bucket
+    key, it is fingerprinted before use, and the mint is charged to the address for the
+    reason `RateLimitMiddleware._subjects` gives at length.
+
+    Returns the FIRST match in header order rather than preferring a realm: a browser
+    sends at most one of ours per request (the two realms are two hostnames), and a
+    request carrying both is already outside the model — picking one deterministically
+    beats inventing a rule for a case that cannot legitimately arise.
+    """
+    if not cookie_header:
+        return None
+    wanted = {
+        cookie_name(realm, secure=secure) for realm in AUTHN_REALMS for secure in (True, False)
+    }
+    for pair in cookie_header.split(";"):
+        name, sep, value = pair.partition("=")
+        if sep and name.strip() in wanted:
+            # RFC 6265 permits a quoted cookie-value; strip the quotes so the same session
+            # cannot occupy two buckets depending on how the browser wrote it.
+            candidate = value.strip().strip('"')
+            if candidate:
+                return candidate
+    return None
+
+
 def cross_site_refusal(
     *, sec_fetch_site: str | None, origin: str | None, own_origin: str | None, path: str
 ) -> ProblemError | None:
@@ -258,9 +295,9 @@ def cross_site_refusal(
         return _cross_site()
     if not origin:
         return None
-    from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS
+    from apps.api.core.bootstrap import cors_origins_for_env
 
-    allowed = {o.rstrip("/") for o in DEFAULT_CORS_ORIGINS}
+    allowed = {o.rstrip("/") for o in cors_origins_for_env()}
     if own_origin:
         allowed.add(own_origin.rstrip("/"))
     if origin.rstrip("/") in allowed:
@@ -342,5 +379,6 @@ __all__ = [
     "enforce_same_origin",
     "read_token",
     "session_cookie_present",
+    "session_cookie_value",
     "set_session_cookie",
 ]

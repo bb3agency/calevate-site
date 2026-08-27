@@ -6,17 +6,30 @@
  * Password reset confirmation, invitation redemption and the first-administrator bootstrap
  * differ in their endpoint, their copy and whether they take a name. Everything else is
  * identical: read a single-use token out of a link, take a new password, refuse it locally
- * against the SAME bounds the hasher uses, submit once, and say something useful about
+ * against the SAME bounds the API enforces, submit once, and say something useful about
  * every way it can fail. Writing that three times is how two of the three come to be
  * missing the confirmation field or the length rule — CLAUDE.md's one-way-per-problem
  * rule, applied where the temptation to copy is strongest.
  *
- * ## The bounds are the hasher's, and that is §5.7 defect 8
+ * ## The bounds are the API's, per realm, and that is §5.7 defect 8
  *
  * The reference's client validator accepts 128 characters against a bcrypt that truncates
  * at 72, so it advertises strength it does not store. `lib/authn/password.ts` holds ours
- * and `tests/authnSourceGuards.test.ts` reads them back out of
- * `apps/api/authn/hashing.py`, so the two cannot drift without the build saying so.
+ * and `tests/authnSourceGuards.test.ts` reads them back out of the API — the per-realm
+ * floors from `apps/api/authn/policy.py::MIN_CHARS_BY_REALM` and the ceiling from
+ * `apps/api/authn/hashing.py` — so the two cannot drift without the build saying so.
+ * That is why `realm` is a required prop: the floor is 15 on the client realm and 12 on
+ * the admin realm, and a form showing the wrong one is the same defect one level up.
+ *
+ * ## Length is checked here; the BLOCKLIST is checked only by the server
+ *
+ * `authn/policy.py` also refuses passwords that are keyboard walks, short repetitions, or
+ * the person's own address wearing a suffix. None of that is mirrored into this file, and
+ * that is deliberate: a second copy of a blocklist is a second thing to keep in step, and
+ * the rules need the account's email address, which this form does not have — it holds a
+ * single-use token and nothing else. So the refusal arrives from the submit, carrying the
+ * reason NIST SP 800-63B-4 §3.1.1.2 requires it to carry, and `passwordFieldMessage`
+ * puts it under the field the person is looking at.
  *
  * ## The confirmation field
  *
@@ -38,10 +51,12 @@ import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
 import { Card, NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import {
   MAX_PASSWORD_CHARS,
-  MIN_PASSWORD_CHARS,
-  PASSWORD_RULE,
+  MIN_PASSWORD_CHARS_BY_REALM,
   passwordProblem,
+  passwordRule,
+  type AuthnRealm,
 } from "@/lib/authn/password";
+import { passwordFieldMessage } from "@/lib/authn/problems";
 import { useLinkToken } from "@/lib/authn/useLinkToken";
 
 export interface SetPasswordSubmission {
@@ -52,6 +67,17 @@ export interface SetPasswordSubmission {
 }
 
 export interface SetPasswordFormProps<T> {
+  /**
+   * WHICH REALM this password is for, and it is required rather than defaulted.
+   *
+   * The minimum length differs between the two (`@/lib/authn/password`), because a
+   * client password is single-factor and an admin password is one factor of two. A
+   * default here would silently show one realm's floor on the other realm's form, and
+   * showing the SMALLER of the two on a client form is the exact defect
+   * `lib/authn/password.ts` exists to prevent: a validator looser than the server's,
+   * which accepts a password the submit then refuses.
+   */
+  realm: AuthnRealm;
   /** What the button says, and what the heading above the fields says. */
   submitLabel: string;
   /** Prose above the fields — what this link is and what using it does. */
@@ -66,6 +92,7 @@ export interface SetPasswordFormProps<T> {
 }
 
 export function SetPasswordForm<T>({
+  realm,
   submitLabel,
   intro,
   askForName = false,
@@ -94,7 +121,18 @@ export function SetPasswordForm<T>({
     },
   });
 
-  const lengthProblem = passwordProblem(password);
+  const lengthProblem = passwordProblem(password, realm);
+  /**
+   * The blocklist reason, when the last submit came back with one.
+   *
+   * It is shown AT THE FIELD rather than in the notice below, because that is where a
+   * person looking at a red input reads, and because `NoticeBox` renders a single
+   * sentence chosen by code — which cannot name a reason that depends on what was typed.
+   * When it is showing, `AuthProblemNotice` is suppressed: two sentences about one
+   * refusal, in two places, is how a person comes to believe two things went wrong.
+   * The generic guidance is not lost — it is the field's own hint, permanently.
+   */
+  const blocklistProblem = passwordFieldMessage(submit.error);
   const mismatch = confirmation !== "" && confirmation !== password;
   const canSend = lengthProblem === null && !mismatch && confirmation !== "";
 
@@ -132,12 +170,20 @@ export function SetPasswordForm<T>({
           label="New password"
           type="password"
           autoComplete="new-password"
-          minLength={MIN_PASSWORD_CHARS}
+          minLength={MIN_PASSWORD_CHARS_BY_REALM[realm]}
           maxLength={MAX_PASSWORD_CHARS}
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          hint={PASSWORD_RULE}
-          error={attempted ? lengthProblem : null}
+          onChange={(event) => {
+            setPassword(event.target.value);
+            // The refusal described the string that WAS submitted. The moment it is
+            // edited it describes nothing on screen, and leaving it up is a red field a
+            // person cannot clear by fixing it. `reset()` rather than a remembered copy
+            // of the refused password: nothing here should hold a credential longer than
+            // the request needed it (see `onSuccess`).
+            if (submit.isError) submit.reset();
+          }}
+          hint={passwordRule(realm)}
+          error={attempted ? (lengthProblem ?? blocklistProblem) : null}
         />
 
         <AuthField
@@ -150,7 +196,7 @@ export function SetPasswordForm<T>({
           error={mismatch ? "These two do not match." : null}
         />
 
-        <AuthProblemNotice error={submit.error} />
+        {blocklistProblem === null && <AuthProblemNotice error={submit.error} />}
 
         <button
           type="submit"

@@ -32,7 +32,21 @@ import type { LegalDocument } from "./types";
  *    describes the setting and the person, not a guarantee neither of them gives.
  *    Speech, the first reading of the transcript and the application
  *    host (D-180, an Indian VPS) are the legs that remain Indian.
- * 3. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
+ * 3. **The Data Fiduciary named in §1 is a PERSON, not a company, and §1 says so.**
+ *    Corrected 26 August 2026. The notice opened "Calevate is a product of X … mean that
+ *    company", which was false in a way that matters here more than in most documents: a
+ *    privacy notice's first job is to identify the Data Fiduciary a reader is dealing
+ *    with, and the reader was being pointed at a corporate body that does not exist.
+ *    `docs/legal/LEGAL-OPS-PLAYBOOK.md:16` — Calevate is a "product / trade name, not a
+ *    separate company"; `:82` — "You and the business are the same legal person"; `:94`
+ *    permits contracting under the trade name, which is the founder's decision and is why
+ *    `{{LEGAL_ENTITY_NAME}}` resolves to "Calevate". `{{ENTITY_FORM}}` carries the rest,
+ *    so no document has to guess what kind of person is on the other side of it.
+ *    The consequence a reader can act on is unlimited personal liability (playbook §3),
+ *    and it is stated rather than left as an inference from "sole proprietorship" — it is
+ *    the one thing that makes this shape STRONGER for a complainant, and burying it would
+ *    be as dishonest as the corporate framing it replaces.
+ * 4. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
  *    Whether the agent announces itself at the start of a call is the client's setting;
  *    that it answers truthfully when asked is enforced server-side and cannot be
  *    overridden by a client's script. The obligation to disclose sits with the client as
@@ -56,10 +70,29 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "Calevate is a product of {{LEGAL_ENTITY_NAME}} (registration number " +
-            "{{ENTITY_REGISTRATION_NUMBER}}), registered at {{REGISTERED_ADDRESS}}. In " +
-            'this notice "we", "us" and "Calevate" mean that company; "you" means ' +
-            "whichever of the three groups below you fall into.",
+            "Calevate is a product operated by {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}} " +
+            "(Udyam registration number {{ENTITY_REGISTRATION_NUMBER}}), whose principal " +
+            "place of business is {{REGISTERED_ADDRESS}}. In this notice \"we\", \"us\" and " +
+            "\"Calevate\" mean that business; \"you\" means whichever of the three groups " +
+            "below you fall into.",
+        },
+        {
+          kind: "callout",
+          tone: "note",
+          title: "The Data Fiduciary here is a person, not a company",
+          text:
+            "There is no company behind Calevate and no parent organisation. A sole " +
+            "proprietorship has no legal identity separate from the individual who runs " +
+            "it, so the trade name above is a name that one person contracts under, and " +
+            "every duty in this notice is owed to you by that person. Two things follow " +
+            "that are yours rather than ours: the liability behind those duties is " +
+            "personal and unlimited, with none of the shelter a limited company would " +
+            "give — and there is nobody above the contacts in section 14 to escalate to " +
+            "internally, which is why the grievance page sends you outside Calevate " +
+            "instead. Being one person is not an exemption from any of it: the rules that " +
+            "govern personal data here today bind a \"body corporate\", and section 43A " +
+            "of the Information Technology Act 2000 defines that term to include a sole " +
+            "proprietorship.",
         },
         {
           kind: "para",
@@ -443,6 +476,16 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "issued, one when data is actually read — so the record distinguishes " +
                 '"permission was granted" from "data was looked at".',
             },
+            {
+              kind: "para",
+              text:
+                "\"Our operators\" is one person today: the proprietor named in section " +
+                "1. The controls above are built as " +
+                "though there were many, and that is deliberate rather than " +
+                "over-engineering: the audit record of who read what has to be worth " +
+                "reading when the answer is always the same name, and the day a second " +
+                "person gets an account is not the day to start building it.",
+            },
           ],
         },
       ],
@@ -624,7 +667,11 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "providers you can choose between: Microsoft's Azure OpenAI service " +
                 "(configured for the East US 2 region, in the United States, and the one " +
                 "we run by default), OpenAI (the United States), or Google's Gemini API " +
-                "(which names no region we can request). This used to say all models " +
+                "(which names no region we can request). Read that at the speed the call " +
+                "runs at: on the in-call leg what you say leaves India as text on every " +
+                "turn, as you say it, because the model has to answer you in the " +
+                "conversation rather than after it. It is not a batch that goes abroad " +
+                "when the call ends. This used to say all models " +
                 "were served from one account and region and that your choice did not " +
                 "move the answer; that is no longer true, and the claim is withdrawn — " +
                 "your choice of model is also a choice of which provider processes the " +

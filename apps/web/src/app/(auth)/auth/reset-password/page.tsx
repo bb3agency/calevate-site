@@ -38,6 +38,7 @@ function ClientResetBody() {
 
   return (
     <SetPasswordForm
+      realm="client"
       submitLabel="Set my new password"
       intro={
         <p>

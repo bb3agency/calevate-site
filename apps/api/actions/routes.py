@@ -102,7 +102,7 @@ async def invoke_action(engine: str, tool_id: UUID, request: Request) -> dict[st
         row = (
             await anon.execute(
                 text(
-                    "SELECT tenant_id FROM engine_agent_routes "
+                    "SELECT tenant_id, agent_id FROM engine_agent_routes "
                     "WHERE engine_agent_ref = :ref AND engine = :engine AND active"
                 ),
                 {"ref": agent_ref, "engine": engine},
@@ -111,13 +111,23 @@ async def invoke_action(engine: str, tool_id: UUID, request: Request) -> dict[st
     if row is None:
         raise ProblemError.unauthorized("This agent is not recognised.")
     tenant_id: UUID = row[0]
+    route_agent_id: UUID = row[1]
 
     async with tenant_session(tenant_id) as session:
-        tool = await service.get_tool(session, tool_id=tool_id)
+        # BOUND TO THE AGENT THE REF RESOLVED, which is what the comment below used to
+        # claim and `get_tool` could not do — see `service.get_agent_tool`. The ref is the
+        # only thing the engine authenticates with here, so the tool it may reach has to
+        # be the one that ref's agent owns.
+        tool = await service.get_agent_tool(session, agent_id=route_agent_id, tool_id=tool_id)
         # RLS makes a tool from another tenant invisible → None, indistinguishable from a
-        # deleted one (hard rule 1). Also refuse a disabled tool or one belonging to a
-        # different agent than the ref resolved.
+        # deleted one (hard rule 1), and a tool belonging to a different agent is now the
+        # same `None` for the same reason. A disabled tool is refused too, and so is one
+        # whose agent has the master API-actions switch off — a client who turns that
+        # switch off has withdrawn every tool on the agent, and the in-call path must
+        # honour that rather than only the publish path that declares the tool list.
         if tool is None or not tool.enabled:
+            raise ProblemError.not_found("Action")
+        if not await service.actions_enabled(session, agent_id=route_agent_id):
             raise ProblemError.not_found("Action")
         result = await execute_action(session, tool=tool, received=received, source="in_call")
     return result.payload
@@ -505,9 +515,11 @@ async def set_action_enabled(
     _: Principal = Depends(requires("org:manage")),
 ) -> ToolOut:
     await _assert_agent(session, agent_id)
-    if not await service.set_enabled(session, tool_id=tool_id, enabled=payload.enabled):
+    if not await service.set_enabled(
+        session, agent_id=agent_id, tool_id=tool_id, enabled=payload.enabled
+    ):
         raise ProblemError.not_found("Action")
-    tool = await service.get_tool(session, tool_id=tool_id)
+    tool = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
     assert tool is not None
     return _tool_out(tool)
 
@@ -527,7 +539,7 @@ async def delete_action(
 ) -> None:
     assert principal.tenant_id is not None
     await _assert_agent(session, agent_id)
-    if await service.delete_tool(session, tool_id=tool_id):
+    if await service.delete_tool(session, agent_id=agent_id, tool_id=tool_id):
         await write_audit(
             session,
             action="action_tool.deleted",
@@ -574,7 +586,7 @@ async def test_action(
     test invocation (`source="test"`) so a live WhatsApp send in testing is still on file.
     """
     await _assert_agent(session, agent_id)
-    tool = await service.get_tool(session, tool_id=tool_id)
+    tool = await service.get_agent_tool(session, agent_id=agent_id, tool_id=tool_id)
     if tool is None:
         raise ProblemError.not_found("Action")
     result = await execute_action(session, tool=tool, received=payload.values, source="test")

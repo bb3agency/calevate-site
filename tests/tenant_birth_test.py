@@ -129,8 +129,12 @@ async def _founder(email: str) -> str:
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:i, :e, now(), now())"
+                # `email_verified_at` IS SET, because `signup.assert_email_verified`
+                # now requires a proved mailbox before a tenant is created. This
+                # helper stands in for a person who has completed that step; the
+                # gate itself is asserted in `tests/self_serve_test.py`.
+                "INSERT INTO users (id, email, email_verified_at, created_at, "
+                "updated_at) VALUES (:i, :e, now(), now(), now())"
             ),
             {"i": user_id, "e": email},
         )

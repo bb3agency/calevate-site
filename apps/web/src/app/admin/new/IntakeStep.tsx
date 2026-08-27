@@ -52,6 +52,7 @@ import {
 import { WIZARD_LANGUAGES } from "./languages";
 
 import type { UseQueryResult } from "@tanstack/react-query";
+import { examplesFor } from "@/lib/verticalExamples";
 
 /**
  * The wizard's intake step — FLOWS §1 step 3, "the real work".
@@ -62,10 +63,13 @@ import type { UseQueryResult } from "@tanstack/react-query";
  * `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake` accepts rather than to
  * what a designer would draw: EIGHT cards for FLOWS §1's eight fields, and no ninth.
  *
- * The two steps still missing from `/admin/new` after this — number provisioning (6) and
+ * The two steps still missing from `/admin/new` after this — the client's number (6) and
  * the test-call gate (7) — stay ABSENT rather than stubbed, for the reason the wizard's
- * own header gives: they depend on Bolna verification this deployment has not done, and a
- * greyed-out control implying the feature exists is worse than a documented gap.
+ * own header gives: a greyed-out control implying the feature exists is worse than a
+ * documented gap. Step 6 is not a feature we could build anyway — the client buys the
+ * connection on their own operator account (Model B, FLOWS §10) and an operator RECORDS
+ * it on the client's page; step 7 depends on Bolna verification this deployment has not
+ * done.
  *
  * ## The render paths, and what each one refuses to claim (BUILD-LOG §52)
  *
@@ -110,6 +114,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 export function IntakeStep({
   tenantId,
   agentId,
+  vertical,
   state,
   draft,
   onDraftChange,
@@ -117,12 +122,27 @@ export function IntakeStep({
 }: {
   tenantId: string;
   agentId: string;
+  /**
+   * The trade, from the server on both the creation and the resume path.
+   *
+   * EVERY EXAMPLE ON THIS FORM USED TO DESCRIBE A DENTAL CLINIC — "Consultation", "₹500",
+   * "Dr Lakshmi Prasad", "Dentist", "Do you take walk-ins?", "never promise a specific
+   * doctor without checking" — while four of the five verticals we ship are not clinics.
+   * Nothing was pre-filled (these are `placeholder`s, so nothing could be submitted
+   * unchanged), but a placeholder is the fastest instruction on a form, and forty fields
+   * of clinic vocabulary teach an operator to describe a property office as if it had
+   * patients. `lib/verticalExamples.ts` holds one row per trade.
+   */
+  vertical: string;
   state: UseQueryResult<IntakeState>;
   /** `null` until the prefill lands — the form is never rendered from a guess. */
   draft: IntakeDraft | null;
   onDraftChange: (draft: IntakeDraft) => void;
   onContinue: () => void;
 }) {
+  // ONE lookup, read by every field below. Threading twenty strings through this
+  // component would be the same table with more places to get it wrong.
+  const eg = examplesFor(vertical);
   const record = useRecordIntake(tenantId, agentId);
   const saveDraft = useSaveIntakeDraft(tenantId, agentId);
   // `agents:write` — the permission the ROUTE declares (`admin/routes.py`), not a guess
@@ -375,7 +395,7 @@ export function IntakeStep({
                     value={row.label}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ label: e.target.value })}
-                    placeholder="Main branch"
+                    placeholder={eg.branchLabel}
                     className={FIELD}
                   />
                 )}
@@ -402,7 +422,12 @@ export function IntakeStep({
 
         <RowSection
           title="Services and prices"
-          description="The price list is both the knowledge-base seed and the most-asked question, so at least one is required. Leave the price blank for “ask at reception” — that is a real answer."
+          description={
+            "The price list is both the knowledge-base seed and the most-asked question, " +
+            "so at least one is required. Leave the price blank for “" +
+            eg.askOnArrival +
+            "” — that is a real answer."
+          }
           rows={draft.services}
           blank={blankService}
           addLabel="Add a service"
@@ -422,7 +447,7 @@ export function IntakeStep({
                     value={row.name}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ name: e.target.value })}
-                    placeholder="Consultation"
+                    placeholder={eg.serviceName}
                     className={FIELD}
                   />
                 )}
@@ -440,7 +465,7 @@ export function IntakeStep({
                     value={row.price_inr}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ price_inr: e.target.value })}
-                    placeholder="500"
+                    placeholder={eg.servicePrice}
                     className={`${FIELD} font-mono`}
                   />
                 )}
@@ -456,7 +481,7 @@ export function IntakeStep({
                     value={row.notes}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ notes: e.target.value })}
-                    placeholder="Mornings only"
+                    placeholder={eg.serviceNote}
                     className={FIELD}
                   />
                 )}
@@ -488,7 +513,7 @@ export function IntakeStep({
                     value={row.question}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ question: e.target.value })}
-                    placeholder="Do you take walk-ins?"
+                    placeholder={eg.faqQuestion}
                     className={FIELD}
                   />
                 )}
@@ -514,7 +539,12 @@ export function IntakeStep({
 
         <RowSection
           title="Staff names and pronunciations"
-          description="Optional. Spell each name the way it should be SAID — proper nouns work best spelled phonetically, because a mispronounced doctor's name is the first thing a caller notices."
+          description={
+            "Optional. Spell each name the way it should be SAID — proper nouns work " +
+            "best spelled phonetically, because " +
+            eg.staffWhyItMatters +
+            "."
+          }
           rows={draft.staff}
           blank={blankStaff}
           addLabel="Add a person"
@@ -535,7 +565,7 @@ export function IntakeStep({
                     value={row.name}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ name: e.target.value })}
-                    placeholder="Dr Lakshmi Prasad"
+                    placeholder={eg.staffName}
                     className={FIELD}
                   />
                 )}
@@ -551,7 +581,7 @@ export function IntakeStep({
                     value={row.pronunciation}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ pronunciation: e.target.value })}
-                    placeholder="LUCK-shmee pra-SAAD"
+                    placeholder={eg.staffSpoken}
                     className={FIELD}
                   />
                 )}
@@ -567,7 +597,7 @@ export function IntakeStep({
                     value={row.role}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ role: e.target.value })}
-                    placeholder="Dentist"
+                    placeholder={eg.staffRole}
                     className={FIELD}
                   />
                 )}
@@ -596,7 +626,7 @@ export function IntakeStep({
                   value={draft.booking_rules}
                   disabled={!write.allowed}
                   onChange={(e) => update({ ...draft, booking_rules: e.target.value })}
-                  placeholder="Slots every 20 minutes, up to two weeks ahead. Never promise a specific doctor without checking."
+                  placeholder={eg.bookingRules}
                   className={FIELD}
                 />
               )}
@@ -626,7 +656,7 @@ export function IntakeStep({
                     value={row.name}
                     disabled={!write.allowed}
                     onChange={(e) => patch({ name: e.target.value })}
-                    placeholder="Front desk"
+                    placeholder={eg.contactName}
                     className={FIELD}
                   />
                 )}
@@ -844,11 +874,31 @@ export function IntakeStep({
             <Save aria-hidden className="h-4 w-4" />
             {saveDraft.isPending ? "Saving…" : "Save draft"}
           </button>
-          <button type="button" onClick={onContinue} className={SECONDARY_BUTTON}>
-            Continue to the owner invite
-            <ArrowRight aria-hidden className="h-4 w-4" />
-          </button>
+          {/* WITHDRAWN ONCE SOMEBODY IS IN. The step exists to get an owner into the
+              account; offering it after one has accepted is an operator being invited to
+              do work that is already done, and the wizard's own next screen would then
+              refuse the mint with `invitation_already_pending` or hand out a second key
+              to an account that has an owner.
+
+              `owner_present` and not "are there pending invitations": that list filters
+              to unexpired-and-unused, so empty means never-invited, consumed OR expired,
+              and only the middle one should hide this. See `admin/intake.read_intake`. */}
+          {!stored?.owner_present && (
+            <button type="button" onClick={onContinue} className={SECONDARY_BUTTON}>
+              Continue to the owner invite
+              <ArrowRight aria-hidden className="h-4 w-4" />
+            </button>
+          )}
         </div>
+        {/* The other half of withdrawing the control: say why it is gone, rather than
+            leaving an operator hunting for a button they remember. */}
+        {stored?.owner_present && (
+          <p className="text-xs text-ink-faint">
+            Somebody has already accepted into this account, so there is no owner invite
+            left to send. Further people are invited from the client&apos;s own team
+            screen.
+          </p>
+        )}
         {/* Said where the buttons are, because it is the answer to "why is that one
             dead". `RestrictionNote` at the top of the form covers the disabled inputs;
             this covers the control at the bottom of a long page. */}

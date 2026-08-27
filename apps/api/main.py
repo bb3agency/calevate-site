@@ -117,6 +117,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.insights.routes import router as knowledge_gaps_router
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
+    from apps.api.legal.routes import router as legal_readiness_router
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.routes import router as ops_router
@@ -247,6 +248,12 @@ def _mount_routers(application: FastAPI) -> None:
     # package owns the table.
     application.include_router(whatsapp_optin_router)
     application.include_router(whatsapp_optin_admin_router)
+    # Agreements & readiness (migration a9d4e70c31b8): the four published documents this
+    # client must accept, plus every organisation-level condition that stops their
+    # outbound, in one client-realm read. No admin twin, deliberately — nobody accepts a
+    # client's agreements but the client, so there is no operator write to mount and the
+    # operator's view of the same conditions is the health board they already have.
+    application.include_router(legal_readiness_router)
     # Per-tenant feature flags (SURFACES §1). Its own
     # `/v1/admin/tenants/{tenant_id}/feature-flags` prefix, like every other per-tenant
     # admin surface that owns its own table — the flags package owns `tenant_feature_flags`

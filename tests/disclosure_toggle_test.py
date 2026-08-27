@@ -71,6 +71,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import accept_agreements
 
 SCRIPT = "You are the receptionist for Sunrise Clinic. Book appointments and take names."
 
@@ -94,6 +95,11 @@ async def _tenant(language: str = "te-IN") -> tuple[uuid.UUID, uuid.UUID]:
         language=language,
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     return created["id"], created["agent_id"]
 
 

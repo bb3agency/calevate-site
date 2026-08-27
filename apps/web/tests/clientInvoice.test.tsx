@@ -57,7 +57,7 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     estimated_total_inr: null,
     tax_note: null,
     supplier: {
-      legal_name: "Calevate Technologies Private Limited",
+      legal_name: "Calevate",
       address: "Plot 42, Madhapur, Hyderabad 500081",
       gstin: "36AABCC1234D1Z5",
       state_name: "Telangana",
@@ -113,10 +113,10 @@ describe("the client's own invoice", () => {
   it("refuses the TAX INVOICE heading when the GST identity is not configured", async () => {
     const { container } = await render(
       invoice({
-        document_type: "proforma",
+        document_type: "bill_of_supply",
         document_blockers: ["GST_SUPPLIER_GSTIN", "GST_SUPPLY_SAC"],
         supplier: {
-          legal_name: "Calevate Technologies Private Limited",
+          legal_name: "Calevate",
           address: "Plot 42, Madhapur, Hyderabad 500081",
           gstin: null,
           state_name: null,
@@ -132,13 +132,16 @@ describe("the client's own invoice", () => {
       }),
     );
 
-    await screen.findByText("PROFORMA INVOICE");
+    await screen.findByText("BILL OF SUPPLY");
 
     // The words that must NOT appear. A document that looks like a tax invoice and is
     // not is worse than one that admits what it is.
     expect(container.textContent).not.toContain("TAX INVOICE");
     expect(container.textContent).toContain("This is not a tax invoice.");
-    expect(container.textContent).toContain("cannot be used to claim input tax credit");
+    expect(container.textContent).toContain("no input tax credit can be claimed against it");
+    // The document names the REASON, and the reason is that we are not registered and are
+    // not required to be — not that a registration is pending somewhere.
+    expect(container.textContent).toContain("not required to be at its present turnover");
     // Named configuration, so the person who can fix it knows what to set.
     expect(container.textContent).toContain("GST_SUPPLIER_GSTIN");
     // And the figures are still the real ones: a missing environment variable changes
@@ -153,7 +156,7 @@ describe("the client's own invoice", () => {
 
     // Supplier: the LEGAL ENTITY and its registered address, not the brand word
     // "Calevate" that used to be hardcoded in this markup.
-    expect(container.textContent).toContain("Calevate Technologies Private Limited");
+    expect(container.textContent).toContain("Calevate");
     expect(container.textContent).toContain("Plot 42, Madhapur, Hyderabad 500081");
     expect(container.textContent).toContain("36AABCC1234D1Z5");
     // Recipient GSTIN — without it a B2B client cannot claim input credit.
@@ -237,7 +240,7 @@ describe("the client's own invoice", () => {
     await screen.findByRole("alert");
 
     expect(container.textContent).not.toContain("TAX INVOICE");
-    expect(container.textContent).not.toContain("PROFORMA INVOICE");
+    expect(container.textContent).not.toContain("BILL OF SUPPLY");
     expect(container.textContent).not.toContain("₹0.00");
     // The server's own sentence, not a flattened "something went wrong".
     expect(container.textContent).toContain("The usage ledger is unavailable.");

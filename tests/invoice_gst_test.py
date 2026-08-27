@@ -74,7 +74,7 @@ def gst_registered(monkeypatch: pytest.MonkeyPatch) -> Any:
     """
 
     def _configure(gstin: str = SUPPLIER_GSTIN, sac: str = "998315") -> None:
-        monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate Technologies Private Limited")
+        monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate")
         monkeypatch.setenv("GST_SUPPLIER_ADDRESS", "Plot 42, Madhapur, Hyderabad 500081")
         monkeypatch.setenv("GST_SUPPLIER_GSTIN", gstin)
         monkeypatch.setenv("GST_SUPPLY_SAC", sac)
@@ -329,7 +329,7 @@ async def test_without_the_identity_config_it_refuses_to_be_a_tax_invoice() -> N
     async with _client() as http:
         body = (await http.get(CLIENT_PATH, headers=await _client_headers(org))).json()
 
-    assert body["document_type"] == "proforma"
+    assert body["document_type"] == "bill_of_supply"
     assert body["document_blockers"] == [
         "GST_SUPPLIER_LEGAL_NAME",
         "GST_SUPPLIER_ADDRESS",
@@ -349,7 +349,8 @@ async def test_without_the_identity_config_it_refuses_to_be_a_tax_invoice() -> N
     # BILL OF SUPPLY: an unregistered supplier may not collect tax (CGST s.32, Rule 49),
     # so there is NO tax head, the tax is zero, and the total is the subtotal. The document
     # states the no-tax position in words. This SUPERSEDES the old behaviour, which printed
-    # a collectible 18% GST line on the proforma — exactly the tax s.32 forbids collecting.
+    # a collectible 18% GST line on the bill of supply — exactly the tax s.32 forbids
+    # collecting.
     assert body["tax_components"] == []
     assert body["subtotal_inr"] == "10159.00"
     assert body["gst_inr"] == "0.00"
@@ -374,12 +375,12 @@ async def test_a_partial_identity_is_still_a_refusal(gst_registered: Any) -> Non
     async with _client() as http:
         body = (await http.get(CLIENT_PATH, headers=await _client_headers(org))).json()
 
-    assert body["document_type"] == "proforma"
+    assert body["document_type"] == "bill_of_supply"
     assert body["document_blockers"] == ["GST_SUPPLIER_GSTIN"]
     assert body["supplier"]["gstin"] is None
     # The three that WERE configured still print — the refusal is about the document's
     # claim, not about hiding what we know.
-    assert body["supplier"]["legal_name"] == "Calevate Technologies Private Limited"
+    assert body["supplier"]["legal_name"] == "Calevate"
     assert body["supplier"]["sac"] == "998315"
 
 
@@ -394,7 +395,7 @@ async def test_with_the_identity_configured_it_is_a_tax_invoice(gst_registered: 
 
     assert body["document_type"] == "tax_invoice"
     assert body["document_blockers"] == []
-    assert body["supplier"]["legal_name"] == "Calevate Technologies Private Limited"
+    assert body["supplier"]["legal_name"] == "Calevate"
     assert body["supplier"]["address"] == "Plot 42, Madhapur, Hyderabad 500081"
     assert body["supplier"]["gstin"] == SUPPLIER_GSTIN
     assert body["supplier"]["state_name"] == "Telangana"
@@ -684,7 +685,7 @@ def _settings_with(*, gstin: str, sac: str) -> Any:
     """
 
     class _Stub:
-        gst_supplier_legal_name = "Calevate Technologies Private Limited"
+        gst_supplier_legal_name = "Calevate"
         gst_supplier_address = "Plot 42, Madhapur, Hyderabad 500081"
         gst_supplier_gstin = gstin
         gst_supply_sac = sac

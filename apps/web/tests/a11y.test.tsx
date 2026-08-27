@@ -67,6 +67,7 @@ import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
+import AgreementsPage from "@/app/c/[slug]/agreements/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
 import InvitePage from "@/app/invite/page";
 import LegalDocumentRoute from "@/app/legal/[slug]/page";
@@ -323,7 +324,7 @@ const FLEET_SPEND = {
  * One invoice fixture for BOTH realms, because there is one document: the admin screen
  * and the client screen render the same `components/invoiceDocument.tsx`. A configured,
  * GST-registered supply, so the sweep sees the fullest markup — identity block, place of
- * supply, per-line SAC and a tax head — rather than the proforma's shorter sheet.
+ * supply, per-line SAC and a tax head — rather than a bill of supply's shorter sheet.
  */
 const INVOICE = {
   invoice_number: "CAL-202608-0192f0aa",
@@ -332,7 +333,7 @@ const INVOICE = {
   document_type: "tax_invoice",
   document_blockers: [],
   supplier: {
-    legal_name: "Calevate Technologies Private Limited",
+    legal_name: "Calevate",
     address: "Plot 42, Madhapur, Hyderabad 500081",
     gstin: "36AABCC1234D1Z5",
     state_name: "Telangana",
@@ -542,6 +543,78 @@ const CAMPAIGN = {
   created_at: "2026-08-12T09:00:00Z",
   launched_at: null,
   consent_provenance_blocker: null,
+};
+
+/**
+ * `GET /v1/legal/readiness` with nothing accepted — the state the agreements screen has
+ * the most markup in, and the state a client actually arrives in.
+ */
+const LEGAL_READINESS = {
+  may_operate: false,
+  verdict:
+    "Your agreements have not been accepted, so this account cannot make outgoing calls or publish an agent yet.",
+  outstanding_documents: 2,
+  pending_legal_review: true,
+  provisional_notice: "These documents are drafts and have not been through legal review.",
+  acceptance_statement:
+    "I accept the Terms of Service and the Privacy Policy on behalf of this business.",
+  acceptance_statement_version: "1+pre-review",
+  can_accept: true,
+  can_accept_reason: null,
+  documents: [
+    {
+      slug: "terms",
+      title: "Terms of Service",
+      href: "/legal/terms",
+      blocking: true,
+      version: "1+pre-review",
+      provisional: true,
+      effective_date: null,
+      state: "never_accepted",
+      headline: "Not accepted yet.",
+      accepted_version: null,
+      accepted_at: null,
+      accepted_by_name: null,
+    },
+    {
+      slug: "privacy",
+      title: "Privacy Policy",
+      href: "/legal/privacy",
+      blocking: true,
+      version: "1+pre-review",
+      provisional: true,
+      effective_date: null,
+      state: "accepted",
+      headline: "Accepted.",
+      accepted_version: "1+pre-review",
+      accepted_at: "2026-08-20T06:00:00Z",
+      accepted_by_name: "Priya Nair",
+    },
+    {
+      slug: "subprocessors",
+      title: "Sub-processors",
+      href: "/legal/subprocessors",
+      blocking: false,
+      version: "1+pre-review",
+      provisional: true,
+      effective_date: null,
+      state: "not_required",
+      headline: "Published for you to read. There is nothing to accept.",
+      accepted_version: null,
+      accepted_at: null,
+      accepted_by_name: null,
+    },
+  ],
+  blockers: [
+    {
+      rule: "agreements_not_accepted",
+      title: "Agreements not accepted",
+      reason: "This account has not accepted its agreements yet.",
+      actor: "client",
+      next_step:
+        "The account owner reads each agreement and accepts it on this screen.",
+    },
+  ],
 };
 
 const MEMBERS = [
@@ -1851,6 +1924,16 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // Agreements & readiness. Fixtured in the state with the MOST markup and the most to
+    // get wrong: nothing accepted, so the verdict box, the draft notice, four document
+    // cards, the acceptance checkbox with its statement, the submit button and a blocker
+    // row are all on screen at once. The accepted state renders a strict subset.
+    file: "c/[slug]/agreements/page.tsx",
+    realm: "client",
+    element: () => <AgreementsPage />,
+    routes: { "/v1/me": ME, "/v1/legal/readiness": LEGAL_READINESS },
+  },
+  {
     file: "c/[slug]/verification/page.tsx",
     realm: "client",
     element: () => <VerificationPage />,
@@ -2092,10 +2175,13 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
-    // TWO groups, one of them `insufficient_samples` with no percentiles and no verdict:
-    // the withheld-figure rendering is a different piece of markup from the measured one,
-    // and a fixture with only measured rows would leave the state this endpoint exists to
-    // report honestly — "not enough turns to say" — unscanned.
+    // TWO groups, EVERY LEG of each, and one group whose every leg is
+    // `insufficient_samples` with no percentiles and no verdict: the withheld-figure
+    // rendering is a different piece of markup from the measured one, and a fixture with
+    // only measured rows would leave the state this endpoint exists to report honestly —
+    // "not enough turns to say" — unscanned. The measured group deliberately splits its
+    // verdicts (the model leg over target, the transcriber leg within it, the composed
+    // reply over) so both paintings of the verdict cell are swept.
     file: "admin/ops/engine-latency/page.tsx",
     realm: "admin",
     element: () => <EngineLatencyPage />,
@@ -2110,7 +2196,20 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/engine-latency?days=7": {
         window_days: 7,
-        llm_ttft_budget_ms: 350,
+        // The whole budget, as TRD §4 declares it and as the server sends it: four
+        // sub-budgets, two voice-to-voice targets, and the three composed figures the
+        // server derives so no browser has to.
+        budget: {
+          stt_ms: 300,
+          llm_ttft_ms: 350,
+          tts_ttfa_ms: 300,
+          retrieval_ms: 100,
+          voice_to_voice_p50_ms: 1100,
+          voice_to_voice_p95_ms: 1800,
+          turn_ms: 950,
+          pipeline_ms: 1050,
+          voice_to_voice_headroom_p50_ms: 50,
+        },
         complete: false,
         groups: [
           {
@@ -2118,21 +2217,99 @@ const ADMIN_SCREENS: Screen[] = [
             region: "us",
             calls: 12,
             turns: 240,
-            basis: "measured",
-            llm_ttft_p50_ms: 412.5,
-            llm_ttft_p95_ms: 980.2,
-            llm_ttft_max_ms: 1633.04,
-            turns_over_budget: 190,
-            budget_breached: true,
+            legs: [
+              {
+                leg: "stt",
+                budget_ms: 300,
+                turns: 240,
+                basis: "measured",
+                p50_ms: 260,
+                p95_ms: 401.5,
+                max_ms: 612.3,
+                turns_over_budget: 22,
+                budget_breached: false,
+                // The transcriber leg's unit is unconfirmed, so this fixture also sweeps
+                // the caveat markup that renders only on such a row.
+                unit_verified: false,
+              },
+              {
+                leg: "llm_ttft",
+                budget_ms: 350,
+                turns: 240,
+                basis: "measured",
+                p50_ms: 412.5,
+                p95_ms: 980.2,
+                max_ms: 1633.04,
+                turns_over_budget: 190,
+                budget_breached: true,
+                unit_verified: true,
+              },
+              {
+                leg: "tts_ttfa",
+                budget_ms: 300,
+                turns: 238,
+                basis: "measured",
+                p50_ms: 288.1,
+                p95_ms: 455,
+                max_ms: 800,
+                turns_over_budget: 61,
+                budget_breached: false,
+                unit_verified: true,
+              },
+              {
+                leg: "turn",
+                budget_ms: 950,
+                turns: 238,
+                basis: "measured",
+                p50_ms: 981.4,
+                p95_ms: 1720,
+                max_ms: 2412,
+                turns_over_budget: 130,
+                budget_breached: true,
+                unit_verified: false,
+              },
+            ],
           },
           {
             engine: "bolna",
             region: null,
             calls: 1,
             turns: 3,
-            basis: "insufficient_samples",
-            llm_ttft_max_ms: 288.1,
-            turns_over_budget: 0,
+            legs: [
+              {
+                leg: "stt",
+                budget_ms: 300,
+                turns: 0,
+                basis: "insufficient_samples",
+                turns_over_budget: 0,
+                unit_verified: false,
+              },
+              {
+                leg: "llm_ttft",
+                budget_ms: 350,
+                turns: 3,
+                basis: "insufficient_samples",
+                max_ms: 288.1,
+                turns_over_budget: 0,
+                unit_verified: true,
+              },
+              {
+                leg: "tts_ttfa",
+                budget_ms: 300,
+                turns: 0,
+                basis: "insufficient_samples",
+                turns_over_budget: 0,
+                unit_verified: true,
+              },
+              {
+                leg: "turn",
+                budget_ms: 950,
+                turns: 0,
+                basis: "insufficient_samples",
+                turns_over_budget: 0,
+                unit_verified: false,
+              },
+            ],
           },
         ],
       },

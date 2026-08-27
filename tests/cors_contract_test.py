@@ -214,3 +214,58 @@ async def test_a_method_outside_the_allow_list_is_still_refused() -> None:
         )
     assert response.status_code == 400
     assert "method" in response.text
+
+
+# --- the development origin, which is not a production permission ---------------------
+#
+# `DEFAULT_CORS_ORIGINS` carried `http://localhost:3000` unconditionally, and the list is
+# read TWICE: by `CORSMiddleware` with `allow_credentials=True`, and by
+# `authn.cookies.cross_site_refusal` as the CSRF `Origin` allowlist. So one entry was two
+# permissions, and in production it named a machine we do not control.
+#
+# The tests below pin the ENV-DEPENDENCE rather than the absence, because absence alone is
+# satisfied by deleting the entry — which would break `pnpm dev`, where the browser really
+# is on `localhost:3000` and really does need a credentialed cross-origin request to work.
+
+
+def test_the_dev_origin_is_not_a_production_permission(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.api.core.bootstrap import cors_origins_for_env
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("APP_ENV", "prod")
+    get_settings.cache_clear()
+    try:
+        assert "http://localhost:3000" not in cors_origins_for_env()
+        assert set(cors_origins_for_env()) == set(DEFAULT_CORS_ORIGINS)
+    finally:
+        get_settings.cache_clear()
+
+
+def test_the_dev_origin_is_still_allowed_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.api.core.bootstrap import cors_origins_for_env
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setenv("APP_ENV", "local")
+    get_settings.cache_clear()
+    try:
+        assert "http://localhost:3000" in cors_origins_for_env()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_the_csrf_allowlist_and_the_cors_allowlist_are_the_same_function() -> None:
+    """One source, so the two readers can never disagree about one origin.
+
+    The failure this forbids is subtle and would have been the obvious way to write the
+    fix: filter the dev origin out at the CORS call site only, leaving the CSRF `Origin`
+    check still accepting it. The request would then be refused by CORS in a browser and
+    accepted by our own same-origin guard, which is exactly the kind of split that makes a
+    later reader believe a control is in place.
+    """
+    source = Path(__file__).resolve().parents[1] / "apps" / "api" / "authn" / "cookies.py"
+    text = source.read_text(encoding="utf-8")
+    assert "cors_origins_for_env()" in text
+    assert (
+        "DEFAULT_CORS_ORIGINS"
+        not in text.split("def cross_site_refusal")[0].split("allowed = ")[-1]
+    )

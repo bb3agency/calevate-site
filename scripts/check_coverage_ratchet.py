@@ -358,10 +358,23 @@ AREAS: tuple[Area, ...] = (
     Area(
         name="compliance-gate",
         rule="hard rule 5 (compliance invariants)",
-        patterns=("apps/api/compliance/*.py",),
+        patterns=(
+            "apps/api/compliance/*.py",
+            # `apps/api/legal/` is compliance-gate code that lives outside
+            # `apps/api/compliance/` for ONE reason, stated at the top of
+            # `legal/service.py`: `compliance.service` imports IT, so it may import
+            # nothing from `compliance` without closing a cycle. It is the same kind of
+            # surface — `agreements_blocker` refuses the dial gate, both campaign gates
+            # and the agent publish path, and `legal_acceptances` is an append-only
+            # ledger (hard rule 4) whose evidence a dispute turns on. Guarded here rather
+            # than in its own area because the failures ARE this area's failures, and a
+            # second budget would let the gate and the paperwork behind it drift apart.
+            "apps/api/legal/*.py",
+        ),
         why=(
             "the campaign-launch and dial-time gates, DNC, consent, KYC, the first-"
-            "campaign review and the erasure path. An untested branch here is a TRAI or "
+            "campaign review, the erasure path and the agreements a client accepts "
+            "before any of them apply. An untested branch here is a TRAI or "
             "DPDP failure, not a wrong screen — and the branch that goes untested is "
             "always the refusal, because the happy path is what the demo exercises"
         ),

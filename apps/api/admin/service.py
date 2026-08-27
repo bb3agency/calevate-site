@@ -2,8 +2,10 @@
 
 The wizard is 8 steps and every one is idempotent and resumable, because onboarding a
 client is a conversation that spans days, not a form submission. This module implements
-the steps that create durable state; the test-call gate (step 7) and number provisioning
-(step 6) depend on the pilot and are explicitly not stubbed here.
+the steps that create durable state. The test-call gate (step 7) depends on the pilot and
+is explicitly not stubbed here, and step 6's number is not ours to obtain at all — the
+client takes the connection on their own operator account (Model B, FLOWS §10) and an
+operator RECORDS it with `POST /v1/admin/tenants/{tenant_id}/numbers`.
 
 Two things happen at creation that are easy to forget later and expensive to retrofit:
 
@@ -289,6 +291,10 @@ async def create_organization(
         "agent_id": agent_id,
         "extraction_schema_id": schema_id,
         "status": "onboarding",
+        # Echoed so the wizard's intake step can pick this trade's examples from the
+        # SERVER's answer rather than from the radio button it happens to still hold —
+        # the same place a resumed wizard reads it from.
+        "vertical_template": vertical_template,
         # NOT `plan_tier`: `admin/routes.py` builds an `extra="forbid"` response model
         # straight from this dict, so a new key here is a 500 on the wizard. Signup
         # adds the tier to its own return value, where a caller asked for it.

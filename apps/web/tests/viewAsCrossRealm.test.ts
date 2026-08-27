@@ -122,3 +122,94 @@ describe("the way OUT of the marketing site, which is served on the apex", () =>
     ).toBe(true);
   });
 });
+
+/**
+ * THE MIRROR, and it reached production too — the symmetry was there the whole time and
+ * only one half was guarded.
+ *
+ * `app.calevate.tech` refuses `/admin` in exactly the way `admin.` refuses `/c/`, and the
+ * apex refuses both. So a bare `/admin` is a 404 everywhere except the one hostname the
+ * screens below are never served on:
+ *
+ *   - The impersonation banner in `app/c/[slug]/layout.tsx` — "Exit and return to the
+ *     admin console" — assigned `/admin` from the CLIENT hostname. The one control an
+ *     operator is guaranteed to use, at the one moment they are guaranteed to be on the
+ *     wrong host for it.
+ *   - Every `/admin` destination on the operator AUTH screens, which live under
+ *     `app/(auth)/` and are served on the apex.
+ *
+ * Read as source for the reason the guard above gives: on a single-origin dev box the
+ * bare path is correct, so nothing rendered can fail.
+ */
+const CLIENT_TREE = resolve(HERE, "../src/app/c");
+const AUTH_TREE = resolve(HERE, "../src/app/(auth)");
+
+/** `href="/admin…"` or `window.location.assign("/admin…")` — an operator-realm literal. */
+const BARE_ADMIN_LINK = /(?:href=\{?|location\.assign\()["'`]\/admin/;
+
+function sourcesUnder(root: string, prefix = ""): { file: string; text: string }[] {
+  const found: { file: string; text: string }[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory())
+      found.push(...sourcesUnder(join(root, entry.name), rel));
+    else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts"))
+      found.push({ file: rel, text: readFileSync(join(root, entry.name), "utf8") });
+  }
+  return found;
+}
+
+describe("every link out of the client realm and the auth screens into the operator console", () => {
+  it("finds both trees at all", () => {
+    // The premise, as above: a moved directory makes the assertions vacuous.
+    expect(sourcesUnder(CLIENT_TREE).length).toBeGreaterThan(5);
+    expect(sourcesUnder(AUTH_TREE).length).toBeGreaterThan(5);
+  });
+
+  it.each([
+    ["app/c", CLIENT_TREE, "app.calevate.tech, which answers 404 for /admin"],
+    ["app/(auth)", AUTH_TREE, "the apex, which answers 404 for /admin"],
+  ])("%s never hard-codes a relative /admin path", (_label, root, where) => {
+    const offenders = sourcesUnder(root)
+      .filter(({ text }) => BARE_ADMIN_LINK.test(text))
+      .map(({ file }) => file);
+    expect(
+      offenders,
+      `These build an operator-realm link relative to ${where}. Use ` +
+        "`adminConsoleUrl(ADMIN_CONSOLE_PATH)` from `lib/consoleOrigin`, which resolves " +
+        "against NEXT_PUBLIC_ADMIN_CONSOLE_ORIGIN and falls back to a relative path when " +
+        "the realms share one origin.",
+    ).toEqual([]);
+  });
+
+  it("routes the exit from a view-as session through the helper", () => {
+    // The other half: the negative above is satisfiable by deleting the exit entirely,
+    // and there was no exit at all before D-4xx. This asserts the feature still exists.
+    const layout = readFileSync(
+      join(process.cwd(), "src/app/c/[slug]/layout.tsx"),
+      "utf8",
+    );
+    expect(layout).toContain("adminConsoleUrl(ADMIN_CONSOLE_PATH)");
+    expect(layout).toContain("Exit and return to the admin console");
+  });
+});
+
+describe("adminConsoleUrl", () => {
+  it("leaves the path alone when the realms share an origin", async () => {
+    const { adminConsoleUrl } = await import("@/lib/consoleOrigin");
+    expect(adminConsoleUrl("/admin")).toBe("/admin");
+  });
+});
+
+describe("the deploy build refuses to ship either origin empty", () => {
+  it("names both NEXT_PUBLIC_*_CONSOLE_ORIGIN variables", () => {
+    // Both bugs shipped because an unset NEXT_PUBLIC_ value inlines as "" and the build
+    // still succeeds. `next.config.ts` is the only thing standing between that and a
+    // deploy; a variable missing from its list is a variable that can silently be empty.
+    const config = readFileSync(join(process.cwd(), "next.config.ts"), "utf8");
+    expect(config).toContain("NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN:");
+    expect(config).toContain("NEXT_PUBLIC_ADMIN_CONSOLE_ORIGIN:");
+    const example = readFileSync(join(process.cwd(), ".env.example"), "utf8");
+    expect(example).toContain("NEXT_PUBLIC_ADMIN_CONSOLE_ORIGIN=");
+  });
+});

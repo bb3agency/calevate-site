@@ -804,7 +804,7 @@ def _gst_registered_supplier(monkeypatch: pytest.MonkeyPatch):
     """
     from apps.api.core.settings import get_settings
 
-    monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate Technologies Private Limited")
+    monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate")
     monkeypatch.setenv("GST_SUPPLIER_ADDRESS", "Plot 42, Madhapur, Hyderabad 500081")
     monkeypatch.setenv("GST_SUPPLIER_GSTIN", "36AABCC1234D1Z5")
     monkeypatch.setenv("GST_SUPPLY_SAC", "998315")

@@ -157,7 +157,8 @@ class InvoiceTaxComponentOut(Strict):
     which one cannot be claimed. The components always sum to `gst_inr` exactly.
     """
 
-    # "CGST" | "SGST" | "UTGST" | "IGST", or "GST" on a proforma with no classification.
+    # "CGST" | "SGST" | "UTGST" | "IGST", or "GST" on a bill of supply with no
+    # classification.
     label: str
     # A RATE (9, 18) — printed as published, never as a rupee amount.
     rate_pct: str
@@ -191,7 +192,7 @@ class InvoiceOut(Strict):
     month: str
     # An ISO-8601 string already when it leaves `build_invoice`, not a datetime.
     generated_at: str
-    # "tax_invoice" | "proforma". THE FIELD THE HEADING IS RENDERED FROM. A document that
+    # "tax_invoice" | "bill_of_supply". THE FIELD THE HEADING IS RENDERED FROM. A document that
     # looks like a tax invoice and is not is worse than one that admits what it is, so
     # the server decides this and the browser never writes the words itself.
     document_type: str
@@ -258,9 +259,10 @@ async def tenant_invoice(
         "The same statement the Calevate team sees for this account, recomputed from the "
         "usage ledger on every request — there is no stored invoice row to go stale. "
         "Requires `billing:read`, which account owners hold and staff do not. The "
-        "document states whether it is a tax invoice or a proforma; it is a proforma "
-        "until Calevate's GST registration is recorded, because an unregistered supplier "
-        "may not collect tax (CGST s.32)."
+        "document states whether it is a tax invoice or a bill of supply. It is a bill "
+        "of supply (CGST Rules r.49) while Calevate is not registered for GST, which it "
+        "is not and is not required to be at present turnover: an unregistered supplier "
+        "may not collect tax at all (CGST s.32)."
     ),
 )
 async def my_invoice(

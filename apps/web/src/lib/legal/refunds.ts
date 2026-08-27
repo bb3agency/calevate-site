@@ -12,6 +12,15 @@ import type { LegalDocument } from "./types";
  * (`apps/api/billing/service.py`). That is why the policy talks about credit notes and
  * compensating entries rather than about "reversing" a charge — the product cannot reverse
  * one, by design, and a policy promising otherwise would describe a different product.
+ *
+ * The second fact, corrected 26 August 2026: step 5 of section 5 promised a section 34
+ * credit note with every refund. Section 34 credits TAX, and we charge none — the
+ * supplier is not registered for GST and is not required to be (`docs/legal/
+ * LEGAL-OPS-PLAYBOOK.md` §4, and §4.4 at `:135-140` for what is issued instead), so
+ * `apps/api/billing/invoice.py` issues a bill of supply with `gst_inr` zero and no tax
+ * head at all. A credit note against a document that charged no tax is not a smaller
+ * version of the promise, it is a document that cannot exist; the step now says what
+ * actually accompanies a refund today and what will accompany one after registration.
  */
 export const REFUND_POLICY: LegalDocument = {
   slug: "refunds",
@@ -183,9 +192,13 @@ export const REFUND_POLICY: LegalDocument = {
             "The gateway then takes {{REFUND_PROCESSING_DAYS}} business days to place the " +
               "money back with your bank or card issuer. Your bank may take longer to show " +
               "it, and that part is outside our control.",
-            "Where GST was charged, the refund is accompanied by a credit note under " +
-              "section 34 of the CGST Act referencing the original invoice, so your books " +
-              "and ours agree.",
+            "You get a document either way. We are not registered for GST, so no tax " +
+              "was charged on the original bill of supply and there is no tax to credit " +
+              "back: what you receive is a corrected bill of supply alongside the " +
+              "compensating entry described below. If we are GST-registered by the time " +
+              "a refund is made, the refund is accompanied instead by a credit note " +
+              "under section 34 of the CGST Act referencing the original tax invoice, so " +
+              "your books and ours agree.",
           ],
         },
         {

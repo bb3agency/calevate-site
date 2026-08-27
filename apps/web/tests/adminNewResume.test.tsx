@@ -40,6 +40,7 @@ const CREATED: CreateOrgOut = {
   status: "active",
   agent_id: "0192f0aa-7777-7000-8000-0000000000a1",
   extraction_schema_id: "0192f0aa-7777-7000-8000-0000000000b1",
+  vertical_template: "clinic",
 };
 
 const INTAKE = `${TENANTS}/${CREATED.id}/agents/${CREATED.agent_id}/intake`;
@@ -54,6 +55,10 @@ const ABANDONED: UnfinishedOnboarding = {
   slug: "lakeview-dental",
   agent_id: "0192f0bb-8888-7000-8000-0000000000a2",
   created_at: "2026-08-01T04:30:00Z",
+  // DELIBERATELY NOT A CLINIC. The vertical is carried on this row precisely so a
+  // resumed wizard shows the right trade's examples, and a fixture that said "clinic"
+  // would pass whether or not the field was ever read.
+  vertical_template: "real_estate",
   draft_saved_at: "2026-08-05T09:15:00Z",
   blockers: ["business_hours_missing", "escalation_contact_missing"],
 };
@@ -82,6 +87,7 @@ const NO_INTAKE: IntakeState = {
   saved_at: null,
   language_primary: "te-IN",
   sheet_agent_id: null,
+  owner_present: false,
 };
 
 /** What the abandoned client's sheet holds: an address and a service, and neither of
@@ -105,6 +111,7 @@ const HALF_ANSWERED: IntakeState = {
   // resumed form has to read the agent's own row rather than the browser's memory.
   language_primary: "hi-IN",
   sheet_agent_id: ABANDONED.agent_id,
+  owner_present: false,
 };
 
 const DRAFT_SAVED = { agent_id: ABANDONED.agent_id, blockers: ABANDONED.blockers };

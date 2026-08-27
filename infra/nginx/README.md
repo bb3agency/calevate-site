@@ -17,6 +17,7 @@ own. Nothing here is installed by hand in the normal case.
 
 | Source | Installed as | Context |
 |---|---|---|
+| `00-log-format.conf.template` | `/etc/nginx/conf.d/00-calevate-log-format.conf` | `http` — the `map` + `log_format` that keep mailed tokens out of the access log. `00-` because conf.d is included alphabetically and a `log_format` must precede the `access_log` naming it |
 | `calevate.conf.template` | `/etc/nginx/conf.d/calevate-site.conf` | the four server blocks |
 | `000-default.conf.template` | `/etc/nginx/conf.d/000-default.conf` | certless-default_server fix (525) |
 | `rate-zones.conf.template` | `/etc/nginx/conf.d/calevate-rate-zones.conf` | `http` — `limit_req_zone` lives here or nowhere |

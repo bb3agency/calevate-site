@@ -12,6 +12,7 @@ import ClientForgotPasswordPage from "@/app/(auth)/auth/forgot-password/page";
 import ClientResetPasswordPage from "@/app/(auth)/auth/reset-password/page";
 import { SessionGate } from "@/components/authn/sessionGate";
 import { ApiProblem } from "@/lib/api/client";
+import { MIN_PASSWORD_CHARS_BY_REALM } from "@/lib/authn/password";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
 import { clientAuthn } from "@/lib/authn/clientAuthn";
 import {
@@ -530,9 +531,98 @@ describe("the set-password forms carry the hasher's real bounds", () => {
     );
     const view = await renderPage(<ClientResetPasswordPage />, {});
     await screen.findByLabelText("New password");
-    expect(view.container.textContent).toContain("At least 12 characters");
+    // DERIVED, NOT RETYPED. This asserted "At least 12 characters" and went red when the
+    // client realm's floor moved to 15 — which is the right failure, and also the reason
+    // the number does not belong in the assertion. This page is the CLIENT realm's reset
+    // form, so what it must show is the client realm's floor; a literal here says nothing
+    // about whether the page picked the right one.
+    expect(view.container.textContent).toContain(
+      `At least ${MIN_PASSWORD_CHARS_BY_REALM.client} characters`,
+    );
+    expect(view.container.textContent).not.toContain(
+      `At least ${MIN_PASSWORD_CHARS_BY_REALM.admin} characters`,
+    );
     // And the token is out of the URL by the time anything can read it back.
     expect(window.location.search).toBe("");
+  });
+
+  /**
+   * The BLOCKLIST half, which only the server can decide.
+   *
+   * `authn/policy.py` refuses keyboard walks, short repetitions and passwords built out
+   * of the account's own address, and NIST SP 800-63B-4 §3.1.1.2 requires that the
+   * subscriber be told WHICH: "the CSP SHALL ... provide the reason for rejection". The
+   * API composes that reason and sends it in `fields`; before this test the browser threw
+   * it away and rendered a fixed "too easy to guess", so the requirement was met on the
+   * wire and not on the screen.
+   */
+  const BLOCKED = problem(422, {
+    type: "urn:calevate:auth/password_unacceptable",
+    title: "Choose a different password",
+    detail: "That password cannot be used. It is a straight run of keys along the keyboard.",
+    kind: "validation",
+    fields: [
+      {
+        field: "password",
+        rule: "blocklist",
+        message: "It is a straight run of keys along the keyboard.",
+      },
+    ],
+  });
+
+  async function submitPassword(value: string) {
+    window.history.replaceState(null, "", "/auth/reset-password?token=" + "t".repeat(40));
+    const view = await renderPage(<ClientResetPasswordPage />, {
+      ...SIGNED_OUT,
+      "POST /v1/auth/client/password/reset/confirm": BLOCKED,
+    });
+    await screen.findByLabelText("New password");
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value } });
+    fireEvent.change(screen.getByLabelText("Type it again"), { target: { value } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Set my new password" }));
+    });
+    return view;
+  }
+
+  it("shows the server's OWN reason for a blocklisted password, at the field", async () => {
+    const view = await submitPassword("qwertyuiopasdfgh");
+
+    // The specific reason, not a generic stand-in — this is the sentence §3.1.1.2 asks
+    // for, and no fixed client-side string could have produced it.
+    expect(
+      await screen.findByText("It is a straight run of keys along the keyboard."),
+    ).toBeTruthy();
+    // Attached to the field, announced, and marking the input invalid.
+    const field = screen.getByLabelText("New password");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toContain(
+      screen.getByRole("alert").getAttribute("id"),
+    );
+    // And NOT also as the generic notice: one refusal, one sentence. Two would read as
+    // two things having gone wrong.
+    expect(view.container.textContent).not.toContain("too easy to guess");
+  });
+
+  it("clears the server's refusal as soon as the password is edited", async () => {
+    /**
+     * The refusal describes the string that was SUBMITTED. Once it is edited the message
+     * describes nothing on screen, and a red field a person cannot clear by fixing it is
+     * the dead end this whole form exists to avoid — they are holding a single-use token.
+     */
+    await submitPassword("qwertyuiopasdfgh");
+    await screen.findByText("It is a straight run of keys along the keyboard.");
+
+    fireEvent.change(screen.getByLabelText("New password"), {
+      target: { value: "correct horse battery staple" },
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("It is a straight run of keys along the keyboard."),
+      ).toBeNull();
+    });
+    expect(screen.getByLabelText("New password").getAttribute("aria-invalid")).toBeNull();
   });
 });
 

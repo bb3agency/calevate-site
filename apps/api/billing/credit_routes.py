@@ -41,8 +41,8 @@ and nothing here uses the admin DB role.
 
 Permission: `admin:tenants` for the writes and `billing:read` for the read. There is no
 `billing:write` in the registry and this did not warrant inventing one — recording a
-received payment is admin-realm support work of the same family as provisioning a
-number or filing a DLT status, all of which are `admin:tenants`. It is also already in
+received payment is admin-realm support work of the same family as recording a client's
+number or a DLT status, all of which are `admin:tenants`. It is also already in
 `MUTATING_PERMISSIONS`, so an impersonating admin cannot reach it (D-22).
 
 ## THE ADJUSTMENT (`POST .../credits/adjustments`)

@@ -182,14 +182,18 @@ class NoReadBackEngine(EchoingEngine):
 
 
 class NoNumberEngine(EchoingEngine):
-    """Mirrors `BolnaEngine.provision_number`, which refuses (M1 defers it)."""
+    """Mirrors `BolnaEngine.provision_number`, which refuses: nobody buys a number
+    through this product (Model B — the client holds their own connection)."""
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
         raise ProblemError(
             kind="dependency",
             code="engine_capability_unverified",
-            title="Number provisioning is not automated yet",
-            detail="Numbers are provisioned with the telephony provider directly (M1).",
+            title="The voice platform does not supply numbers",
+            detail=(
+                "The client's calling number is taken on their own operator account and "
+                "connected to the platform; nothing here buys one."
+            ),
         )
 
 

@@ -946,6 +946,13 @@ export function useTenantTemplates(slug: string) {
   });
 }
 
+/**
+ * RECORDS a connection the client already holds — it buys nothing. Calevate does not
+ * supply, sell or rent telephone numbers; the client is the subscriber of record on
+ * their own operator account (Model B, `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). The name
+ * follows the route's own `provision_number`, which means "make it usable in the
+ * platform", not "obtain it".
+ */
 export function useProvisionNumber(tenantId: string) {
   const client = useQueryClient();
   return useMutation({

@@ -128,15 +128,18 @@ same client app** — a self-serve org is the same `organizations` row with a di
     one line per rung so each still multiplies out. **No retail value rate is set
     anywhere in the codebase** — TRD §10.1's bands are unmeasured, so the number is a
     founder decision, not a derivation.
-- **Number purchase + KYC**: gated; calling stays disabled until verification clears.
+- **Business KYC**: gated; calling stays disabled until verification clears. **We do not
+  supply numbers** — Model B (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9): the client takes the
+  connection on their own Exotel/Plivo/Vobiz account, passes that operator's KYC, stays
+  the subscriber of record and issues us revocable credentials.
   **SHIPPED** (migration `a3f6b1e02d95`, `kyc_records`). Two gates, and they answer the
   plan-tier question differently on purpose — the argument is in
   `apps/api/compliance/kyc.py`, with the DoT/TRAI sources it rests on. **Dialling** is
   gated for `self_serve`/`trial` only, exactly as `credits_exhausted` is:
   `compliance.service.check_dispatch` refuses with `kyc_missing` / `kyc_not_verified`
   and `campaigns.service.launch_blockers` previews the same names, while a managed
-  tenant's identity was verified out of band before we bought their number and is
-  already gated by `pe_registration_*`. **Buying a number** —
+  tenant's identity was verified out of band when we contracted with them and is already
+  gated by `pe_registration_*`. **Asking us for a number** —
   `POST /v1/numbers/purchase` (`org:manage`) — is gated for **every** tier, because the
   DoT business-connection obligation attaches to the connection and a control keyed on
   an admin-settable column is a control one support ticket from being switched off.
@@ -144,11 +147,14 @@ same client app** — a self-serve org is the same `organizations` row with a di
   Ops records the verification through `POST /v1/admin/tenants/{tenant_id}/kyc`
   (`admin:tenants`, audited); the client reads their own state at
   `GET /v1/compliance/kyc` (`org:read`, absence is a 200 with `recorded: false`), and
-  there is deliberately no client-realm write. **NOT IMPLEMENTED: provisioning itself.**
-  D-05's vendors are a decision, not a credential — no telephony account, no adapter —
-  so a verified account's purchase is refused with `number_provisioning_not_configured`
-  and `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False` is the greppable
-  constant. Numbers are provisioned by operations out of band today. **No identity
+  there is deliberately no client-realm write. **NOT OFFERED: supplying the number.**
+  Model A — Calevate holding numbers and allocating them — is refused outright for a sole
+  proprietor with no corporate veil (playbook `:249`, stop-list items 1 and 10), so a
+  verified account is refused with `number_provisioning_not_configured`, whose remediation
+  names the three carriers and asks for the number plus revocable API credentials.
+  `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False` is the greppable constant and
+  flipping it is adopting Model A, not writing an adapter. An operator RECORDS the number
+  the client bought with `POST /v1/admin/tenants/{tenant_id}/numbers`. **No identity
   document is stored anywhere**: `kyc_records` keeps a public business-registry
   identifier and a reference to where the pack is filed, and a CHECK constraint refuses
   a value shaped like an Aadhaar.
@@ -454,7 +460,7 @@ Admin realm (`/admin/…`)
   week's withdrawal is not editable, and the client-realm read deliberately reports no
   subject state to an impersonated session.
 - **Calevate's own TM registration** (`POST /v1/ops/platform/tm-registration`, `ops:manage`)
-  — the company half of SEC-COMP §3's first bullet, recorded on `platform_state` (D-43)
+  — Calevate's own half of SEC-COMP §3's first bullet, recorded on `platform_state` (D-43)
   and returned by `GET /v1/ops/platform`. Step-up confirmed in BOTH directions, with the
   header naming which one: `X-Confirm-Action: record_tm_registration` to make it live,
   `withdraw_tm_registration` to take it out of `active`. Audited in the same transaction

@@ -82,17 +82,24 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _signed_up_user() -> tuple[str, uuid.UUID]:
-    """A Clerk-authenticated client-realm user with NO membership yet — exactly the
-    state FLOWS §2 step 1 leaves a self-serve signup in."""
+async def _signed_up_user(*, email_verified: bool = True) -> tuple[str, uuid.UUID]:
+    """A first-party client-realm user with NO membership yet — exactly the state
+    FLOWS §2 step 1 leaves a self-serve signup in.
+
+    VERIFIED BY DEFAULT, because `signup.assert_email_verified` now requires it and the
+    twenty-odd tests below that merely need A TENANT are not about that gate. The
+    parameter exists so the one test that IS about it
+    (`test_an_unverified_address_cannot_create_a_tenant`) can ask for the other state
+    rather than reaching into the row afterwards.
+    """
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:i, :e, now(), now())"
+                "INSERT INTO users (id, email, email_verified_at, created_at, updated_at) "
+                "VALUES (:i, :e, CASE WHEN :v THEN now() END, now(), now())"
             ),
-            {"i": user_id, "e": f"{user_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com", "v": email_verified},
         )
     return f"dev:client:{user_id}", user_id
 
@@ -351,6 +358,104 @@ async def test_signup_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> No
         response = await http.post("/v1/auth/signup", headers=_headers(token), json=_signup_body())
     assert response.status_code == 503, response.text
     assert response.json()["type"].endswith("/signup_disabled")
+
+
+async def test_an_unverified_address_cannot_create_a_tenant() -> None:
+    """The control the module docstring said was missing (AUTH-MIGRATION §1 C-23/C-24).
+
+    `users.email_verified_at` was written by `/otp/verify` and read only to be DISPLAYED
+    on the session row — it gated nothing, so a session on an unproved mailbox created a
+    tenant and got a 201. A quota alone only makes an unattended tenant factory slower;
+    requiring a deliverable mailbox is what gives the quota a cost.
+
+    The refusal names the door that clears it (`/auth/account` → OTP), so this is a step
+    rather than a dead end — D-185 leaves a freshly invited account in exactly this state
+    on purpose.
+    """
+    token, user_id = await _signed_up_user(email_verified=False)
+    async with _client() as client:
+        response = await client.post(
+            "/v1/auth/signup", json=_signup_body(), headers=_headers(token)
+        )
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("/email_not_verified")
+
+    # Refused BEFORE anything was written: no membership, so no tenant was born and
+    # rolled back — the refusal is in front of `create_self_serve_tenant`, not inside it.
+    async with untenanted_session() as session:
+        memberships = (
+            await session.execute(
+                text("SELECT count(*) FROM memberships WHERE user_id = :u"), {"u": user_id}
+            )
+        ).scalar()
+    assert memberships == 0
+
+
+async def test_the_verification_gate_runs_before_the_body_is_judged() -> None:
+    """An unverified caller with a NONSENSE body is told about their address, not their
+    slug. Ordering matters here: sending someone to fix a field, and only then telling
+    them the address they used is unconfirmed, is two round trips to learn one thing."""
+    token, _ = await _signed_up_user(email_verified=False)
+    async with _client() as client:
+        response = await client.post(
+            "/v1/auth/signup",
+            json=_signup_body(slug="NOT A SLUG", vertical_template="nonexistent"),
+            headers=_headers(token),
+        )
+    assert response.json()["type"].endswith("/email_not_verified"), response.text
+
+
+@pytest.mark.parametrize(
+    ("name", "why"),
+    [
+        ("Ab\x00cd", "a NUL byte reached psycopg and raised DataError — a 500, not a refusal"),
+        ("   ", "three spaces satisfy min_length=2 and produced a workspace named '   '"),
+        ("\u202eAcme", "a right-to-left override reverses the name in every screen that shows it"),
+        ("Acme\r\nLtd\x07", "control characters were stored verbatim"),
+    ],
+)
+async def test_a_business_name_that_is_not_text_is_refused_or_cleaned(name: str, why: str) -> None:
+    """Every one of these was measured against the live endpoint before
+    `clean_business_name` existed; `why` records what it did then.
+
+    The assertion is deliberately "never a 500, and never a stored name containing these
+    characters" rather than "always 422": `"Acme\r\nLtd\x07"` has real text in it and is
+    CLEANED to `Acme Ltd` rather than refused, which is the right answer for a paste out
+    of a spreadsheet. What must never happen is the driver exception or the invisible
+    name.
+    """
+    token, _ = await _signed_up_user()
+    async with _client() as client:
+        response = await client.post(
+            "/v1/auth/signup", json=_signup_body(business_name=name), headers=_headers(token)
+        )
+    assert response.status_code != 500, f"{why}: {response.text}"
+    if response.status_code == 201:
+        stored = response.json()["name"]
+        assert stored.strip() == stored and stored != ""
+        assert not any(ch in stored for ch in "\x00\r\n\x07\u202e"), why
+    else:
+        assert response.json()["type"].endswith("/invalid_business_name"), response.text
+
+
+async def test_indic_joiners_survive_the_name_cleaner() -> None:
+    """The cleaner drops Unicode `Cf` characters SELECTIVELY, and this is why.
+
+    U+200C/U+200D (ZWNJ/ZWJ) are `Cf` and are how Telugu and Devanagari control conjunct
+    formation — a category-wide refusal would reject correctly-spelled Indic names on a
+    Telugu-first product (D-36) while passing every ASCII one. A slug is supplied because
+    `slugify` cannot derive one from Telugu at all, which is the ordinary case here.
+    """
+    telugu = "మా\u200cక్లినిక్"
+    token, _ = await _signed_up_user()
+    async with _client() as client:
+        response = await client.post(
+            "/v1/auth/signup",
+            json=_signup_body(business_name=telugu),
+            headers=_headers(token),
+        )
+    assert response.status_code == 201, response.text
+    assert response.json()["name"] == telugu
 
 
 async def test_a_managed_tier_cannot_be_self_assigned() -> None:

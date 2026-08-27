@@ -84,6 +84,14 @@ server {
     http2 on;
     server_name ${ROOT_DOMAIN};
 
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
+
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
     include /etc/nginx/snippets/calevate-tls.conf;
@@ -142,6 +150,10 @@ server {
 
     location ^~ /admin { return 404; }
     location ^~ /c/    { return 404; }
+    # The operator door, for the reason given at length on the `app.` block: the route is
+    # `/auth/admin/...`, `^~ /admin` never matched it, and the apex is a hostname clients
+    # are sent to. `admin.` serves it and nothing else does.
+    location ^~ /auth/admin { return 404; }
 
     # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
     # firing on them. Every path here is content-addressed by Next's build hash
@@ -181,6 +193,14 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name www.${ROOT_DOMAIN};
+
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
@@ -234,6 +254,14 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name app.${ROOT_DOMAIN};
+
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
@@ -311,6 +339,27 @@ server {
 
     location ^~ /admin { return 404; }
 
+    # THE OPERATOR DOOR IS NOT UNDER `/admin`, AND THIS BLOCK CLAIMED TO CLOSE IT.
+    #
+    # The comment at the head of this server block names the surface it exists to refuse —
+    # "the operator SIGN-IN surface, `/auth/admin/sign-in`, served on the hostname every
+    # client is told to visit, which is phishing surface". The directive above does not
+    # match that path: the route is `src/app/(auth)/auth/admin/sign-in/page.tsx`, and
+    # `(auth)` is a Next route GROUP, which contributes no URL segment. So the URL is
+    # `/auth/admin/sign-in` and `^~ /admin` never saw it.
+    #
+    # What was actually reachable, and why it is worse than a stray page: the form rendered
+    # in full on `app.` with our certificate and our brand, and it WORKED — `app.` is in
+    # `DEFAULT_CORS_ORIGINS`, which is also the CSRF Origin allowlist, so
+    # `POST /v1/auth/admin/login` was accepted there and minted a real operator session.
+    # An attacker needed only to send the link. The admin realm holds every tenant's data.
+    #
+    # `admin.` is now the ONLY hostname that serves the operator door, which is a property
+    # a reader can check rather than a convention. Nothing links here relatively any more:
+    # every `/admin` and every operator sign-in destination is resolved through
+    # `adminConsoleUrl()` against NEXT_PUBLIC_ADMIN_CONSOLE_ORIGIN.
+    location ^~ /auth/admin { return 404; }
+
     # BUILD ASSETS ARE NOT RATE-LIMITED, and this location exists because the limiter was
     # firing on them. Every path here is content-addressed by Next's build hash
     # (`/_next/static/chunks/9926-8fef8aebe910ff85.js`), immutable, and served with
@@ -345,6 +394,14 @@ server {
     listen [::]:443 ssl;
     http2 on;
     server_name admin.${ROOT_DOMAIN};
+
+    # THE ACCESS LOG, WITH MAILED SECRETS REMOVED. See `log-format.conf.template` for the
+    # whole argument: reset, invitation and admin-bootstrap links carry their token in the
+    # query string, and the built-in `combined` format logs the full request line. Named
+    # per vhost rather than set once at `http` scope so that `api.` and `hooks.` — which
+    # this file does not serve — keep whatever the base config gives them, and so a new
+    # browser vhost has to make this choice deliberately instead of inheriting it.
+    access_log /var/log/nginx/access.log calevate_redacted;
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;

@@ -29,7 +29,23 @@ import { useClientSession } from "@/lib/api/session";
  * `check_dispatch` refuses a self-serve account's outbound with `kyc_missing` /
  * `kyc_not_verified`, `launch_blockers` previews the same two names, and
  * `POST /v1/numbers/purchase` refuses every tier on the same fact. Until now none of
- * those refusals had anywhere to send anyone. So this screen is not a status readout;
+ * those refusals had anywhere to send anyone.
+ *
+ * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE, and it is a decision rather than
+ * an unfinished feature: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`, and
+ * flipping it would be adopting Model A — Calevate holding connections and allocating
+ * them — which `docs/legal/LEGAL-OPS-PLAYBOOK.md` refuses at `:249` for a sole proprietor
+ * with no corporate veil, and again in its stop-list at items 1 and 10. The client takes
+ * the connection in their own name with their own carrier and stays subscriber of record;
+ * the published Terms (clause 3) and Acceptable Use (§2.1) say the same thing, so this
+ * page must not imply otherwise.
+ *
+ * That sentence is also load-bearing for a guard. `scripts/check_docs_drift.py` §5
+ * compares prose that STATES a capability constant's value against the constant itself,
+ * across three prose kinds — markdown, Python docstrings, and the console's JSDoc — and
+ * this file is the console's only such claim, so `tests/capability_claim_guard_test.py`
+ * uses it to prove the TSX scanner still works. Deleting it does not merely lose a true
+ * statement; it leaves that arm of the scanner unproven. So this screen is not a status readout;
  * it is the answer to "what do I do now", and it is written for the worst moment to
  * arrive with no page.
  *
@@ -53,12 +69,15 @@ import { useClientSession } from "@/lib/api/session";
  *    `messageable` on the consent screen: the server computes the predicate every gate
  *    asks, and a screen that re-derived it would disagree with the gate on the day it
  *    matters.
- * 5. **Buying a number is stated, not offered.** `number_purchase_available` is false in
- *    this deployment for every account (no telephony provider, no adapter —
- *    `PROVISIONING_IMPLEMENTED = False`), so there is no purchase form. A "Buy a number"
- *    button that always answers with a refusal is worse than no button: it costs the
- *    client a support ticket to learn what one sentence could have told them. The form
- *    goes here the day the capability turns true.
+ * 5. **We do not supply phone numbers, and the screen says so plainly.** Model B:
+ *    the client takes the connection in their own name on their own Exotel / Plivo /
+ *    Vobiz account, passes that operator's KYC, remains the subscriber of record, and
+ *    issues us API credentials they can withdraw (`docs/legal/LEGAL-OPS-PLAYBOOK.md`
+ *    §9; published Terms clause 3; Acceptable Use §2.1). `number_purchase_available` is
+ *    false for every account in every deployment and always will be — it is false by
+ *    DECISION, not because an adapter is missing — so there is no purchase form and no
+ *    "we will arrange it" promise. What the card gives instead is the actual next step,
+ *    because a client who is told only "not here" comes back with a support ticket.
  *
  * Read-only throughout, deliberately: `org:read` is not a mutating permission and BOTH
  * client roles hold it (core/rbac.py), so every reader of this page may read all of it
@@ -581,36 +600,48 @@ function WhatWeNeed() {
 }
 
 /**
- * The number-purchase capability, stated rather than offered.
+ * Where the calling number comes from — which is not us.
  *
  * `number_purchase_available` is the server's own selector — the SAME one
- * `POST /v1/numbers/purchase` asks — so this card cannot promise something the route
- * would refuse. It is two facts joined: this account being verified, AND this
- * deployment having a telephony provider with an adapter behind it. Today the second
- * is false everywhere, so the card explains which half is missing instead of rendering
- * a control whose only possible outcome is an error message.
+ * `POST /v1/numbers/purchase` asks — so this card can never promise something that
+ * route would refuse. It is false for every account in every deployment and by
+ * DECISION rather than by omission (Model B), so the card is a sentence and not a
+ * control, and the sentence is the next step rather than a refusal: the carriers to
+ * open an account with, and the two things to send back afterwards.
+ *
+ * No prices, no timelines and no signup URL — none of those is a fact this repository
+ * has read, and each operator publishes its own. The KYC sentence is here because it
+ * is true on both sides at once: their operator asks for the documents we ask for.
  */
 function PhoneNumbers({ record }: { record: KycRecord }) {
   return (
-    <Card title="Buying a phone number">
-      {record.number_purchase_available ? (
-        <p className="text-sm text-ink-muted">
-          Your account can be issued a new number. Ask your account manager and we will
-          set it up.
-        </p>
-      ) : record.is_verified ? (
-        <p className="text-sm text-ink-muted">
-          Your verification is not what is holding this up — buying a number from this
-          screen is not available in Calevate yet. We buy and register numbers for you
-          today, so ask your account manager and we will do it. Numbers you already have
-          are unaffected.
-        </p>
-      ) : (
-        <p className="text-sm text-ink-muted">
-          A new number cannot be issued until your business is verified, on any plan —
-          the rule attaches to the connection, not to your plan. Numbers you already have
-          keep working. Once this clears, ask your account manager and we will arrange
-          it.
+    <Card title="Where your calling number comes from">
+      <p className="text-sm text-ink-muted">
+        Calevate does not sell, rent or supply telephone numbers. Your calling number is
+        a connection you take in your own name, on your own account with an Indian
+        operator — <span className="font-medium text-ink">Exotel</span>,{" "}
+        <span className="font-medium text-ink">Plivo</span> or{" "}
+        <span className="font-medium text-ink">Vobiz</span>. You stay the subscriber of
+        record for it, which is what keeps it yours.
+      </p>
+      <ul className={`mt-3 ${LIST}`}>
+        <li>
+          <span className={LEAD_IN}>Open the account and pass their KYC.</span> They ask
+          for the same business details we ask for below, and the address proof normally
+          has to match the city the number is issued in. Operators keep outgoing calls
+          disabled until their own check clears.
+        </li>
+        <li>
+          <span className={LEAD_IN}>Then send us two things.</span> The number, and API
+          credentials for that account. We connect it to your agents with those
+          credentials — and you can withdraw them at any time, from your own account.
+        </li>
+      </ul>
+      {!record.is_verified && (
+        <p className="mt-3 text-sm text-ink-muted">
+          Our verification of your business, above, is a separate thing and is still
+          outstanding. Numbers you already have keep working, and calls coming in are
+          never affected.
         </p>
       )}
     </Card>

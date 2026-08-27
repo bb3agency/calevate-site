@@ -29,6 +29,8 @@ from apps.api.engine.bolna import (
 )
 from apps.api.engine.fake import FakeEngine
 from calevate_shared.engine import (
+    CLIENT_SCRIPT_OPEN,
+    PLATFORM_RULES_PREAMBLE,
     TRUTHFUL_ANSWER_DIRECTIVE,
     AgentConfig,
     AgentSnapshot,
@@ -76,13 +78,27 @@ async def test_fake_read_back_carries_the_opening_line_the_way_an_engine_holds_i
     The fake renders it through `compose_engine_prompt`, exactly as
     `BolnaEngine._agent_body` does — opening line prepended, platform rules appended
     (D-163) — so a caller cannot write an equality check that only ever passes against
-    the fake, and cannot get a fake-only agent that answers dishonestly."""
+    the fake, and cannot get a fake-only agent that answers dishonestly.
+
+    THE FIRST ASSERTION USED TO BE `startswith(cfg.opening_line)` AND WAS LOOSENED
+    DELIBERATELY, WHICH IS WORTH READING BEFORE ASSUMING IT WAS WEAKENED. The platform
+    rules are now stated FIRST as well as last, because the floor was enforced as
+    presence and not as precedence: a client script could tell the agent to deny being an
+    AI and every containment check still passed. So the prompt opens with
+    `PLATFORM_RULES_PREAMBLE` and the opening line follows it.
+
+    What this test is actually about is unchanged and is now checked more precisely: the
+    opening line is CARRIED and sits ahead of the client's script, so the notice a caller
+    hears is ours and is not something an author can push down the prompt.
+    """
     engine = FakeEngine()
     cfg = _cfg()
     ref = await engine.create_agent(cfg)
     prompt = (await engine.get_agent(ref)).system_prompt
     assert prompt is not None
-    assert prompt.startswith(cfg.opening_line)
+    assert prompt.startswith(PLATFORM_RULES_PREAMBLE)
+    assert cfg.opening_line in prompt
+    assert prompt.index(cfg.opening_line) < prompt.index(CLIENT_SCRIPT_OPEN)
     assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
 
 

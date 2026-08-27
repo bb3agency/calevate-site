@@ -28,8 +28,10 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.tenancy.signup import (
     SelfServeTier,
+    assert_email_verified,
     assert_signup_open,
     assert_signup_quota,
+    clean_business_name,
     create_self_serve_tenant,
     derive_slug,
 )
@@ -105,6 +107,10 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
     # 30/hour cap on the PLATFORM (see `assert_signup_quota`).
     caller_ip = client_request_ip(request)
     await assert_signup_quota(user_id=user_id, ip=caller_ip)
+    # BEFORE any tenant is written, and before the body is looked at: an unproved
+    # mailbox is a property of the CALLER, not of what they typed, so a caller who has
+    # to go and confirm their address should not first be told their slug is taken.
+    await assert_email_verified(user_id)
 
     if payload.vertical_template not in VERTICAL_TEMPLATES:
         # `create_organization` falls back to the clinic template for an unknown
@@ -126,10 +132,14 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
         )
     assert payload.language in DISCLOSURE_TEMPLATES  # the Literal above guarantees it
 
-    slug = payload.slug or derive_slug(payload.business_name)
+    # Cleaned BEFORE the slug is derived from it, so the derivation and the stored name
+    # see the same string — a name whose only content is spacing or invisible characters
+    # is refused here rather than becoming a workspace nobody can name.
+    business_name = clean_business_name(payload.business_name)
+    slug = payload.slug or derive_slug(business_name)
     created = await create_self_serve_tenant(
         user_id=user_id,
-        name=payload.business_name,
+        name=business_name,
         slug=slug,
         vertical_template=payload.vertical_template,
         language=payload.language,
@@ -141,7 +151,7 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
     return SignupOut(
         tenant_id=created["id"],
         slug=created["slug"],
-        name=payload.business_name,
+        name=business_name,
         plan_tier=created["plan_tier"],
         status=created["status"],
         role=created["role"],

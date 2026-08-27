@@ -28,6 +28,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
+from tests.conftest import accept_agreements
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 
@@ -91,6 +92,11 @@ async def test_a_wizard_failure_after_the_agent_leaves_no_tenant_behind(
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     assert created["slug"] == slug
 
 
@@ -109,6 +115,11 @@ async def test_a_created_tenant_is_complete_enough_to_take_a_call() -> None:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     async with tenant_session(created["id"]) as session:
         agent = (
             await session.execute(

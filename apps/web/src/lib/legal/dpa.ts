@@ -13,6 +13,20 @@ import type { LegalDocument } from "./types";
  * clause 9 or in a callout that names it. (This said "clause 9 or clause 12"; the
  * Addendum has ten clauses and two annexes, so it pointed at nothing.)
  *
+ * ## The Processor is a person, and clause 1 names the form
+ *
+ * Nothing in this Addendum ever identified the Processor at all — it inherited the
+ * parties clause from the Terms, which until 26 August 2026 described a company that
+ * does not exist (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`). A processing
+ * contract that does not say who the processor is fails at the first thing rule 6 of the
+ * DPDP Rules 2025 is read for, so clause 1 now names the supplier and its form. The
+ * DPDP Act's definitions turn on "person", not on "company", so the substantive
+ * obligations are unchanged — which is the point worth stating, because the natural
+ * client worry about a one-person supplier is that the controls are lighter. Clause 3
+ * says the operator controls bind the proprietor exactly as they would bind an
+ * employee, and that is a property of the code: MFA is required by REALM
+ * (`authn/routes.py:298`, `service.MFA_REQUIRED_REALMS`), not by who the operator is.
+ *
  * ## The clause numbers in the prose are CROSS-REFERENCES and were wrong
  *
  * Sub-processors are clause 5. Clause 9 twice, and `/legal/subprocessors` three times,
@@ -37,6 +51,22 @@ export const DPA: LegalDocument = {
       id: "roles",
       heading: "1. Roles, scope and precedence",
       blocks: [
+        {
+          kind: "para",
+          text:
+            "In this Addendum \"we\" means {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, and " +
+            "\"you\" means the client named on the account. It is worth being exact " +
+            "about the first of those, because it is not a company: the Processor here " +
+            "is an individual carrying on business under that name, and that individual " +
+            "and the business are the same legal person. The Digital Personal Data " +
+            "Protection Act 2023 defines a Data Processor as a PERSON who processes " +
+            "personal data on a Data Fiduciary's behalf, so the form changes who signs " +
+            "and changes nothing about what is owed: every obligation below — the " +
+            "security measures in Annex B, the 48-hour breach clock in clause 7, the " +
+            "audit right in clause 10 — binds that individual exactly as it would bind a " +
+            "company, and clause 14.1 of the Terms of Service records that his liability " +
+            "is personal and is not bounded by a company's assets.",
+        },
         {
           kind: "para",
           text:
@@ -103,6 +133,14 @@ export const DPA: LegalDocument = {
           items: [
             "Everyone we allow near your data is bound by confidentiality obligations that " +
               "survive their engagement.",
+            "Because the supplier is one individual rather than a company, \"our " +
+              "personnel\" today means the proprietor and anyone he engages. The " +
+              "controls in this clause are written to bind him without exception, and " +
+              "that is a property of how they are built rather than a promise about " +
+              "conduct: the second-factor requirement attaches to the operator sign-in " +
+              "realm and not to the person signing in, so there is no owner account it " +
+              "does not apply to, and the audit entries below are written by the same " +
+              "code whoever triggers them.",
             "Access is on a need-to-know basis, granted by role, and the map from every " +
               "endpoint to the permission it requires is asserted when the service starts " +
               "rather than reviewed by eye.",

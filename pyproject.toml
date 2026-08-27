@@ -93,6 +93,7 @@ source_modules = [
     "apps.api.ingest",
     "apps.api.integrations",
     "apps.api.kb",
+    "apps.api.legal",
     "apps.api.ops",
     "apps.api.reliability",
     "apps.api.tenancy",

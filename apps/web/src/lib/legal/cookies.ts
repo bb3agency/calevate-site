@@ -22,6 +22,22 @@ import type { LegalDocument } from "./types";
  * once you sign in, no consent banner because there is nothing to consent to. Writing a
  * generic "we use cookies to enhance your experience" banner over that would be a false
  * statement AND a worse experience.
+ *
+ * ## Section 3 exists because "no cookies" was answering an easier question
+ *
+ * Re-verified 26 August 2026 by grepping the whole of `apps/web/src` for browser storage
+ * rather than by re-reading this file. `src/lib/authn/signedOutNotice.ts` writes ONE
+ * `sessionStorage` key (`calevate.authn.had-session.<realm>`), and the sign-in pages
+ * (`app/(auth)/auth/sign-in`, `.../auth/admin/sign-in`) read and clear it. This notice
+ * said "no local storage or session storage on the public pages" and stopped there — true
+ * of the home page and these legal pages, and a reader who counts the sign-in page as
+ * public was being told something false by omission. F-11 in `docs/LEGAL-SURFACE.md` is
+ * the finding about naming trackers this site does not have; the mirror-image defect is
+ * not naming the one item it does, so it is now section 3 rather than a silence.
+ *
+ * Nothing else writes to the browser: `set_cookie` appears in exactly one module in the
+ * backend (`apps/api/authn/cookies.py`), no code in `apps/web/src` touches
+ * `document.cookie`, and there is no `localStorage` anywhere in the tree.
  */
 export const COOKIE_NOTICE: LegalDocument = {
   slug: "cookies",
@@ -57,7 +73,10 @@ export const COOKIE_NOTICE: LegalDocument = {
             "No third-party fonts. The typeface is served from our own server, so your " +
               "browser makes no request to a font provider.",
             "No embedded video, no chat widget, no third-party script of any kind.",
-            "No local storage or session storage on the public pages.",
+            "No local storage and no session storage on the home page or on these legal " +
+              "pages. There is exactly one item of browser storage anywhere on this " +
+              "service, it is not on these pages, and section 3 describes it rather than " +
+              "leaving you to find it.",
           ],
         },
         {
@@ -128,16 +147,62 @@ export const COOKIE_NOTICE: LegalDocument = {
       ],
     },
     {
-      id: "control",
-      heading: "3. Controlling them",
+      id: "browser-storage",
+      heading: "3. One thing that is not a cookie",
       blocks: [
         {
           kind: "para",
           text:
-            "Your browser lets you block or delete cookies for any site. Blocking them for " +
-            "calevate.tech has no effect on the public pages, because there are none. " +
-            "Blocking them for the dashboard signs you out and stops you signing back in, " +
-            "since the cookie is the sign-in.",
+            "A cookie notice that answers only the cookie question is answering an easier " +
+            "question than the one you asked, so: there is one other thing kept in your " +
+            "browser by this service. It is not a tracker, it is not a cookie, and it " +
+            "never leaves your machine.",
+        },
+        {
+          kind: "definitions",
+          items: [
+            {
+              term:
+                "calevate.authn.had-session.client and calevate.authn.had-session.admin — " +
+                "session storage, not cookies",
+              detail:
+                "A single mark saying that a session existed in this browser tab. It " +
+                "holds no identifier, no name and nothing that distinguishes you from " +
+                "anyone else who has ever signed in. Your dashboard tab writes it while " +
+                "you are signed in, and the sign-in page reads it once and deletes it as " +
+                "it reads. It exists so that the sign-in page can tell \"your session " +
+                "just ended\" from \"you have never signed in here\" — which our server " +
+                "genuinely cannot do, because an expired session cookie and an absent one " +
+                "arrive looking identical, and because the cookie is HttpOnly no script " +
+                "can inspect it either. It is per-tab storage, so closing the tab removes " +
+                "it, and it is never sent to us or to anyone else.",
+            },
+          ],
+        },
+        {
+          kind: "para",
+          text:
+            "It is strictly necessary in the same sense the cookies are, and its entire " +
+            "effect is one sentence of explanation on a sign-in page. A browser that " +
+            "refuses storage gets no mark, no sentence, and no other difference — the " +
+            "code that reads it treats a refusal as \"say nothing\" rather than as an " +
+            "error.",
+        },
+      ],
+    },
+    {
+      id: "control",
+      heading: "4. Controlling them",
+      blocks: [
+        {
+          kind: "para",
+          text:
+            "Your browser lets you block or delete cookies and site storage for any " +
+            "site. Blocking them for calevate.tech has no effect on the home page or " +
+            "these legal pages, because they set none. Blocking them for the dashboard " +
+            "signs you out and stops you signing back in, since the cookie is the " +
+            "sign-in; blocking storage alone costs you only the sentence described in " +
+            "section 3.",
         },
         {
           kind: "para",
@@ -150,7 +215,7 @@ export const COOKIE_NOTICE: LegalDocument = {
     },
     {
       id: "changes",
-      heading: "4. If this changes",
+      heading: "5. If this changes",
       blocks: [
         {
           kind: "para",

@@ -671,6 +671,36 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
+
+    # HAS ANYBODY ACCEPTED INTO THIS ACCOUNT YET — the one question the wizard's
+    # "Continue to the owner invite" control needs and could not ask.
+    #
+    # It used to be shown unconditionally, so an operator who came back to a finished
+    # account was still offered a step whose whole purpose was already served. The
+    # obvious signal, `GET .../invitations`, cannot answer it: `list_pending_invitations`
+    # filters `used_at IS NULL AND expires_at > now()`, so an empty list means *never
+    # invited*, *consumed* OR *expired* — three states the operator needs told apart, and
+    # exactly the distinction that was asked for ("only seen if that invite isn't
+    # consumed or that link is expired").
+    #
+    # A member is the honest answer to all three at once: it is true after an invite is
+    # redeemed, false while one is outstanding OR expired OR never sent, and — the case a
+    # pure invitations query would still get wrong — true for an account whose owner was
+    # created directly (`create_organization(owner_user_id=…)`, the signup path), where no
+    # invitation ever existed.
+    #
+    # `users` is tenant-RLS'd and this runs inside the tenant's own session, so the
+    # `LIMIT 1` sees this account and no other. It is a count nobody is shown: no name, no
+    # address, nothing that would make this endpoint a directory (hard rule 6).
+    #
+    # `deactivated_at`, NOT `deleted_at` — this table's soft-delete column is the one
+    # `uq_users_email_lower` predicates on (`UNIQUE (lower(email)) WHERE deactivated_at IS
+    # NULL`), and the other name was a guess the database refused outright. An owner who
+    # has left is not an owner present: their seat is exactly what a fresh invite is for.
+    owner_present = (
+        await session.execute(text("SELECT 1 FROM users WHERE deactivated_at IS NULL LIMIT 1"))
+    ).first() is not None
+
     sheet: dict[str, Any] | None = row[4]
     primary = str(row[5])
     facts = _sheet_answers(sheet, agent_id=agent_id)
@@ -690,6 +720,7 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
             "saved_at": None,
             "language_primary": primary,
             "sheet_agent_id": None,
+            "owner_present": owner_present,
         }
     return {
         "business_hours": _hours_map(facts),
@@ -701,6 +732,7 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
         "saved_at": (sheet or {}).get("saved_at"),
         "language_primary": primary,
         "sheet_agent_id": (sheet or {}).get("agent_id"),
+        "owner_present": owner_present,
     }
 
 
@@ -728,6 +760,15 @@ class UnfinishedOnboarding:
     # `submission_blockers`' own codes, computed from what IS stored. This is the whole
     # point of the list: "unfinished" is a claim, and the codes are the evidence.
     blockers: tuple[str, ...]
+    # WHICH TRADE THIS IS, so a RESUMED wizard shows the right examples.
+    #
+    # The console's intake form fills forty placeholders from the vertical
+    # (`lib/verticalExamples.ts`), and until this field existed it could only do that on
+    # the creation path, where the operator had just picked one in the same component. A
+    # resume had nothing to read and fell back — which is how a coaching centre came to be
+    # described to an operator in a dental clinic's vocabulary. The column has always been
+    # on `organizations`; it simply was not carried out.
+    vertical_template: str
 
 
 # Candidates, cheaply. The predicate is `submitted_at IS NULL` on the sheet — the ONE
@@ -740,7 +781,7 @@ class UnfinishedOnboarding:
 # answers include the client's escalation phone numbers; they are read one tenant at a
 # time under that tenant's own RLS below, the way `admin/holds.py` argues for.
 _UNFINISHED_DIRECTORY = (
-    "SELECT id, name, slug, created_at, intake->>'saved_at' "
+    "SELECT id, name, slug, created_at, intake->>'saved_at', vertical_template "
     "FROM organizations "
     "WHERE deleted_at IS NULL AND status = 'onboarding' "
     "  AND intake->>'submitted_at' IS NULL "
@@ -828,6 +869,7 @@ async def unfinished_onboardings(directory: AsyncSession) -> list[UnfinishedOnbo
                 created_at=org[3],
                 draft_saved_at=_parse_stamp(org[4]),
                 blockers=tuple(submission_blockers(facts)),
+                vertical_template=str(org[5]),
             )
         )
     unfinished.sort(key=lambda row: row.draft_saved_at or row.created_at, reverse=True)

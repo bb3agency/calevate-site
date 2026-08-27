@@ -813,6 +813,15 @@ def emitted_rule_names(roots: Iterable[Path] | None = None) -> set[str]:
     the `(rule, reason)` pair convention `kyc_blocker` / `first_campaign_hold_blocker`
     return — those two are annotated `tuple[str, str] | None` and their first element is
     the rule name a screen renders.
+
+    A RULE NAMED BY A MODULE CONSTANT COUNTS AS EMITTED, and that is not a convenience.
+    `legal.service.agreements_blocker` returns `(AGREEMENTS_RULE, AGREEMENTS_REASON)`
+    because SEC-COMP §3, the readiness screen's copy table, the campaign gates and the
+    dispatch gate must all cite ONE string — which is exactly the discipline §3 asks for
+    — and reading only `ast.Constant` punished it: the better-written gate was the one
+    this extractor could not see, so `legal/readiness.py`'s copy table looked like it
+    explained a rule nothing emits. Module-level `NAME = "literal"` bindings in the same
+    file are resolved; anything else still has to be a literal at the call site.
     """
     from apps.api.campaigns.service import LaunchBlocker
     from apps.api.compliance.service import DispatchDecision
@@ -821,6 +830,7 @@ def emitted_rule_names(roots: Iterable[Path] | None = None) -> set[str]:
     names: set[str] = set()
     for path in _python_files(roots):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        constants = _module_string_constants(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 function = node.func
@@ -830,39 +840,76 @@ def emitted_rule_names(roots: Iterable[Path] | None = None) -> set[str]:
                     else getattr(function, "id", "")
                 )
                 if called in constructors:
-                    if node.args and isinstance(node.args[0], ast.Constant):
-                        names.add(str(node.args[0].value))
-                    names.update(
-                        str(keyword.value.value)
-                        for keyword in node.keywords
-                        if keyword.arg == "rule" and isinstance(keyword.value, ast.Constant)
-                    )
+                    if node.args:
+                        names |= _as_rule_name(node.args[0], constants)
+                    for keyword in node.keywords:
+                        if keyword.arg == "rule":
+                            names |= _as_rule_name(keyword.value, constants)
             elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                names |= _pair_returns(node)
+                names |= _pair_returns(node, constants)
     return names
 
 
-def _pair_returns(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+def _module_string_constants(tree: ast.Module) -> dict[str, str]:
+    """Module-level `NAME = "literal"` bindings, including annotated ones.
+
+    Top level only, deliberately: a name bound inside a function is not the shared
+    vocabulary §3 is about, and following one would mean resolving scopes for a gain
+    nothing in this tree needs.
+    """
+    bindings: dict[str, str] = {}
+    for node in tree.body:
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+        else:
+            continue
+        value = node.value
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        bindings.update(
+            {target.id: value.value for target in targets if isinstance(target, ast.Name)}
+        )
+    return bindings
+
+
+def _as_rule_name(node: ast.expr, constants: dict[str, str]) -> set[str]:
+    """One rule name from an expression that is a string literal or a module constant."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, ast.Name) and node.id in constants:
+        return {constants[node.id]}
+    return set()
+
+
+def _pair_returns(
+    function: ast.FunctionDef | ast.AsyncFunctionDef, constants: dict[str, str] | None = None
+) -> set[str]:
     """First elements of the `(rule, reason)` tuples a blocker predicate produces.
 
     Any function whose return annotation MENTIONS `tuple[str, str]` — `... | None` for a
     single blocker (`kyc_blocker`), `list[tuple[str, str]]` for the composed ones
     (`outbound_entity_blockers`, which appends its pairs into a list rather than returning
-    each) — so every 2-element string-first tuple LITERAL in the body is collected, not
-    only the ones that are the direct value of a `return`. Without this the shared entity
-    helper's `tm_registration_missing` would vanish from the emitted set the moment the
-    campaign gate stopped constructing a `LaunchBlocker` for it inline.
+    each) — so every 2-element string-first tuple in the body is collected, not only the
+    ones that are the direct value of a `return`. Without this the shared entity helper's
+    `tm_registration_missing` would vanish from the emitted set the moment the campaign
+    gate stopped constructing a `LaunchBlocker` for it inline.
+
+    `constants` are the enclosing module's string bindings, so a pair built from a shared
+    rule constant (`(AGREEMENTS_RULE, AGREEMENTS_REASON)`) resolves — see
+    `emitted_rule_names`. Optional so the function still answers for a bare tuple literal
+    when a caller has no module in hand.
     """
     if function.returns is None or "tuple[str, str]" not in ast.unparse(function.returns):
         return set()
-    return {
-        str(node.elts[0].value)
-        for node in ast.walk(function)
-        if isinstance(node, ast.Tuple)
-        and len(node.elts) == 2
-        and isinstance(node.elts[0], ast.Constant)
-        and isinstance(node.elts[0].value, str)
-    }
+    bindings = constants or {}
+    names: set[str] = set()
+    for node in ast.walk(function):
+        if isinstance(node, ast.Tuple) and len(node.elts) == 2:
+            names |= _as_rule_name(node.elts[0], bindings)
+    return names
 
 
 def compliance_section_tokens(text: str | None = None) -> list[str]:
@@ -977,6 +1024,190 @@ def rate_zone_drift(root: Path | None = None, text: str | None = None) -> list[s
         for zone in sorted(set(declared) & set(configured))
         if declared[zone] != configured[zone]
     ]
+    return failures
+
+
+# --- 4d. the legal catalogue mirrors the web bundle -----------------------------------
+#
+# WHY THIS EXISTS. `apps/api/legal/catalogue.py` decides which published documents a
+# client must accept and at which VERSION, and that version is written into an
+# append-only ledger and compared by four outbound gates. It has to live on the Python
+# side, because the comparison happens on a machine that never runs Node. The browser
+# needs the same facts to show a reader which version of `/legal/<slug>` they are looking
+# at, so `apps/web/src/lib/legal/versions.ts` carries a copy — and a copy nothing checks
+# is a copy that is wrong the first time one side moves, which is the whole argument of
+# 4b one directory over.
+#
+# WHAT IT COMPARES, AND WHAT IT CANNOT. Four things, all mechanical:
+#
+#   1. `PENDING_LEGAL_REVIEW` — the constant in `placeholders.ts` against the one in
+#      `catalogue.py`. This is the load-bearing half TODAY: flipping it publishes eight
+#      legal documents and invalidates every acceptance in the ledger, and flipping it on
+#      one side only would leave the server demanding `1+pre-review` while the page shows
+#      `1`.
+#   2. The SLUG SET, three ways: the document modules' own `slug:` fields, the mirror's
+#      keys, and the catalogue's. A ninth document that nobody told the API about would
+#      otherwise be published, linked and unacceptable.
+#   3. Per document: `title` (which is the bundle's `shortTitle`), `blocking`, the
+#      revision list with each revision's `material` flag, and `effectiveDate`.
+#   4. Nothing else, because nothing else is decidable from here.
+#
+# ⚠ IT COMPARES IDENTITY, NOT TEXT, AND THE GAP IS REAL. Nothing in this tree can read
+# the PROSE of a TypeScript module from Python without a TS parser, so a lawyer editing a
+# clause in `terms.ts` without appending a revision produces an acceptance row naming a
+# version whose words have changed, and no check here sees it. Said plainly rather than
+# implied by omission: the discipline that closes it is written at the top of both
+# `REVISIONS` blocks and is human. Approximating it — hashing the file, say — would fire
+# on a comment change and be switched off within a week, which is the failure mode this
+# whole module is written to avoid (see "WHAT THIS DELIBERATELY DOES NOT DO").
+
+LEGAL_BUNDLE = REPO_ROOT / "apps" / "web" / "src" / "lib" / "legal"
+
+#: `export const PENDING_LEGAL_REVIEW = true;`
+_TS_PENDING_REVIEW = re.compile(r"export\s+const\s+PENDING_LEGAL_REVIEW\s*=\s*(true|false)")
+#: `slug: "acceptable-use",` — one per document module.
+_TS_SLUG = re.compile(r'^\s*slug:\s*"([^"]+)"', re.MULTILINE)
+#: `shortTitle: "Acceptable Use",`
+_TS_SHORT_TITLE = re.compile(r'^\s*shortTitle:\s*"([^"]+)"', re.MULTILINE)
+
+
+def web_pending_legal_review() -> bool | None:
+    """`PENDING_LEGAL_REVIEW` as the web bundle declares it, or None if it is unreadable.
+
+    None rather than a default: "the constant is not there any more" is a finding, not a
+    reason to assume one of its two values.
+    """
+    source = (LEGAL_BUNDLE / "placeholders.ts").read_text(encoding="utf-8")
+    match = _TS_PENDING_REVIEW.search(source)
+    return None if match is None else match.group(1) == "true"
+
+
+def web_legal_documents() -> dict[str, str]:
+    """`slug -> shortTitle` for every document module in the bundle.
+
+    Read from the modules themselves rather than from `index.ts`, because the modules are
+    where a ninth document's slug is actually born. A module with a `slug` and no
+    `shortTitle` (or the reverse) is reported by the comparison as a missing entry rather
+    than crashing here.
+    """
+    found: dict[str, str] = {}
+    for path in sorted(LEGAL_BUNDLE.glob("*.ts")):
+        if path.name in ("index.ts", "types.ts", "placeholders.ts", "versions.ts"):
+            continue
+        source = path.read_text(encoding="utf-8")
+        slugs, titles = _TS_SLUG.findall(source), _TS_SHORT_TITLE.findall(source)
+        if slugs and titles:
+            found[slugs[0]] = titles[0]
+    return found
+
+
+def web_legal_versions() -> dict[str, dict[str, object]]:
+    """The mirror in `versions.ts`, parsed into the shape `catalogue.DOCUMENTS` has.
+
+    A block-at-a-time parse rather than a JSON round trip: the file is TypeScript with
+    comments, and shelling out to Node inside a Python guardrail would make this the one
+    check that cannot run without the frontend toolchain installed.
+    """
+    source = (LEGAL_BUNDLE / "versions.ts").read_text(encoding="utf-8")
+    body = source.split("LEGAL_VERSIONS", 1)[-1]
+    entries: dict[str, dict[str, object]] = {}
+    for block in re.finditer(
+        r'^  "?([a-z0-9-]+)"?:\s*\{(.*?)^  \},', body, re.MULTILINE | re.DOTALL
+    ):
+        slug, fields = block.group(1), block.group(2)
+        title = re.search(r'title:\s*"([^"]*)"', fields)
+        blocking = re.search(r"blocking:\s*(true|false)", fields)
+        effective = re.search(r'effectiveDate:\s*(?:null|"([^"]*)")', fields)
+        entries[slug] = {
+            "title": title.group(1) if title else None,
+            "blocking": blocking.group(1) == "true" if blocking else None,
+            "revisions": [
+                (rev.group(1), rev.group(2) == "true")
+                for rev in re.finditer(
+                    r'\{\s*revision:\s*"([^"]+)",\s*material:\s*(true|false)\s*\}', fields
+                )
+            ],
+            "effective_date": effective.group(1) if effective and effective.group(1) else None,
+        }
+    return entries
+
+
+def legal_catalogue_drift() -> list[str]:
+    """The API's legal catalogue against the web bundle. Every direction that can differ."""
+    from apps.api.legal import catalogue
+
+    failures: list[str] = []
+
+    declared = web_pending_legal_review()
+    if declared is None:
+        failures.append(
+            "apps/web/src/lib/legal/placeholders.ts no longer exports "
+            "`PENDING_LEGAL_REVIEW`, and `apps/api/legal/catalogue.py` mirrors it. The "
+            "constant is what decides whether an acceptance is provisional"
+        )
+    elif declared != catalogue.PENDING_LEGAL_REVIEW:
+        failures.append(
+            f"PENDING_LEGAL_REVIEW: the web bundle says {declared}, "
+            f"`apps/api/legal/catalogue.py` says {catalogue.PENDING_LEGAL_REVIEW}. Flipping "
+            "it changes every document's version and re-demands every acceptance, so both "
+            "sides move in one change"
+        )
+
+    published = web_legal_documents()
+    mirror = web_legal_versions()
+    api = {doc.slug: doc for doc in catalogue.DOCUMENTS}
+
+    failures += [
+        f"`/legal/{slug}` is published by the web bundle and "
+        f"`apps/api/legal/catalogue.py` does not list it — it is linkable and cannot be "
+        "accepted or versioned"
+        for slug in sorted(set(published) - set(api))
+    ]
+    failures += [
+        f"`apps/api/legal/catalogue.py` lists `{slug}` and the web bundle publishes no "
+        "such document — a client would be asked to accept a page that 404s"
+        for slug in sorted(set(api) - set(published))
+    ]
+    failures += [
+        f"`{slug}` is in `apps/api/legal/catalogue.py` and not in "
+        "apps/web/src/lib/legal/versions.ts, so the page can show no version"
+        for slug in sorted(set(api) - set(mirror))
+    ]
+    failures += [
+        f"apps/web/src/lib/legal/versions.ts carries `{slug}`, which "
+        "`apps/api/legal/catalogue.py` does not know"
+        for slug in sorted(set(mirror) - set(api))
+    ]
+
+    for slug in sorted(set(api) & set(mirror)):
+        spec, copy = api[slug], mirror[slug]
+        if copy["title"] != spec.title:
+            failures.append(
+                f"`{slug}`: versions.ts titles it {copy['title']!r}, the catalogue {spec.title!r}"
+            )
+        if slug in published and published[slug] != spec.title:
+            failures.append(
+                f"`{slug}`: the document module's shortTitle is {published[slug]!r}, the "
+                f"catalogue's title is {spec.title!r} — one document, one name"
+            )
+        if copy["blocking"] != spec.blocking:
+            failures.append(
+                f"`{slug}`: versions.ts says blocking={copy['blocking']}, the catalogue "
+                f"says {spec.blocking}. That decides whether an unaccepted copy stops the "
+                "account dialling"
+            )
+        if copy["effective_date"] != spec.effective_date:
+            failures.append(
+                f"`{slug}`: versions.ts dates it {copy['effective_date']!r}, the catalogue "
+                f"{spec.effective_date!r}"
+            )
+        expected = [(rev.revision, rev.material) for rev in spec.revisions]
+        if copy["revisions"] != expected:
+            failures.append(
+                f"`{slug}`: versions.ts has revisions {copy['revisions']}, the catalogue "
+                f"has {expected}. The last entry decides the CURRENT version, and every "
+                "`material` flag decides whether a stored acceptance still counts"
+            )
     return failures
 
 
@@ -2019,6 +2250,7 @@ def main() -> int:
         ("the rate-zone table and the nginx template disagree", rate_zone_drift()),
         ("the cost model and the biller price a TTS rung differently", tts_rate_card_drift()),
         ("the cost model and the code disagree on the in-call LLM leg", llm_cost_curve_drift()),
+        ("the legal catalogue and the web bundle disagree", legal_catalogue_drift()),
         ("a deferral that no longer holds", stale_deferrals()),
         ("prose states a capability constant's value, and the tree disagrees", capability_drift()),
         ("a doc denies a key readiness actually reports", readiness_claim_drift()),
@@ -2051,6 +2283,8 @@ def main() -> int:
         f"{len(value_claims())} sentences quote one of "
         f"{len(capability_constants())} capability constants correctly, "
         f"{len(DEFERRED_MIRRORS)} deferred mirror, "
+        f"{len(web_legal_versions())} legal documents versioned identically by "
+        f"the API catalogue and the web bundle, "
         f"{len(gate_roster())} pilot gates with no assumption outliving its answer)"
     )
     return 0

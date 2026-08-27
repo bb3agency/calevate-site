@@ -52,6 +52,14 @@ const REQUIRED_IN_A_DEPLOY_BUILD: Record<string, string> = {
   NEXT_PUBLIC_CLIENT_CONSOLE_ORIGIN:
     "every \"View as\" link would be built as a bare /c/<slug> path and 404 against the " +
     "admin hostname, which refuses the client tree by design",
+  // The mirror, added after the mirror bug reached the live console: "Exit and return to
+  // the admin console" is rendered on `app.`, and the operator auth screens are served on
+  // the apex, and BOTH hostnames answer 404 for `/admin`. A bare path is right only on
+  // `admin.` itself, which is the one hostname those two screens are never on.
+  NEXT_PUBLIC_ADMIN_CONSOLE_ORIGIN:
+    "leaving a view-as session and signing in as an operator would both build a bare " +
+    "/admin path and 404 against the client and apex hostnames, which refuse the " +
+    "operator tree by design",
 };
 
 if (DEPLOY_BUILD) {

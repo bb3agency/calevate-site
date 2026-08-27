@@ -16,7 +16,7 @@ import {
   SECONDARY_BUTTON,
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
-import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
+import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ClientSessionProvider, useClientSessionRow } from "@/lib/authn/clientSession";
 import { lookup } from "@/lib/lookup";
 import {
@@ -26,6 +26,7 @@ import {
   SIGNUP_VERTICALS,
   isSignupClosed,
   isSignupDeferred,
+  isSignupUnverified,
   previewSlug,
   slugIsDerivable,
   useSignup,
@@ -330,6 +331,59 @@ function SignupClosed({
   );
 }
 
+/**
+ * "Confirm your email address first" — a step, rendered as a step.
+ *
+ * The account exists and the session is valid; what is missing is proof of the mailbox,
+ * which `/auth/account` takes a code to establish (D-174). The two things this panel is
+ * careful about are the two that would make it a dead end:
+ *
+ * **It links to the door.** `SignupClosed`'s sibling panel deliberately does not link
+ * anywhere, because the thing it describes cannot be cleared by the person reading it.
+ * This one can be, in under a minute, so not linking would be the failure the stranger's
+ * panel above exists to avoid — sent one screen further with nothing to press.
+ *
+ * **It keeps the retry.** Coming back is the second half of the loop, and a person who
+ * has just verified in another tab should not have to retype five fields —
+ * `signup.reset()` clears the error and re-renders the form with its state intact,
+ * because the form's state lives in `SignupForm` and this panel is rendered by it.
+ */
+function ConfirmYourAddress({
+  remediation,
+  onRetry,
+}: {
+  remediation?: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">
+        Confirm your email address first
+      </h1>
+      <Card>
+        <div className="space-y-3 text-sm text-ink-muted">
+          <p>
+            Before we create a workspace we need to know the address on your account
+            reaches you. It takes one code and about a minute.
+          </p>
+          {/* The server's sentence when it gave one — it knows why THIS request was
+              refused. The fallback covers only the shape where none arrived. */}
+          <p>{remediation ?? "Open your account settings and confirm your address."}</p>
+          <div className="flex flex-wrap gap-2">
+            <Link href={CLIENT_ACCOUNT_PATH} className={PRIMARY_BUTTON}>
+              Confirm my address
+              <ArrowRight aria-hidden className="h-4 w-4" />
+            </Link>
+            <button type="button" onClick={onRetry} className={SECONDARY_BUTTON}>
+              I have done that
+            </button>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function SignupForm() {
   const signup = useSignup();
   const [businessName, setBusinessName] = useState("");
@@ -394,6 +448,15 @@ function SignupForm() {
         </Link>
       </div>
     );
+  }
+
+  // Not a form problem either, and not a refusal: a STEP the person has not done yet.
+  // `assert_email_verified` requires a proved mailbox before a workspace is created, and
+  // an account redeemed from an invitation is unverified by design (D-185) — so this is
+  // the ordinary path for a brand-new account, not an edge case. It replaces the form
+  // for the same reason the two below do: nothing they type here can clear it.
+  if (isSignupUnverified(signup.error)) {
+    return <ConfirmYourAddress remediation={signup.error.remediation} onRetry={() => signup.reset()} />;
   }
 
   // The kill switch and the load-shed refusal are not errors the caller can fix by

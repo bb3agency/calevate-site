@@ -24,7 +24,9 @@
  * - **Absence is a value, not a 404.** `recorded: false` is the normal state of every
  *   new account, so the screens render it as a state and never as an error.
  * - **`is_verified` and `number_purchase_available` are the SERVER's answers and are
- *   never re-derived here.** "Is `in_review` good enough" is the question the dispatch
+ *   never re-derived here.** (`number_purchase_available` is false for every account
+ *   everywhere: Calevate does not supply telephone numbers — the client takes the
+ *   connection on their own operator account. See `campaigns/provisioning.py`.) "Is `in_review` good enough" is the question the dispatch
  *   gate answers; a console that answered it for itself would eventually disagree with
  *   the gate. Same rule `messagingConsent.ts` states about `messageable`.
  *

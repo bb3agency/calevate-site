@@ -46,6 +46,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.commercial_terms_test import _make_admin, _tenant
+from tests.conftest import accept_agreements
 
 STATUS = "/v1/admin/tenants/{tenant_id}/status"
 
@@ -120,6 +121,11 @@ async def _dialable_tenant() -> tuple[UUID, UUID]:
     from tests.conftest import arm_agent_for_outbound
 
     await arm_agent_for_outbound(tenant_id, agent_id)
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the same shape as `arm_agent_for_outbound` above. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(tenant_id)
     return tenant_id, agent_id
 
 

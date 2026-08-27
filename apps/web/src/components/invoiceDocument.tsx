@@ -40,7 +40,7 @@ import type { Invoice } from "@/lib/api/invoice";
  *
  * ## Why the heading comes off the wire
  *
- * `document_type` decides whether this says TAX INVOICE or PROFORMA INVOICE. The words
+ * `document_type` decides whether this says TAX INVOICE or BILL OF SUPPLY. The words
  * are never chosen here, because whether this is a lawful tax invoice depends on facts
  * only the server holds (Rule 46's particulars, `billing/gst.py`), and a browser that
  * printed "TAX INVOICE" over a document with no GSTIN would be manufacturing the exact
@@ -55,11 +55,15 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
       <header className="flex items-start justify-between border-b border-slate-200 pb-4">
         <div>
           <h1 className="text-lg font-bold tracking-wide">
-            {isTaxInvoice ? "TAX INVOICE" : "PROFORMA INVOICE"}
+            {isTaxInvoice ? "TAX INVOICE" : "BILL OF SUPPLY"}
           </h1>
-          {/* The supplier's LEGAL NAME, not the brand. The literal string "Calevate"
-              used to sit here, which is a trading name and not the entity that would be
-              party to the supply. */}
+          {/* The supplier's LEGAL NAME from config, never a literal. Calevate is a trade
+              name of a sole proprietor (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`),
+              so the party to the supply is the individual and what an accountant needs to
+              see is whatever `GST_SUPPLIER_LEGAL_NAME` is set to — which is a decision
+              taken with a CA, not one this component may make. The fallback is the trade
+              name the founder contracts under (`lib/legal/placeholders.ts`,
+              LEGAL_ENTITY_NAME), so an unconfigured document still names somebody. */}
           <p className="mt-1 text-sm font-medium">{data.supplier.legal_name ?? "Calevate"}</p>
           {data.supplier.address && (
             <p className="mt-0.5 whitespace-pre-line text-sm text-slate-600">
@@ -227,10 +231,11 @@ function NotATaxInvoice({ blockers }: { blockers: string[] }) {
     >
       <p className="font-semibold">This is not a tax invoice.</p>
       <p className="mt-1">
-        Calevate&apos;s GST registration is not yet on record, so this document cannot be
-        used to claim input tax credit and no tax may be collected against it. It is a
-        statement of what this month&apos;s service comes to. A tax invoice will be issued
-        once the registration is in place.
+        Calevate is not registered for GST, and is not required to be at its present
+        turnover. An unregistered supplier may not collect tax at all, so this is a bill
+        of supply: no tax is charged on it and no input tax credit can be claimed against
+        it. It states what this month&apos;s service comes to. If we register for GST, the
+        documents issued from that date will be tax invoices.
       </p>
       {blockers.length > 0 && (
         // For US, not for the client — but on the same sheet, because the person who can

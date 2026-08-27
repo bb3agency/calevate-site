@@ -43,6 +43,7 @@ from apps.api.db.session import admin_session, tenant_session, untenanted_sessio
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 NUMBERS = "/v1/admin/tenants/{tenant_id}/numbers"
 NUMBER_DLT = "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status"
@@ -107,6 +108,11 @@ async def _tenant() -> tuple[uuid.UUID, str]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     return uuid.UUID(str(created["id"])), str(created["slug"])
 
 

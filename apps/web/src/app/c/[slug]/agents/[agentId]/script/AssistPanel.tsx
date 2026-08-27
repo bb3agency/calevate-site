@@ -24,6 +24,7 @@ import {
 } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
 import { useAssistScript, type CallScript } from "@/lib/api/script";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 export function AssistPanel({
   agentId,
@@ -35,6 +36,8 @@ export function AssistPanel({
   disabled: boolean;
 }) {
   const session = useClientSession();
+  // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
+  const eg = useVerticalExamples();
   const [description, setDescription] = useState("");
   const [open, setOpen] = useState(false);
   const assist = useAssistScript(session, agentId);
@@ -70,7 +73,7 @@ export function AssistPanel({
             value={description}
             aria-label="Business description"
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="We are a dental clinic in Hyderabad. Callers usually want to book a check-up or ask about teeth cleaning prices. Book appointments and take a callback number."
+            placeholder={eg.scriptBrief}
           />
           <div className="flex flex-wrap items-center gap-3">
             <button

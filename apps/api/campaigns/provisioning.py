@@ -1,14 +1,22 @@
-"""Number provisioning — the seam, and the two refusals in front of it.
+"""Number provisioning — a capability this product does not offer, and the refusals for it.
 
-SURFACES §2b: "**Number purchase + KYC**: gated". This module is the purchase half.
-It provisions nothing, because D-05's telephony vendors (Exotel, with Vobiz for the
-140-series and Plivo for the 160-series — see `KNOWN_PROVIDERS`) are a decision, not a
-credential: there is no account with any of them behind this deployment, no `EXOTEL_*`
-secret, and no HTTP call has ever been made to any of them. What ships is therefore the
-SEAM and an honest refusal — the same shape
-`workers/sheets_sync.py` uses for Google Sheets, `billing/payments.py` for Razorpay and
-`ingest/meta.py` for the Meta Graph read, and for the same reason: a client who picks a
-feature that silently never fires is the worst of the available states.
+**MODEL B: CALEVATE DOES NOT SUPPLY, SELL, RENT, ALLOCATE OR PROVISION A PHONE NUMBER.**
+The client takes the telephone connection on their OWN Exotel / Plivo / Vobiz account,
+passes that carrier's KYC, remains the subscriber of record, and issues us API
+credentials they can withdraw. That is `docs/legal/LEGAL-OPS-PLAYBOOK.md:24` and §9
+(`:239-317`); Model A — Calevate holding numbers and allocating them — is refused
+outright for a sole proprietor with no corporate veil (`:249`), a client asking "just
+give me a number" is sent to the carrier or lost as a deal (`:266`), and the stop-list
+forbids both reselling from a pool and parking client traffic on a Calevate carrier
+account (`:600-614`, items 1 and 10). The published Terms (clause 3) and Acceptable Use
+§2.1 tell the client the same thing in the same words.
+
+So this module provisions nothing, and the reason is a DECISION and not a missing
+credential. It used to read as an unfinished integration waiting for an `EXOTEL_*`
+secret; it is not, and every string it hands a human now says which it is. What is left
+is worth having on its own: the KYC gate below, which is real and is required whichever
+carrier the client buys from, and one place that answers "can you get me a number?" with
+the true answer and the next step, rather than with silence or a support ticket.
 
 **No vendor SDK is added, no request or response shape is invented, and no provisioning
 API is described here.** Guessing a vendor contract and finding out in production is
@@ -17,27 +25,33 @@ guess a supply-chain decision rather than a convenience.
 
 WHAT IS ACTUALLY DECIDED, AND WHAT IS ONLY CONFIGURED
 -----------------------------------------------------
-- `NUMBER_PROVIDER` is the STATEMENT that this deployment has a telephony vendor. It is
-  config rather than an inference from "is there a key", for the reason
-  `payment_capability` spells out: a credential is not a statement that a capability
-  exists, and two independent reads of the same settings eventually disagree.
+- `NUMBER_PROVIDER` names the carrier this deployment would deal with IF Model A were
+  ever adopted. It is config rather than an inference from "is there a key", for the
+  reason `payment_capability` spells out: a credential is not a statement that a
+  capability exists, and two independent reads of the same settings eventually disagree.
+  Setting it changes nothing today — the constant below is what decides.
 - `number_provisioning_capability()` is the ONE selector. The purchase route asks it and
   the client's own KYC screen asks it, so the screen cannot offer a button the route
   refuses. There is no second read of settings anywhere.
-- `PROVISIONING_IMPLEMENTED = False` is the greppable constant for the part that is not
-  built — the mirror of `ingest.meta.LEAD_RETRIEVAL_IMPLEMENTED` and
-  `payments.PROVIDER_CREATES_ORDERS`. It is a constant and not a comment so the claim is
-  testable, and `tests/kyc_gate_test.py` fails the moment it is flipped without an
-  adapter behind it. Flipping it is not a config change: it means somebody wrote one.
+- `PROVISIONING_IMPLEMENTED = False` is the greppable constant for a capability that is
+  not offered — the shape of `ingest.meta.LEAD_RETRIEVAL_IMPLEMENTED` and
+  `payments.PROVIDER_CREATES_ORDERS`, but with a different KIND of reason behind it: no
+  adapter exists because none is wanted. It is a constant and not a comment so the claim
+  is testable, and `tests/kyc_gate_test.py` fails the moment it is flipped without an
+  adapter behind it. **Flipping it is adopting Model A**, which is a legal decision
+  (incorporate first, obtain written VNO/reseller status — playbook `:621`) and needs a
+  decision-log entry, not a config change.
 
 WHY KYC IS ASKED FIRST, AND FOR EVERY TIER
 -------------------------------------------
 The KYC check runs BEFORE the capability check even though the capability check refuses
-every request today. Two reasons, both about what the client learns: the KYC refusal is
-the one they can act on, and an ordering that answered "this deployment has no provider"
-first would mean the day a provider lands, the KYC gate would be meeting real traffic
-for the first time — a compliance control whose first production exercise is the day it
-matters is not a control.
+every request. The KYC refusal is the one the client can act on, and it is the one that
+is true of them under Model B as well: their own carrier blocks outgoing calls until
+their KYC clears (Exotel, cited below), and our dial gate reads the same record. So a
+client who has filed nothing learns the thing that is blocking them everywhere, and a
+client who is verified learns the thing that is only true of us — that we do not sell
+numbers, and where to buy one. Reversing the order would put our business model in front
+of their blocker and leave the compliance control unexercised.
 
 And it is asked with **no plan-tier test at all**, unlike the dial-time gate. The DoT
 business-connection obligation attaches to the connection and has no managed-client
@@ -65,7 +79,8 @@ from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
 
-# D-05's telephony picks. A name outside this tuple resolves to
+# D-05's telephony picks — the carriers a CLIENT buys their own connection from, which is
+# the only relationship Model B has with any of them. A name outside this tuple resolves to
 # `provider_not_implemented` rather than looking configured — `NUMBER_PROVIDER=twilio`
 # must fail loudly, not quietly behave like Exotel.
 #
@@ -90,14 +105,16 @@ log = get_logger(__name__)
 # `twilio | plivo | vobiz` (`bolna-findings/mirror/pages/api-reference/phone-numbers/
 # buy.md:67-73`) — but Exotel is a first-class BYO-ACCOUNT integration there
 # ("Bring Your Own Account | ✅ Yes", `.../supported-telephony-providers.md:32`), so an
-# Exotel number is bought FROM EXOTEL and connected. This constant answers "which vendor
-# may sell this deployment a number", not "which vendor Bolna will buy one from".
+# Exotel number is bought FROM EXOTEL by the client and connected. This constant answers
+# "which carrier a client may hold their own connection with", not "which vendor Bolna
+# will buy one from" and not "which vendor sells Calevate a number" — nobody does.
 # `twilio` is still absent on purpose: it is the non-India provider
 # (`.../supported-telephony-providers.md:34` lists its countries and India is not one).
 KNOWN_PROVIDERS: Final[tuple[str, ...]] = ("exotel", "plivo", "vobiz")
 
-# Is there an adapter that can ask a provider for a number? NO. See the module
-# docstring. Greppable and testable rather than a note in a doc.
+# Is there an adapter that can ask a provider for a number? NO, and there is not meant to
+# be one: buying a number for a client is Model A. See the module docstring. Greppable and
+# testable rather than a note in a doc.
 PROVISIONING_IMPLEMENTED: Final = False
 
 # Authored reason codes — never vendor prose. They name OUR configuration state, are
@@ -164,9 +181,18 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
     return ProblemError(
         kind="dependency",
         code="number_provisioning_not_configured",
-        title="Buying a number is unavailable",
-        detail="Your account cannot buy phone numbers yet.",
-        remediation="Contact us and we will provision a number for your account.",
+        title="We do not supply phone numbers",
+        detail=(
+            "Calevate does not sell, rent or provision telephone numbers. Your calling "
+            "number is a connection you take in your own name, on your own account with "
+            "an Indian operator, and you stay the subscriber of record for it."
+        ),
+        remediation=(
+            "Open an account with an Indian operator — Exotel, Plivo or Vobiz — pass "
+            "their KYC and take the number there, then send us the account credentials "
+            "and the number and we will connect it to your agents. You can withdraw "
+            "those credentials at any time."
+        ),
     )
 
 
@@ -190,8 +216,9 @@ async def assert_kyc_verified_for_provisioning(session: AsyncSession, *, tenant_
         "kyc_not_verified",
         detail,
         remediation=(
-            "Send us your business registration details so we can verify the account, "
-            "then try again."
+            "Send us your business registration details so we can verify the account. "
+            "Your operator will ask for the same documents when you take the connection "
+            "in your own name."
         ),
     )
 

@@ -67,7 +67,7 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     estimated_total_inr: null,
     tax_note: null,
     supplier: {
-      legal_name: "Calevate Technologies Private Limited",
+      legal_name: "Calevate",
       address: "Plot 42, Madhapur, Hyderabad 500081",
       gstin: "36AABCC1234D1Z5",
       state_name: "Telangana",

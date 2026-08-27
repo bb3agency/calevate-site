@@ -74,6 +74,7 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.ingest.service import normalize_phone
+from apps.api.legal.service import agreements_blocker
 
 log = get_logger(__name__)
 
@@ -350,6 +351,11 @@ async def dispatch_blockers(
     # carry it: that gate is also the single-lead paths, which are not campaigns
     # (`compliance/first_campaign.py` states the residual that leaves).
     held = await first_campaign_hold_blocker(session, tenant_id=tenant_id)
+    # The agreements, for the reason everything else in this list is re-asked: a MATERIAL
+    # new version of the Terms or the DPA falls due while a campaign is mid-flight, and a
+    # campaign that keeps dialling to the end of its list under a superseded agreement is
+    # the same failure as one dialling on a lapsed registration.
+    unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
     # The national DND scrub is the one rule here with a deadline we can predict to the
     # second: a provider's scrub is valid only to 23:59:59 IST of the day it was run, so
     # a campaign that launched on a valid scrub is dialling an unscrubbed list by
@@ -359,6 +365,7 @@ async def dispatch_blockers(
     )
     return [
         *([LaunchBlocker(*held)] if held is not None else []),
+        *([LaunchBlocker(*unaccepted)] if unaccepted is not None else []),
         *(await _entity_blockers(session, tenant_id=tenant_id, facts=facts)),
         *_channel_blockers(facts),
         *([LaunchBlocker(*unscrubbed)] if unscrubbed is not None else []),
@@ -970,6 +977,17 @@ async def launch_blockers(
     blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
     if blocked_on_kyc is not None:
         blockers.append(LaunchBlocker(*blocked_on_kyc))
+    # THE PAPERWORK THE CLIENT SIGNS, beside the paperwork the registrar holds. A client
+    # who has not accepted the Terms, the Privacy Policy, the DPA and the Acceptable Use
+    # Policy is a client dialling their customers under no instrument at all — the DPA is
+    # what makes us their processor for those callers' personal data, and the AUP is the
+    # document the rest of this gate enforces against them. Asked here AND in
+    # `dispatch_blockers` AND in `check_dispatch`, under one rule name from one
+    # implementation (`legal.service.agreements_blocker`), for the reason the entity
+    # blockers give: a re-acceptance can fall due while a campaign RUNS.
+    unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
+    if unaccepted is not None:
+        blockers.append(LaunchBlocker(*unaccepted))
     # R-11's last mitigation: a self-serve account's first campaign waits for a human
     # (BRD §245, FLOWS §2, D-34). Asked here AND in `dispatch_blockers` — see the note
     # in that function for why it is in both and not in `check_dispatch`.
