@@ -169,6 +169,7 @@ export function SetPasswordForm<T>({
         <AuthField
           label="New password"
           type="password"
+          reveals="new password"
           autoComplete="new-password"
           minLength={MIN_PASSWORD_CHARS_BY_REALM[realm]}
           maxLength={MAX_PASSWORD_CHARS}
@@ -189,6 +190,9 @@ export function SetPasswordForm<T>({
         <AuthField
           label="Type it again"
           type="password"
+          // Distinct from the field above's, because two controls named "Show password"
+          // on one form are two controls a screen-reader user cannot tell apart.
+          reveals="the repeated password"
           autoComplete="new-password"
           maxLength={MAX_PASSWORD_CHARS}
           value={confirmation}
