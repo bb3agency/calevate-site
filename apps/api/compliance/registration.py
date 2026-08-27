@@ -30,12 +30,13 @@ returns zero rows twice over.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.settings import get_settings
 from apps.api.ops.service import TM_REGISTRATION_MISSING_REASON, read_tm_registration
 
 
@@ -78,6 +79,10 @@ PE_MISSING_REASON = (
 TM_LINK_REASON = (
     "Your DLT Principal Entity has not authorised Calevate as its telemarketer. "
     "Outbound campaigns cannot launch until that link is active."
+)
+PE_VERIFICATION_STALE_REASON = (
+    "This business's DLT Principal Entity registration has not been re-checked against "
+    "the registrar recently enough. Ask Calevate to re-verify it before launching."
 )
 
 
@@ -146,6 +151,21 @@ async def pe_registration_blocker(
     a registration they do not yet have sends them to the wrong desk. A missing row and a
     pending one stay different blockers, because the registrar and the client are
     different next actions.
+
+    **AND A VERIFICATION GOES STALE.** `verified_at` was selected, returned to the client
+    screen and compared to nothing, so a PE verified once was verified forever — the one
+    fact on this row that decays with time was the one nothing aged. Its two neighbours
+    both already treat that as unacceptable: the national-DND scrub expires at midnight
+    on the day it ran (`preference_scrub.scrub_expiry`, "a scrub is valid only to the end
+    of the day it was produced") and `KYC_STATUSES` carries `expired`, both because a
+    stale compliance verdict is worse than none — it is indistinguishable from a fresh
+    one at the moment somebody relies on it. The window is `pe_verification_max_age_days`
+    (config, default 365, OURS rather than a registrar's — see the field), and `0`
+    disables the check.
+
+    LAST, deliberately. "We have not re-checked this recently" is the weakest of the four
+    and the only one whose next action is Calevate's rather than the client's, so it must
+    not mask a registration the registrar has actually suspended.
     """
     registration = await read_pe_registration(session, tenant_id=tenant_id)
     if not registration.recorded:
@@ -159,7 +179,33 @@ async def pe_registration_blocker(
         )
     if registration.tm_link_status != "active":
         return ("tm_link_not_active", TM_LINK_REASON)
+    if pe_verification_is_stale(registration.verified_at):
+        return ("pe_verification_stale", PE_VERIFICATION_STALE_REASON)
     return None
+
+
+def pe_verification_is_stale(verified_at: datetime | None, *, now: datetime | None = None) -> bool:
+    """Has our own check of this registration aged out of `pe_verification_max_age_days`?
+
+    NEVER VERIFIED COUNTS AS STALE, and that is the whole point rather than an edge case:
+    an `active` row nobody ever checked against the registrar is precisely the state this
+    blocker exists to catch — somebody typed `active` and the campaign gate believed it.
+
+    A pure function beside the predicate so the client-facing registration screen can show
+    "re-verification due" from the same rule the gate refuses on, instead of the two
+    disagreeing on the day it matters.
+    """
+    max_age = get_settings().pe_verification_max_age_days
+    if max_age <= 0:
+        return False
+    if verified_at is None:
+        return True
+    # `timestamptz` in, aware out — but a row written by a path that lost the tzinfo
+    # would raise on the comparison rather than answer it, and a compliance predicate that
+    # 500s is a launch gate that fails open on the operator's retry. UTC in the DB.
+    if verified_at.tzinfo is None:
+        verified_at = verified_at.replace(tzinfo=UTC)
+    return verified_at + timedelta(days=max_age) <= (now or datetime.now(UTC))
 
 
 async def outbound_entity_blockers(
@@ -198,9 +244,11 @@ async def outbound_entity_blockers(
 __all__ = [
     "NOT_RECORDED",
     "PE_MISSING_REASON",
+    "PE_VERIFICATION_STALE_REASON",
     "TM_LINK_REASON",
     "PeRegistration",
     "outbound_entity_blockers",
     "pe_registration_blocker",
+    "pe_verification_is_stale",
     "read_pe_registration",
 ]

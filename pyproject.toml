@@ -88,6 +88,7 @@ source_modules = [
     "apps.api.billing",
     "apps.api.campaigns",
     "apps.api.compliance",
+    "apps.api.copilot",
     "apps.api.crm",
     "apps.api.db",
     "apps.api.ingest",

@@ -58,12 +58,23 @@ an API client would record a promise nothing in the system keeps.
 **A conflict in our own documents, now RESOLVED as a deferral (SEC-COMP §4).**
 
 SEC-COMP §4 describes the erasure workflow as covering "calls/turns/leads/**recordings**
-… covers our object storage AND engine copies". SEC-COMP §1 records the TRAI rule as a
-**90-day minimum retention of call recordings**, a floor the
-codebase treats as binding in two places (`retention_policies` has a DB CHECK, and
-`apply_retention` refuses to act below `RECORDING_FLOOR_DAYS`). For a recording less
-than 90 days old those instructions once appeared to point in opposite directions: §4 says
-erase it on request, §1 says retaining it is mandatory.
+… covers our object storage AND engine copies", and the same section imposes a **90-day
+minimum retention of call recordings**, a floor the codebase treats as binding in two
+places (`retention_policies` has a DB CHECK, and `apply_retention` refuses to act below
+`RECORDING_FLOOR_DAYS`). For a recording less than 90 days old those instructions once
+appeared to point in opposite directions: erase it on request, or hold it for the floor.
+
+**THE FLOOR IS OURS, NOT A STATUTE'S, AND NOTHING HERE MAY SAY OTHERWISE.** This module
+once told a data principal that the 90 days were "the period Indian telecom rules require
+call recordings to be retained for". No primary source for such a rule has been produced:
+SEC-COMP §4 records that TRAI's 90-day figure in the TCCCPR framework is the opt-out
+cooling period before a sender may seek fresh consent, and that the two-year archive of
+commercial records is Unified Licence clause 39.20, which binds LICENSEES rather than a
+telemarketer. So the floor stays — it is conservative, it is enforced, and moving it is
+counsel's call — but every sentence that leaves this system describes it as CALEVATE'S
+POLICY. Asserting a legal basis we cannot cite is not a conservative error: DPDP §8(7)
+makes retaining personal data on a basis that does not exist a storage-limitation breach
+in its own right, so the false citation is itself the exposure (hard rule 11).
 
 SEC-COMP §4 has settled it, and the settlement is a DEFERRAL rather than a refusal, on
 DPDP §12(3)'s own terms: erasure is owed "unless retention ... is necessary for compliance
@@ -172,7 +183,9 @@ DELETION_SCOPE = "all"
 STATUS_PENDING = "pending"
 STATUS_COMPLETED = "completed"
 
-# TRAI floor (SEC-COMP §1). Duplicated from `apps/workers/retention.RECORDING_FLOOR_DAYS`
+# Calevate's own recording-retention floor (SEC-COMP §4) — see the docstring above for why
+# this is NOT described as a TRAI or "Indian telecom" requirement anywhere a client or a
+# data principal can read. Duplicated from `apps/workers/retention.RECORDING_FLOOR_DAYS`
 # rather than imported, for the reason `infra/object-lifecycle/apply_lifecycle.py`
 # duplicates it too: the API has no business importing a worker module — with its
 # session factory and its sweep SQL — in order to print a number into a sentence.
@@ -323,11 +336,10 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "Call recordings: the pointer to the audio is cleared immediately, so nothing in "
     "this system can reach, play or export it. The audio files themselves are destroyed "
     "by this request too, EXCEPT any that are still inside the "
-    f"{RECORDING_FLOOR_DAYS}-day period Indian telecom rules require call recordings to "
-    "be retained for (SECURITY-COMPLIANCE §1). Those are not destroyed early and they "
-    "are not kept indefinitely either: each one is scheduled, and the certificate states "
-    "the date the last of them is destroyed on. SECURITY-COMPLIANCE §4 describes erasure "
-    "as covering recordings and §1 requires the retention period; whether an under-age "
+    f"{RECORDING_FLOOR_DAYS}-day floor Calevate applies to call recordings as a matter "
+    "of its own platform policy (SECURITY-COMPLIANCE §4). Those are not destroyed early "
+    "and they are not kept indefinitely either: each one is scheduled, and the "
+    "certificate states the date the last of them is destroyed on. Whether an under-age "
     "recording should be destroyed on request ANYWAY is an open decision, and this "
     "notice states the position rather than resolving it.",
     "consent_ledger entries are retained, and they carry the caller's number. They are "
@@ -395,14 +407,18 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "The link this system held to every recording was cleared, so nothing in "
             "Calevate can play, download or export any of them. The audio files were "
             "destroyed as well — except those less than "
-            f"{RECORDING_FLOOR_DAYS} days old, which Indian telecom rules require to be "
-            "kept for that long. Those are not destroyed early. They are also not kept: "
+            f"{RECORDING_FLOOR_DAYS} days old, which Calevate keeps for that long under "
+            "its own platform retention floor. Those are not destroyed early. They are "
+            "also not kept: "
             "each one has a destruction date fixed at the moment this request ran, and "
             "the audio is deleted automatically on that date without a second request."
         ),
         authority=(
-            f"The {RECORDING_FLOOR_DAYS}-day recording-retention floor "
-            "(SECURITY-COMPLIANCE §1) read against the erasure duty in DPDP §12(3), "
+            f"Calevate's own {RECORDING_FLOOR_DAYS}-day recording-retention floor "
+            "(SECURITY-COMPLIANCE §4) — a conservative platform policy, NOT a statutory "
+            "requirement: the statute said to impose it has not been identified, and "
+            "whether one exists is with counsel (SECURITY-COMPLIANCE §4, 'the floor's "
+            "own authority is in doubt') — read against the erasure duty in DPDP §12(3), "
             "which requires erasure 'unless retention of the same is necessary for the "
             "specified purpose or for compliance with any law for the time being in "
             "force'. A retention obligation therefore DEFERS an erasure rather than "

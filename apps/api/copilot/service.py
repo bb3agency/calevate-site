@@ -1,0 +1,538 @@
+"""The copilot's bounded tool-calling loop, and the server-side re-validation that is the
+whole of its safety argument.
+
+WHY THE MODEL IS CALLED FROM A REQUEST HANDLER (a departure, argued — `crm/assist.py`
+makes the same one and `ops/secret_probes.py` makes its own).
+
+CLAUDE.md says model providers are called from workers or the engine, never a request
+handler. This calls one. The rule's purpose is to keep vendor latency off the
+latency-critical path and off a blocking worker: the voice path is `apps/voice-runtime`
+and is not this, and every hop here is `await`ed on an asyncio loop, so a slow Azure
+occupies no thread. What `crm/assist.py` additionally pays — one pooled Postgres
+connection held for the length of the round trip, because `Depends(db)`'s transaction is
+open across it — THIS ROUTE DOES NOT PAY: it takes no `Depends(db)` at all. The gate, and
+later the meter and the audit, each open their own short `tenant_session` and close it, so
+no connection is held across a provider call. That is strictly better than the established
+path and it is the reason a streaming route is affordable here at all.
+
+THE ORDER IS `crm/assist.py`'s AND EVERY ARROW IS LOAD-BEARING: SUBJECT → GATE → RUN →
+METER. `routes.py` is where it is spelled out; this module owns the RUN and hands back the
+two facts the METER needs.
+
+THE LOOP IS CAPPED AND THE CAP HAS A SENTENCE. A tool-calling loop that cannot end is a
+spinner that never stops, which is the failure mode a person cannot act on. `MAX_TURNS`
+turns, then an authored message telling them what to do instead.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
+from typing import Final
+
+import httpx
+from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
+
+from apps.api.copilot import prompt as prompt_module
+from apps.api.copilot.sanitize import clean_value, strip_invisible
+from apps.api.copilot.schemas import CopilotAskIn, CopilotField, CopilotFillItem
+from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
+from apps.workers import chat
+from apps.workers.chat import TokenUsage
+from apps.workers.extraction import (
+    AZURE_PROVIDER,
+    SARVAM_CHAT_URL,
+    AssistCapability,
+    assist_capability,
+    assist_unavailable,
+    azure_credentials,
+)
+
+log = get_logger(__name__)
+
+#: How many model turns one question may take. Four = ask, correct a refused fill, ask
+#: again, answer — which is the longest useful shape observed in this design and one more
+#: than the shortest failing one. Each turn is a paid round trip, so the cap is a spend
+#: bound as much as a latency one.
+MAX_TURNS: Final = 4
+
+#: The longest gap between two frames of a streamed answer before we give up on it.
+#:
+#: A READ timeout, not a total one, and the distinction is the whole reason this is not
+#: `ASSIST_TIMEOUT_S`. A generation that takes ninety seconds is not a failure; ninety
+#: seconds of silence is. 15s matches `ASSIST_TIMEOUT_S`'s per-leg budget for the same
+#: reason it was chosen there — long enough for a first token, short enough that a person
+#: does not sit in front of a dead stream.
+STREAM_IDLE_S: Final = 15.0
+
+#: The wall clock for the WHOLE loop, enforced with `asyncio.timeout` around it.
+#:
+#: WHY THIS DOES NOT HAVE TO FIT UNDER NGINX'S `proxy_read_timeout` — AND `crm/assist.py`'s
+#: BUDGET DID. That constraint (`tests/assist_deadline_test.py`:
+#: `2 * ASSIST_TIMEOUT_S + ASSIST_ROUTE_RESERVE_S < proxy`) is about a request whose
+#: response arrives in ONE piece at the end: the edge sees nothing from the upstream for
+#: the whole duration, and `proxy_read_timeout` bounds "time between two successive READ
+#: operations from the proxied server" — so with one read, it bounds the whole request.
+#: This response is a stream. FastAPI's SSE writer emits a `: ping` keep-alive comment
+#: after 15s of producer silence (`fastapi/sse.py::_PING_INTERVAL`, installed 0.140), and
+#: every text fragment is a read of its own, so the gap between reads is bounded by 15s
+#: against the api vhost's 60s. `copilot/deadline_test.py` asserts both numbers out of
+#: their real sources rather than trusting this paragraph.
+#:
+#: NO NGINX CHANGE IS NEEDED FOR BUFFERING EITHER, and this was checked rather than
+#: recalled: FastAPI's SSE path sets `X-Accel-Buffering: no` on the response itself
+#: (`fastapi/routing.py`, "For Nginx proxies to not buffer server sent events"), and
+#: nginx's own documentation for that header reads "Sets the proxy buffering for this
+#: connection. Setting this to 'no' will allow unbuffered responses suitable for Comet and
+#: HTTP streaming applications" (nginxinc/nginx-wiki,
+#: `source/start/topics/examples/x-accel.rst` @ master, read 27 Aug 2026 — `nginx.org` and
+#: `docs.nginx.com` are both egress-blocked from this environment, so the vendor's own
+#: wiki repository is the primary source actually read). `infra/nginx/` sets no
+#: `proxy_ignore_headers`, which is the one directive that would switch that off — checked
+#: by grep, not assumed. So `infra/` is untouched by this feature.
+TOTAL_BUDGET_S: Final = 90.0
+
+#: Said to the person when the loop runs out of turns. An authored sentence with an action
+#: in it, never a spinner that stops.
+EXHAUSTED_MESSAGE: Final = "I couldn't finish within the turn limit — please narrow the request."
+
+#: Appended to `AssistCapability.disclosure` when the fallback leg answered.
+#:
+#: The fallback CANNOT FILL FIELDS (see `_answer_via_sarvam`), and a person who asked it to
+#: and got prose back is owed the reason. D-127 G-6's disclosure says which model wrote the
+#: answer; this says what that costs them, which is the part they can act on.
+FALLBACK_NO_TOOLS_NOTE: Final = " It can answer questions, but it cannot fill in fields."
+
+
+#: Appended, last, on the fallback leg only. See `_answer_via_sarvam`.
+_NO_TOOL_NOTE: Final = (
+    "CORRECTION for this turn only: the set_fields tool is NOT available to you right now. "
+    "Do not call it and do not say you have filled anything in. Answer the question in "
+    "words, and if the person asked you to fill a field, tell them the value they should "
+    "type and that you cannot enter it for them this time."
+)
+
+
+class FillRefusedError(Exception):
+    """The model asked for a write this request does not permit.
+
+    Carries the per-item reasons so the refusal can be handed BACK to the model as a tool
+    result — the loop's one legitimate use of its remaining turns — and shown to the person
+    if the loop then runs out.
+    """
+
+    def __init__(self, reasons: Sequence[str]) -> None:
+        self.reasons = tuple(reasons)
+        super().__init__("; ".join(reasons))
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotSpend:
+    """What one copilot answer cost and who wrote it. TWO FIELDS AND NOTHING ELSE.
+
+    It exists to satisfy `crm/assist.py::MeterableAssist` structurally — `.usage` and
+    `.capability`, the only two things metering is entitled to know — so that ONE metering
+    path prices the re-summarise, the script draft and this. A richer result carried into
+    `meter_assist` would be an invitation to price a fourth surface differently.
+
+    `usage is None` means WE DO NOT KNOW WHAT THIS COST, never that it was free, and
+    `meter_assist` already handles the two causes differently (a free Sarvam leg is logged;
+    an uncounted Azure answer fires `ai_assist_unmeterable`). See `_sum_usage` for the
+    multi-turn rule, which is where this could most easily have become a lie.
+    """
+
+    usage: TokenUsage | None
+    capability: AssistCapability
+
+
+@dataclass(frozen=True, slots=True)
+class CopilotEvent:
+    """One step of an answer. Exactly one of the three is set.
+
+    `spend` is emitted exactly once, last, on every path that reached a provider — the
+    route needs it whether the answer was good, refused or exhausted, because a completed
+    model turn is money spent regardless of what it said.
+    """
+
+    text: str | None = None
+    fill: tuple[CopilotFillItem, ...] | None = None
+    spend: CopilotSpend | None = None
+
+
+# --- the re-validation, which is the security argument ------------------------------
+
+
+def _value_is_legal(field: CopilotField, value: object) -> str | None:
+    """`None` if this value may be written to this field, else the reason it may not.
+
+    `None` (clearing a field) is legal on every type: "the caller never said" has to be
+    expressible, and a copilot that could set a field but never unset one would leave a
+    person with a wrong value and no way to ask for it to be removed.
+    """
+    if value is None:
+        return None
+    if field.type == "bool":
+        # `isinstance(True, int)` is True in Python, so the order of these checks matters
+        # everywhere EXCEPT here — this is the one branch that wants bool and nothing else.
+        return None if isinstance(value, bool) else "expects true or false"
+    if isinstance(value, bool):
+        # And this is the other side of the same trap: a bare `True` would satisfy an
+        # `isinstance(value, int)` test on a number field and be written as 1.
+        return "expects a value, not true/false"
+    if field.type == "number":
+        return None if isinstance(value, int | float) else "expects a number"
+    if not isinstance(value, str):
+        return "expects text"
+    if field.type == "select":
+        if not field.options:
+            # A select whose options nobody declared has no value this server can PROVE is
+            # legal. Passing the model's word through would be exactly the trust OWASP
+            # LLM01 #4 says not to place in it, and the browser can fix it by declaring the
+            # options — so this is a refusal rather than an allowance.
+            return "is a dropdown with no options declared, so no value can be checked"
+        if value not in {option.value for option in field.options}:
+            return "is not one of that dropdown's options"
+    return None
+
+
+def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillItem, ...]:
+    """The model's `set_fields` arguments, re-checked against THIS REQUEST. Raises
+    `FillRefusedError` naming every item that failed.
+
+    THE MODEL'S CLAIM ABOUT WHAT IS WRITABLE IS WORTHLESS, and the vendor says so about
+    the payload itself: "the model does not always generate valid JSON, and may
+    hallucinate parameters not defined by your function schema. Validate the arguments in
+    your code before calling your function" (openai/openai-openapi `openapi.yaml` @ master,
+    `ChatCompletionMessageToolCallChunk`, read 27 Aug 2026). OWASP GenAI LLM Top 10 2026
+    LLM01 #4 states the same rule as a design constraint: hold state-change capability in
+    application code, not in the model.
+
+    ALL-OR-NOTHING, and that is a deliberate choice against the friendlier one. A partial
+    apply — write the six that were fine, drop the one that was not — gives the person a
+    form in a state neither they nor the copilot described, and one Undo that only undoes
+    part of it. One call, one outcome, one Undo.
+
+    EVERY REASON NAMES ITS FIELD, because the refusal is fed back to the model on the next
+    turn and "one of your fields was wrong" is not something it can act on. Field IDS are
+    named; field VALUES never are — a reason string reaches a log line and a person's
+    screen, and a value may be the very thing `sanitize` exists to keep off both.
+    """
+    try:
+        parsed = json.loads(arguments or "")
+    except ValueError as exc:
+        raise FillRefusedError(["the tool call was not valid JSON"]) from exc
+    if not isinstance(parsed, dict):
+        raise FillRefusedError(["the tool call was not an object"])
+    raw_items = parsed.get("items")
+    if not isinstance(raw_items, list):
+        raise FillRefusedError(["`items` was missing or was not an array"])
+    if not raw_items:
+        raise FillRefusedError(["`items` was empty — nothing to fill"])
+
+    by_id = {field.id: field for field in payload.fields}
+    items: list[CopilotFillItem] = []
+    reasons: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            reasons.append("one item was not an object")
+            continue
+        field_id = raw.get("field_id")
+        if not isinstance(field_id, str) or not field_id:
+            reasons.append("one item named no field")
+            continue
+        if field_id in seen:
+            # Two writes to one field in one call: the second silently wins, and which one
+            # that is depends on iteration order. Refused rather than resolved, because
+            # there is no correct answer and a person cannot see the collision.
+            reasons.append(f"`{field_id}` was set twice in one call")
+            continue
+        seen.add(field_id)
+        field = by_id.get(field_id)
+        if field is None:
+            reasons.append(f"`{field_id}` is not a field on this screen")
+            continue
+        if not field.writable:
+            reasons.append(f"`{field_id}` is not writable")
+            continue
+        value = raw.get("value")
+        problem = _value_is_legal(field, value)
+        if problem is not None:
+            reasons.append(f"`{field_id}` {problem}")
+            continue
+        # THE EGRESS HALF OF THE INVISIBLE-CHARACTER RULE. The browser highlights a preview
+        # of this value and then writes it; a tag-block character here makes the two
+        # different strings, and the person approves the one they can see.
+        items.append(CopilotFillItem(field_id=field_id, value=clean_value(value)))
+
+    if reasons:
+        raise FillRefusedError(reasons)
+    return tuple(items)
+
+
+# --- the provider legs ---------------------------------------------------------------
+
+
+def _azure_leg() -> chat.ChatLeg | None:
+    """Azure addressed for `workers/chat.py`, or None if this deployment holds no
+    credential. `azure_credentials()` is THE reader of the three settings — a second
+    assembly of them here would be a second definition of "configured"."""
+    credentials = azure_credentials()
+    if credentials is None:
+        return None
+    resource, api_key, deployment = credentials
+    return chat.ChatLeg(
+        url=f"{azure_openai_base_url(resource)}/chat/completions",
+        api_key=api_key,
+        wire_model=deployment,
+    )
+
+
+def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
+    """The whole loop's cost as one quantity, or None if any turn did not report its own.
+
+    ONE `usage_events` ROW PAIR PER USER ACTION, not per model turn: `read_ai_quota`'s
+    `requests_used` is a `COUNT(DISTINCT ref)` over the paid unit types, so N rows for one
+    question would make the request count and the rupee ceiling disagree about the same
+    month.
+
+    **A SINGLE UNREPORTED TURN POISONS THE WHOLE SUM, and that is the point.** Summing the
+    turns that DID report and calling it the total is a fabricated quantity — smaller than
+    the truth, on an append-only ledger, indistinguishable from a real one, and invisible
+    to both the tenant's ceiling and the platform brake. D-140 refused exactly that trade
+    for exactly that reason. `None` reaches `meter_assist`, which fires
+    `ai_assist_unmeterable` and asks an operator to look; a plausible invented number asks
+    nobody anything.
+    """
+    total: TokenUsage | None = None
+    for outcome in turns:
+        if outcome.usage is None:
+            return None
+        total = outcome.usage if total is None else total.plus(outcome.usage)
+    return total
+
+
+async def _answer_via_sarvam(
+    payload: CopilotAskIn, capability: AssistCapability
+) -> AsyncIterator[CopilotEvent]:
+    """The disclosed fallback: one non-streamed answer, in prose, with NO tools.
+
+    **NOT STREAMED, AND NO TOOLS, AND BOTH ARE HONEST LIMITS RATHER THAN DESIGN.** Whether
+    Sarvam's OpenAI-compatible chat supports `tools` or `stream_options` is **UNVERIFIED**
+    — this environment holds no Sarvam key and their documentation was not read this
+    session — and sending a parameter a provider does not support risks a 400, which would
+    turn a working fallback into a refusal. So the fallback does the thing every
+    OpenAI-compatible endpoint certainly does: one blocking completion, emitted as a single
+    text event. It answers questions and it cannot fill fields, and
+    `FALLBACK_NO_TOOLS_NOTE` is how the person is told that rather than left to discover
+    it.
+
+    Metering is unaffected: D-36 prices this leg at zero, so `CopilotSpend.usage` stays
+    None and `meter_assist`'s Sarvam branch records nothing — the same shape re-summarise
+    and the script draft already have.
+    """
+    settings = get_settings()
+    if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
+        raise assist_unavailable(capability)
+    outcome = await chat.complete(
+        chat.ChatLeg(
+            url=SARVAM_CHAT_URL, api_key=settings.sarvam_api_key, wire_model=SARVAM_DEFAULT_LLM
+        ),
+        # THE SAME PROMPT, PLUS ONE CORRECTION AT THE END. `build_messages` tells the model
+        # to call `set_fields`, and on this leg there is no such tool — a model told to use
+        # a capability it has not been given answers "I've filled that in for you" and fills
+        # nothing, which is the one failure mode worse than saying no. The correction goes
+        # LAST rather than into the shared prompt, so the cacheable prefix stays byte
+        # identical for the leg that has a cache (`prompt.py`, point 1).
+        [*prompt_module.build_messages(payload), {"role": "system", "content": _NO_TOOL_NOTE}],
+        timeout_s=STREAM_IDLE_S,
+        temperature=0.2,
+    )
+    if outcome.content:
+        yield CopilotEvent(text=strip_invisible(outcome.content))
+    yield CopilotEvent(spend=CopilotSpend(usage=None, capability=capability))
+
+
+# --- the loop -------------------------------------------------------------------------
+
+
+async def _run_azure_loop(
+    payload: CopilotAskIn, capability: AssistCapability
+) -> AsyncIterator[CopilotEvent]:
+    """Up to `MAX_TURNS` streamed turns on the preferred leg. Raises `httpx.HTTPError` if
+    the FIRST turn never produced anything, so the caller can still fall back."""
+    leg = _azure_leg()
+    if leg is None:  # pragma: no cover - unreachable via the selector
+        raise assist_unavailable(capability)
+    messages = prompt_module.build_messages(payload)
+    tools = [prompt_module.set_fields_tool()]
+    turns: list[chat.ChatOutcome] = []
+    refusal: FillRefusedError | None = None
+
+    for turn_index in range(MAX_TURNS):
+        outcome: chat.ChatOutcome | None = None
+        async for event in chat.stream(
+            leg,
+            messages,
+            timeout_s=STREAM_IDLE_S,
+            temperature=0.2,
+            tools=tools,
+            tool_choice="auto",
+        ):
+            if event.text is not None:
+                # EGRESS STRIPPING ON EVERY FRAGMENT, not once at the end: fragments are
+                # what the browser renders, and a tag-block character split across two
+                # frames still arrives whole in the DOM.
+                yield CopilotEvent(text=strip_invisible(event.text))
+            if event.outcome is not None:
+                outcome = event.outcome
+        if outcome is None:  # pragma: no cover - `chat.stream` always ends with one
+            break
+        turns.append(outcome)
+        if outcome.usage is None:
+            # Not an error, and not silence either. `_sum_usage` will make the whole run
+            # unmeterable off the back of this; the log line is what lets an operator tell
+            # "the stream was cut" from "Azure stopped sending the block".
+            log.warning(
+                "copilot_turn_unmetered",
+                extra={"turn": turn_index, "finish_reason": outcome.finish_reason},
+            )
+
+        calls = [
+            call for call in outcome.tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
+        ]
+        if not calls:
+            # The model answered in prose. Done — this is the ordinary end of a question.
+            yield CopilotEvent(spend=CopilotSpend(usage=_sum_usage(turns), capability=capability))
+            return
+
+        # ONE CALL, EVEN IF THE MODEL SENT SEVERAL. The tool takes an array precisely so
+        # that a turn has one outcome and one Undo; a second call in the same turn is the
+        # documented parallel-tool-call incorrectness, and honouring it would apply two
+        # changes a person asked for as one.
+        call = calls[0]
+        try:
+            items = validate_fill(payload, call.arguments)
+        except FillRefusedError as refused:
+            refusal = refused
+            log.info(
+                "copilot_fill_refused",
+                # Ids and counts. Never a value (hard rule 6), and never the model's prose.
+                extra={"turn": turn_index, "reasons": len(refused.reasons)},
+            )
+            # THE REFUSAL GOES BACK TO THE MODEL rather than to the person, while turns
+            # remain. That is what the cap is FOR: a model told `agent_name` is not
+            # writable usually fixes it in one more turn, and the alternative — surfacing
+            # the first refusal — makes the copilot fail at the thing it exists to do
+            # whenever it guesses one field id wrong.
+            messages = [
+                *messages,
+                {
+                    "role": "assistant",
+                    "content": outcome.content or None,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {"name": call.name, "arguments": call.arguments},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": (
+                        "The fill was refused and NOTHING was written. "
+                        + "; ".join(refused.reasons)
+                        + ". Fix these and call set_fields once more, or tell the user "
+                        "what you need."
+                    ),
+                },
+            ]
+            continue
+
+        yield CopilotEvent(fill=items)
+        yield CopilotEvent(spend=CopilotSpend(usage=_sum_usage(turns), capability=capability))
+        return
+
+    # OUT OF TURNS. The person gets a sentence they can act on, and — when the last thing
+    # that happened was a refused fill — the reason, because "narrow the request" is
+    # unhelpful advice to somebody whose real problem is that the field is read-only.
+    detail = f" ({'; '.join(refusal.reasons)})" if refusal is not None else ""
+    yield CopilotEvent(text=f"{EXHAUSTED_MESSAGE}{detail}")
+    yield CopilotEvent(spend=CopilotSpend(usage=_sum_usage(turns), capability=capability))
+
+
+async def run_copilot(
+    payload: CopilotAskIn, *, quota_exhausted: bool = False
+) -> AsyncIterator[CopilotEvent]:
+    """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
+
+    THE ONE SELECTOR DECIDES WHO ANSWERS. `assist_capability` (D-127 G-6) is asked here
+    exactly as `run_assist` and `draft_script` ask it, and a failure re-asks it with
+    `provider_unavailable=True` rather than deciding locally what an outage means. A
+    surface that grew its own idea of that is how two screens come to disagree about the
+    same event.
+
+    **A MID-STREAM AZURE FAILURE DOES NOT FALL BACK, AND THAT IS THE ONE PLACE THIS
+    DEPARTS FROM `run_assist`.** `run_assist` can retry on the second leg because its
+    answer is one object returned at the end; ours has already been partly rendered into
+    somebody's screen. Restarting on Sarvam would print a second, different answer under
+    the first. So the fallback is available only before the first fragment, and after it
+    the failure is reported as itself. `_streamed_anything` is the flag that says which
+    side of that line we are on.
+
+    `quota_exhausted` is the GATE's verdict passed IN, never re-read here — this module has
+    no session and no tenant, and a literal `False` would be a promise about
+    `require_ai_assist`'s control flow made in the wrong file.
+    """
+    capability = assist_capability(quota_exhausted=quota_exhausted)
+    if not capability.available:
+        raise assist_unavailable(capability)
+
+    if capability.provider == AZURE_PROVIDER:
+        streamed_anything = False
+        try:
+            async with asyncio.timeout(TOTAL_BUDGET_S):
+                async for event in _run_azure_loop(payload, capability):
+                    streamed_anything = streamed_anything or event.text is not None
+                    yield event
+            return
+        except (httpx.HTTPError, TimeoutError) as failure:
+            log.warning(
+                "copilot_provider_failed",
+                extra={"error": type(failure).__name__, "streamed": streamed_anything},
+            )
+            if streamed_anything:
+                raise
+        capability = assist_capability(quota_exhausted=quota_exhausted, provider_unavailable=True)
+        if not capability.available:
+            raise assist_unavailable(capability)
+
+    async for event in _answer_via_sarvam(payload, capability):
+        yield event
+
+
+def disclosure_for(capability: AssistCapability) -> str | None:
+    """What the `done` event carries. D-127 G-6's sentence, plus what the substitution
+    costs on THIS surface (`FALLBACK_NO_TOOLS_NOTE`)."""
+    disclosure = capability.disclosure
+    return None if disclosure is None else disclosure + FALLBACK_NO_TOOLS_NOTE
+
+
+__all__ = [
+    "EXHAUSTED_MESSAGE",
+    "FALLBACK_NO_TOOLS_NOTE",
+    "MAX_TURNS",
+    "STREAM_IDLE_S",
+    "TOTAL_BUDGET_S",
+    "CopilotEvent",
+    "CopilotSpend",
+    "FillRefusedError",
+    "disclosure_for",
+    "run_copilot",
+    "validate_fill",
+]

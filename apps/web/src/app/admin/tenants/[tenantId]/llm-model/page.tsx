@@ -32,10 +32,13 @@ import {
   modelOption,
   platformDefaultOption,
   providerLabel,
+  unavailableReason,
   type LlmModelOption,
   type OrganizationLlmDefaults,
   type SetOrganizationLlmDefaultIn,
 } from "@/lib/api/llmModels";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import { compareRates, rateDifference } from "@/lib/llmRates";
 
 import { useAdminAccess } from "@/app/admin/access";
@@ -421,6 +424,81 @@ function ChoiceForm({
       : (projectedOption?.client_surcharge_inr_per_minute ?? undefined);
   const surchargeChange = priceChangeSentence(currentSurcharge ?? undefined, projectedSurcharge);
   const costChange = priceChangeSentence(currentCost, projectedOption?.platform_cost_inr_per_minute);
+
+  /*
+   * THE MODEL CHOICE, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * ONE fillable control — the radio group — applied through `setChoice`, the same
+   * setter every row already calls. The DOM is not touched: these rows are `sr-only`
+   * radios inside choice cards, which is exactly the shape `lib/copilot/dom.ts` warns
+   * about, and there is no reason to go near it when the state is right here.
+   *
+   * `""` IS THE PLATFORM DEFAULT, not an empty answer: the API's two-way choice is a
+   * model id or `null`, and `null` means "follow whatever the platform is on". The
+   * options list says so in words so the model is not left inferring it from a blank.
+   *
+   * UNAVAILABLE MODELS ARE STILL OFFERED AS OPTIONS AND STILL CARRY THEIR REASON, because
+   * the useful question on this screen is often "why can I not pick Gemini 3?" — hiding
+   * the row would leave the assistant unable to answer it. The SUBMIT is what refuses an
+   * unavailable model, and that gate is untouched.
+   *
+   * The confirmation phrase is `writable: false`. It exists to make an operator state the
+   * outcome in their own hand before a client's bill changes; a machine typing it would
+   * turn the one deliberate step on this screen into a formality.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}/llm-model",
+    title: "Client's default AI model",
+    realm: "admin",
+    fields: [
+      {
+        id: "admin-llm-choice",
+        label: "This client's default model",
+        type: "select",
+        value: choice ?? "",
+        options: [
+          { value: "", label: "Follow the platform default (no client-specific choice)" },
+          ...defaults.available.map((option) => ({
+            value: option.model,
+            label: `${option.model} — ${option.provider}${
+              unavailableReason(option) === null ? "" : ` (unavailable: ${unavailableReason(option)})`
+            }`,
+          })),
+        ],
+      },
+      {
+        id: "admin-llm-confirm",
+        label: "Confirmation phrase",
+        type: "text",
+        value: typed,
+        writable: false,
+        help: "Typed by a human to confirm the change. Never machine-filled.",
+      },
+    ],
+    facts: [
+      { key: "client", label: "Client", value: tenantName },
+      { key: "effective_default", label: "Model in force today", value: defaults.effective_default },
+      {
+        key: "surcharge_today",
+        label: "Model surcharge on this plan today (₹ / minute)",
+        value: currentSurcharge ?? "none",
+      },
+    ],
+    apply: (items) => {
+      const pickItem = items.find((item) => item.field_id === "admin-llm-choice");
+      if (pickItem === undefined) return;
+      if (pickItem.value === "") {
+        pick(null);
+        return;
+      }
+      // Only a model the catalogue carries. A free-text id would put this form into a
+      // state whose radio group shows nothing selected while `draft` names a model.
+      const picked = asText(pickItem.value);
+      if (defaults.available.some((option) => option.model === picked)) {
+        pick(picked);
+      }
+    },
+  });
 
   const pick = (next: string | null) => {
     setChoice(next);

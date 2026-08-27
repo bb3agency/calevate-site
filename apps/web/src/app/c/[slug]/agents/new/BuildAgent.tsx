@@ -24,7 +24,9 @@ import { useLanes } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
 import { hasKey } from "@/lib/lookup";
 
-import { DirectionPicker } from "../DirectionChoice";
+import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import { CallCapField, ComplianceFloor } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
 
@@ -85,6 +87,81 @@ export function BuildAgent({ slug }: { slug: string }) {
   const [capMinutes, setCapMinutes] = useState("");
   const [created, setCreated] = useState<Agent | null>(null);
 
+  /*
+   * THE BUILD-AN-AGENT FORM, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * Four loose `useState` scalars, so `apply` is four typed setter calls — the same path
+   * every control on this form already takes, and nothing here goes near the DOM (the
+   * direction picker is `sr-only` radios inside cards, which is precisely the shape
+   * `lib/copilot/dom.ts` exists to warn about).
+   *
+   * Both enums are narrowed by a LOOKUP rather than a cast, for the reason the language
+   * `onChange` beside them already states: `hasKey` is this repo's one way of turning a
+   * string into a closed union, so a model naming a language this build does not ship
+   * changes nothing instead of putting an unsubmittable value in the control.
+   *
+   * `null` once the agent exists — the success panel has no form on it, and a launcher
+   * over a screen with nothing to fill in is the failure the dock refuses to ship.
+   */
+  useCopilotSurface(
+    created !== null
+      ? null
+      : {
+          route: `/c/${slug}/agents/new`,
+          title: "Build an agent",
+          realm: "client",
+          fields: [
+            {
+              id: "new-agent-name",
+              label: "What do you want to call it?",
+              type: "text",
+              value: name,
+              help: "2-80 characters. Only the client sees it — callers never hear it.",
+            },
+            {
+              id: "new-agent-direction",
+              label: "What should it do?",
+              type: "select",
+              value: direction,
+              options: DIRECTIONS.map((option) => ({
+                value: option.value,
+                label: `${option.label} — ${option.hint}`,
+              })),
+            },
+            {
+              id: "new-agent-language",
+              label: "What language does it speak?",
+              type: "select",
+              value: language,
+              options: Object.entries(LANGUAGE_NAMES).map(([code, label]) => ({
+                value: code,
+                label,
+              })),
+            },
+            {
+              id: "new-agent-cap",
+              label: "Longest a single call may run (minutes)",
+              type: "number",
+              value: capMinutes,
+              help: "Blank means the standard limit. It is a safety limit, not a target.",
+            },
+          ],
+          apply: (items) => {
+            for (const item of items) {
+              const text = asText(item.value);
+              if (item.field_id === "new-agent-name") setName(text);
+              else if (item.field_id === "new-agent-cap") setCapMinutes(text);
+              else if (item.field_id === "new-agent-language" && hasKey(LANGUAGE_NAMES, text)) {
+                setLanguage(text);
+              } else if (item.field_id === "new-agent-direction") {
+                const option = DIRECTIONS.find((row) => row.value === item.value);
+                if (option) setDirection(option.value);
+              }
+            }
+          },
+        },
+  );
+
   return (
     <>
       {created ? (
@@ -118,6 +195,9 @@ export function BuildAgent({ slug }: { slug: string }) {
               <label className="block max-w-sm">
                 <span className={FIELD_LABEL}>What do you want to call it?</span>
                 <input
+                  /* The copilot field id, which is what the "filled" outline is drawn
+                     on. The wrapping label already associates the two. */
+                  id="new-agent-name"
                   required
                   minLength={2}
                   maxLength={80}
@@ -144,6 +224,7 @@ export function BuildAgent({ slug }: { slug: string }) {
               <label className="block max-w-sm">
                 <span className={FIELD_LABEL}>What language does it speak?</span>
                 <select
+                  id="new-agent-language"
                   value={language}
                   /* NARROWED, never cast: `event.target.value` is a `string` and
                      `AgentCreateIn.language_primary` is a closed union. `hasKey` is the

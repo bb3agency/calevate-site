@@ -1,4 +1,12 @@
-"""Messaging consent — may we send this person a business-initiated message?
+"""Consumer consent, per purpose: may we MESSAGE this person, and may we TELEPHONE them?
+
+TWO PURPOSES, ONE MODULE, AND THEY ARE NEVER INTERCHANGEABLE. `messaging` is the
+Meta-BSP question the WhatsApp legs ask; `callback` is the question
+`compliance.service.check_dispatch` asks before a dial. They share an append-only table,
+one INSERT statement and one set of evidence rules, and nothing else — the DECISIONS
+section below argues at length why a `callback` grant may not be spent as a `messaging`
+one, and that argument is the reason the two writers are separate functions rather than
+one function with a `purpose` argument a caller could pass the wrong value to.
 
 The gap this closes: `workers/whatsapp.escalate_campaign_contact` has refused every
 campaign follow-up since it shipped, because it asks `consent_ledger` for a `messaging`
@@ -98,8 +106,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.models import (
+    CALLBACK_PURPOSE,
     CONSENT_SOURCES,
     MESSAGING_PURPOSE,
+    RECORDING_ONLY_CONSENT_SOURCES,
+    RECORDING_PURPOSE,
     WITHDRAWAL_ONLY_CONSENT_SOURCES,
 )
 from apps.api.core.errors import ProblemError
@@ -127,8 +138,18 @@ RECORDABLE_STATUSES = ("granted", "declined", "withdrawn")
 # Sources that can only ever carry a NO. Mirrors the CHECK; the constraint is the
 # backstop, this is the actionable refusal.
 GRANT_CAPABLE_SOURCES = tuple(
-    source for source in CONSENT_SOURCES if source not in WITHDRAWAL_ONLY_CONSENT_SOURCES
+    source
+    for source in CONSENT_SOURCES
+    if source not in WITHDRAWAL_ONLY_CONSENT_SOURCES
+    and source not in RECORDING_ONLY_CONSENT_SOURCES
 )
+
+#: The recording-notice basis, named once. It is written by the post-call pipeline and by
+#: nothing else — `_assert_recordable` refuses it on the messaging and callback legs, and
+#: `ck_consent_ledger_recording_notice_scope` refuses it in the database, so a caller who
+#: was merely TOLD the call was recorded can never have that spent as an opt-in to be
+#: messaged or dialled (DPDP §6's purpose limitation, which is why `purpose` is a column).
+RECORDING_NOTICE_SOURCE = "in_call_recording_notice"
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,8 +178,32 @@ class MessagingConsent:
 NO_CONSENT = MessagingConsent(status="none")
 
 
+@dataclass(frozen=True, slots=True)
+class CallConsent:
+    """What was just recorded about TELEPHONING one person (the `callback` purpose).
+
+    Deliberately NOT `MessagingConsent` with a different expiry rule bolted on. The two
+    legs answer to different regimes and go stale by different mechanisms: messaging
+    carries a DERIVED 365-day window (Meta opt-in practice + TCCCPR's 2025 time-boxing),
+    while a voice `callback` grant expires only when the capturing record said so and is
+    otherwise kept fresh by the per-tick DND/DLT re-scrub. Sharing one dataclass would
+    mean one `messageable`-shaped property that had to mean two things, which is the
+    seam a reader would get wrong first.
+
+    There is no `dialable` property here on purpose: whether a dial may proceed is
+    `compliance.service.check_dispatch`'s answer and it weighs the halt, the hours, the
+    DNC list and the DLT chain alongside this row. A second, weaker verdict beside the
+    real gate is the defect class hard rule 5 exists to prevent.
+    """
+
+    status: str
+    source: str | None = None
+    captured_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
 async def read_messaging_consent(
-    session: AsyncSession, *, tenant_id: UUID, phone_e164: str
+    session: AsyncSession, *, tenant_id: UUID, raw_phone: str
 ) -> MessagingConsent:
     """Latest row wins, so a withdrawal supersedes the grant before it.
 
@@ -168,7 +213,23 @@ async def read_messaging_consent(
     whenever a form submission is imported later. Two rows captured in the same instant
     (a bulk import declaring one per row) are broken by insertion order, so the answer
     is deterministic rather than whichever the planner happened to return.
+
+    **THE READ NORMALISES, because the write does.** This took `phone_e164` and used it
+    verbatim while `record_messaging_consent`, `consent_routes.lookup`, the lead path,
+    the DNC list and the campaign contact loader all put the number through
+    `ingest.normalize_phone` first — so an opt-in recorded from `98765 43210` and a read
+    issued with `+91 98765 43210` were two different keys and the second found nothing.
+    It fails CLOSED (a missed key reads as "never asked", which refuses the send), so it
+    was a usability defect rather than a leak — but it is exactly what this module's own
+    docstring warns about: "a consent record whose key does not match the dispatch key
+    is worse than no record: it looks like protection and grants nothing". One
+    normalisation, at the boundary of the one function that answers the question.
     """
+    phone_e164 = normalize_phone(raw_phone)
+    if phone_e164 is None:
+        # No ledger key, therefore no ledger row. The same answer as a number nobody
+        # ever asked about, and a truthful one.
+        return NO_CONSENT
     row = (
         await session.execute(
             text(
@@ -212,27 +273,8 @@ async def record_messaging_consent(
     raises are the interface — a 422 that says which piece of evidence is missing is
     something a client can act on, where an IntegrityError is a 500 nobody can.
     """
-    phone_e164 = normalize_phone(raw_phone)
-    if phone_e164 is None:
-        raise ProblemError.business_rule(
-            "consent_phone_invalid",
-            "That does not look like a valid Indian phone number.",
-            remediation="Use a 10-digit mobile number or its +91 form.",
-        )
-    if status not in RECORDABLE_STATUSES:
-        raise ProblemError.business_rule(
-            "consent_unknown_status",
-            "That is not something a person can say about being messaged.",
-            remediation=f"Use one of: {', '.join(RECORDABLE_STATUSES)}.",
-        )
-    if source not in CONSENT_SOURCES:
-        raise ProblemError.business_rule(
-            "consent_unknown_source",
-            "That is not a recognised way of capturing consent.",
-            remediation=f"Use one of: {', '.join(CONSENT_SOURCES)}.",
-        )
-    if status == "granted":
-        _assert_grant_is_evidenced(source=source, call_id=call_id, evidence=evidence)
+    phone_e164 = _normalized_or_refused(raw_phone)
+    _assert_recordable(status=status, source=source, call_id=call_id, evidence=evidence)
 
     # The cited conversation must be one THIS tenant had. `consent_ledger.call_id` is a
     # foreign key and PostgreSQL checks those with row security bypassed, so without this
@@ -243,36 +285,260 @@ async def record_messaging_consent(
     # your call", and before the INSERT so nothing is written either way.
     await assert_visible(session, "call", call_id)
 
-    captured_at = datetime.now(UTC)
-    await session.execute(
-        text(
-            "INSERT INTO consent_ledger (id, tenant_id, call_id, phone_e164, purpose, status, "
-            "consent_source, captured_at, evidence, created_at) VALUES (:id, :tid, :call, "
-            ":phone, :purpose, :status, :source, :captured, CAST(:evidence AS jsonb), now())"
-        ),
-        {
-            "id": uuid7(),
-            "tid": tenant_id,
-            "call": call_id,
-            "phone": phone_e164,
-            "purpose": MESSAGING_PURPOSE,
-            "status": status,
-            "source": source,
-            "captured": captured_at,
-            "evidence": json.dumps(evidence) if evidence else None,
-        },
+    captured_at = await _append_consent_row(
+        session,
+        tenant_id=tenant_id,
+        call_id=call_id,
+        phone_e164=phone_e164,
+        purpose=MESSAGING_PURPOSE,
+        status=status,
+        source=source,
+        evidence=evidence,
+        expires_at=None,
     )
-    # Ids, a status and a source. Never the number (hard rule 6).
-    log.info(
-        "messaging_consent_recorded",
-        extra={"tenant_id": str(tenant_id), "status": status, "source": source},
-    )
+    # Never None: the guarded form is opt-in and this leg does not use it.
+    assert captured_at is not None
     return MessagingConsent(
         status=status,
         source=source,
         captured_at=captured_at,
         expires_at=captured_at + timedelta(days=MESSAGING_CONSENT_VALIDITY_DAYS),
     )
+
+
+async def record_call_consent(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    raw_phone: str,
+    status: str,
+    source: str,
+    call_id: UUID | None = None,
+    evidence: dict[str, str] | None = None,
+    expires_at: datetime | None = None,
+) -> CallConsent:
+    """The `callback` purpose — may we TELEPHONE this person — appended, never updated.
+
+    **WHY THIS EXISTS AT ALL.** `check_dispatch` has read this purpose since D-117, and
+    it honours three states: an explicit `declined`/`withdrawn` refuses the dial, a
+    `granted` row whose `expires_at` has passed refuses it as `consent_expired`, and
+    anything else allows. Two of those branches were reachable and one was not: the ONLY
+    writer of a `callback` row anywhere in the tree was `ingest.service`'s web-form
+    DECLINE. A client could ledger that a caller said NO to being phoned and had no way
+    at all to ledger that they said YES — so the gate's grant arm, its expiry arm and the
+    `expires_at` column they read were dead code, and a lead captured with a real
+    written opt-in carried no record of it. This is that writer.
+
+    **SAME EVIDENCE RULES, DELIBERATELY.** A grant is evidenced, is never asserted by
+    staff on the subject's behalf, and names the call if it was spoken — enforced here
+    and by `ck_consent_ledger_granted_consent_carries_evidence`, which is purpose-blind
+    and was already binding this row shape before anything could write one.
+
+    **THE EXPIRY IS THE CAPTURING RECORD'S, AND IS NEVER INVENTED.** The messaging leg
+    derives a 365-day window (`MESSAGING_CONSENT_VALIDITY_DAYS`); this leg does not, for
+    the reason `check_dispatch` states at its own expiry branch: a default validity
+    window for VOICE consent is counsel's decision, not code's (LEGAL-OPS-PLAYBOOK
+    §10.7/§20, hard rule 11). An absent `expires_at` means "this record states no end
+    date", not "expired", and the per-tick DND/DLT re-scrub is the freshness control.
+    A caller supplying one in the past is refused rather than silently written: an
+    already-expired grant is not a record of anything.
+    """
+    phone_e164 = _normalized_or_refused(raw_phone)
+    _assert_recordable(status=status, source=source, call_id=call_id, evidence=evidence)
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            # UTC in the DB, IST at the edge. A naive instant compared against an aware
+            # `now()` raises, so it is pinned rather than guessed at — the same fix
+            # `campaigns.service._validated_provenance` makes on its own date column.
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at <= datetime.now(UTC):
+            raise ProblemError.business_rule(
+                "consent_expiry_in_past",
+                "That permission would already have expired.",
+                remediation="Leave the expiry empty, or give a date in the future.",
+            )
+    await assert_visible(session, "call", call_id)
+    captured_at = await _append_consent_row(
+        session,
+        tenant_id=tenant_id,
+        call_id=call_id,
+        phone_e164=phone_e164,
+        purpose=CALLBACK_PURPOSE,
+        status=status,
+        source=source,
+        evidence=evidence,
+        expires_at=expires_at,
+    )
+    assert captured_at is not None  # unguarded write; see `_append_consent_row`
+    return CallConsent(status=status, source=source, captured_at=captured_at, expires_at=expires_at)
+
+
+def _normalized_or_refused(raw_phone: str) -> str:
+    """The one refusal for an unusable number, so both writers say it the same way."""
+    phone_e164 = normalize_phone(raw_phone)
+    if phone_e164 is None:
+        raise ProblemError.business_rule(
+            "consent_phone_invalid",
+            "That does not look like a valid Indian phone number.",
+            remediation="Use a 10-digit mobile number or its +91 form.",
+        )
+    return phone_e164
+
+
+def _assert_recordable(
+    *, status: str, source: str, call_id: UUID | None, evidence: dict[str, str] | None
+) -> None:
+    """Status, source, and the grant-evidence rules — the interface half of the CHECKs."""
+    if status not in RECORDABLE_STATUSES:
+        raise ProblemError.business_rule(
+            "consent_unknown_status",
+            "That is not something a person can say about being contacted.",
+            remediation=f"Use one of: {', '.join(RECORDABLE_STATUSES)}.",
+        )
+    if source not in CONSENT_SOURCES:
+        raise ProblemError.business_rule(
+            "consent_unknown_source",
+            "That is not a recognised way of capturing consent.",
+            remediation=f"Use one of: {', '.join(GRANT_CAPABLE_SOURCES)}.",
+        )
+    if source in RECORDING_ONLY_CONSENT_SOURCES:
+        # The database says the same thing (`ck_consent_ledger_recording_notice_scope`);
+        # this is the sentence a client can act on rather than a 500.
+        raise ProblemError.business_rule(
+            "consent_source_wrong_purpose",
+            "Being told a call is recorded is not permission to message or to call.",
+            remediation=(
+                "Capture the permission where it was actually given "
+                f"({', '.join(GRANT_CAPABLE_SOURCES)})."
+            ),
+        )
+    if status == "granted":
+        _assert_grant_is_evidenced(source=source, call_id=call_id, evidence=evidence)
+
+
+async def record_recording_notice(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID,
+    phone_e164: str,
+    evidence: dict[str, str],
+) -> bool:
+    """One call opened with its recording notice: file the artefact. Returns whether a
+    row was written (False = one already existed for this call).
+
+    **WHAT THIS ROW CLAIMS, EXACTLY.** That on THIS call the agent was configured to
+    announce the recording, the announcement was observed in the transcript, and the
+    caller went on speaking afterwards. Nothing more. It does not claim the caller
+    consented in words — they said nothing about recording, which is why the basis has
+    its own `consent_source` (`RECORDING_NOTICE_SOURCE`) instead of borrowing
+    `inbound_call_verbal`, and why that source is CHECK-confined to this purpose.
+
+    **AND IT DOES NOT SETTLE WHETHER RECORDING CONSENT IS REQUIRED.** That is OPERATIONS
+    §2 gate 37(a) — whether a voice recording is SPDI biometric data — and it is with an
+    advocate. The founder's current posture is the playbook's one line (§12.3: "cautious
+    practice = announce"). Nothing in this repository gates on `purpose='recording'`, so
+    these rows change no behaviour; what they change is that when the advice arrives
+    there is a per-call record of what each caller was told, instead of an empty CHECK
+    value and a question nobody can answer retrospectively.
+
+    **GUARDED, BECAUSE THE PIPELINE IS RE-RUNNABLE BY DESIGN** (TRD §8, D-31) and
+    `consent_ledger` is append-only (hard rule 4), so a replay must produce no second
+    piece of evidence about one event. Same doctrine, and the same `IS NOT DISTINCT FROM`
+    care about a nullable key, as `optout.record_call_optout`.
+
+    Hard rule 6: `evidence` carries the notice's turn index and a hash prefix of the
+    configured line — never the line, never a transcript turn.
+    """
+    written = await _append_consent_row(
+        session,
+        tenant_id=tenant_id,
+        call_id=call_id,
+        phone_e164=phone_e164,
+        purpose=RECORDING_PURPOSE,
+        status="granted",
+        source=RECORDING_NOTICE_SOURCE,
+        evidence=evidence,
+        expires_at=None,
+        once_per_call=True,
+    )
+    return written is not None
+
+
+async def _append_consent_row(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID | None,
+    phone_e164: str,
+    purpose: str,
+    status: str,
+    source: str,
+    evidence: dict[str, str] | None,
+    expires_at: datetime | None,
+    once_per_call: bool = False,
+) -> datetime | None:
+    """The ONE INSERT into `consent_ledger` this module makes, for every purpose.
+
+    Three purposes, three sets of validity semantics, one statement — because a second
+    hand-written INSERT is how the column list, the append-only doctrine and the
+    hard-rule-6 log line drift apart between functions that must agree.
+
+    `once_per_call` switches to the guarded form for the ONE caller whose event can be
+    replayed (the post-call pipeline). It returns `None` when the guard suppressed the
+    write, so the caller can tell "filed" from "already filed" without reading back. A
+    pre-check rather than an upsert, because the table is append-only and there is no
+    conflicting row to update — the same shape `optout.record_call_optout` uses, and for
+    the same reason.
+    """
+    captured_at = datetime.now(UTC)
+    params = {
+        "id": uuid7(),
+        "tid": tenant_id,
+        "call": call_id,
+        "phone": phone_e164,
+        "purpose": purpose,
+        "status": status,
+        "source": source,
+        "captured": captured_at,
+        "expires": expires_at,
+        "evidence": json.dumps(evidence) if evidence else None,
+    }
+    columns = (
+        "INSERT INTO consent_ledger (id, tenant_id, call_id, phone_e164, purpose, status, "
+        "consent_source, captured_at, expires_at, evidence, created_at) "
+    )
+    values = (
+        "SELECT :id, :tid, :call, :phone, CAST(:purpose AS text), :status, :source, :captured, "
+        ":expires, CAST(:evidence AS jsonb), now() "
+    )
+    if once_per_call:
+        statement = (
+            columns
+            + values
+            + "WHERE NOT EXISTS (SELECT 1 FROM consent_ledger WHERE tenant_id = :tid "
+            "AND phone_e164 = :phone AND purpose = CAST(:purpose AS text) "
+            # `IS NOT DISTINCT FROM` because `call_id` is nullable and NULL never equals
+            # NULL: `=` would let a call we could not resolve write a fresh row on every
+            # replay.
+            "AND call_id IS NOT DISTINCT FROM :call) RETURNING id"
+        )
+        inserted = (await session.execute(text(statement), params)).first()
+        if inserted is None:
+            return None
+    else:
+        await session.execute(text(columns + values), params)
+    # Ids, a purpose, a status and a source. Never the number (hard rule 6).
+    log.info(
+        "consent_recorded",
+        extra={
+            "tenant_id": str(tenant_id),
+            "purpose": purpose,
+            "status": status,
+            "source": source,
+        },
+    )
+    return captured_at
 
 
 def _assert_grant_is_evidenced(
@@ -312,7 +578,11 @@ __all__ = [
     "MESSAGING_CONSENT_VALIDITY_DAYS",
     "NO_CONSENT",
     "RECORDABLE_STATUSES",
+    "RECORDING_NOTICE_SOURCE",
+    "CallConsent",
     "MessagingConsent",
     "read_messaging_consent",
+    "record_call_consent",
     "record_messaging_consent",
+    "record_recording_notice",
 ]

@@ -27,6 +27,7 @@ that configures cleanly starts rejecting every delivery.
 from __future__ import annotations
 
 import hmac
+import json
 import re
 import secrets
 import time
@@ -378,6 +379,25 @@ async def ingest_lead(
             )
             record_speed_to_lead(time.time() - received_at, outcome="blocked_consent")
             return {"lead_id": resolved_lead, "dispatched": False, "blocked": "no_form_consent"}
+        # AND THE YES IS RECORDED TOO, which it was not.
+        #
+        # This branch has always been able to prove a person said NO to being phoned and
+        # never that they said YES: `_record_dial_consent_declined` was the ONLY writer of
+        # `purpose='callback'` anywhere in the tree, so `check_dispatch`'s grant arm — and
+        # the `expires_at` column it reads — could never fire. The ledger was a
+        # one-directional record of refusals about a question this very form asks both ways.
+        #
+        # The affirmative act is real and is the person's own: they answered the opt-in
+        # question on a named form with a value in the affirmative set immediately above.
+        # That is what `web_form_optin` means, and it is the same event the decline
+        # branch treats as dispositive in the other direction.
+        await _record_dial_consent_granted(
+            session,
+            tenant_id=config.tenant_id,
+            phone_e164=phone,
+            consent_field=consent_field,
+            source=config.source,
+        )
 
     # 3. The compliance gate — the same one every dispatch path calls (hard rule 5).
     decision = await check_dispatch(
@@ -409,6 +429,53 @@ async def ingest_lead(
         extra={"lead_id": str(resolved_lead), "speed_to_lead_s": round(elapsed, 2)},
     )
     return {"lead_id": resolved_lead, "dispatched": True, "call_handle": handle}
+
+
+async def _record_dial_consent_granted(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    phone_e164: str,
+    consent_field: str,
+    source: str,
+) -> None:
+    """The affirmative twin of the refusal below, and the ledger's only `callback` grant.
+
+    SAME SHAPE, SAME REASONING, OPPOSITE SIGN. Keyed on the phone rather than the lead
+    because the ledger's unit is a person; unguarded because two submissions that both
+    tick the box are two true statements and `check_dispatch` reads only the latest; and
+    written HERE so every dial path inherits one answer instead of each growing its own.
+
+    **BUT IT CARRIES EVIDENCE, WHERE THE DECLINE DOES NOT**, and the asymmetry is the
+    rule rather than an accident: `ck_consent_ledger_granted_consent_carries_evidence`
+    requires a grant to say what it rests on and rightly requires nothing of a refusal —
+    consent must be evidenced, a refusal must never be obstructed. What it rests on is
+    the ENDPOINT and the FIELD NAME, which together identify the form and the question
+    the person answered; a client asked to produce the opt-in has the two facts they need
+    to go and find it.
+
+    NO `expires_at`. A default validity window for voice consent is counsel's decision,
+    not code's (LEGAL-OPS-PLAYBOOK §10.7/§20, hard rule 11) — `check_dispatch` honours an
+    expiry a record SET and imposes none on a record that did not, and inventing one here
+    would be exactly the invented number that rule forbids. `compliance.consent.
+    record_call_consent` is where an expiry can be stated, because there a human states it.
+
+    HARD RULE 6: the field NAME is configuration, not personal data. The submitted value
+    is not stored — only that it was in the affirmative set.
+    """
+    await session.execute(
+        text(
+            "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
+            "consent_source, captured_at, evidence, created_at) VALUES (:id, :tid, :phone, "
+            "'callback', 'granted', 'web_form_optin', now(), CAST(:evidence AS jsonb), now())"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "phone": phone_e164,
+            "evidence": json.dumps({"consent_field": consent_field, "lead_source": source}),
+        },
+    )
 
 
 async def _record_dial_consent_declined(

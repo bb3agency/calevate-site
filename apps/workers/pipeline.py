@@ -33,6 +33,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from hashlib import sha256
 from typing import Any, Literal, NoReturn
 from uuid import UUID
 
@@ -69,12 +70,14 @@ from apps.api.billing.service import (
     month_increment,
     plan_tier_of,
 )
+from apps.api.compliance.consent import record_recording_notice
 from apps.api.compliance.deletion import refile_erasure_for_late_records
 from apps.api.compliance.disclosure import disclosure_spoken
 from apps.api.compliance.optout import (
     DETECTED_POST_CALL,
     OptOutSignal,
     detect_opt_out,
+    normalize_utterance,
     record_call_optout,
 )
 from apps.api.core.alerting import (
@@ -968,9 +971,14 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         set_span_attributes(stage, outcome=outcome)
 
     # STEP 3 — extraction against the agent's schema.
-    spec, schema_version, agent_id, direction, disclosure_line = await _load_call_context(
-        tenant_id, call_id
-    )
+    (
+        spec,
+        schema_version,
+        agent_id,
+        direction,
+        disclosure_line,
+        recording_notice_line,
+    ) = await _load_call_context(tenant_id, call_id)
 
     # STEP 2c — the evidence that the disclosure was spoken (P3.3). Numbered out of order
     # because that is where it belongs and where it now runs: it is transcript work, it
@@ -987,6 +995,23 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         await _record_disclosure(tenant_id, call_id, played)
         # The VERDICT, never the line and never a turn (hard rule 6).
         set_span_attributes(stage, disclosure_played=("unknown" if played is None else played))
+
+    # STEP 2d — the RECORDING notice, scored separately and filed as an artefact.
+    #
+    # SEPARATELY, because `calls.disclosure_played` above is the AI sentence and only the
+    # AI sentence (D-163, and the SELECT in `_load_call_context` says so): the two notices
+    # are two obligations under two regimes with two toggles, and one column cannot answer
+    # for both. Reusing that verdict here would have filed a recording artefact on the
+    # strength of an AI disclosure — evidence about the wrong sentence.
+    with span("pipeline.recording_notice", call_id=str(call_id)) as stage:
+        filed = await _record_recording_notice(
+            tenant_id,
+            call_id,
+            snapshot,
+            direction=direction,
+            notice_line=recording_notice_line,
+        )
+        set_span_attributes(stage, recording_notice_filed=filed)
 
     needs_extraction = bool(spec.fields or transcript_text)
     # THE SPAN THIS WHOLE EXERCISE IS FOR. A model round trip lives in here, and it is
@@ -1473,7 +1498,7 @@ async def _persist_extraction(
 
 async def _load_call_context(
     tenant_id: UUID, call_id: UUID
-) -> tuple[ExtractionSchemaSpec, int, UUID, str, str]:
+) -> tuple[ExtractionSchemaSpec, int, UUID, str, str, str]:
     """The call's agent, its direction, its disclosure line, and the schema ACTIVE AT
     EXTRACTION TIME.
 
@@ -1511,7 +1536,15 @@ async def _load_call_context(
                     # off the needle is the empty string, which `disclosure_spoken` turns
                     # into `None`: nothing was required, so nothing is certified.
                     "SELECT c.agent_id, c.direction, es.version, es.fields, "
-                    "  CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line ELSE '' END "
+                    "  CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line ELSE '' END, "
+                    # THE RECORDING SENTENCE, on the same toggle logic and for the same
+                    # reason — an agent whose owner switched THIS notice off must not be
+                    # scored against it. It rides on this statement rather than getting
+                    # its own for the reason the AI line does: it is one column further
+                    # along a row this query already holds, and a second per-call round
+                    # trip to read one string would be on the pipeline's critical path.
+                    "  CASE WHEN a.recording_notice_enabled THEN a.recording_notice_line "
+                    "  ELSE '' END "
                     "FROM calls c "
                     "JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
@@ -1524,11 +1557,88 @@ async def _load_call_context(
         raise RuntimeError(f"call {call_id} not found for schema load")
     agent_id, direction, version, fields = row[0], str(row[1]), row[2], row[3]
     disclosure_line = str(row[4] or "")
+    recording_notice_line = str(row[5] or "")
     if not fields:
         empty = ExtractionSchemaSpec(version=version or 1, fields=[])
-        return empty, version or 1, agent_id, direction, disclosure_line
+        return empty, version or 1, agent_id, direction, disclosure_line, recording_notice_line
     spec = ExtractionSchemaSpec.model_validate({"version": version or 1, "fields": fields})
-    return spec, spec.version, agent_id, direction, disclosure_line
+    return spec, spec.version, agent_id, direction, disclosure_line, recording_notice_line
+
+
+async def _record_recording_notice(
+    tenant_id: UUID,
+    call_id: UUID,
+    snapshot: ExecutionSnapshot,
+    *,
+    direction: str,
+    notice_line: str,
+) -> bool:
+    """File the `purpose='recording'` consent artefact for this call, if it is earned.
+
+    Returns whether a row was written. THREE CONDITIONS, all of them observed rather
+    than assumed, and each one is a thing the row would otherwise be claiming falsely:
+
+    1. **The agent was asked to announce it.** `recording_notice_enabled` off makes
+       `notice_line` the empty string upstream, and there is no notice to be evidence of.
+    2. **The announcement was observed in the transcript.** `disclosure_spoken` returns
+       the same tri-state it does for the AI sentence, and only `True` counts — `None`
+       (no transcript to judge) and `False` (looked, not found) are both "we did not
+       observe it", and a compliance artefact may not be written on either.
+    3. **The caller went on speaking afterwards.** This is the whole of what the row adds
+       beyond "we said it": at least one caller turn AFTER the turn carrying the notice.
+       A call where the notice played into a dead line, or where the caller hung up on
+       hearing it, produces no artefact — which is the honest outcome, not a gap.
+
+    **WHAT IT DOES NOT CLAIM.** Not that the caller AGREED — they said nothing about
+    recording, and `compliance.consent.RECORDING_NOTICE_SOURCE` exists so the basis is
+    written on the row instead of being inferred from it. Not that consent was required:
+    that is OPERATIONS §2 gate 37(a), with an advocate. And not that the caller did not
+    OBJECT — nothing in this repository detects an objection to recording (`detect_opt_out`
+    reads a request not to be CALLED again, which is a different statement), so no
+    sentence here says so.
+
+    Hard rule 6: the evidence is the turn index and a hash prefix of the configured line.
+    Never the line, never a turn, never the number.
+    """
+    if not notice_line or not snapshot.transcript:
+        return False
+    turns = snapshot.transcript
+    if disclosure_spoken(turns, disclosure_line=notice_line) is not True:
+        return False
+    needle = normalize_utterance(notice_line)
+    spoken_at = next(
+        (
+            turn.idx
+            for turn in turns
+            if turn.speaker != "caller" and needle in normalize_utterance(turn.text)
+        ),
+        None,
+    )
+    if spoken_at is None or not any(
+        turn.speaker == "caller" and turn.idx > spoken_at for turn in turns
+    ):
+        return False
+    # The caller, not our own number: the subject of the record is the person on the
+    # other end, resolved the same way `_upsert_lead` resolves it.
+    caller = snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
+    if not caller:
+        return False
+    async with tenant_session(tenant_id) as session:
+        return await record_recording_notice(
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            phone_e164=caller,
+            evidence={
+                "notice_turn_idx": str(spoken_at),
+                # A PREFIX OF A HASH, not the sentence. It identifies WHICH configured
+                # line was matched — so a client who later edits the notice can see that
+                # this artefact was written against a different one — without putting the
+                # wording, or anything derived far enough to reconstruct it, in a column
+                # the subject-access export reads back.
+                "notice_line_sha256_prefix": sha256(notice_line.encode("utf-8")).hexdigest()[:16],
+            },
+        )
 
 
 async def _record_disclosure(tenant_id: UUID, call_id: UUID, spoken: bool | None) -> None:
@@ -2096,6 +2206,13 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 else None,
                 # The fx rate used AT CAPTURE — without it the row cannot be re-derived.
                 "fx_rate": str(cost.fx_rate) if cost.fx_rate is not None else None,
+                # WHICH rate that was, and WHEN it was published. A published rate reads
+                # `frankfurter:FBIL` with the source's own date; a call converted while
+                # the feed was down or stale reads `configured:usd_inr_rate` with no date.
+                # `fx_rate` alone cannot tell those apart, and "was this call billed off a
+                # live rate?" is the first question a margin dispute asks.
+                "fx_source": cost.fx_source,
+                "fx_as_of": cost.fx_as_of.isoformat() if cost.fx_as_of is not None else None,
                 # WHETHER THE PAYLOAD NAMED THAT CURRENCY OR WE ASSUMED IT — the same
                 # distinction `CostBreakdown.currency_stated` carries, put on the row
                 # because it is not re-derivable from one. `source_currency` is `USD` in

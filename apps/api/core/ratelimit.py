@@ -247,6 +247,13 @@ RULES: tuple[Rule, ...] = (
     # pooled Postgres connection for the length of the vendor round trip, because the
     # tenant GUC is transaction-local (`crm/assist.py` argues the whole departure).
     Rule("/v1/calls/*/assist", "costly", _m("POST")),
+    # The in-app copilot (`apps/api/copilot/`). `costly` for the reason that profile names
+    # — it is literally "an LLM call" — and this one is the only route in the family that
+    # can make SEVERAL of them for one click (`copilot/service.MAX_TURNS`). It is also the
+    # route with no `Idempotency-Key` in front of it: `copilot/routes.py` argues why a
+    # stream has nothing to replay, and names this profile as what bounds a double-click
+    # instead.
+    Rule("/v1/copilot/ask", "costly", _m("POST")),
     Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
     Rule("/v1/numbers/purchase", "costly", _m("POST")),
     Rule("/v1/billing/topups/intent", "costly", _m("POST")),

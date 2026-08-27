@@ -34,6 +34,8 @@ import {
 } from "@/lib/api/kyc";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * Recording a business's identity verification — R-11's last gate, and an audited write.
@@ -291,6 +293,103 @@ function RecordForm({
     setDraft((prev) => ({ ...prev, [key]: value }));
     save.reset();
   };
+
+  /*
+   * THE KYC RECORD, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * One typed draft, so the fill is one `setDraft` — never the DOM. It is NOT built with
+   * `flatDraftSurface` (the helper the two other admin record forms use) because every
+   * member here is `string | null` and the difference between `null` and `""` is the
+   * difference between "not recorded" and "recorded as blank" on a compliance row. The
+   * conversion is therefore explicit in both directions, once, here.
+   *
+   * `signatory_name` is the ONE personal value on this form: the entity identifiers are
+   * about a BUSINESS (`lib/api/kyc.ts` makes the same point — "none identifies a natural
+   * person"), and the signatory is a named human, so it leaves as «NAME_1».
+   *
+   * `setDraft` and not `set`: `set` clears the refusal on screen, which a fill must not.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}/kyc",
+    title: "Client KYC record",
+    realm: "admin",
+    fields: [
+      {
+        id: "kyc-status",
+        label: "Status",
+        type: "select",
+        value: draft.status,
+        options: STATUSES.map((value) => ({ value, label: KYC_STATUS_COPY[value].label })),
+      },
+      {
+        id: "kyc-entity",
+        label: "Entity type",
+        type: "select",
+        value: draft.entity_type ?? "",
+        options: ENTITY_TYPE_VALUES.map((value) => ({ value, label: ENTITY_TYPES[value] })),
+        help: 'Empty means not recorded.',
+      },
+      {
+        id: "kyc-doc-kind",
+        label: "Document kind",
+        type: "select",
+        value: draft.document_kind ?? "",
+        options: DOCUMENT_KIND_VALUES.map((value) => ({
+          value,
+          label: DOCUMENT_KINDS[value].label,
+        })),
+      },
+      {
+        id: "kyc-doc-ref",
+        label: "Document reference",
+        type: "text",
+        value: draft.document_ref ?? "",
+        help: "The identifier printed on the document itself. Up to 64 characters.",
+      },
+      {
+        id: "kyc-signatory",
+        label: "Authorised signatory",
+        type: "text",
+        value: draft.signatory_name ?? "",
+        personal: "name",
+      },
+      {
+        id: "kyc-evidence",
+        label: "Evidence reference",
+        type: "text",
+        value: draft.evidence_ref ?? "",
+      },
+      {
+        id: "kyc-rejection",
+        label: "Rejection reason",
+        type: "textarea",
+        value: draft.rejection_reason ?? "",
+        help: "Shown to the client. Only meaningful while the status is rejected.",
+      },
+    ],
+    facts: [{ key: "tenant", label: "Client", value: tenantName }],
+    apply: (items) => {
+      const next = { ...draft };
+      for (const item of items) {
+        // `""` back to `null` on every optional member: an empty string here would
+        // record "we looked and there is nothing", which is a different compliance
+        // claim from "nobody has recorded this yet".
+        // `asText` first, because the wire value is typed to the FIELD and every member
+        // of this draft is `string | null` — a screen that takes the union straight would
+        // be the only one in the tree deciding what a boolean means on a compliance row.
+        const text = asText(item.value);
+        const blankToNull = text.trim() === "" ? null : text;
+        if (item.field_id === "kyc-status" && isKnownKycStatus(text)) next.status = text;
+        else if (item.field_id === "kyc-entity") next.entity_type = asEntityType(blankToNull);
+        else if (item.field_id === "kyc-doc-kind") next.document_kind = asDocumentKind(blankToNull);
+        else if (item.field_id === "kyc-doc-ref") next.document_ref = blankToNull;
+        else if (item.field_id === "kyc-signatory") next.signatory_name = blankToNull;
+        else if (item.field_id === "kyc-evidence") next.evidence_ref = blankToNull;
+        else if (item.field_id === "kyc-rejection") next.rejection_reason = blankToNull;
+      }
+      setDraft(next);
+    },
+  });
 
   /**
    * The status decides whether the rejection reason means anything, so it clears it.

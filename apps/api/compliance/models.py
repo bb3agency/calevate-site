@@ -30,6 +30,13 @@ CONSENT_PURPOSES = ("recording", "callback", "marketing", "messaging")
 # escalation in `workers/whatsapp.py`. It was previously a private constant in the
 # worker; a literal that must match a database constraint belongs beside the column.
 MESSAGING_PURPOSE = "messaging"
+# The purpose that governs whether we may TELEPHONE this person. Named here for
+# `MESSAGING_PURPOSE`'s reason and one more: it was a bare `'callback'` literal in three
+# unrelated places — the dial gate's read (`compliance.service.check_dispatch`), the
+# web-form decline (`ingest.service`) and this CHECK — and the ledger had a reader and a
+# DECLINE writer for it but no affirmative writer at all, so the gate's `granted` branch
+# could never fire. `compliance.consent.record_call_consent` is that writer.
+CALLBACK_PURPOSE = "callback"
 # HOW a consent statement was obtained. Never "assumed", never "implied", never
 # inferred from a campaign list — see the migration docstring for what each member must
 # be able to evidence. `staff_recorded_request` is CHECK-barred from `granted`: a client
@@ -40,8 +47,23 @@ CONSENT_SOURCES = (
     "offline_form_optin",
     "whatsapp_inbound_message",
     "staff_recorded_request",
+    # The one basis that is not a thing the PERSON said or did: the business announced
+    # the recording at the top of the call and the caller went on speaking (migration
+    # d7f2a94c61be). It has its own name precisely because the four above do not
+    # describe it — filing it as `inbound_call_verbal` would be a false statement about
+    # how the record was obtained, which is what this tuple's "never assumed, never
+    # implied" is for. Whether this basis SUFFICES is OPERATIONS §2 gate 37(a) and is
+    # with an advocate; the row is the artefact, not the answer.
+    "in_call_recording_notice",
 )
 WITHDRAWAL_ONLY_CONSENT_SOURCES = ("staff_recorded_request",)
+# Sources that describe ONE purpose and may never be spent on another. DPDP §6's purpose
+# limitation is why `purpose` is a column at all, and a notice about recording is not a
+# permission to message or to dial. Mirrored by `ck_consent_ledger_recording_notice_scope`;
+# the constraint is the guarantee, this is the refusal a caller can act on.
+RECORDING_ONLY_CONSENT_SOURCES = ("in_call_recording_notice",)
+#: The purpose that records what a caller was told about being recorded.
+RECORDING_PURPOSE = "recording"
 # A one-member tuple's repr ends in a comma, which is a syntax error inside SQL's
 # `IN (...)`. Rendered explicitly so the mirrored CHECK below stays valid SQL however
 # many members this grows to.
@@ -163,6 +185,15 @@ class ConsentLedgerEntry(PKMixin, Base):
         CheckConstraint(
             f"purpose <> {MESSAGING_PURPOSE!r} OR consent_source IS NOT NULL",
             name="messaging_names_its_source",
+        ),
+        # The recording-notice basis is confined to the purpose it describes and names
+        # the call it was given on (migration d7f2a94c61be). Both halves are one
+        # protection: it can never be spent as a messaging opt-in or as permission to
+        # dial, and it always points at the conversation it is evidence about.
+        CheckConstraint(
+            "consent_source IS DISTINCT FROM 'in_call_recording_notice' "
+            f"OR (purpose = {RECORDING_PURPOSE!r} AND call_id IS NOT NULL)",
+            name="recording_notice_scope",
         ),
         # A grant is evidenced, is never asserted by staff on the subject's behalf, and
         # if it was spoken it names the call it was spoken on. Withdrawals are exempt:

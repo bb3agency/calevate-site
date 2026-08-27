@@ -1072,6 +1072,17 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "Meta's subscription handshake, which must echo `hub.challenge` verbatim as "
         "plain text — a JSON model would break the handshake."
     ),
+    "POST /v1/copilot/ask": (
+        "an SSE stream, not one JSON body — there is no single 2xx model to declare. "
+        "FastAPI 0.140 emits `text/event-stream` with an `itemSchema` describing the SSE "
+        "FRAME (`data`/`event`/`id`/`retry`), and that is deliberately NOT counted as a "
+        "declared shape here: the frame envelope says nothing about the payloads, so this "
+        "walk would go green while seeing no more than it does now. The four event "
+        "payloads are modelled in `apps/api/copilot/schemas.py` and written out in the "
+        "route's own `description`; the egress property this walk exists to protect is "
+        "covered at RUNTIME by `apps/api/copilot/route_test.py` — the same split "
+        "`GET /v1/leads/export.csv` above makes with tests/crm_egress_redaction_test.py."
+    ),
     "POST /v1/actions/invoke/{engine}/{tool_id}": (
         "the engine-called in-call action endpoint (source-IP gated like the webhook "
         "receiver, never a client dashboard route). The body IS the tool result the LLM "

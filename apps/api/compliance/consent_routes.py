@@ -41,9 +41,16 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
-from apps.api.ingest.service import normalize_phone
 
 router = APIRouter(prefix="/v1/compliance/messaging-consent", tags=["compliance"])
+# The VOICE leg, on its own path rather than as a `purpose` field on the router above.
+# Two reasons, and the second is the load-bearing one: the path would otherwise say
+# `messaging-consent` about a row that governs dialling, and — because DPDP §6's purpose
+# limitation is the entire reason `consent_ledger.purpose` is a column — a single
+# endpoint whose purpose is a request field is one typo away from spending a caller's
+# "yes, call me back" as a WhatsApp opt-in. Separate paths, separate request models,
+# separate audit actions; ONE writer underneath (`consent._append_consent_row`).
+call_router = APIRouter(prefix="/v1/compliance/call-consent", tags=["compliance"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 # `Annotated` aliases rather than `Depends(...)` defaults: B008 is only waived for
@@ -83,6 +90,35 @@ class RecordConsentIn(Strict):
     # business to be able to produce the source and timestamp of an opt-in when a
     # number is challenged — this is where the source half lives.
     evidence: dict[str, str] | None = Field(default=None, max_length=20)
+
+
+class RecordCallConsentIn(Strict):
+    phone: str = Field(min_length=8, max_length=20)
+    status: ConsentStatus
+    source: ConsentSource
+    call_id: UUID | None = None
+    evidence: dict[str, str] | None = Field(default=None, max_length=20)
+    # OPTIONAL, AND NO DEFAULT IS SUPPLIED WHEN IT IS OMITTED. `check_dispatch` refuses a
+    # dial once a `callback` grant's `expires_at` has passed and imposes no window when
+    # there is none, because a default validity period for VOICE consent is counsel's
+    # decision rather than code's (LEGAL-OPS-PLAYBOOK §10.7/§20). This field is how a
+    # client states the one their own opt-in wording actually gave.
+    expires_at: datetime | None = None
+
+
+class CallConsentOut(Strict):
+    """What was recorded. Never the number.
+
+    There is no `dialable` here, unlike `MessagingConsentOut.messageable`: whether a call
+    may be placed is `check_dispatch`'s answer over the halt, the hours, the DNC list and
+    the DLT chain as well as this row, and a second verdict on this response would be a
+    weaker copy of the real gate.
+    """
+
+    status: str
+    source: str | None
+    captured_at: datetime | None
+    expires_at: datetime | None
 
 
 class LookupConsentIn(Strict):
@@ -175,16 +211,70 @@ async def lookup(
     principal: Reader,
 ) -> MessagingConsentOut:
     assert principal.tenant_id is not None
-    phone_e164 = normalize_phone(payload.phone)
-    if phone_e164 is None:
-        # A number we cannot normalise has no ledger key, so it has no consent — the
-        # same answer as a number nobody ever asked, and a truthful one.
-        return _out(consent.NO_CONSENT)
+    # The normalisation used to happen HERE and not in `read_messaging_consent`, which
+    # is how the worker legs came to read the ledger on an un-normalised key while this
+    # route read it on a normalised one. It is now the read's own first act, so every
+    # caller gets the same key; this route hands the number over raw.
     return _out(
         await consent.read_messaging_consent(
-            session, tenant_id=principal.tenant_id, phone_e164=phone_e164
+            session, tenant_id=principal.tenant_id, raw_phone=payload.phone
         )
     )
 
 
-__all__ = ["router"]
+@call_router.post(
+    "",
+    response_model=CallConsentOut,
+    status_code=201,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Record what a customer said about being CALLED (append-only)",
+    description=(
+        "Appends one row to the consent ledger under the `callback` purpose — the one "
+        "`check_dispatch` reads before a dial. A withdrawal is a new row with "
+        "`status: withdrawn`, never an edit. A grant must carry evidence, and your own "
+        "staff may only record an opt-OUT. Until this endpoint existed the ledger could "
+        "record only a refusal to be called, never a permission."
+    ),
+)
+async def record_call(
+    payload: RecordCallConsentIn,
+    session: Session,
+    request: Request,
+    principal: Recorder,
+) -> CallConsentOut:
+    assert principal.tenant_id is not None
+    state = await consent.record_call_consent(
+        session,
+        tenant_id=principal.tenant_id,
+        raw_phone=payload.phone,
+        status=payload.status,
+        source=payload.source,
+        call_id=payload.call_id,
+        evidence=payload.evidence,
+        expires_at=payload.expires_at,
+    )
+    await write_audit(
+        session,
+        action="call_consent.recorded",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="consent_ledger",
+        object_id=None,
+        ip=client_request_ip(request),
+        # The decision, not the subject (hard rule 6) — same shape as `record` above.
+        summary={
+            "status": payload.status,
+            "source": payload.source,
+            "evidenced": bool(payload.evidence),
+            "expires": payload.expires_at.isoformat() if payload.expires_at else None,
+        },
+    )
+    return CallConsentOut(
+        status=state.status,
+        source=state.source,
+        captured_at=state.captured_at,
+        expires_at=state.expires_at,
+    )
+
+
+__all__ = ["call_router", "router"]

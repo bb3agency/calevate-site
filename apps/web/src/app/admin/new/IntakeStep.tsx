@@ -53,6 +53,8 @@ import { WIZARD_LANGUAGES } from "./languages";
 
 import type { UseQueryResult } from "@tanstack/react-query";
 import { examplesFor } from "@/lib/verticalExamples";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { intakeCopilotSurface } from "@/lib/copilot/screens/intakeSurface";
 
 /**
  * The wizard's intake step — FLOWS §1 step 3, "the real work".
@@ -150,6 +152,36 @@ export function IntakeStep({
   // rarely the answer; it is here because "rarely" is not "never" and a dead submit
   // button at the foot of a forty-control form is the worst place to discover a 403.
   const write = useAdminAccess("agents:write", "record this client's intake");
+
+  /*
+   * THE INTAKE SHEET, DECLARED TO THE SCREEN ASSISTANT — the screen this feature was
+   * asked for. Forty controls, one `IntakeDraft`, so the fill is one immutable update
+   * through the SAME `onDraftChange` every control on this form already calls; nothing
+   * is driven through the DOM. `lib/copilot/screens/intakeSurface.ts` derives the field
+   * list from the draft (ids from `intakeFieldId`, so there is no third naming scheme).
+   *
+   * Declared BEFORE the two early returns below because it is a hook. `null` while the
+   * prefill has not landed or the read failed, which is the same rule the form follows:
+   * there is nothing to describe and nothing safe to fill.
+   *
+   * `onDraftChange` and not `update`: `update` is defined after the early returns and
+   * additionally RESETS the two mutations, which is right for a keystroke and wrong here
+   * — a fill that silently cleared a refusal the operator has not read yet would hide
+   * the server's own words about the values it is filling in beside.
+   */
+  useCopilotSurface(
+    draft === null || state.error
+      ? null
+      : intakeCopilotSurface(
+          draft,
+          {
+            route: "/admin/new (step 2 — business intake)",
+            vertical,
+            primaryLanguage: state.data?.language_primary ?? "",
+          },
+          onDraftChange,
+        ),
+  );
 
   // A refusal, FIRST — before the skeleton, because a failed read leaves `draft` null
   // forever and the loading branch below would otherwise spin on it. The form is withheld
@@ -361,6 +393,10 @@ export function IntakeStep({
                 </Field>
                 <label className="flex items-center gap-2 pb-1.5 text-sm text-ink-muted">
                   <input
+                    /* Same path-shaped id as the two time inputs beside it, so the
+                       screen assistant's "filled" outline has something to land on. The
+                       wrapping label already associates the control with its text. */
+                    id={intakeFieldId(`business_hours.${row.day}.closed`)}
                     type="checkbox"
                     checked={row.closed}
                     disabled={!write.allowed}

@@ -19,6 +19,7 @@ from apps.api.core.errors import install_error_handlers
 from apps.api.core.platform_config import start_config_refresher
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.flags.registry import assert_flag_registry_wellformed
+from apps.api.ops.fx_rates import start_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher
 
 
@@ -44,9 +45,20 @@ async def _startup() -> AsyncIterator[None]:
     worker process (`apps/workers/settings.py::startup`) prices the dashboard assist and
     should call it too once an OpenAI/Google model is selectable; until then only Azure is
     offerable and it bills off its verified catalogue reading with no reader installed.
+
+    `start_fx_refresher` is the third, and it puts the PUBLISHED USD→INR rate into this
+    process's memory so `engine/bolna.py::_cost` can convert a vendor's dollars at it
+    without a database round trip. The worker calls it too and needs it more — that is
+    where a call's cost is actually metered — but the API converts on every `list_calls`
+    and cost preview it serves, and a process reading a different rate from its neighbour
+    is exactly the disagreement this seam exists to prevent. voice-runtime deliberately
+    does NOT: it parses a webhook into a `CallEvent` and never meters, so it would inherit
+    a background poll for a number it does not use (hard rule 3), and its parse falls back
+    to the configured rate as it always has.
     """
     start_config_refresher()
     start_pricing_refresher()
+    start_fx_refresher()
     yield
 
 
@@ -89,6 +101,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
+    from apps.api.compliance.consent_routes import call_router as call_consent_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
@@ -110,6 +123,7 @@ def _mount_routers(application: FastAPI) -> None:
         admin_router as whatsapp_optin_admin_router,
     )
     from apps.api.compliance.whatsapp_optin_routes import router as whatsapp_optin_router
+    from apps.api.copilot.routes import router as copilot_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.flags.routes import router as feature_flags_router
     from apps.api.ingest.routes import router as ingest_router
@@ -119,6 +133,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.kb.routes import router as kb_router
     from apps.api.legal.routes import router as legal_readiness_router
     from apps.api.ops.config_routes import router as ops_config_router
+    from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.routes import router as ops_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
@@ -195,6 +210,12 @@ def _mount_routers(application: FastAPI) -> None:
     # in the campaigns package because that module owns `phone_numbers`.
     application.include_router(numbers_router)
     application.include_router(crm_router)
+    # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
+    # which collides with nothing above, so mount order is not load-bearing here — unlike
+    # `voice_router`, whose literal segment lives under `/v1/agents/`. CLIENT REALM ONLY:
+    # `copilot/routes.py` argues at length why the admin realm gets no twin (it has no
+    # tenant to meter against, and hard rule 7 does not allow an unmetered model call).
+    application.include_router(copilot_router)
     # Knowledge gaps — the urgent "what the agents couldn't answer" surface. Its own
     # literal `/v1/knowledge-gaps` prefix collides with nothing above, so mount order is
     # not load-bearing here.
@@ -222,6 +243,7 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/compliance/{something}` router added below cannot swallow it. FastAPI matches
     # in declaration order (see `voice_router` above).
     application.include_router(messaging_consent_router)
+    application.include_router(call_consent_router)
     application.include_router(deletion_router)
     # The client's draft of the notice they owe their own CALLERS (D-179,
     # LEGAL-SURFACE F-8). The duty is theirs — they are the Data Fiduciary — but the
@@ -301,6 +323,11 @@ def _mount_routers(application: FastAPI) -> None:
     # configuration, not a credential), effective-dated and append-only. What lets a model
     # whose catalogue price is unverified become offerable.
     application.include_router(ops_model_prices_router)
+    # The exchange rate every dollar of vendor cost is converted at — read-only, and on
+    # `platform:config` beside the price panel for the same reason: it is a number that
+    # decides money and it is not a credential. There is no write route (`ops/fx_routes.py`
+    # argues why); the operator's control is the declared fallback in the config panel.
+    application.include_router(ops_fx_router)
 
 
 _mount_routers(app)

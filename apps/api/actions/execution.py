@@ -235,11 +235,21 @@ async def _run_whatsapp(
     if not recipient:
         return ExecutionResult(ok=False, payload={"error": "no_recipient"}, status="no_recipient")
     recipient = _stringify(recipient)
-    # The caller's messaging consent — a Meta-BSP obligation on this send (hard rule 5).
+    # The dispatch gate AND the caller's messaging consent, in that order — the same two
+    # questions `workers/whatsapp._send_escalation` asks, because one outbound channel
+    # may not have two answers to "may we contact this person" (hard rule 5). This path
+    # asked only the second until the audit found the split: a number on the tenant's DNC
+    # list that had once granted messaging consent was refused by the campaign leg and
+    # messaged by this one.
     try:
-        await wa.assert_recipient_opted_in(
-            session, tenant_id=tool.tenant_id, recipient_e164=recipient
+        await wa.assert_recipient_may_be_messaged(
+            session,
+            tenant_id=tool.tenant_id,
+            agent_id=tool.agent_id,
+            recipient_e164=recipient,
         )
+    except wa.WhatsAppBlockedError as exc:
+        return ExecutionResult(ok=False, payload={"error": exc.code}, status="blocked")
     except wa.WhatsAppNotOptedInError as exc:
         return ExecutionResult(ok=False, payload={"error": exc.code}, status="not_opted_in")
 

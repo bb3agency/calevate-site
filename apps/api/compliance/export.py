@@ -309,6 +309,41 @@ async def build_subject_export(
         for row in consent_rows
     ]
 
+    # THE SUPPRESSION STATE, which this document omitted entirely.
+    #
+    # `/legal/privacy` §3 lists the do-not-call entry among the data held about a caller,
+    # so leaving it out made the export incomplete against our own published notice — and
+    # it is the single fact a complainant most often wants confirmed ("you said you would
+    # stop; did you record it?"). The three columns are the three things that answer it:
+    # WHICH list (a `global` platform suppression outranks the tenant's own, exactly as
+    # `dnc.check_number` ranks them), WHY it is there, and WHEN it was added.
+    #
+    # A GLOBAL ROW IS INCLUDED, and deliberately, even though it is not this tenant's:
+    # the subject is asking what is held about THEM, and "you are suppressed platform-wide
+    # and this account cannot lift it" is a truthful and material answer. RLS already
+    # permits the read (`DncEntry`'s asymmetric policy — a tenant must be able to see a
+    # global entry or it would dial a number it may not).
+    # No `tenant_id` predicate, like every other statement here: RLS is the isolation
+    # (hard rule 1), and `DncEntry`'s policy deliberately lets a tenant session see the
+    # global rows as well as its own.
+    dnc_row = (
+        await session.execute(
+            text(
+                "SELECT scope, source, added_at FROM dnc_list WHERE phone_e164 = :phone "
+                "ORDER BY (scope = 'global') DESC LIMIT 1"
+            ),
+            {"phone": phone_e164},
+        )
+    ).first()
+    # `suppressed: False` rather than a missing key: "we hold no suppression for you" is
+    # an answer to the question, and an absent field reads as one nobody asked.
+    do_not_call: dict[str, Any] = {
+        "suppressed": dnc_row is not None,
+        "scope": str(dnc_row[0]) if dnc_row is not None else None,
+        "source": str(dnc_row[1]) if dnc_row is not None and dnc_row[1] is not None else None,
+        "added_at": _iso(dnc_row[2]) if dnc_row is not None else None,
+    }
+
     document: dict[str, Any] = {
         "phone_e164": phone_e164,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -317,6 +352,7 @@ async def build_subject_export(
         "calls": calls,
         "transcripts": transcripts,
         "consent": consent,
+        "do_not_call": do_not_call,
         "counts": {
             "leads": len(lead_rows),
             "calls": len(calls),

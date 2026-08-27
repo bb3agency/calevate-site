@@ -6,12 +6,25 @@ resolved (recipient, header var, ordered body vars). None of them SENDS anything
 return a `PreparedRequest` the executor puts on the wire through the egress guard, so the
 credential handling, SSRF vetting and audit stay in one place.
 
-WHY THE OPT-IN GATE IS HERE AND NOT AT THE EDGE. A WhatsApp send from our WABA to a caller
-is business-initiated messaging to a person, so it needs the caller's messaging consent
+WHY THE GATE IS HERE AND NOT AT THE EDGE. A WhatsApp send from our WABA to a caller is
+business-initiated messaging to a person, so it needs the caller's messaging consent
 (`compliance/consent.read_messaging_consent`, the consumer `messaging` purpose — NOT the
-client's own alert opt-in, which is a different regime). WhatsApp is a Meta-BSP channel, not
-DLT/TRAI, so no `check_dispatch` here — but the consent gate is not optional, and it lives on
-this path so no provider branch can forget it.
+client's own alert opt-in, which is a different regime). It lives on this path so no
+provider branch can forget it.
+
+**AND IT IS `check_dispatch` FIRST, THEN THE OPT-IN — THE SAME TWO QUESTIONS IN THE SAME
+ORDER AS `workers/whatsapp._send_escalation`.** This path used to ask only the second one,
+and the divergence had a concrete victim: a person on the tenant's DNC list who had once
+granted messaging consent was refused by the campaign escalation and messaged by the
+in-call action. One outbound channel cannot have two answers to "may we contact this
+person" (hard rule 5: `check_dispatch` is the ONE gate every outbound path calls), and the
+disagreement was not a considered split — the campaign leg simply had the gate and this
+leg did not.
+
+`dlt_governed=False`, exactly as the escalation passes it: WhatsApp is Meta-BSP, not
+DLT/TCCCPR (LEGAL-OPS-PLAYBOOK §11), so it has no PE-TM chain and no 140/160 header and
+the DLT layer of the gate does not describe it. Every other rule — the live DNC read
+above all, the India-only destination, the big red switch, the tenant cap — does.
 
 EVIDENCE CLASS. The three vendors' send endpoints are REPORTED from their own published API
 references and consistent across multiple vendor-owned pages, but the docs hosts
@@ -29,10 +42,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.schema import PreparedRequest, WhatsAppConfig
 from apps.api.compliance.consent import read_messaging_consent
+from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.ingest.service import normalize_phone
 
 log = get_logger(__name__)
+
+
+class WhatsAppBlockedError(ProblemError):
+    """`check_dispatch` refused this recipient. The RULE, never the client-facing prose
+    of the decision and never the number — the reason code is what the executor records
+    and what an operator greps for."""
+
+    def __init__(self, rule: str) -> None:
+        super().__init__(
+            kind="business_rule",
+            code=f"whatsapp_blocked_{rule}",
+            title="This number may not be contacted",
+            detail="Sending a message to this number is blocked by a compliance rule.",
+            remediation=(
+                "Check this number on the do-not-call screen and check the account's "
+                "outbound status before trying again."
+            ),
+        )
 
 
 class WhatsAppNotOptedInError(ProblemError):
@@ -49,14 +82,37 @@ class WhatsAppNotOptedInError(ProblemError):
         )
 
 
-async def assert_recipient_opted_in(
-    session: AsyncSession, *, tenant_id: UUID, recipient_e164: str
+async def assert_recipient_may_be_messaged(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, recipient_e164: str
 ) -> None:
-    """Gate a send on the caller's messaging consent (hard rule 5's spirit for a Meta-BSP
-    channel). Raises `WhatsAppNotOptedInError` when not granted."""
-    consent = await read_messaging_consent(session, tenant_id=tenant_id, phone_e164=recipient_e164)
+    """The gate, then the opt-in — the order and the arguments `_send_escalation` uses.
+
+    Raises `WhatsAppBlockedError` when the dispatch gate refuses (DNC above all) and
+    `WhatsAppNotOptedInError` when there is no current messaging consent. Two exceptions
+    rather than one because they are two different next actions for the client: a
+    suppression is theirs to look up, a missing opt-in is theirs to ask for.
+    """
+    phone_e164 = normalize_phone(recipient_e164)
+    if phone_e164 is None:
+        # An unusable number has no DNC key and no consent key. Refusing it as
+        # "not opted in" is the truthful answer and the safe direction.
+        raise WhatsAppNotOptedInError()
+    decision = await check_dispatch(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        phone_e164=phone_e164,
+        dlt_governed=False,
+    )
+    if not decision.allowed:
+        # Ids and the RULE only — never the number (hard rule 6).
+        log.info(
+            "whatsapp_send_blocked",
+            extra={"tenant_id": str(tenant_id), "rule": decision.rule or "unknown"},
+        )
+        raise WhatsAppBlockedError(decision.rule or "unknown")
+    consent = await read_messaging_consent(session, tenant_id=tenant_id, raw_phone=phone_e164)
     if not consent.messageable:
-        # Ids and the reason only — never the number (hard rule 6).
         log.info(
             "whatsapp_send_blocked_no_consent",
             extra={"tenant_id": str(tenant_id), "reason": "not_opted_in"},
@@ -200,8 +256,9 @@ def build_interakt(
 
 
 __all__ = [
+    "WhatsAppBlockedError",
     "WhatsAppNotOptedInError",
-    "assert_recipient_opted_in",
+    "assert_recipient_may_be_messaged",
     "build_aisensy",
     "build_interakt",
     "build_meta_cloud",
