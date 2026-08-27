@@ -288,6 +288,7 @@ def _azure_leg() -> chat.ChatLeg | None:
         url=f"{azure_openai_base_url(resource)}/chat/completions",
         api_key=api_key,
         wire_model=deployment,
+        dialect="openai",
     )
 
 
@@ -339,7 +340,10 @@ async def _answer_via_sarvam(
         raise assist_unavailable(capability)
     outcome = await chat.complete(
         chat.ChatLeg(
-            url=SARVAM_CHAT_URL, api_key=settings.sarvam_api_key, wire_model=SARVAM_DEFAULT_LLM
+            url=SARVAM_CHAT_URL,
+            api_key=settings.sarvam_api_key,
+            wire_model=SARVAM_DEFAULT_LLM,
+            dialect="sarvam",
         ),
         # THE SAME PROMPT, PLUS ONE CORRECTION AT THE END. `build_messages` tells the model
         # to call `set_fields`, and on this leg there is no such tool — a model told to use

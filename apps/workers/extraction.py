@@ -259,7 +259,12 @@ class SarvamExtractor:
     def _leg(self) -> chat.ChatLeg:
         """Sarvam addressed for `workers/chat.py`. `wire_model` IS the model here — the
         deployment/model split is Azure's, and this leg has none."""
-        return chat.ChatLeg(url=SARVAM_CHAT_URL, api_key=self._api_key, wire_model=self.model_name)
+        return chat.ChatLeg(
+            url=SARVAM_CHAT_URL,
+            api_key=self._api_key,
+            wire_model=self.model_name,
+            dialect="sarvam",
+        )
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
@@ -582,6 +587,7 @@ class AzureOpenAIExtractor:
                 api_key=self._api_key,
                 # THE DEPLOYMENT, not the model — see the class docstring.
                 wire_model=self._deployment,
+                dialect="openai",
             ),
             [{"role": "user", "content": build_extraction_prompt(spec, transcript)}],
             timeout_s=self._timeout_s,

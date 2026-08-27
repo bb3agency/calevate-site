@@ -43,6 +43,18 @@ REDACT_KEYS: tuple[str, ...] = (
     "password",
     "api_key",
     "apikey",
+    # HYPHENATED CREDENTIAL HEADER NAMES, which the two entries above do NOT reach.
+    # The match is a plain substring test, so `api_key` covers `api_key` and `sarvam_api_key`
+    # and nothing with a hyphen in it — and a credential that travels as an HTTP header
+    # is hyphenated by convention, not underscored. Sarvam's chat takes its key raw in
+    # `api-subscription-key` (VERIFIED-VENDOR-SDK: `sarvamai==0.1.31`,
+    # `core/client_wrapper.py:39`, read 27 Aug 2026), which matched none of the entries
+    # above; `api-key` is the same shape and is what several vendors' key headers are
+    # called, so both land here rather than only the one that prompted the reading.
+    # Deliberately NOT a single `key` entry: that would swallow every legitimate
+    # `..._key` field name in an extra and redact things an operator needs to read.
+    "subscription-key",
+    "api-key",
     "phone",
     "e164",
     "recipient",
