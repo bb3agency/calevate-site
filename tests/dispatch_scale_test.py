@@ -75,6 +75,7 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import accept_agreements
 from tests.national_dnd_test import record_test_scrub
 
 # The organizations this test provisions so the two candidate shapes are distinguishable
@@ -362,6 +363,11 @@ async def _tenant(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     _TENANTS.append(tenant_id)
     if not published:

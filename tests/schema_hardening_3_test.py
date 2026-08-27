@@ -39,6 +39,7 @@ from apps.api.main import app
 from apps.workers.retention import _due_tenants, sweep_tenant
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 SECRET = "ingest-secret-for-tests"
 
@@ -78,6 +79,11 @@ async def _tenant_with_source(
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     webhook_id = uuid.uuid4()
     ref = f"fakeagent_sh3_{uuid.uuid4().hex[:8]}"

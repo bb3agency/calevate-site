@@ -44,6 +44,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers.retention import _due_tenants, sweep_tenant, sweep_tenants
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
+from tests.conftest import accept_agreements
 
 _REASON = "kb_source"
 
@@ -63,6 +64,11 @@ async def _unpublished_tenant() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     return uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
 
 

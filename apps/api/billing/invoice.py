@@ -97,7 +97,8 @@ BILL_OF_SUPPLY_TAX_NOTE = (
 # issue, and no secondary settles first-party whether s.170 binds the DOCUMENT or the
 # RETURN, nor whether the taxable value rounds along with the tax. Guessing a compliance
 # rule is not recoverable (CLAUDE.md), and nothing is out of compliance today:
-# `supplier.is_registered` is false in every deployment and this document says `proforma`.
+# `supplier.is_registered` is false in every deployment and this document is a
+# `bill_of_supply`.
 # **WHAT CLOSES IT:** the GST registration (ROADMAP M0) plus a first-party read or an
 # accountant's confirmation of the per-invoice, per-head reading.
 
@@ -141,9 +142,11 @@ BILL_OF_SUPPLY_TAX_NOTE = (
 # build site asserts it. What remains is the CONSECUTIVE-series requirement, below.
 #
 # **The blocking half is external and is not ours to code around.** Rule 46 binds a
-# REGISTERED PERSON issuing a tax invoice. There is no legal entity and no GST registration
-# (ROADMAP M0), `supplier.is_registered` is false in every deployment, and this document
-# therefore says `proforma` (a bill of supply — see `BILL_OF_SUPPLY_TAX_NOTE`) — which
+# REGISTERED PERSON issuing a tax invoice. The legal person is settled — a sole proprietor
+# trading as Calevate — but it is NOT registered for GST and is not required to be at
+# present turnover (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §4), `supplier.is_registered` is
+# false in every deployment, and this document
+# therefore says `bill_of_supply` (see `BILL_OF_SUPPLY_TAX_NOTE`) — which
 # 46(b) does not govern. Nothing is out of compliance today; what exists is a scheme whose
 # CONSECUTIVENESS would still need building the moment the four `GST_SUPPLIER_*` values are
 # set. The named external blocker is the GST registration itself.
@@ -339,8 +342,9 @@ async def build_invoice(
     different ledgers and cannot claim tax charged under the wrong one (Rule 46(l)-(m)).
 
     **When Calevate is NOT registered the document is a BILL OF SUPPLY, and it charges no
-    tax.** With no `GST_SUPPLIER_*` values this returns ``document_type = "proforma"`` (the
-    term the playbook uses beside "bill of supply", §4.4), lists the missing keys in
+    tax.** With no `GST_SUPPLIER_*` values this returns
+    ``document_type = "bill_of_supply"`` — Rule 49's own name for the document, the name
+    the published Terms use, and the name printed on the sheet — lists the missing keys in
     ``document_blockers``, and — the fix in this slice — ``gst_inr`` is ₹0.00,
     ``tax_components`` is empty, ``total_inr`` equals the subtotal, and ``tax_note`` states
     in words that no tax is charged and no input tax credit is available (CGST s.32,
@@ -505,7 +509,7 @@ async def build_invoice(
     # NOT collect tax; CGST Rule 49: an unregistered supplier issues a BILL OF SUPPLY with
     # no tax component and gives no input tax credit — LEGAL-OPS-PLAYBOOK §4.4).
     #
-    # This USED TO compute an 18% line into `total_inr` on every document, proforma
+    # This USED TO compute an 18% line into `total_inr` on every document, bill of supply
     # included, on the stated grounds that "a missing config key must never move money".
     # That was the wrong horn of the dilemma: presenting a collectible CGST+SGST line on a
     # document an unregistered person issues is exactly the tax s.32 forbids collecting, so
@@ -560,10 +564,11 @@ async def build_invoice(
         "month": period,
         "generated_at": datetime.now(UTC).isoformat(),
         # WHAT THIS DOCUMENT IS. `tax_invoice` only when every Rule 46 identity particular
-        # is configured; otherwise `proforma` — a bill of supply in substance (no tax
-        # charged, `tax_note` says so), the term LEGAL-OPS-PLAYBOOK §4.4 uses beside "bill
-        # of supply". The console renders the heading from THIS, never from a literal.
-        "document_type": "tax_invoice" if supplier.is_registered else "proforma",
+        # is configured; otherwise `bill_of_supply` — CGST Rule 49's name for what an
+        # unregistered supplier issues, which is what `tax_note` says on the sheet and
+        # what the published Terms tell the client they will receive. The console renders
+        # the heading from THIS, never from a literal.
+        "document_type": "tax_invoice" if supplier.is_registered else "bill_of_supply",
         "document_blockers": list(supplier.missing),
         "supplier": {
             "legal_name": supplier.legal_name,

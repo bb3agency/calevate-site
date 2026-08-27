@@ -42,6 +42,7 @@ from apps.api.main import app
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 from tests.impersonation_grant_test import view_as_headers
 
 # Dependency aliases for the throwaway apps the registry tests build below. At module
@@ -686,6 +687,15 @@ async def test_an_admin_can_publish_an_agent() -> None:
     token = await _make_admin()
     org = await _make_org()
     path = f"/v1/admin/tenants/{org['id']}/agents/{org['agent_id']}/publish"
+    # AND THE ACCOUNT HAS TO HAVE AGREED TO SOMETHING. Since migration a9d4e70c31b8,
+    # `publish_agent` refuses an organisation that has not accepted its Terms, Privacy
+    # Policy, DPA and Acceptable Use Policy — putting an agent on the phone under a DPA
+    # nobody signed is us processing this client's callers' data with no instrument. That
+    # is an ACCOUNT-state gate and this test is about WHO may call the route, so the
+    # fixture supplies the missing fact rather than the gate being softened for it: the
+    # owner accepts, exactly as their own console does (`tests/conftest`).
+    owner_id, _ = await _make_member(uuid.UUID(str(org["id"])))
+    await accept_agreements(uuid.UUID(str(org["id"])), owner_id)
     # The wizard mints this agent at step 1 with no prompt version, and publishing one
     # is refused by name (`agent_has_no_script`) rather than shipping a hardcoded English
     # placeholder. This case is about WHO may call the route, so the agent gets the one

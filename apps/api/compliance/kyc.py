@@ -3,7 +3,8 @@
 SURFACES §2b's final self-serve bullet is "**Number purchase + KYC**: gated; calling
 stays disabled until verification clears", FLOWS §2 says "self-serve accounts start
 restricted (R-11): calling is gated until the org has a KYC-verified number", and BRD
-§245 lists "number provisioning gated behind KYC" among the mitigations that ship WITH
+§245 (⚠ its wording, "number provisioning gated behind KYC", was corrected to business
+KYC by D-474 — we supply no numbers) lists it among the mitigations that ship WITH
 the self-serve motion rather than after it. Nothing in the schema modelled KYC at all,
 so all three sentences described a control that did not exist.
 
@@ -61,7 +62,7 @@ WHO THE GATE APPLIES TO — THE MANAGED/SELF-SERVE QUESTION, ANSWERED IN TWO PAR
 blocks every existing client or leaves the real risk open. It is two questions, not one,
 and they get different answers:
 
-* **Provisioning a number is gated for EVERY tier.** `provisioning.py` reads
+* **The number gate is asked of EVERY tier.** `provisioning.py` reads
   `read_kyc()` and tests `is_verified` with no tier test at all — it needs the whole
   record, not a boolean, because its refusal has to tell "nothing on file" apart from
   "filed and not cleared". A boolean-only `kyc_verified()` selector existed here for
@@ -72,25 +73,28 @@ and they get different answers:
   the DoT does not have a managed-client exemption. This is also what makes the gate
   un-bypassable: `plan_tier` is an admin-settable column, so a control keyed on it
   alone would be one support ticket away from being switched off, which is precisely
-  the "bypass for testing" hard rule 5 forbids. Nobody, on any tier, gets a number
-  through this product without a verification on file. It blocks no existing client
-  because it can only ever refuse a *new* provisioning request, and the numbers managed
-  clients already hold were provisioned out of band against a CAF at the TSP.
+  the "bypass for testing" hard rule 5 forbids. It blocks no existing client because it
+  can only ever refuse a *new* request, and every number a client holds was taken on
+  their OWN operator account against their own KYC and CAF (Model B — `docs/legal/
+  LEGAL-OPS-PLAYBOOK.md` §9). That is also why this record exists at all: we verify the
+  same entity their operator verifies, so our dial gate cannot be looser than the
+  carrier's.
 * **Dialling is gated for `self_serve` and `trial` only.** This mirrors
   `credits_exhausted` exactly, and for the same kind of reason. FLOWS §2 and SURFACES
   §2b both scope the calling restriction to self-serve accounts, and the docs win
   (CLAUDE.md). Substantively: R-11's risk is an *anonymous* signup dialling India's
-  network. A managed tenant is not anonymous — we contracted with them, we executed
-  their ₹5,900 PE registration (which an access provider granted only after checking
-  PAN/GST/CIN and the authorised signatory's ID), and we bought their number ourselves
-  against a CAF. Their identity assurance is held out of band and is already gated at
+  network. A managed tenant is not anonymous — we contracted with them, an access
+  provider granted their ₹5,900 Principal Entity registration only after checking
+  PAN/GST/CIN and the authorised signatory's ID, and their operator issued their
+  connection only against their own KYC and CAF. That assurance is out of band and
+  is already gated at
   dial time by `pe_registration_*` and `number_not_registered`. Making the dial gate
   tier-blind would therefore not close a risk; it would halt every existing client's
   calling on a data-entry backlog, and this repo has already paid that price once with
   `tm_registration_missing`.
 
-**The residual risk, stated rather than hidden:** a managed tenant that somehow acquired
-a number without KYC keeps dialling. That gap closes at the point it can actually be
+**The residual risk, stated rather than hidden:** a managed tenant whose operator KYC we
+never saw keeps dialling. That gap closes at the point it can actually be
 closed — an ops sweep requiring a verification for every tenant holding a number — and
 that is a `platform_state`-shaped ops surface, not a change to this predicate. It is NOT
 closed by widening the dial gate, which would refuse the tenants whose paperwork we do

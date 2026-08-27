@@ -9,18 +9,25 @@
  * shape `app/admin/ops/page.tsx` exists to have removed for the load-shed switch, the
  * outbox replay and the audit-chain verification.
  *
- * ## THREE THINGS THIS MODULE REFUSES TO COMPUTE
+ * ## FOUR THINGS THIS MODULE REFUSES TO COMPUTE
  *
  * 1. **A percentile.** `apps/api/ops/engine_latency.py` withholds a p95 below 20 timed
- *    turns and a p50 below 5, and publishes `basis` on every group so the withholding is a
- *    FIELD rather than a footnote. A browser that filled either in from `llm_ttft_max_ms`
- *    would be printing the largest sample wearing a percentile's name, which is the one
- *    thing that module's docstring says it will not do.
- * 2. **Whether a group missed the budget.** `budget_breached` is the server's answer, and
+ *    turns and a p50 below 5, and publishes `basis` on every leg so the withholding is a
+ *    FIELD rather than a footnote. A browser that filled either in from `max_ms` would be
+ *    printing the largest sample wearing a percentile's name, which is the one thing that
+ *    module's docstring says it will not do.
+ * 2. **Whether a leg missed the budget.** `budget_breached` is the server's answer, and
  *    it is about the MEDIAN turn rather than the worst one. `null` means the sample cannot
  *    support a median — a third state, and "we do not know" must never render the same as
  *    "within budget".
- * 3. **Gate 4's own verdict.** The gate needs a median from TWO regions to compare, and
+ * 3. **A BUDGET — including by adding two of them together.** TRD §4 declares four
+ *    sub-budgets and two voice-to-voice targets, and `LatencyBudget` publishes all six
+ *    PLUS the composed totals (`turn_ms`, `pipeline_ms`, `voice_to_voice_headroom_p50_ms`)
+ *    already summed. Those three are `computed_field`s on the server precisely so this
+ *    bundle never does the arithmetic: a target computed in a browser is a target that
+ *    quietly becomes whatever the last build believed, and `lib/api/aiQuota.ts` states the
+ *    same doctrine about the one figure where it costs money instead of latency.
+ * 4. **Gate 4's own verdict.** The gate needs a median from TWO regions to compare, and
  *    `EngineLatencyReport.regions_measured` is the rule that counts them — a Python
  *    `@property`, so it is not on the wire and nothing reads it. Restating it here would be
  *    a second spelling of a rule that already exists, in the place least able to defend it.
@@ -48,11 +55,20 @@ import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 
-/** The whole report: every (engine, region) group, plus the target each is judged against. */
+/** The whole report: every (engine, region) group, plus the WHOLE budget (TRD §4). */
 export type EngineLatencyReport = Schemas["EngineLatencyReport"];
 
-/** One (engine, region) pair's LLM time-to-first-token distribution. */
+/** One (engine, region) pair, every leg of it. */
 export type LatencyGroup = Schemas["LatencyGroup"];
+
+/** One leg's distribution for one group, its own target, and its own verdict. */
+export type LegSummary = Schemas["LegSummary"];
+
+/** Which leg a summary is about. `turn` is the COMPOSED one — STT + LLM TTFT + TTS TTFA. */
+export type LatencyLeg = LegSummary["leg"];
+
+/** Every target TRD §4 declares, with the composed totals already summed server-side. */
+export type LatencyBudget = Schemas["LatencyBudget"];
 
 export const ENGINE_LATENCY_PATH = "/v1/ops/engine-latency";
 
@@ -169,13 +185,18 @@ export type BudgetVerdict = "within" | "over" | "unknown";
  * `budget_breached`, read as the three states it actually has.
  *
  * A function rather than a ternary at the call site so `undefined` is handled in ONE
- * place: the field is optional on the generated type (the API omits it on a group with no
- * median), and `!group.budget_breached` would report such a group as comfortably within a
+ * place: the field is optional on the generated type (the API omits it on a leg with no
+ * median), and `!leg.budget_breached` would report such a leg as comfortably within a
  * budget nothing measured it against.
+ *
+ * PER LEG, and that is the change this module's second version is about. It used to take
+ * the group, because the group carried one verdict — the language leg's — and a turn that
+ * blew the whole reply inside the transcriber was reported as within target. Each leg now
+ * carries its own `budget_ms` and its own answer, and so does the composed turn.
  */
-export function budgetVerdict(group: LatencyGroup): BudgetVerdict {
-  if (group.budget_breached === true) return "over";
-  if (group.budget_breached === false) return "within";
+export function budgetVerdict(leg: LegSummary): BudgetVerdict {
+  if (leg.budget_breached === true) return "over";
+  if (leg.budget_breached === false) return "within";
   return "unknown";
 }
 
@@ -194,7 +215,7 @@ export function budgetVerdict(group: LatencyGroup): BudgetVerdict {
  * keeps one rule in one place: the table decides which states have something to say, and
  * the screen renders whatever it is handed.
  */
-export const BASIS_COPY: Record<LatencyGroup["basis"], string | null> = {
+export const BASIS_COPY: Record<LegSummary["basis"], string | null> = {
   measured: null,
   // NO THRESHOLD NUMBER IN THIS SENTENCE. `P50_MIN_TURNS` and `P95_MIN_TURNS` live in
   // `apps/api/ops/engine_latency.py` and are NOT on the wire, so a browser that printed
@@ -206,3 +227,50 @@ export const BASIS_COPY: Record<LatencyGroup["basis"], string | null> = {
   insufficient_samples:
     "Too few timed replies to give a typical time — the worst reply beside it is a single measurement, not an estimate.",
 };
+
+/**
+ * What each stage of a reply IS, in words an operator can act on.
+ *
+ * Keyed by the generated union, so a fifth leg added to `LatencyLeg` on the server fails
+ * `tsc` here rather than rendering a blank stage name. `turn` is deliberately last and
+ * deliberately worded as a total: it is the sum of the three above it for the SAME reply,
+ * which is the figure the whole voice-to-voice target is cut from.
+ *
+ * **NO `retrieval` ENTRY, AND THAT IS NOT AN OVERSIGHT.** TRD §4 budgets a knowledge-base
+ * lookup at 100ms and the report publishes that target on `budget.retrieval_ms` — but the
+ * engine measures no such leg, so `LatencyLeg` has no member for it and there is no
+ * distribution to name here. The target is shown among the budget tiles, labelled as one
+ * nothing has measured, rather than given a column of em dashes that would read as fast.
+ */
+export const LEG_COPY: Record<LatencyLeg, { label: string; gloss: string }> = {
+  stt: {
+    label: "Hearing the caller",
+    gloss: "Turning what the caller just said into text",
+  },
+  llm_ttft: {
+    label: "Thinking of a reply",
+    gloss: "Until the AI produces the first word of its answer",
+  },
+  tts_ttfa: {
+    label: "Starting to speak",
+    gloss: "Until the first sound of the reply is ready to play",
+  },
+  turn: {
+    label: "The whole reply",
+    gloss: "All three stages of the same reply, added together",
+  },
+};
+
+/**
+ * The sentence a leg carries when the UNIT of the measurement itself is unconfirmed.
+ *
+ * `unit_verified` is a SERVER field, false on the transcriber leg and therefore on the
+ * composed reply: the vendor's field table calls `audio_to_text_latency` milliseconds
+ * while their own worked example carries `20.12`, which is not a plausible transcription
+ * time (`bolna-findings/mirror/pages/concepts/call-latencies.md:82` against `:62`). A
+ * verdict computed from a number in an unknown unit is not a verdict, and the screen that
+ * prints it has to say so — so the doubt travels as a field and is rendered, rather than
+ * living in a comment no operator reads. It is settled by OPERATIONS §2 gate 4.
+ */
+export const UNVERIFIED_UNIT_NOTE =
+  "We have not confirmed what unit the engine reports this stage in, so treat the figures on this row as unconfirmed.";

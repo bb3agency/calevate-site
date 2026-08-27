@@ -28,6 +28,7 @@ from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 pytestmark = pytest.mark.asyncio
 
@@ -42,6 +43,11 @@ async def _publishable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
     async with tenant_session(tenant_id) as session:
         await prompts.write_prompt_version(

@@ -123,6 +123,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.engine.vendor_http import EngineRejectedError
+from apps.api.legal.service import assert_agreements_accepted
 from apps.api.tenancy.lifecycle import assert_account_open
 
 # THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS, imported rather than
@@ -1108,6 +1109,36 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     require_capability("agent_hosting", engine=engine)
 
     agent = await _load_agent(session, tenant_id, agent_id, for_update=True)
+
+    # AND THE CLIENT MUST HAVE AGREED TO SOMETHING. Publishing puts an agent on the phone:
+    # it starts recording this client's callers, collecting their numbers and extracting
+    # their details, and the document that makes us their processor for any of it is the
+    # DPA nobody had ever been asked to accept.
+    #
+    # AFTER `_load_agent`, NOT BESIDE `assert_account_open`, AND THE PLACEMENT IS THE
+    # POINT. This ran first, on the reasoning that an account-level fact is cheapest to ask
+    # early — which is true of `assert_account_open`, whose refusals (`account_closed`,
+    # `tenant_erased`) an operator holding a hand-typed uuid can already read off the admin
+    # console. It is NOT true of this one. `_load_agent` is where existence and OWNERSHIP
+    # are decided, and it answers 404 for an agent belonging to a tenant the caller cannot
+    # see; asking the agreements question in front of it made that path answer 409
+    # `agreements_not_accepted` instead — which confirms the tenant exists AND discloses
+    # the state of its paperwork, to a caller who was supposed to learn neither.
+    # `tests/onboarding_to_live_test.py::test_a_promptless_agent_of_another_tenant_is_
+    # absent_rather_than_refused` is the assertion that named it. Same ordering
+    # `campaigns/provisioning.py` argues for KYC-behind-capability, and the same reason
+    # `admin.service.assert_agent_visible` exists at all.
+    #
+    # Nothing is given up by the move: it is still one indexed read, still inside the same
+    # transaction, and still BEFORE the vendor — so a refusal here leaves no agent at the
+    # engine with nothing pointing at it, which was the property the early placement was
+    # actually protecting.
+    #
+    # Raises rather than returning a blocker because this is a single action with a single
+    # answer; the campaign gates return `agreements_not_accepted` as a to-do row under the
+    # same rule name from the same implementation.
+    await assert_agreements_accepted(session, tenant_id=tenant_id)
+
     # AN ARCHIVED AGENT IS NEVER RESURRECTED BY A REPUBLISH (D-440), and the guard is here
     # rather than only in `agents/lifecycle.py` because this function ends in
     # `status = 'live'` and has seven callers — the lifecycle activate, the admin publish
@@ -1902,6 +1933,10 @@ async def provision_number(
 ) -> UUID:
     """Record a number the tenant may dial from (DATA-MODEL §6, admin-only).
 
+    RECORD, not obtain: the connection is the client's own, taken in their name on their
+    own Exotel / Plivo / Vobiz account, and Calevate neither supplies nor resells it
+    (Model B — `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). Nothing here talks to an operator.
+
     `series` is the load-bearing field: it is what the campaign launch gate matches
     against the campaign's classification, so getting it wrong here is a DLT violation
     later. `dlt_status` starts `pending` and is a separate deliberate step — a number
@@ -1947,8 +1982,11 @@ async def provision_number(
     except IntegrityError as exc:
         raise ProblemError.conflict(
             "number_taken",
-            "This number is already provisioned.",
-            remediation="It may belong to another account — check before reassigning it.",
+            "This number is already recorded against an account.",
+            remediation=(
+                "Numbers are unique across the platform. Check which account already "
+                "holds this connection before recording it again."
+            ),
         ) from exc
     # AND TELL THE ENGINE, if there is anything to tell it (D-420). A number assigned to an
     # agent that is already published must start being answered NOW — waiting for the next

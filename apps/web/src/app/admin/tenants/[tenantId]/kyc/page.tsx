@@ -40,7 +40,14 @@ import { useAdminAccess } from "@/app/admin/access";
  *
  * `POST /v1/admin/tenants/{tenant_id}/kyc` shipped with no caller, which left the
  * refusals live and unclearable: a self-serve account blocked on `kyc_missing` stayed
- * blocked, and nobody could buy a number on any tier. This is the form behind it.
+ * blocked with nothing anyone could do about it. This is the form behind it.
+ *
+ * What a verification does NOT do is get anybody a phone number. Calevate does not
+ * supply, sell or rent one: the client takes the connection in their own name on their
+ * own Exotel / Plivo / Vobiz account and stays the subscriber of record (Model B —
+ * `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9, published Terms clause 3). This record exists
+ * because their operator verifies the same entity we do, and our dial gate must not be
+ * looser than the carrier's.
  *
  * Its own realm, and by permission rather than by preference. The write is
  * `admin:tenants` with the tenant named in the PATH — an admin-realm mutation that
@@ -195,7 +202,8 @@ function OnFile({ record }: { record: KycRecord }) {
       <NoticeBox tone="neutral" icon={<FileWarning className="h-5 w-5" />} title="Nothing on file">
         <p className="mt-1 text-xs opacity-90">
           The normal state of a new account. This client&apos;s dial gate reads it as a
-          missing verification, and any number purchase is refused on every tier.
+          missing verification. Their own operator will ask for the same documents before
+          it issues them a connection.
         </p>
       </NoticeBox>
     );
@@ -473,8 +481,8 @@ function RecordForm({
           <NoticeBox tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
             <p className="text-xs">
               <span className="font-medium">{tenantName} is verified today.</span> Recording
-              this closes number provisioning on every tier, and stops outbound dialling on
-              a self-serve or trial account. Inbound answering is unaffected either way.
+              this stops outbound dialling on a self-serve or trial account, on every tier.
+              Inbound answering is unaffected either way.
             </p>
           </NoticeBox>
         )}
@@ -518,7 +526,7 @@ function WillRecord({ draft, tenantName }: { draft: KycRecordIn; tenantName: str
         <li>
           <span className="text-ink-faint">Outcome</span> —{" "}
           {KYC_STATUS_COPY[draft.status].label.toLowerCase()}
-          {verified && ", which opens number provisioning on every tier and outbound dialling on self-serve and trial accounts"}
+          {verified && ", which clears the identity gate on every tier and opens outbound dialling on self-serve and trial accounts"}
           .
         </li>
         <li>

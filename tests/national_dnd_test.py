@@ -60,6 +60,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from tests.conftest import accept_agreements
 
 PROVIDER = "airtel-dlt"
 
@@ -111,6 +112,11 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str, str]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id, slug = created["id"], created["agent_id"], created["slug"]
     user_id = uuid.uuid4()
     async with untenanted_session() as session:

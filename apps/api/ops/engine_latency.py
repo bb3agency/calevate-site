@@ -2,6 +2,17 @@
 
     GET /v1/ops/engine-latency
 
+**FOUR LEGS, NOT ONE, AND THAT IS THIS MODULE'S SECOND VERSION.** It reported the LLM
+time-to-first-token alone, against the one budget this repository had ever written down —
+so a turn that spent 900ms in the transcriber and 120ms in the model was reported as
+comfortably within target, and the operator screen printed 350ms as though it were the
+whole constraint. TRD §4 declares four sub-budgets adding to 1050ms inside a 1.1s
+voice-to-voice p50; `calevate_shared.engine.LATENCY_BUDGET` is now the single declaration
+of all of them, the composed turn budget is DERIVED from its parts, and every leg here is
+judged against its own. A target is never computed from the observations it judges — TRD
+§4a records that every one of these figures is unmeasured, and the slots where a measured
+number may one day replace them.
+
 **THE QUESTION THIS ANSWERS, AND WHY IT SURVIVED THE ANSWER.** D-410 pinned the language
 model to an Azure deployment in South India while the engine's orchestrator is US-hosted
 (`bolna-findings/mirror/pages/concepts/security.md:29`), which made every conversational
@@ -58,7 +69,7 @@ from time import perf_counter
 from typing import Literal
 from uuid import UUID
 
-from calevate_shared.engine import LLM_TTFT_BUDGET_MS
+from calevate_shared.engine import LATENCY_BUDGET, LatencyBudget
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,35 +119,75 @@ SummaryBasis = Literal["measured", "insufficient_samples"]
 # that has not yet been erased stays in: its recent calls are real engine measurements.
 _DIRECTORY = "SELECT id FROM organizations WHERE deleted_at IS NULL"
 
-# ONE ROW PER TIMED TURN, expanded from the stored array under the tenant's own GUC. Only
-# `llm_ttft_ms` is pulled: it is the leg whose geography D-410 chose, and it is the one
-# whose unit their documentation is unambiguous about (`stt_ms` comes from
-# `audio_to_text_latency: 20.12`, which does not read as milliseconds — see the adapter).
+# ONE ROW PER TIMED TURN, expanded from the stored array under the tenant's own GUC. ALL
+# THREE LEGS are pulled, and that is the change: this read `llm_ttft_ms` alone, so a turn
+# that blew the whole voice-to-voice budget inside the transcriber or the synthesizer
+# produced a report that said nothing at all. TRD §4 budgets four legs; a report that
+# judged one of them was not measuring the constraint it was named after.
+#
+# A NON-NUMERIC VALUE IS ABSENT, NOT AN ERROR. The `CASE` is not decoration: `->>` on a
+# JSON string returns that string and `::float8` on it raises, so one malformed turn in one
+# tenant's array would fail the whole fleet walk. The column's CHECK constraint
+# (`b7d3e91c4a05`) makes that unlikely rather than impossible, and a latency report is not
+# worth an outage. A turn reaches this result if ANY leg reported a number; the legs it did
+# not report contribute to no distribution, per `TurnLatency`'s absent-is-absent rule.
 _SAMPLES_SQL = """
 SELECT l.engine AS engine, l.region AS region, l.call_id AS call_id,
-       (element ->> 'llm_ttft_ms')::float8 AS ttft
+       CASE WHEN jsonb_typeof(element -> 'stt_ms') = 'number'
+            THEN (element ->> 'stt_ms')::float8 END AS stt,
+       CASE WHEN jsonb_typeof(element -> 'llm_ttft_ms') = 'number'
+            THEN (element ->> 'llm_ttft_ms')::float8 END AS llm,
+       CASE WHEN jsonb_typeof(element -> 'tts_ttfa_ms') = 'number'
+            THEN (element ->> 'tts_ttfa_ms')::float8 END AS tts
 FROM call_engine_latency AS l
 CROSS JOIN LATERAL jsonb_array_elements(l.turns) AS element
 WHERE l.created_at >= now() - make_interval(days => :days)
-  AND jsonb_typeof(element -> 'llm_ttft_ms') = 'number'
+  AND (jsonb_typeof(element -> 'stt_ms') = 'number'
+       OR jsonb_typeof(element -> 'llm_ttft_ms') = 'number'
+       OR jsonb_typeof(element -> 'tts_ttfa_ms') = 'number')
 LIMIT :cap
 """
 
 
-class LatencyGroup(BaseModel):
-    """One (engine, region) pair's LLM time-to-first-token distribution."""
+#: Which leg of the turn a summary is about. `turn` is the COMPOSED one — STT + LLM TTFT +
+#: TTS TTFA for the same turn — and it is a member of this union rather than a field beside
+#: it so that every leg is summarised by one function under one set of sample-size rules.
+#:
+#: `retrieval` IS DELIBERATELY ABSENT. TRD §4 budgets it at 100ms (§6) and `LatencyBudget`
+#: carries that target, but the engine's `latency_data` has no retrieval block and
+#: `call_engine_latency` therefore holds no sample: the in-call RAG tool endpoint is OURS
+#: and is not instrumented here. A member with no distribution behind it would be a column
+#: of em dashes inviting the reader to conclude retrieval is fast.
+LatencyLeg = Literal["stt", "llm_ttft", "tts_ttfa", "turn"]
 
-    engine: str
-    #: `None` means the engine did not say where it ran — itself a finding: an
-    #: unattributable measurement cannot answer the geography question at all.
-    region: str | None
-    calls: int
+#: The legs in the order a turn spends them, composed leg last. Rendering order is a
+#: property of the pipeline, not of whichever dict the walk happened to build.
+_LEG_ORDER: tuple[LatencyLeg, ...] = ("stt", "llm_ttft", "tts_ttfa", "turn")
+
+
+class LegSummary(BaseModel):
+    """One leg's distribution for one (engine, region) group, and its own verdict.
+
+    **EVERY LEG CARRIES ITS OWN BUDGET, ITS OWN SAMPLE SIZE AND ITS OWN BASIS**, because it
+    has all three. A turn whose payload carried an LLM timing and no transcriber block is a
+    sample for one leg and for neither the other nor the composed sum, so a single `turns`
+    count on the group would be wrong for at least one column of any real report.
+    """
+
+    leg: LatencyLeg
+    #: The target from TRD §4, restated per leg so a row can be read on its own. It is a
+    #: COPY of the corresponding `LatencyBudget` field and never an independent number —
+    #: `_summarize_leg` is handed the budget it judges against, so the two cannot diverge.
+    budget_ms: float
+    #: Turns that reported this leg. For `turn`, turns that reported ALL THREE — a partial
+    #: sum is a different quantity wearing the same name (`TurnLatency.component_sum_ms`).
     turns: int
     basis: SummaryBasis
-    llm_ttft_p50_ms: float | None = None
-    llm_ttft_p95_ms: float | None = None
-    llm_ttft_max_ms: float | None = None
-    #: Turns that spent more than OUR budget in the model. A COUNT, never a page: one turn
+    p50_ms: float | None = None
+    p95_ms: float | None = None
+    #: The MAXIMUM is reported at any sample size: an observation, not an estimate.
+    max_ms: float | None = None
+    #: Turns that spent more than OUR budget on this leg. A COUNT, never a page: one turn
     #: over budget is a cold start (the vendor's own worked example opens at 1633.04ms —
     #: `mirror/pages/concepts/call-latencies.md:99`), and the alarm that DOES page keys on
     #: a whole call's median against the vendor's own bottleneck threshold instead
@@ -146,16 +197,54 @@ class LatencyGroup(BaseModel):
     #: not the worst one. `None` when the sample cannot support a median, because "we do
     #: not know" and "we are within budget" must never render the same.
     budget_breached: bool | None = None
+    #: Whether the UNIT of the underlying observation has been confirmed. False on `stt`
+    #: and therefore on `turn`: the vendor's field table calls `audio_to_text_latency`
+    #: milliseconds (`bolna-findings/mirror/pages/concepts/call-latencies.md:82`) while
+    #: their own example carries `20.12` (:62), which is not a plausible millisecond
+    #: transcription latency. A verdict computed from a number in an unconfirmed unit is
+    #: not a verdict, and the screen that prints it has to say so — so the doubt travels
+    #: as a FIELD rather than as a comment in a module no operator reads. It is settled by
+    #: OPERATIONS §2 gate 4, not by this report.
+    unit_verified: bool
+
+
+class LatencyGroup(BaseModel):
+    """One (engine, region) pair, every leg of it."""
+
+    engine: str
+    #: `None` means the engine did not say where it ran — itself a finding: an
+    #: unattributable measurement cannot answer the geography question at all.
+    region: str | None
+    calls: int
+    #: Turns that reported at least one leg. Never the denominator for a leg's own count —
+    #: that is `LegSummary.turns`, which differs per leg.
+    turns: int
+    legs: list[LegSummary]
+
+    @property
+    def llm_ttft(self) -> LegSummary:
+        """The language leg, which is the one whose geography D-410/D-449 chose."""
+        return next(leg for leg in self.legs if leg.leg == "llm_ttft")
 
 
 class EngineLatencyReport(BaseModel):
-    """Every group in the window, plus the target each is judged against."""
+    """Every group in the window, and the WHOLE budget each is judged against.
+
+    **THE BUDGET IS AN OBJECT AND NOT A FIELD**, and that is this model's second version.
+    It carried `llm_ttft_budget_ms` alone, so the console it feeds printed "target for the
+    first reply: 350 ms" as though it were the budget — one quarter of a 1.1s voice-to-voice
+    p50, presented as the whole constraint. Publishing `LatencyBudget` puts every target on
+    the wire, including the two nothing here can measure and the retrieval leg nothing here
+    samples, so a reader can see what the four numbers add up to instead of inferring it.
+    """
 
     window_days: int
-    #: TRD §4. Restated in the payload rather than left to the reader's memory: a
+    #: TRD §4, whole. Restated in the payload rather than left to the reader's memory: a
     #: distribution with no threshold beside it is the shape in which a target quietly
-    #: becomes whatever the fleet currently does.
-    llm_ttft_budget_ms: float = Field(default=LLM_TTFT_BUDGET_MS)
+    #: becomes whatever the fleet currently does. The composed totals on it are DERIVED
+    #: (`LatencyBudget.turn_ms`), so no consumer — least of all a browser — ever adds the
+    #: legs up itself.
+    budget: LatencyBudget = Field(default=LATENCY_BUDGET)
     #: False when some tenant hit `SAMPLE_CAP_PER_TENANT`, i.e. the distribution describes
     #: a subset. Reported rather than hidden, for `ExecutionListing.complete`'s reason.
     complete: bool = True
@@ -163,8 +252,8 @@ class EngineLatencyReport(BaseModel):
 
     @property
     def regions_measured(self) -> int:
-        """How many distinct regions reported a median. Gate 4 needs TWO."""
-        return len({group.region for group in self.groups if group.llm_ttft_p50_ms is not None})
+        """How many distinct regions reported an LLM median. Gate 4 needs TWO."""
+        return len({group.region for group in self.groups if group.llm_ttft.p50_ms is not None})
 
 
 def _percentile(ordered: list[float], fraction: float) -> float:
@@ -185,33 +274,88 @@ def _percentile(ordered: list[float], fraction: float) -> float:
 
 
 class _Bucket:
-    """Accumulator for one (engine, region) group during the walk."""
+    """Accumulator for one (engine, region) group during the walk.
 
-    __slots__ = ("calls", "samples")
+    One sample list PER LEG, because a turn is a sample for the legs it reported and for no
+    others — and the composed leg only for a turn that reported all three.
+    """
+
+    __slots__ = ("calls", "samples", "turns")
 
     def __init__(self) -> None:
-        self.samples: list[float] = []
+        self.samples: dict[LatencyLeg, list[float]] = {leg: [] for leg in _LEG_ORDER}
         self.calls: set[UUID] = set()
+        self.turns = 0
+
+    def add(self, *, stt: float | None, llm: float | None, tts: float | None) -> None:
+        """One turn. Absent is absent — never 0, which would read as instant."""
+        self.turns += 1
+        pairs: tuple[tuple[LatencyLeg, float | None], ...] = (
+            ("stt", stt),
+            ("llm_ttft", llm),
+            ("tts_ttfa", tts),
+        )
+        for leg, value in pairs:
+            if value is not None:
+                self.samples[leg].append(value)
+        if stt is not None and llm is not None and tts is not None:
+            # `TurnLatency.component_sum_ms`'s rule, applied to the aggregate: a turn
+            # missing a leg contributes to no comparison at all, because a partial sum is a
+            # smaller number that is not a smaller latency.
+            self.samples["turn"].append(stt + llm + tts)
+
+
+#: Which legs carry an observation whose UNIT we have confirmed against the vendor's docs.
+#: `stt` does not (`call-latencies.md:82` vs :62), and the composed `turn` inherits the
+#: doubt because it contains it. Derived per leg rather than written per summary so the
+#: composed leg cannot be marked verified while one of its addends is not.
+_UNIT_VERIFIED: dict[LatencyLeg, bool] = {
+    "stt": False,
+    "llm_ttft": True,
+    "tts_ttfa": True,
+    "turn": False,
+}
+
+
+def _summarize_leg(leg: LatencyLeg, samples: list[float], budget_ms: float) -> LegSummary:
+    """Apply the sample-size rules to ONE leg. Arithmetic is arithmetic; REFUSING is the
+    policy, and it is the same policy for every leg."""
+    ordered = sorted(samples)
+    enough_for_median = len(ordered) >= P50_MIN_TURNS
+    median = _percentile(ordered, 0.5) if enough_for_median else None
+    return LegSummary(
+        leg=leg,
+        budget_ms=budget_ms,
+        turns=len(ordered),
+        basis="measured" if enough_for_median else "insufficient_samples",
+        p50_ms=median,
+        p95_ms=_percentile(ordered, 0.95) if len(ordered) >= P95_MIN_TURNS else None,
+        max_ms=ordered[-1] if ordered else None,
+        turns_over_budget=sum(1 for value in ordered if value > budget_ms),
+        budget_breached=(median > budget_ms) if median is not None else None,
+        unit_verified=_UNIT_VERIFIED[leg],
+    )
 
 
 def _summarize(engine: str, region: str | None, bucket: _Bucket) -> LatencyGroup:
-    """Apply the sample-size rules. Arithmetic is arithmetic; REFUSING is the policy."""
-    ordered = sorted(bucket.samples)
-    enough_for_median = len(ordered) >= P50_MIN_TURNS
-    median = _percentile(ordered, 0.5) if enough_for_median else None
+    """One group: every leg, each against its OWN target, plus the composed turn.
+
+    The budgets are read off `LATENCY_BUDGET` at the point of comparison — no leg budget is
+    named twice in this module, and the composed one is `turn_ms`, which is the sum of the
+    other three by construction rather than by a literal somebody has to keep in step.
+    """
+    budgets: dict[LatencyLeg, float] = {
+        "stt": LATENCY_BUDGET.stt_ms,
+        "llm_ttft": LATENCY_BUDGET.llm_ttft_ms,
+        "tts_ttfa": LATENCY_BUDGET.tts_ttfa_ms,
+        "turn": LATENCY_BUDGET.turn_ms,
+    }
     return LatencyGroup(
         engine=engine,
         region=region,
         calls=len(bucket.calls),
-        turns=len(ordered),
-        basis="measured" if enough_for_median else "insufficient_samples",
-        llm_ttft_p50_ms=median,
-        llm_ttft_p95_ms=_percentile(ordered, 0.95) if len(ordered) >= P95_MIN_TURNS else None,
-        # The MAXIMUM is reported at any sample size, and it is the one number that is
-        # honest at n=1: an observation, not an estimate of a population.
-        llm_ttft_max_ms=ordered[-1] if ordered else None,
-        turns_over_budget=sum(1 for value in ordered if value > LLM_TTFT_BUDGET_MS),
-        budget_breached=(median > LLM_TTFT_BUDGET_MS) if median is not None else None,
+        turns=bucket.turns,
+        legs=[_summarize_leg(leg, bucket.samples[leg], budgets[leg]) for leg in _LEG_ORDER],
     )
 
 
@@ -243,7 +387,11 @@ async def engine_latency_report(
         for row in rows:
             key = (str(row.engine), str(row.region) if row.region is not None else None)
             bucket = buckets.setdefault(key, _Bucket())
-            bucket.samples.append(float(row.ttft))
+            bucket.add(
+                stt=None if row.stt is None else float(row.stt),
+                llm=None if row.llm is None else float(row.llm),
+                tts=None if row.tts is None else float(row.tts),
+            )
             bucket.calls.add(UUID(str(row.call_id)))
 
     elapsed = perf_counter() - started
@@ -282,5 +430,7 @@ __all__ = [
     "WALK_BUDGET_S",
     "EngineLatencyReport",
     "LatencyGroup",
+    "LatencyLeg",
+    "LegSummary",
     "engine_latency_report",
 ]

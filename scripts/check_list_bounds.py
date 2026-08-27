@@ -136,6 +136,22 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # some rows unavailable: an unofferable model is PRESENT and marked (see
     # `agents/llm_models.SelectableModel`), because a missing row tells an operator nothing
     # and a row that says why tells them the one thing they can act on.
+    # Agreements & readiness. Both verbs answer with the same `LegalReadinessOut`, and
+    # both of its lists are bounded by constants in this repo: `documents` is one row per
+    # member of `legal.catalogue.DOCUMENTS` (the published legal set), and `blockers` is
+    # at most one row per organisation-level rule `legal.readiness.readiness_rows` can
+    # emit — a fixed sequence of predicates, not a query over anything a client can grow.
+    # The POST is declared too because it returns the freshly-read screen rather than an
+    # acknowledgement, which is argued at its call site.
+    "GET /v1/legal/readiness": BoundedByConstruction(
+        by=(
+            "`documents` is one row per `legal.catalogue.DOCUMENTS` entry and `blockers` "
+            "one per organisation-level rule `legal.readiness.readiness_rows` asks."
+        )
+    ),
+    "POST /v1/legal/acceptances": BoundedByConstruction(
+        by="the same `LegalReadinessOut` the readiness GET returns, bounded identically."
+    ),
     "GET /v1/usage": BoundedByConstruction(
         by=(
             "`llm_surcharge_models` names the models this month's minutes actually ran "

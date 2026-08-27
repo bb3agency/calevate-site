@@ -111,7 +111,7 @@ credential path this migration exists to leave.
 
 | Item | Where | Note |
 |---|---|---|
-| Phone-number provisioning | `campaigns/provisioning.py`, `PROVISIONING_IMPLEMENTED = False` | The route exists and its own summary says "not implemented yet". Honest, and still a hole in the onboarding path. |
+| Phone numbers | `campaigns/provisioning.py`, `PROVISIONING_IMPLEMENTED = False` | **Not a hole — a decided non-feature (D-474).** Model B: the client buys the connection on their own Exotel/Plivo/Vobiz account and stays the subscriber of record; `POST /v1/numbers/purchase` refuses every request and its remediation names the carriers and asks for the number plus revocable credentials. An operator records the number with `POST /v1/admin/tenants/{tenant_id}/numbers`. |
 | TTS rung attribution unverified | `billing/rates.py`, `ENGINE_TTS_MODEL_GENERATION_VERIFIED = False` | The margin panel splits cost by rung; the mapping from engine model name to rung is not confirmed. Money (hard rule 7). |
 | HMAC path in the receiver | `voice-runtime/engine_intake.py` — `reason="signature verification not implemented"` | Only reachable for an engine that SIGNS. Bolna does not (gate 1), so this is unreached today and would be needed the moment a signing engine is added. |
 

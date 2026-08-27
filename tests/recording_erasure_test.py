@@ -48,7 +48,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import retention, storage
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, accept_agreements
 
 RECORDING_BYTES = b"RIFF....WAVEfmt not-really-audio"
 
@@ -62,6 +62,11 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     # The sweep resolves its tenants from `engine_agent_routes` — a call only ever exists
     # for a published agent, and `publish_agent` writes this row in the same transaction.

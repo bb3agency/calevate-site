@@ -483,6 +483,58 @@ async def record_scrub_run(
     )
 
 
+async def campaigns_awaiting_scrub(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """How many of this tenant's live promotional campaigns have no CURRENT scrub.
+
+    THE ORG-LEVEL VIEW OF A PER-CAMPAIGN RULE, and it exists because the per-campaign one
+    only ever speaks at the moment somebody presses Launch. `national_dnd_blocker` is
+    asked per campaign, by the launch gate and by every dispatch tick, and until the
+    readiness screen there was nowhere a client could see the condition coming. A count,
+    not a list: the client's next action does not vary by campaign — they cannot scrub
+    anything, the scrub is ours to run on the DLT platform — so the number is the whole
+    of the actionable information, and the campaign screen names the individual one.
+
+    Deliberately WEAKER than `national_dnd_blocker`, and the docstring says so rather than
+    pretending otherwise: it asks the two conditions that are properties of the RECORDED
+    RUN — is there one, and has it expired — and not the third, "was a contact added
+    after it", which needs a per-campaign count of `campaign_contacts` and would turn one
+    aggregate into one query per campaign on a screen. A campaign this count reports as
+    fine can still be refused at launch for the late-additions rule, which is the right
+    direction for a preview to be wrong in: it never reports a problem that is not there.
+
+    `expires_at > now()` is `ScrubState.is_current` in SQL. Two spellings of one rule is a
+    cost paid deliberately for the aggregate — the alternative is N round trips — and they
+    live in one module so a change to the window is one file.
+
+    Scoped by RLS like every other read here; `tenant_id` is in the predicate as well
+    because `campaigns` is the tenant table and the join is on `campaign_id`.
+    """
+    # `= ANY(:param)` rather than a spliced `IN (...)`: the two tuples are our own
+    # literals, but D-172's rule is that NO runtime value reaches a SQL string, and a
+    # comprehension over a constant is exactly the shape that stops being safe the day
+    # somebody makes the constant configurable. Bound as arrays, the statement text is
+    # fixed and `scripts/check_raw_sql.py` has nothing to resolve.
+    return int(
+        (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM campaigns c WHERE c.tenant_id = :tid "
+                    "AND c.status = ANY(:statuses) "
+                    "AND c.classification = ANY(:classifications) "
+                    "AND NOT EXISTS (SELECT 1 FROM preference_scrub_runs r "
+                    "  WHERE r.campaign_id = c.id AND r.expires_at > now())"
+                ),
+                {
+                    "tid": tenant_id,
+                    "statuses": list(SCRUBBABLE_CAMPAIGN_STATUSES),
+                    "classifications": list(PREFERENCE_SCRUBBED_CLASSIFICATIONS),
+                },
+            )
+        ).scalar()
+        or 0
+    )
+
+
 __all__ = [
     "MAX_BLOCKED_NUMBERS",
     "NATIONAL_DND_SCRUB_MISSING_REASON",
@@ -491,6 +543,7 @@ __all__ = [
     "SCRUBBABLE_CAMPAIGN_STATUSES",
     "ScrubRecorded",
     "ScrubState",
+    "campaigns_awaiting_scrub",
     "national_dnd_blocker",
     "national_dnd_scrub_expired_reason",
     "national_dnd_scrub_incomplete_reason",

@@ -14,6 +14,7 @@ import {
   BookOpen,
   BrainCircuit,
   Coins,
+  FileSignature,
   FileText,
   GitMerge,
   LayoutDashboard,
@@ -45,6 +46,7 @@ import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/co
 import { clientAuthn, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
+import { useAgreementsReadiness } from "@/lib/api/agreements";
 import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { ClientRealmProvider, useClientRealm } from "@/lib/api/session";
@@ -66,6 +68,18 @@ interface NavItem {
   href: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  /**
+   * A count the sidebar renders beside the label, or `undefined` for no badge.
+   *
+   * `navigation()` is a pure function of the slug and cannot read a query, so a badge is
+   * INJECTED by the component that has the data — see `Sidebar`. That keeps the nav
+   * structure a value the a11y sweep and `currentNavItem` can walk without a provider.
+   *
+   * `undefined` and never `?? 0`, for the bell's reason in `TopHeader`: a coalesce makes
+   * a failed read indistinguishable from an all-clear, which is the "nobody is waiting"
+   * claim §52 exists to stop the shell making.
+   */
+  badge?: number;
 }
 
 interface NavGroup {
@@ -99,6 +113,13 @@ function navigation(slug: string): NavGroup[] {
     {
       heading: "Compliance & data",
       items: [
+        // FIRST IN THIS GROUP because it gates the rest of it: until the owner has
+        // accepted, `agreements_blocker` refuses every dial and every publish, so a
+        // client working down this list would meet the refusal at the bottom instead of
+        // the door at the top. It is also the one screen that names the operational
+        // blockers (KYC, PE registration, DND scrub, first-campaign hold) somewhere other
+        // than a failed campaign launch.
+        { href: `/c/${slug}/agreements`, label: "Agreements", icon: FileSignature },
         { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
         { href: `/c/${slug}/lead-sources`, label: "Lead sources", icon: GitMerge },
@@ -173,7 +194,19 @@ function Sidebar({
   const { href, session } = useClientRealm();
   const me = useMe(session);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const groups = navigation(slug);
+  // THE OUTSTANDING COUNT, injected rather than fetched inside `navigation()`, which is a
+  // pure function the a11y sweep and `currentNavItem` walk without a provider. The number
+  // is the SERVER's `outstanding_documents` and never a length computed here — the same
+  // rule `lib/api/agreements.ts` states and `aiQuota.ts` argues: a browser that recounts a
+  // list can disagree with the gate that refuses the dial.
+  const readiness = useAgreementsReadiness(session);
+  const outstanding = readiness.data?.outstanding_documents;
+  const groups = navigation(slug).map((group) => ({
+    ...group,
+    items: group.items.map((item) =>
+      item.href.endsWith("/agreements") ? { ...item, badge: outstanding } : item,
+    ),
+  }));
   // The SAME entry the header names — see `currentItem`. Identity comparison rather than
   // a second match: two computations cannot disagree if there is only one.
   const current = currentItem(groups, pathname);
@@ -199,6 +232,18 @@ function Sidebar({
       >
         <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`} />
         {!isCollapsed && <span className="flex-1 truncate">{item.label}</span>}
+        {/* Zero renders as NO badge rather than a "0", which reads like an unread marker
+            — the bell's rule in `TopHeader`, applied here so the two cannot drift. While
+            the read is in flight or has failed, `badge` is `undefined` and nothing
+            renders: the sidebar does not get to claim there is nothing outstanding. */}
+        {!isCollapsed && item.badge !== undefined && item.badge > 0 && (
+          <span
+            aria-label={`${item.badge} outstanding`}
+            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white"
+          >
+            {item.badge > 99 ? "99+" : item.badge}
+          </span>
+        )}
       </Link>
     );
   };

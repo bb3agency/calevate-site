@@ -20,6 +20,8 @@ import {
 import {
   BASIS_COPY,
   DEFAULT_WINDOW_DAYS,
+  LEG_COPY,
+  UNVERIFIED_UNIT_NOTE,
   WINDOW_CHOICES,
   budgetVerdict,
   formatMs,
@@ -27,7 +29,9 @@ import {
   useEngineLatency,
   type BudgetVerdict,
   type EngineLatencyReport,
+  type LatencyBudget,
   type LatencyGroup,
+  type LegSummary,
 } from "@/lib/api/engineLatency";
 import { lookup } from "@/lib/lookup";
 
@@ -48,18 +52,19 @@ import { lookup } from "@/lib/lookup";
  *
  * ## It is a REPORT, not a dashboard, and three things follow
  *
- * 1. **Nothing here is derived.** Every percentile, every count and the budget verdict are
- *    the server's own fields. `apps/api/ops/engine_latency.py` withholds a p95 below 20
- *    timed turns and a p50 below 5, and publishes `basis` so the withholding is a fact
- *    rather than a gap — a console that filled either in from the maximum would be
- *    printing the largest sample wearing a percentile's name, which is the one thing that
- *    module refuses to do.
- * 2. **`budget_breached` has THREE states and is rendered as three.** True is "the typical
- *    turn missed our target", false is "it did not", and `null`/absent is "the sample
- *    cannot support a median" — which must never render like the second. The budget itself
- *    is read off the payload (`llm_ttft_budget_ms`) rather than from a constant in this
- *    bundle, because a target restated in the browser is a target that quietly becomes
- *    whatever the last build believed.
+ * 1. **Nothing here is derived — including the budget.** Every percentile, every count,
+ *    every verdict and every target is the server's own field. TRD §4 declares four
+ *    sub-budgets inside a voice-to-voice p50, and the composed totals (`turn_ms`,
+ *    `pipeline_ms`, the headroom) arrive already summed, so this bundle never adds two
+ *    targets together. `engine_latency.py` withholds a p95 below 20 timed turns and a p50
+ *    below 5 and publishes `basis` so the withholding is a fact rather than a gap.
+ * 2. **`budget_breached` has THREE states and is rendered as three, PER LEG.** True is
+ *    "the typical reply missed our target for this stage", false is "it did not", and
+ *    `null`/absent is "the sample cannot support a median" — which must never render like
+ *    the second. This screen showed ONE verdict, the language model's, beside a tile
+ *    reading "Target for the first reply: 350 ms" as though that were the whole budget: it
+ *    is one of four legs inside a 1.1s target, and a reply that spent 900ms in the
+ *    transcriber was painted as comfortably within it.
  * 3. **§52 without exception.** Loading is a skeleton, a failed read is a refusal, and
  *    neither is "no turns were measured". "The engine reported nothing" is a claim about
  *    our own instrumentation — the sentence an operator would act on by going to look for
@@ -70,7 +75,15 @@ import { lookup } from "@/lib/lookup";
  * **Not voice-to-voice latency.** Both ends of that interval are on the PSTN leg this
  * stack is not in (D-25/D-33), which is why `calls.latency` was dropped and stays dropped.
  * These are the engine's numbers about the engine's own pipeline. The stopwatch that says
- * whether they resemble what a caller HEARS is gate 4's, and a human types it in.
+ * whether they resemble what a caller HEARS is gate 4's, and a human types it in. The two
+ * voice-to-voice targets ARE shown — among the budget, labelled as targets nothing here
+ * measures — because a reader who cannot see what the four stages were cut from has no way
+ * to tell whether meeting them would be enough.
+ *
+ * **Not the lookup leg.** TRD §4 budgets a knowledge-base retrieval at 100ms and the
+ * budget panel shows it, but there is no row for it in any group: the engine measures no
+ * such stage and the in-call RAG endpoint is ours and uninstrumented. A row of em dashes
+ * would read as "fast".
  *
  * **Not gate 4's verdict.** The gate is answered by comparing two rows that both carry a
  * median, and the rule that counts them (`EngineLatencyReport.regions_measured`) is a
@@ -117,11 +130,11 @@ export default function EngineLatencyPage() {
   return (
     <div className="space-y-4 pb-12">
       <p className="text-sm text-ink-muted">
-        How long the AI takes to start replying — its &ldquo;time to first reply&rdquo; —
-        measured on each reply and grouped by the region the engine ran the call in. These
-        are the engine&rsquo;s own figures about its own pipeline. They are not what a
-        caller actually hears on the phone from end to end, which is a stopwatch
-        measurement nobody can take from here.
+        How long each stage of a reply takes — hearing the caller, thinking of an answer,
+        starting to speak — measured on every reply and grouped by the region the engine ran
+        the call in. These are the engine&rsquo;s own figures about its own pipeline. They
+        are not what a caller actually hears on the phone from end to end, which is a
+        stopwatch measurement nobody can take from here.
       </p>
 
       {access.refused ? (
@@ -188,18 +201,18 @@ function windowLabel(days: number): string {
  * component that cannot see `undefined` cannot accidentally make one out of it.
  */
 function Report({ report }: { report: EngineLatencyReport }) {
-  const budget = report.llm_ttft_budget_ms;
-
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {/* The target is TRD §4's LLM time-to-first-token budget. Kept as a number,
-            described in plain words on screen — the spec reference stays here, not there. */}
+        {/* The WHOLE reply, not one stage of it. This tile read "Target for the first
+            reply: 350 ms" — the language model's leg — which is the defect this screen's
+            second version exists for. `budget.turn_ms` is the server's sum of the three
+            stages it actually measures; the panel below opens the sum up. */}
         <StatTile
-          label="Target for the first reply"
-          value={formatMs(budget)}
+          label="Target for a whole reply"
+          value={formatMs(report.budget.turn_ms)}
           icon={<Gauge aria-hidden className="h-5 w-5" />}
-          hint="Our goal: the AI should start replying within this long. It's a target we set, not a measurement — this report is the first thing that can show whether we're meeting it."
+          hint="Our goal for the three stages the engine measures, added together. It's a target we set, not a measurement — this report is the first thing that can show whether we're meeting it."
         />
         <StatTile
           label="Rows in this window"
@@ -208,13 +221,15 @@ function Report({ report }: { report: EngineLatencyReport }) {
              word would state a measurement that was refused one column to the right. */
           value={formatCount(report.groups.length)}
           icon={<Timer aria-hidden className="h-5 w-5" />}
-          hint="One row for each engine and region we saw in this window. Each row is judged on its own typical reply time."
+          hint="One row for each engine and region we saw in this window. Each stage of each row is judged on its own typical time."
         />
         {/* The window the SERVER answered for, not the one the chips asked for: the route
             clamps `days` to its own bounds, and a header quoting the request would describe
             a period the figures beside it are not about. */}
         <StatTile label="Window" value={windowLabel(report.window_days)} />
       </div>
+
+      <BudgetPanel budget={report.budget} />
 
       {/* The server says when it stopped counting. A subset described as a distribution is
           the defect `ExecutionListing.complete` exists for, and it is worse here than
@@ -234,58 +249,101 @@ function Report({ report }: { report: EngineLatencyReport }) {
         </NoticeBox>
       )}
 
-      <Card title="How quickly the AI starts replying, by engine and region" bodyClassName="p-2">
-        {report.groups.length === 0 ? (
-          <div className="p-4">
-            <EmptyState
-              title="No timed replies in this window"
-              hint="The engine records these on every call, so an empty window means either that no calls finished in this period, or that the calls that did finish came back with no timings. Widen the window before assuming the second."
-            />
-          </div>
-        ) : (
-          <ScrollRegion label="How quickly the AI starts replying, by engine and region">
-            <table className="w-full text-left text-xs">
-              <thead className="text-ink-muted">
-                <tr>
-                  <HeadCell label="Engine" />
-                  <HeadCell label="Region" />
-                  <HeadCell label="Calls" />
-                  <HeadCell label="Replies" gloss="One back-and-forth exchange" />
-                  <HeadCell
-                    label="Typical reply"
-                    gloss="Half of replies were at least this fast"
-                  />
-                  {/* "p95" kept as the plain-English label an operator can act on, with the
-                      technical term in parentheses and a one-line gloss beneath it. */}
-                  <HeadCell
-                    label="Slowest typical reply (95th percentile)"
-                    gloss="95 out of 100 replies were at least this fast"
-                  />
-                  <HeadCell label="Worst reply" gloss="The single slowest reply" />
-                  <HeadCell label="Over target" gloss="Replies slower than our target" />
-                  <HeadCell label="Verdict" gloss="The typical reply vs our target" />
-                </tr>
-              </thead>
-              <tbody>
-                {report.groups.map((group) => (
-                  <GroupRow key={`${group.engine}:${group.region ?? ""}`} group={group} />
-                ))}
-              </tbody>
-            </table>
-          </ScrollRegion>
-        )}
-        {/* The sample-size rule in words, with NO threshold in it. The two minimums are
-            constants in `apps/api/ops/engine_latency.py` and are not on the wire, so a
-            figure typed here would be a copy that goes stale silently — see
-            `lib/api/engineLatency.ts::BASIS_COPY`. What a reader needs is which cells are
-            a refusal and which are a number, and that does not depend on the value. */}
-        <p className="mt-3 px-2 text-xs text-ink-muted">
-          We don&rsquo;t show a typical or slowest-typical reply time until we&rsquo;ve
-          timed enough replies to trust it, so a blank cell means we don&rsquo;t have enough
-          replies yet — it is never zero. The worst single reply is shown no matter how few
-          replies there are, because it is one real measurement rather than an estimate.
-        </p>
-      </Card>
+      {report.groups.length === 0 ? (
+        <Card title="How long a reply takes, by engine and region">
+          <EmptyState
+            title="No timed replies in this window"
+            hint="The engine records these on every call, so an empty window means either that no calls finished in this period, or that the calls that did finish came back with no timings. Widen the window before assuming the second."
+          />
+        </Card>
+      ) : (
+        report.groups.map((group) => (
+          <GroupCard key={`${group.engine}:${group.region ?? ""}`} group={group} />
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * THE WHOLE BUDGET, AS TRD §4 DECLARES IT — every target, and what they add up to.
+ *
+ * The panel exists because this screen used to print one of these six numbers and call it
+ * the target. Every figure below is read straight off `report.budget`, including the two
+ * composed totals and the headroom: those are `computed_field`s on the server, so no
+ * addition happens in this bundle. A budget computed in a browser is a budget that quietly
+ * becomes whatever the last build believed — the doctrine `lib/api/aiQuota.ts` states for
+ * the one figure where the same mistake costs money.
+ *
+ * A `<dl>` rather than a table: these are labelled values, not a distribution, and the
+ * tables on this screen are reserved for things that were measured.
+ */
+function BudgetPanel({ budget }: { budget: LatencyBudget }) {
+  return (
+    <Card title="What we are aiming for">
+      <p className="text-xs text-ink-muted">
+        Every figure here is a goal we set, not something we have measured. The three stages
+        the engine times are shown against their own goals in the rows below; the rest is
+        here so the parts can be read against the whole.
+      </p>
+      <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <BudgetItem label={LEG_COPY.stt.label} value={budget.stt_ms} note={LEG_COPY.stt.gloss} />
+        <BudgetItem
+          label={LEG_COPY.llm_ttft.label}
+          value={budget.llm_ttft_ms}
+          note={LEG_COPY.llm_ttft.gloss}
+        />
+        <BudgetItem
+          label={LEG_COPY.tts_ttfa.label}
+          value={budget.tts_ttfa_ms}
+          note={LEG_COPY.tts_ttfa.gloss}
+        />
+        {/* The one sub-budget with no distribution anywhere on this screen. It is shown
+            with the reason attached rather than left out of the panel, because it is part
+            of what the caller waits for and dropping it would make the sum below look
+            unexplained. */}
+        <BudgetItem
+          label="Looking something up"
+          value={budget.retrieval_ms}
+          note="When the AI has to check the knowledge base mid-reply. Nothing measures this stage yet, so it has no row below."
+        />
+        <BudgetItem
+          label={LEG_COPY.turn.label}
+          value={budget.turn_ms}
+          note="The three stages the engine measures, added together."
+        />
+        <BudgetItem
+          label="A reply that needed a lookup"
+          value={budget.pipeline_ms}
+          note="All four stages together — everything we have set a goal for."
+        />
+        <BudgetItem
+          label="What the caller should hear, typically"
+          value={budget.voice_to_voice_p50_ms}
+          note="From the caller finishing their sentence to hearing the reply begin, for a typical reply. Nobody can measure this from here — it takes a stopwatch on a real call."
+        />
+        <BudgetItem
+          label="What the caller should hear, at worst"
+          value={budget.voice_to_voice_p95_ms}
+          note="The same measurement for the slowest 1 reply in 20. Also a stopwatch measurement, and one that needs far more calls than a pilot places."
+        />
+        <BudgetItem
+          label="Left over for everything else"
+          value={budget.voice_to_voice_headroom_p50_ms}
+          note="What the typical-reply goal leaves once all four stages are spent: the phone network, the caller's own connection, and the gaps between the stages nobody times."
+        />
+      </dl>
+    </Card>
+  );
+}
+
+/** One labelled target. The value is formatted, never computed. */
+function BudgetItem({ label, value, note }: { label: string; value: number; note: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 text-sm font-medium tabular-nums">{formatMs(value)}</dd>
+      <dd className="mt-0.5 text-[11px] text-ink-faint">{note}</dd>
     </div>
   );
 }
@@ -332,8 +390,74 @@ function HeadCell({ label, gloss }: { label: string; gloss?: string }) {
   );
 }
 
-function GroupRow({ group }: { group: LatencyGroup }) {
-  const verdict = VERDICT_COPY[budgetVerdict(group)];
+/**
+ * ONE (engine, region) PAIR, EVERY STAGE OF IT — a card per group, a row per stage.
+ *
+ * A single fleet-wide table with one row per group carried one distribution and therefore
+ * one verdict, which is exactly how a reply that spent its whole budget in the transcriber
+ * was reported as fine. Four rows per group is more markup and the only shape in which the
+ * composed reply can sit beneath the stages it is the sum of.
+ */
+function GroupCard({ group }: { group: LatencyGroup }) {
+  const heading = `${group.engine} — ${regionLabel(group.region)}`;
+  return (
+    <Card title={heading} bodyClassName="p-2">
+      <p className="px-2 text-xs text-ink-muted">
+        {formatCount(group.calls)} {group.calls === 1 ? "call" : "calls"},{" "}
+        {formatCount(group.turns)} timed {group.turns === 1 ? "reply" : "replies"}. Each stage
+        below counts only the replies that reported it, so the counts differ by row.
+      </p>
+      <ScrollRegion label={`How long a reply takes: ${heading}`}>
+        <table className="w-full text-left text-xs">
+          <thead className="text-ink-muted">
+            <tr>
+              <HeadCell label="Stage" />
+              <HeadCell label="Target" gloss="Our goal for this stage" />
+              <HeadCell label="Replies" gloss="Replies that reported this stage" />
+              <HeadCell label="Typical" gloss="Half of replies were at least this fast" />
+              {/* "p95" kept as the plain-English label an operator can act on, with the
+                  technical term in parentheses and a one-line gloss beneath it. */}
+              <HeadCell
+                label="Slowest typical (95th percentile)"
+                gloss="95 out of 100 replies were at least this fast"
+              />
+              <HeadCell label="Worst" gloss="The single slowest reply" />
+              <HeadCell label="Over target" gloss="Replies slower than the target" />
+              <HeadCell label="Verdict" gloss="The typical reply vs the target" />
+            </tr>
+          </thead>
+          <tbody>
+            {group.legs.map((leg) => (
+              <LegRow key={leg.leg} leg={leg} />
+            ))}
+          </tbody>
+        </table>
+      </ScrollRegion>
+      {/* The sample-size rule in words, with NO threshold in it. The two minimums are
+          constants in `apps/api/ops/engine_latency.py` and are not on the wire, so a
+          figure typed here would be a copy that goes stale silently — see
+          `lib/api/engineLatency.ts::BASIS_COPY`. What a reader needs is which cells are
+          a refusal and which are a number, and that does not depend on the value. */}
+      <p className="mt-3 px-2 text-xs text-ink-muted">
+        We don&rsquo;t show a typical or slowest-typical time until we&rsquo;ve timed enough
+        replies to trust it, so a blank cell means we don&rsquo;t have enough replies yet —
+        it is never zero. The worst single reply is shown no matter how few replies there
+        are, because it is one real measurement rather than an estimate.
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * One stage of a reply, judged against its OWN target.
+ *
+ * `leg.budget_ms` comes off the wire per row rather than from one number at the top of the
+ * screen, which is the whole correction: the three stages have different goals and the
+ * composed reply has a fourth, and a single figure at the top could only ever be one of
+ * them.
+ */
+function LegRow({ leg }: { leg: LegSummary }) {
+  const verdict = VERDICT_COPY[budgetVerdict(leg)];
   /**
    * `basis` comes off the wire, so it is read through `lookup` and not indexed
    * (`lib/lookup.ts`). TWO absences collapse to the same rendering — nothing — and both
@@ -341,31 +465,39 @@ function GroupRow({ group }: { group: LatencyGroup }) {
    * third one, where inventing a sentence is how a screen starts describing a state it has
    * never seen), and `null` is the table saying this state needs no sentence.
    */
-  const basis = lookup(BASIS_COPY, group.basis);
+  const basis = lookup(BASIS_COPY, leg.basis);
+  const copy = lookup(LEG_COPY, leg.leg);
 
   return (
     <tr className="border-t border-line align-top">
-      {/* The engine is a vendor identifier an operator greps their own logs for, so it is
-          shown fixed-width where 0/O and 1/l stay distinct. */}
       <td className="py-1.5 pr-3">
-        <MonoValue>{group.engine}</MonoValue>
-      </td>
-      <td className="py-1.5 pr-3">
-        {regionLabel(group.region)}
+        {/* A leg this build has no words for prints its wire name rather than an empty
+            cell — the same fallback direction `regionLabel` takes for a region code the
+            vendor invented after this bundle was built. */}
+        {copy?.label ?? <MonoValue>{leg.leg}</MonoValue>}
+        {copy && (
+          <span className="mt-0.5 block text-[11px] text-ink-faint">{copy.gloss}</span>
+        )}
         {basis != null && (
           <span className="mt-0.5 block text-[11px] text-ink-faint">{basis}</span>
         )}
-      </td>
-      <td className="py-1.5 pr-3 tabular-nums">{formatCount(group.calls)}</td>
-      <td className="py-1.5 pr-3 tabular-nums">{formatCount(group.turns)}</td>
-      <td className="py-1.5 pr-3 tabular-nums">{formatMs(group.llm_ttft_p50_ms)}</td>
-      <td className="py-1.5 pr-3 tabular-nums">{formatMs(group.llm_ttft_p95_ms)}</td>
-      <td className="py-1.5 pr-3 tabular-nums">{formatMs(group.llm_ttft_max_ms)}</td>
-      <td className="py-1.5 pr-3 tabular-nums">
-        {formatCount(group.turns_over_budget)}
-        {group.turns > 0 && (
-          <span className="text-ink-faint"> of {formatCount(group.turns)}</span>
+        {/* The doubt is the SERVER's field, not this screen's opinion: a verdict computed
+            from a number whose unit nobody has confirmed is not a verdict, and the row that
+            prints it says so rather than leaving the caveat in a module docstring. */}
+        {!leg.unit_verified && (
+          <span className="mt-0.5 block text-[11px] text-amber-700 dark:text-amber-400">
+            {UNVERIFIED_UNIT_NOTE}
+          </span>
         )}
+      </td>
+      <td className="py-1.5 pr-3 tabular-nums">{formatMs(leg.budget_ms)}</td>
+      <td className="py-1.5 pr-3 tabular-nums">{formatCount(leg.turns)}</td>
+      <td className="py-1.5 pr-3 tabular-nums">{formatMs(leg.p50_ms)}</td>
+      <td className="py-1.5 pr-3 tabular-nums">{formatMs(leg.p95_ms)}</td>
+      <td className="py-1.5 pr-3 tabular-nums">{formatMs(leg.max_ms)}</td>
+      <td className="py-1.5 pr-3 tabular-nums">
+        {formatCount(leg.turns_over_budget)}
+        {leg.turns > 0 && <span className="text-ink-faint"> of {formatCount(leg.turns)}</span>}
       </td>
       <td className={`py-1.5 pr-3 ${verdict.className}`}>{verdict.label}</td>
     </tr>

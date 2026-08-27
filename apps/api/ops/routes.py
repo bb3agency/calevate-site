@@ -3,7 +3,7 @@ own DLT telemarketer registration, and the spend-cap recompute.
 
 The DLT registration is a legal fact rather than an operational lever, and it is here
 because it has the same SHAPE as the levers: one value, global, true or false for every
-tenant at the same instant. SEC-COMP §3's first bullet makes it the company-level campaign
+tenant at the same instant. SEC-COMP §3's first bullet makes it the platform-level campaign
 blocker — while it is not `active`, `campaigns.service.launch_blockers` refuses every
 tenant's launch with `tm_registration_missing`, however complete that client's own
 Principal Entity registration is. A per-tenant copy of it would be N copies of one fact
@@ -769,7 +769,7 @@ async def set_platform(
     openapi_extra=permission_meta("ops:manage"),
     summary="Record Calevate's own DLT telemarketer registration (step-up confirmed, audited)",
     description=(
-        "The company half of SEC-COMP §3's first bullet. While this is not `active`, "
+        "Calevate's own half of SEC-COMP §3's first bullet. While this is not `active`, "
         "NO tenant can launch an outbound campaign, however complete their own "
         "Principal Entity registration is. Inbound answering is unaffected."
     ),

@@ -182,7 +182,7 @@ ResidualReason = Literal["prepaid_wallet_vs_panel", "no_billable_minutes"]
 # construction rather than by nothing having moved.
 #
 # `GROUPING(unit_type)` is the discriminator, not `call_id IS NULL`: a per-CALL row with
-# no call is real (`number_rental` — OPERATIONS §2 gate 26 turns its writer on) and would
+# no call is real (`number_rental`, which nothing writes — see `UnattributedCost`) and would
 # be indistinguishable from a per-UNIT row otherwise.
 #
 # `LEFT JOIN`, twice: the callless bucket must not be dropped out of a cost total that
@@ -299,10 +299,12 @@ class UnitAttribution:
 class UnattributedCost:
     """Cost this month that belongs to no call.
 
-    `number_rental` is the whole of it and nothing writes one yet (OPERATIONS §2 gate 26
-    is what turns that writer on), so this is `None` on every real month today. It exists
-    rather than being assumed away because the alternative is a `cost_inr` that silently
-    stops being the sum of its parts on the day a number is first billed.
+    `number_rental` is the whole of it and NOTHING WRITES ONE. Under Model B the client
+    rents their number from their own operator and Calevate never pays for it
+    (`campaigns/provisioning.py`; `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9), so this is
+    `None` on every real month. It exists rather than being assumed away because the
+    alternative is a `cost_inr` that silently stops being the sum of its parts the day
+    any callless unit is metered.
     """
 
     minutes: Decimal

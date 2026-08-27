@@ -250,7 +250,8 @@ export default function IntegrationsPage() {
                client-side guess about a server rule; it is the server's answer, rendered.
                The words are ours because the server sent a boolean and not a sentence
                (the shape `KycRecordOut.number_purchase_available` set, and the shape the
-               verification screen's "Buying a phone number" card renders from), and they
+               verification screen's "Where your calling number comes from" card renders
+               from), and they
                name the remediation the API names in its own refusal so a client who meets
                both hears one story. */
             <SheetsUnavailable
@@ -783,7 +784,8 @@ function WebhookForm({
  * founder/ops decision, and "try again" is not the remediation for a capability the
  * deployment does not have. Deliberately NOT a disabled button either — a dead control
  * costs a client a support ticket to learn what one sentence tells them, which is the
- * argument the verification screen's "Buying a phone number" card already makes.
+ * argument the verification screen's "Where your calling number comes from" card already
+ * makes.
  */
 function SheetsUnavailable({
   headline,

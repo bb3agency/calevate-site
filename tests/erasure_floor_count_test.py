@@ -50,7 +50,7 @@ from apps.workers.retention import execute_deletion_request
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, accept_agreements
 
 BASE = "/v1/compliance/deletion-requests"
 
@@ -101,6 +101,11 @@ async def _org() -> tuple[uuid.UUID, uuid.UUID, str, str]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id, slug = created["id"], created["agent_id"], created["slug"]
     async with untenanted_session() as session:
         await session.execute(

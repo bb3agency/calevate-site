@@ -1053,8 +1053,10 @@ const TM_LINK_STATUSES: { value: TmLinkStatus; label: string }[] = [
  * no client-realm route for this and there must not be one.
  *
  * Two statuses, not one "ready" flag, because they fail separately and the next action
- * differs — an unregistered entity is a registration we execute for them; a missing TM
- * link is an authorisation only they can grant on the registrar's portal.
+ * differs — an unregistered entity is a registration the CLIENT takes out in their own
+ * name (they are the Principal Entity); a missing TM link is an authorisation only they
+ * can grant, from that same login. Both are theirs to do; ours is the TM-ID they bind
+ * and our acceptance of the chain.
  */
 function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: ReturnType<typeof useAdminAccess> }) {
   const record = useRecordDltRegistration(tenantId);
@@ -1183,11 +1185,18 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
 /**
  * The prerequisites every client campaign stalls on (SEC-COMP §3).
  *
- * They live in the ADMIN console because they are our operational work: we buy the
- * number, we file the template with the registrar under the client's PE, we record
- * what the registrar says about their entity. A client who could mark their own
- * template "approved" would be launching under a registration that does not exist —
- * so the client realm reads these and never writes them.
+ * Neither of them is a thing we obtain. **We do not buy the number** — the client takes
+ * the connection in their own name on their own Exotel / Plivo / Vobiz account and stays
+ * the subscriber of record (Model B: `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9, published
+ * Terms clause 3); the form below RECORDS the number they bought, so the launch gate can
+ * read its series. **And we cannot file a template under their PE** — they hold that DLT
+ * login, not us; what we do is draft the template content for them to file, and record
+ * the registrar's verdict.
+ *
+ * They live in the ADMIN console anyway, because both are compliance facts the launch
+ * gate reads: a client who could mark their own template "approved" would be launching
+ * under a registration that does not exist. The client realm reads these and never
+ * writes them.
  */
 function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const numbers = useTenantNumbers(slug);
@@ -1229,14 +1238,14 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           </h3>
           {provision.error && <ProblemNotice error={provision.error} />}
           {setDlt.error && <ProblemNotice error={setDlt.error} />}
-          {/* A failed read printed "No numbers provisioned" — the sentence an operator
-              acts on by buying a second number for a client who already has one. */}
+          {/* A failed read printed "No numbers on file" — the sentence an operator acts
+              on by asking a client who already has a number to go and get another. */}
           {numbers.error ? (
             <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />
           ) : numbers.isLoading || !numbers.data ? (
             <Skeleton rows={2} />
           ) : numbers.data.length === 0 ? (
-            <p className="text-xs text-ink-muted">No numbers provisioned.</p>
+            <p className="text-xs text-ink-muted">No numbers on file.</p>
           ) : (
             <ul className="space-y-1.5">
               {numbers.data.map((number) => (
@@ -1275,7 +1284,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           >
             <input
               required
-              aria-label="Number to provision"
+              aria-label="Number to record"
               value={e164}
               disabled={!write.allowed}
               onChange={(ev) => setE164(ev.target.value)}

@@ -750,6 +750,14 @@ class RestoreDrill:
                 "phone_e164, status, channel, notice_version, recorded_by_user_id) VALUES "
                 f"('{_uuid7()}', '{tenant}', '{user}', '+9{prefix}000001', 'granted', "
                 f"'self_serve_console', 'v1', '{user}')",
+                # Contract formation, not consent: this ledger has no status column
+                # and no withdrawal row, so the fixture is simply one accepted
+                # agreement. The version string carries the review state, exactly as
+                # `legal.catalogue.version_of` renders it.
+                "INSERT INTO legal_acceptances (id, tenant_id, document_slug, "
+                "document_version, statement_version, accepted_by_user_id) VALUES "
+                f"('{_uuid7()}', '{tenant}', 'terms', '1+pre-review', '1+pre-review', "
+                f"'{user}')",
                 # `campaign_id` is left NULL deliberately: the ONE update its trigger
                 # permits is the `ON DELETE SET NULL` that clears a non-null campaign, so
                 # a NULL here means the probe's `SET tenant_id = tenant_id` meets the

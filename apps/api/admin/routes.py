@@ -1292,11 +1292,20 @@ async def tenant_margin(
 
 # --------------------------------------------------------- campaign prerequisites
 #
-# Numbers and DLT templates are what the campaign launch gate checks (SEC-COMP §3),
-# and both are OUR operational work: we buy the number, we file the template with the
-# registrar under the client's PE. The client realm can read them (to pick one) but
-# never write them — a client who could mark their own template "approved" would be
-# launching under a registration that does not exist.
+# Numbers and DLT templates are what the campaign launch gate checks (SEC-COMP §3), and
+# neither is a thing we obtain. **We do not buy the number** — Model B: the client takes
+# the connection on their own Exotel / Plivo / Vobiz account, passes that operator's KYC,
+# stays the subscriber of record and issues us revocable credentials (`docs/legal/
+# LEGAL-OPS-PLAYBOOK.md` §9; published Terms clause 3). What `provision_number` below does
+# is RECORD the number they bought, so the launch gate can match its series. **And we
+# cannot file a template under the client's PE**: the client is the Principal Entity, they
+# register their own headers and templates on their own DLT login (`:359`, `:373`), and we
+# do not hold those portal credentials. What we realistically do is DRAFT the template
+# content for them to file, and record the registrar's verdict when it comes back.
+#
+# These stay ADMIN-ONLY writes all the same: both are compliance facts the launch gate
+# reads, and a client who could mark their own template "approved" would be launching
+# under a registration that does not exist. The client realm reads them to pick one.
 
 
 class ProvisionNumberIn(BaseModel):
@@ -1306,6 +1315,8 @@ class ProvisionNumberIn(BaseModel):
     # The series decides what the number may lawfully dial (DATA-MODEL §6).
     series: Literal["140", "160", "standard"]
     agent_id: UUID | None = None
+    # The operator the CLIENT holds this connection with — Exotel, Plivo, Vobiz. Ours to
+    # record, never ours to choose: the account is theirs (Model B).
     provider: str | None = Field(default=None, max_length=60)
     purpose: str | None = Field(default=None, max_length=120)
 
@@ -1369,9 +1380,11 @@ class DltRegistrationIn(BaseModel):
     """What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP §3).
 
     Two statuses rather than one `ready` flag, because they fail separately and the
-    next action differs: an unregistered entity is a ₹5,900 registration we execute for
-    them, a missing TM link is an authorisation only they can grant. The launch gate
-    names them separately for the same reason.
+    next action differs: an unregistered entity is a ₹5,900 registration the CLIENT
+    takes out in their own name on the registrar's portal — they are the Principal
+    Entity — and a missing TM link is an authorisation only they can grant from that
+    same login. Both are theirs; what is ours is the TM-ID they bind and our acceptance
+    of the chain. The launch gate names them separately for the same reason.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1453,7 +1466,15 @@ class DltRegistrationOut(BaseModel):
     response_model=NumberCreatedOut,
     status_code=201,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Provision a calling number — the series is the compliance-bearing field",
+    summary="Record a calling number the client holds — the series is the compliance-bearing field",
+    description=(
+        "Records a telephone connection the CLIENT has already taken in their own name "
+        "with an Indian operator, so the campaign launch gate can match its series "
+        "against a campaign's classification. Calevate does not supply, buy or resell "
+        "the number: the client is the subscriber of record and issues Calevate "
+        "revocable API credentials for it. `dlt_status` starts `pending` and is a "
+        "separate, deliberate step."
+    ),
 )
 async def provision_number(
     tenant_id: UUID,
@@ -1462,10 +1483,16 @@ async def provision_number(
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> NumberCreatedOut:
-    """A mistyped tenant uuid is a 404, and it used to be a 409 about a NUMBER.
+    """Recording the client's own connection — and why a mistyped uuid is a 404.
 
+    The number is the CLIENT's: they bought it on their own operator account and stay the
+    subscriber of record (Model B, `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). This route
+    files it against their tenant so the launch gate can read its series; it asks no
+    operator for anything.
+
+    A mistyped tenant uuid used to be a 409 about a NUMBER.
     `provision_number` maps every `IntegrityError` to `number_taken` ("This number is
-    already provisioned — it may belong to another account"), which is the right answer
+    already recorded against an account"), which is the right answer
     for the UNIQUE index it was written for and the wrong one for the tenant foreign
     key. An operator who mistyped the client id was told to go looking for whoever
     holds a number nobody holds. `service.tenant_exists` is the ONE definition of "is
@@ -1739,9 +1766,9 @@ async def record_dlt_registration(
     description=(
         "Records what Calevate verified about a client's business, against which "
         "registry document, and who verified it. Upserts: re-recording is what happens "
-        "on every re-verification. Only a `verified` record opens number provisioning "
-        "(every plan tier) and outbound dialling for a self-serve account. There is "
-        "deliberately no client-facing twin — a business that could mark its own "
+        "on every re-verification. Only a `verified` record clears the identity gate "
+        "(every plan tier) and opens outbound dialling for a self-serve account. There "
+        "is deliberately no client-facing twin — a business that could mark its own "
         "identity verified would be marking the telecom gate green on a check nobody "
         "performed."
     ),

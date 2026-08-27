@@ -40,7 +40,7 @@ from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.workers import retention
 from apps.workers.retention import REDACTED_MARK, sweep_tenant, sweep_tenants
 from sqlalchemy import event, text
-from tests.conftest import FakeS3
+from tests.conftest import FakeS3, accept_agreements
 
 SUMMARY = "Caller asked to reschedule Tuesday's appointment"
 EXTRACTED: str = '{"name": "Ravi", "callback": "+919876500099", "intent": "book"}'
@@ -61,6 +61,11 @@ async def _org(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     if published:
         async with untenanted_session() as session:

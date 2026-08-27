@@ -73,6 +73,7 @@ from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_ti
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from tests.conftest import accept_agreements
 from tests.national_dnd_test import record_test_scrub
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -175,6 +176,11 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, exactly like the DLT registration above. Since that release every dial gate
+    # refuses an organisation that has not accepted them, and a fixture without them makes
+    # this file report `agreements_not_accepted` in place of the refusal it is about.
+    await accept_agreements(uuid.UUID(str(tenant_id)))
     _TENANTS.append(tenant_id)
     return tenant_id, agent_id
 

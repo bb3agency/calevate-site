@@ -45,6 +45,7 @@ from apps.api.ingest.recorded import RecordedLeadRetriever
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 APP_SECRET = "meta-app-secret-for-tests"
 
@@ -131,6 +132,11 @@ async def _tenant_with_meta_source(
         created_by=None,
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away. Every dial gate now refuses an organisation that has not accepted them, so a
+    # fixture without this makes `check_dispatch` report `agreements_not_accepted` in
+    # place of the consent rule these tests are actually about.
+    await accept_agreements(uuid.UUID(str(tenant_id)))
     webhook_id = uuid.uuid4()
     ref = f"fakeagent_meta_{uuid.uuid4().hex[:8]}"
 

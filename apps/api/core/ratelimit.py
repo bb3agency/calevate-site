@@ -252,6 +252,12 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/billing/topups/intent", "costly", _m("POST")),
     Rule("/v1/kb/sources", "costly", _m("POST")),
     Rule("/v1/invitations", "costly", _m("POST")),
+    # Accepting an agreement (migration a9d4e70c31b8). `costly` is not about money here —
+    # nothing is spent — but about what the profile's own comment says: "no human clicks
+    # these 30 times a minute". There are four agreements and each is accepted once, so a
+    # caller doing this at `client_api` rates is stuffing an append-only contract ledger,
+    # and every row of it is evidence somebody has to read later.
+    Rule("/v1/legal/acceptances", "costly", _m("POST")),
     Rule("/v1/lead-sources/*/test", "costly", _m("POST")),
     Rule("/v1/lead-sources/*/meta/**", "costly", _m("POST")),
     Rule("/v1/integrations/endpoints/**", "costly", _m("POST")),

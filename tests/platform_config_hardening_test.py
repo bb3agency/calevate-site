@@ -919,7 +919,7 @@ def test_a_type_valid_but_catastrophic_value_is_refused_by_the_field_itself() ->
     # A bound that refuses a value a CONSUMER already degrades on gracefully would turn a
     # survivable misconfiguration into a process that cannot boot. `gst_supplier_gstin`
     # is the case: `billing/gst.parse_gstin` treats a malformed one as absent and renders
-    # a proforma naming the missing key, so the model caps its LENGTH and does not check
+    # a bill of supply naming the missing key, so the model caps its LENGTH and does not check
     # its shape. This pins that direction, because the obvious "improvement" is to make
     # the model exact — and `invoice_gst_test` is where that goes red.
     assert pc.validate_value("gst_supplier_gstin", "36AABCC1234D1Z") == "36AABCC1234D1Z"

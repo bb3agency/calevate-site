@@ -170,7 +170,9 @@ function TenantSpendBoard({ data }: { data: TenantSpend }) {
       {data.unattributed && (
         <div className={`rounded-card border p-3 text-xs ${NOTICE_TONES.neutral}`}>
           {formatINR(data.unattributed.cost_inr)} of cost this month belongs to no call
-          ({data.unattributed.minutes} minutes) — number rental and nothing else today.
+          ({data.unattributed.minutes} minutes). The only unit that can land here is{" "}
+          <span className="font-mono">number_rental</span>, and nothing writes one —
+          clients rent their numbers from their own operator, not from us.
         </div>
       )}
 

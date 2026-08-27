@@ -386,7 +386,8 @@ async def run_gate_2(ctx: GateContext) -> GateRun:
             )
             findings.append(
                 "ADAPTER GAP: `BolnaEngine.provision_number` raises "
-                "`engine_capability_unverified` (M1 defers it to the telephony provider), "
+                "`engine_capability_unverified` (Model B — the client buys the connection "
+                "on their own carrier account and this product buys none), "
                 "so gate 2's 'attach number' step cannot be executed through the adapter "
                 "at all. The number must be attached by hand in the dashboard before the "
                 "run, and gate 2 can never report a full PASS until either the adapter "

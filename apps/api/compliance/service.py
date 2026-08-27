@@ -76,6 +76,7 @@ from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
+from apps.api.legal.service import agreements_blocker
 
 log = get_logger(__name__)
 
@@ -436,6 +437,22 @@ async def check_dispatch(
     blocked_on_kyc = await kyc_blocker(session, tenant_id=tenant_id)
     if blocked_on_kyc is not None:
         rule, reason = blocked_on_kyc
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
+
+    # THE AGREEMENTS, and they sit HERE — after "who are you" and before the money — for
+    # the same reason KYC does. An account that has not accepted its Data Processing
+    # Addendum is one we have no instrument to process its callers' personal data under,
+    # which outranks whether its wallet is full; and telling such an account to top up
+    # would send them to a screen that cannot unblock them. One indexed read, on the same
+    # session, against at most four rows (`legal.service.agreements_blocker`).
+    #
+    # THIS GATE IS THE ONE THAT REACHES THE PATHS THE CAMPAIGN GATES CANNOT: the D-21
+    # "call this lead" button, the instant requested-callback webhook and the WhatsApp
+    # escalation all pass through here and never through `launch_blockers`. A client who
+    # has agreed to nothing must not be able to dial a single lead either.
+    unaccepted = await agreements_blocker(session, tenant_id=tenant_id)
+    if unaccepted is not None:
+        rule, reason = unaccepted
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
     if await spend_capped(session, tenant_id=tenant_id):

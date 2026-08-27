@@ -90,7 +90,8 @@ const APPROVED = "approved";
  *   thing a client most needs to know is that it will not happen to their next campaign.
  * - `never_applied` — not held, and no decision on file. Managed accounts, which the
  *   gate exempts by tier (`SELF_SERVE_TIERS`): their identity was verified by a person
- *   before we bought their number. NOT the same as `released`, and not the same as
+ *   when we contracted with them, as their own operator verified it before issuing them
+ *   a connection. NOT the same as `released`, and not the same as
  *   `pending` either — reading a null `status` as "waiting" would tell a managed client
  *   their campaigns are held when they are not.
  */

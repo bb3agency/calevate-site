@@ -83,6 +83,89 @@ async def arm_agent_for_outbound(
             )
 
 
+async def accept_agreements(tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> None:
+    """Record the four blocking legal acceptances an operating tenant now has to have.
+
+    Since migration a9d4e70c31b8, `legal.service.agreements_blocker` refuses the dial
+    gate, both campaign gates and the agent publish path for an organisation that has not
+    accepted the Terms, the Privacy Policy, the DPA and the Acceptable Use Policy at their
+    current version. Fixtures written before that rule build a tenant that CANNOT lawfully
+    operate, so a test about something else — whose wallet is empty, which header the
+    dialler presents, who may call the publish route — fails on a gate it is not about,
+    and the refusal it reports is the wrong one.
+
+    Exactly the shape and exactly the argument of `arm_agent_for_outbound` above: it does
+    NOT soften the gate, it supplies the missing fact, and it goes through
+    `record_acceptance`, so a fixture can never store a version or a wording the client's
+    own console would be refused for sending.
+
+    `user_id` IS OPTIONAL AND THE DEFAULT IS NOT A SHORTCUT. An acceptance names a PERSON,
+    and most fixtures here build a tenant with no member at all because the surface under
+    test does not need one. So this resolves the tenant's OWN owner when it has one, and
+    falls back to a stand-in person when it does not — see `_owner_of` for why the
+    stand-in gets no membership. Pass the id explicitly whenever the test asserts anything
+    about WHO signed.
+
+    Idempotent in effect rather than in rows: the ledger is append-only, so re-accepting
+    appends and `latest_acceptances` still resolves to the same verdict.
+    """
+    from apps.api.db.session import tenant_session
+    from apps.api.legal import catalogue, statements
+    from apps.api.legal import service as legal_service
+
+    if user_id is None:
+        user_id = await _owner_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        for slug in catalogue.BLOCKING_SLUGS:
+            spec = catalogue.document(slug)
+            assert spec is not None, slug
+            await legal_service.record_acceptance(
+                session,
+                tenant_id=tenant_id,
+                slug=slug,
+                version=spec.current_version,
+                statement_version=statements.statement_version(),
+                user_id=user_id,
+            )
+
+
+async def _owner_of(tenant_id: uuid.UUID) -> uuid.UUID:
+    """This tenant's owner where it has one, and a stand-in person where it does not.
+
+    NO MEMBERSHIP IS CREATED for the stand-in, and that is the deliberate half.
+    `legal_acceptances.accepted_by_user_id` references `users` and nothing else, so a
+    membership is not needed to make the row valid — and inserting one would put a row in
+    a table that other fixtures in this suite COUNT (team screens, directory listings,
+    seat maths). A fixture that repairs one gate by moving another test's number is worse
+    than the gate it repaired. A test that cares who signed passes the id explicitly.
+    """
+    from apps.api.db.session import tenant_session, untenanted_session
+
+    async with tenant_session(tenant_id) as session:
+        existing = (
+            await session.execute(
+                text(
+                    "SELECT user_id FROM memberships WHERE tenant_id = :t "
+                    "AND role = 'owner' ORDER BY created_at LIMIT 1"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar()
+    if existing is not None:
+        return uuid.UUID(str(existing))
+
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, name, created_at, updated_at) "
+                "VALUES (:id, :email, 'Fixture Owner', now(), now())"
+            ),
+            {"id": user_id, "email": f"{user_id}@example.com"},
+        )
+    return user_id
+
+
 @pytest.fixture(scope="session")
 def event_loop_policy() -> asyncio.AbstractEventLoopPolicy:
     policy = asyncio.get_event_loop_policy()

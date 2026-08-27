@@ -1,11 +1,12 @@
 """Client-realm read of this account's own KYC verification (R-11; SURFACES §2b).
 
-The view that explains a disabled dial button and a disabled "buy a number" button.
-`compliance.service.check_dispatch` emits `kyc_missing` / `kyc_not_verified` and
-`campaigns.provisioning` refuses a purchase on the same two facts; without this route a
-client who hit either had nowhere to look up what we hold, what state it is in, or what
-we are waiting for. That is the page somebody opens precisely when they are already
-blocked, which is the worst possible moment to have no page.
+The view that explains a disabled dial button, and what we hold about this business.
+`compliance.service.check_dispatch` emits `kyc_missing` / `kyc_not_verified`, and the
+client's own operator will ask for the same documents before it issues them a connection
+at all; without this route a client who hit either had nowhere to look up what we hold,
+what state it is in, or what we are waiting for. That is the page somebody opens
+precisely when they are already blocked, which is the worst possible moment to have no
+page.
 
 Four shapes, each deliberate — the same four `registration_routes.py` argues for, so
 that a client's two compliance screens behave identically:
@@ -29,10 +30,14 @@ that a client's two compliance screens behave identically:
   chain that grows a row per poll stops being readable.
 
 `number_purchase_available` is on this response rather than on a second endpoint because
-it is half of the answer to "why can I not buy a number": the other half is this
-deployment having a telephony provider at all. It comes from
-`campaigns.provisioning.number_purchase_available()` — the SAME selector the purchase
-route asks — so this screen cannot offer a button that route refuses.
+it is half of the answer to "can Calevate get me a number": the other half is whether
+this product supplies numbers at all, and under Model B it does not — the client buys the
+connection on their own operator account and stays the subscriber of record
+(`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). It comes from
+`campaigns.provisioning.number_purchase_available()` — the SAME selector
+`POST /v1/numbers/purchase` asks — so this screen can never offer a button that route
+refuses. It is false for every account in every deployment, and the screen renders a
+sentence rather than a control because of it.
 
 Hard rule 1: the session is `deps.db`, so the row is scoped by RLS rather than by a
 predicate anyone could forget. `tests/kyc_gate_test.py` proves tenant B sees zero rows
@@ -99,10 +104,10 @@ class KycRecordOut(BaseModel):
     # date an operator typed.
     verified_at: datetime | None
     is_verified: bool
-    # Both halves of "can I buy a number": this account being verified AND this
-    # deployment having a telephony provider with an adapter behind it. False today for
-    # every account, because no provider is configured anywhere (D-05 is a decision, not
-    # a credential) — see `campaigns/provisioning.py`.
+    # Both halves of "can Calevate get me a number": this account being verified AND
+    # this product supplying numbers at all. The second half is FALSE BY DECISION and
+    # not by omission — Model B, `campaigns/provisioning.py` — so this is false for
+    # every account in every deployment.
     number_purchase_available: bool
 
 
@@ -129,11 +134,13 @@ def _out(record: KycRecord, *, purchase_available: bool) -> KycRecordOut:
     openapi_extra=permission_meta("org:read"),
     summary="This account's identity verification — absence is data, not a 404",
     description=(
-        "What Calevate has verified about this business, and whether that is enough to "
-        "buy a phone number. Read-only: Indian telecom rules make the subscriber's "
-        "identity something the provider verifies, never something the subscriber "
-        "asserts, so verification is recorded by Calevate operations. A business with "
-        "nothing on file yet gets `recorded: false` and a 200."
+        "What Calevate has verified about this business. Read-only: Indian telecom "
+        "rules make the subscriber's identity something the provider verifies, never "
+        "something the subscriber asserts, so verification is recorded by Calevate "
+        "operations. `number_purchase_available` is always false — Calevate does not "
+        "supply telephone numbers; the client takes the connection on their own "
+        "operator account. A business with nothing on file yet gets `recorded: false` "
+        "and a 200."
     ),
 )
 async def read_kyc_record(

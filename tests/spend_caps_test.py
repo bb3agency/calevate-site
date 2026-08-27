@@ -36,6 +36,7 @@ from apps.api.engine import get_engine
 from apps.workers.pipeline import _meter, ingest_engine_event, run_post_call_pipeline
 from calevate_shared.engine import CostBreakdown, ExecutionSnapshot
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 from tests.smoke_pipeline_test import _seed_tenant
 
 
@@ -104,6 +105,11 @@ async def _tenant(label: str) -> tuple[UUID, UUID, str]:
     from tests.conftest import arm_agent_for_outbound
 
     await arm_agent_for_outbound(tenant_id, outbound_agent_id)
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the same shape as `arm_agent_for_outbound` above. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(tenant_id)
     return tenant_id, outbound_agent_id, agent_ref
 
 

@@ -19,8 +19,9 @@ import { renderAdminRoute, routeParams } from "./adminRoute";
  * templates, margin) and every one of them used to render its EMPTY state on a failed
  * request. On an operator console that direction is the expensive one:
  *
- * - "No numbers provisioned" after a failed read gets a second number bought for a client
- *   who already has one — a DID we pay for, on a DLT header that then has to be untangled.
+ * - "No numbers on file" after a failed read has an operator ask a client who already has
+ *   a number to go and take out a second connection on their carrier account — money they
+ *   spend, on a DLT header that then has to be untangled.
  * - "Nothing awaiting approval" after a failed read leaves a client's knowledge sitting in
  *   a queue nobody looks at again, because the queue said it was empty.
  * - An agents panel that returned `null` on failure was indistinguishable from a client
@@ -167,8 +168,8 @@ describe("the client detail screen", () => {
 
     await screen.findByText("We could not read this client's numbers.");
 
-    // The sentence that gets a duplicate DID bought.
-    expect(container.textContent).not.toContain("No numbers provisioned");
+    // The sentence that gets a client asked for a second DID they do not need.
+    expect(container.textContent).not.toContain("No numbers on file");
   });
 
   it("does not report an empty template list when the templates could not be read", async () => {
@@ -263,7 +264,7 @@ describe("the client detail screen", () => {
   it("says an empty list is empty when the SERVER says so", async () => {
     const { container } = await render();
 
-    await screen.findByText("No numbers provisioned.");
+    await screen.findByText("No numbers on file.");
 
     // The counterpart to the four tests above: with 200s in hand the screen must state
     // the emptiness plainly, because an operator reading a refusal where there is simply

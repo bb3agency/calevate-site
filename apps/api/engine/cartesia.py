@@ -844,8 +844,11 @@ class CartesiaEngine:
         raise ProblemError(  # unreachable while `number_series` is empty
             kind="dependency",
             code="engine_capability_unverified",
-            title="Number provisioning is not available",
-            detail="Numbers are provisioned with the telephony provider directly.",
+            title="The voice platform does not supply numbers",
+            detail=(
+                "The client's calling number is taken on their own operator account and "
+                "connected to the platform; nothing here buys one."
+            ),
         )
 
     async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:

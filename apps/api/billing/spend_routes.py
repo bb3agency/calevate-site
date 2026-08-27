@@ -211,7 +211,13 @@ class UnitSpendOut(Strict):
 
 
 class UnattributedSpendOut(Strict):
-    """Cost this month that belongs to no call — `number_rental` and nothing else today."""
+    """Cost this month that belongs to no call.
+
+    `number_rental` is the only unit that can land here and nothing writes one: under
+    Model B a client rents their number from their own operator, not from us
+    (`campaigns/provisioning.py`). Kept because a total that claims to be a partition
+    must not silently stop being one if a callless unit is ever metered.
+    """
 
     minutes: str
     cost_inr: str

@@ -39,6 +39,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.main import app
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 # One clinic's facts, in the shape FLOWS §1 step 3 lists them. Deliberately mundane:
 # every assertion below looks for one of these strings coming back out of somewhere it
@@ -73,6 +74,11 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     return uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
 
 

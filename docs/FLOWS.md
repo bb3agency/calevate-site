@@ -50,16 +50,20 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
    knowledge buys today (TRD §6.2). Same path and same limits as §7,
    which is the one description of it — PDFs and URLs are refused by name until an
    ingestion worker exists, and there is no embeddings job of ours (D-28/D-33).
-6. **Number & compliance** (see §10 for the full model): inbound DID obtained by a human,
-   NOT through our adapter — `PROVISIONING_IMPLEMENTED = False`, and for the 140/160
-   series there is no vendor endpoint to implement against at all (§10). Numbers are
-   virtual (no SIMs), ~₹/hundreds/month rental, one-per-client
-   mandatory; existing client number handled by call-forwarding to the DID (porting only
+6. **Number & compliance** (see §10 for the full model): **the CLIENT buys the DID on
+   their own carrier account** and passes that carrier's KYC — Model B, and Calevate
+   neither supplies nor resells it (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9;
+   `PROVISIONING_IMPLEMENTED = False` is not an unbuilt adapter, it is a refused business
+   model). They hand back the number and revocable API credentials; an operator RECORDS
+   both with `POST /v1/admin/tenants/{tenant_id}/numbers`. Numbers are virtual (no SIMs),
+   one-per-client mandatory, and the rental is billed to the client by their operator, not
+   by us; an existing client number is handled by call-forwarding to the DID (porting only
    later, never in onboarding critical path). If outbound intended: classification decided,
-   client's own **PE registration** initiated (~₹5,900, we handle it — part of setup fee),
-   DLT voice template drafted/submitted, series selected (140 promotional / 160-standard
-   service). Blocked until Calevate's TM registration exists — wizard shows compliance
-   status explicitly.
+   client registers as **Principal Entity** in their own name (~₹5,900, theirs to pay and
+   theirs to file — we walk them through it and cannot file it for them), binds our TM-ID
+   in the PE–TM chain, we accept it; DLT voice template content drafted by us and filed by
+   them under their PE; series selected (140 promotional / 160-standard service). Blocked
+   until Calevate's TM registration exists — wizard shows compliance status explicitly.
 7. **Test-call sign-off [GATE]**: "Call me" button dials admin's phone with the draft
    agent; regression mini-suite (happy path + interruption + tool call + disclosure check)
    must pass; latency numbers recorded. Only then: Publish (staging → live promote).
@@ -182,10 +186,10 @@ D-124's mirror race is deleted rather than superseded; there is nothing left to 
   manual review**. Platform-fixed calling hours and DNC scrub on every dispatch path apply
   to both motions and are not user-editable.
   - As built (D-47), the verification is of the **business**, not of a number:
-    `kyc_records` holds one row per tenant, the dial gate refuses a `self_serve`/`trial`
-    tenant with `kyc_missing`/`kyc_not_verified`, and — because buying a number is gated
-    for every tier — a number this org holds was necessarily bought under a cleared
-    verification. Inbound answering is never gated.
+    `kyc_records` holds one row per tenant and the dial gate refuses a `self_serve`/`trial`
+    tenant with `kyc_missing`/`kyc_not_verified`. It is not what gets them a number — they
+    buy that from their own operator, who runs its own KYC first — and our record exists so
+    our gate is not looser than the carrier's. Inbound answering is never gated.
   - **The manual-review hold ships** as `first_campaign_reviews` — one decision per
     TENANT, not a flag on a campaign row. The gate asks about the account, so a second
     campaign launched while the first is held is refused by the same rule, and deleting
@@ -236,8 +240,8 @@ caller dials client number → engine answers with agent →
 6. SLO: lead + summary visible in client dashboard < 2 min after hangup.
 After-hours: agent runs 24/7 by default; "after_hours" flag set from business_hours →
 dashboard "after-hours captured" metric; escalation rules can differ after hours.
-Failure: engine down ⇒ number's fallback route = client's own phone (configured at
-provisioning); our webhook down ⇒ **assume the event is LOST at the webhook layer**
+Failure: engine down ⇒ number's fallback route = client's own phone (configured on the
+client's carrier account); our webhook down ⇒ **assume the event is LOST at the webhook layer**
 (this said "Bolna has no delivery retries — D-31" as a fact; it is not one. D-352 showed
 the OSS single-POST deliverer is a different program from the hosted one, their skills
 repo says the hosted platform retries on non-2xx, and their own hosted webhook page
@@ -476,13 +480,20 @@ capability matrix with no provider-specific guide published**, where Twilio, Pli
 Exotel each have one — `bolna-findings/mirror/pages/supported-telephony-providers.md:33`,
 TRD §5), routed over SIP, stored in `phone_numbers`.
 
-**BUT "PROVISIONED VIA API" IS TRUE ONLY OF ORDINARY GEOGRAPHIC DIDs, AND THIS LINE USED
-TO SAY IT OF ALL OF THEM.** The 140- and 160-series numbers this product actually sells on
-have **no provisioning endpoint at all** — `POST /phone-numbers/buy` cannot reach them.
-Getting one is a paperwork sequence a human runs: DLT Principal-Entity registration,
-documents mailed to the vendor's compliance address, carrier allocation, then header and
-template approval. Reading the old sentence, someone would plan an onboarding flow around
-an API call that does not exist, and discover the truth at the point a client is waiting.
+**CALEVATE DOES NOT BUY, SELL, RENT, ALLOCATE OR PORT A NUMBER — MODEL B**
+(`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). The client's entity is on the CAF and the carrier
+KYC, the client is the subscriber of record and the PE on DLT, we are the TM, and Bolna
+uses the client's own API credentials. Model A — a pool of numbers in our name, allocated
+to clients — reads as unlicensed telecom resale (UL-VNO is a licensed category) and is
+refused outright for a proprietor with no corporate veil (`:249`). A client who asks us to
+"just give them a number" is sent to Exotel/Plivo/Vobiz or lost as a deal (`:266`), and
+opening a Calevate carrier account to park client traffic on is stop-list item 10.
+
+**And "provisioned via API" was never true of the regulated series anyway.** The 140- and
+160-series numbers outbound campaigns run on have **no provisioning endpoint at all** —
+`POST /phone-numbers/buy` cannot reach them. Getting one is a paperwork sequence a human
+runs on the client's side: DLT Principal-Entity registration, documents to the carrier's
+compliance address, carrier allocation, then header and template approval.
 
 The carrier is not a preference either — it is fixed by the series, in the vendor's own
 table (`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md`,
@@ -502,17 +513,20 @@ Typical allocation per client:
 
 **DLT role model:** each **client is the Principal Entity (PE)** for calls made on their
 behalf (their identity, their templates, their consent records — PE registration ~₹5,900
-first TSP, executed by us during onboarding as part of the setup fee; **the figure is
+first TSP, taken out by THEM on the registrar's portal under their own PAN/GST/Udyam; we
+hold no DLT login of theirs and cannot file it, so onboarding walks them through it and
+drafts the template content they file (playbook §10.4-10.5); **the figure is
 independently corroborated by the engine vendor's own guide** — *"a payment link for
 **₹5,900** will be generated on the portal"*,
 `bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md:60`). **Calevate
 registers once as the Telemarketer (TM)** under our operating entity and is linked to each
-client PE. Calevate's TM registration is therefore the single company-level blocker
-(Risk R-01); each client's PE registration is an onboarding step.
+client PE. Calevate's TM registration is therefore the single platform-level blocker
+(Risk R-01, whose entity leg is closed — sole proprietor, ROADMAP D-461); each client's PE
+registration is an onboarding step THEY complete.
 
 **Existing business numbers:** default answer is call-forwarding from the client's known
 number to the AI DID (zero disruption, day-one). Porting into the cloud provider is a
 later, weeks-long option — never inside onboarding.
 
-Failure route: every DID configured at provisioning time with a fallback destination
-(client's own phone) for engine outage (see OPERATIONS runbooks).
+Failure route: every DID configured on the client's carrier account with a fallback
+destination (client's own phone) for engine outage (see OPERATIONS runbooks).

@@ -53,6 +53,7 @@ from apps.workers.engine_reconciliation import SWEEP_INTERVAL_S, sweep_engine_dr
 from arq import Retry
 from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
 VOICE = "bulbul:v3:anushka"
@@ -158,6 +159,11 @@ async def _published_agent(engine: FakeEngine) -> tuple[uuid.UUID, uuid.UUID, st
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     async with tenant_session(tenant_id) as session:
         await prompts.write_prompt_version(

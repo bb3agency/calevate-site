@@ -5,8 +5,11 @@ Union Territories levy UTGST rather than SGST, the shape of a GSTIN, and the rul
 turns "where is the recipient" into "CGST+SGST or IGST". None of it is a Calevate
 decision. What IS a Calevate decision — our legal entity, its GSTIN, its registered
 address, the SAC our supply is classified under — is CONFIG, resolved here from
-`Settings` and never hardcoded, because the entity has not been chosen (ROADMAP M0) and
-a placeholder GSTIN on a document an accountant files is worse than no document.
+`Settings` and never hardcoded. The legal person is settled — a sole proprietor trading
+as Calevate (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`) — but it is NOT registered
+for GST and is not required to be at present turnover (playbook §4), so there is no GSTIN
+to print, and a placeholder GSTIN on a document an accountant files is worse than no
+document.
 
 ## The sources this module is built on (verified Aug 2026, not recalled)
 
@@ -126,7 +129,7 @@ UT_WITHOUT_LEGISLATURE: frozenset[str] = frozenset({"04", "26", "31", "35", "38"
 # direction of the failure. This predicate decides whether the document may call itself
 # a tax invoice; a checksum implementation transcribed from memory that rejects a VALID
 # GSTIN would take a correctly configured deployment and silently demote every invoice
-# it issues to a proforma — a much worse outcome than missing a typo, which the operator
+# it issues to a bill of supply — a much worse outcome than missing a typo, which the operator
 # meets immediately when the printed number does not match their registration
 # certificate. The structural check already catches wrong length, lower case, a missing
 # 'Z' and a retired or invented state code, which is nearly every realistic typo.
@@ -335,7 +338,7 @@ def split_tax(
 
     An `undetermined` supply gets ONE unclassified component. Splitting a rate for a
     supplier with no registration would be inventing a classification, and this document
-    is a proforma precisely because there is no classification to make.
+    is a bill of supply precisely because there is no classification to make.
     """
     total = to_paise(subtotal_inr * rate_pct / Decimal("100"))
     if place.supply_type == "undetermined":

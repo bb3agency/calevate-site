@@ -1,6 +1,37 @@
 {
   "components": {
     "schemas": {
+      "AcceptIn": {
+        "additionalProperties": false,
+        "description": "What the owner is accepting, echoed back so a stale tab is refused rather than\nrecorded. Both fields are the SERVER's own strings from the read above \u2014 the browser\nmints neither, exactly as it mints no amount on the AI-extra purchase.",
+        "properties": {
+          "slug": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          },
+          "statement_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Statement Version",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "version",
+          "statement_version"
+        ],
+        "title": "AcceptIn",
+        "type": "object"
+      },
       "ActionsSettingsOut": {
         "additionalProperties": false,
         "description": "The agent's master switch and its tools, for the Actions tab in one read.",
@@ -4786,7 +4817,7 @@
       },
       "DltRegistrationIn": {
         "additionalProperties": false,
-        "description": "What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP \u00a73).\n\nTwo statuses rather than one `ready` flag, because they fail separately and the\nnext action differs: an unregistered entity is a \u20b95,900 registration we execute for\nthem, a missing TM link is an authorisation only they can grant. The launch gate\nnames them separately for the same reason.",
+        "description": "What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP \u00a73).\n\nTwo statuses rather than one `ready` flag, because they fail separately and the\nnext action differs: an unregistered entity is a \u20b95,900 registration the CLIENT\ntakes out in their own name on the registrar's portal \u2014 they are the Principal\nEntity \u2014 and a missing TM link is an authorisation only they can grant from that\nsame login. Both are theirs; what is ours is the TM-ID they bind and our acceptance\nof the chain. The launch gate names them separately for the same reason.",
         "properties": {
           "entity_name": {
             "anyOf": [
@@ -5134,8 +5165,22 @@
         "type": "object"
       },
       "EngineLatencyReport": {
-        "description": "Every group in the window, plus the target each is judged against.",
+        "description": "Every group in the window, and the WHOLE budget each is judged against.\n\n**THE BUDGET IS AN OBJECT AND NOT A FIELD**, and that is this model's second version.\nIt carried `llm_ttft_budget_ms` alone, so the console it feeds printed \"target for the\nfirst reply: 350 ms\" as though it were the budget \u2014 one quarter of a 1.1s voice-to-voice\np50, presented as the whole constraint. Publishing `LatencyBudget` puts every target on\nthe wire, including the two nothing here can measure and the retrieval leg nothing here\nsamples, so a reader can see what the four numbers add up to instead of inferring it.",
         "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/LatencyBudget",
+            "default": {
+              "llm_ttft_ms": 350.0,
+              "pipeline_ms": 1050.0,
+              "retrieval_ms": 100.0,
+              "stt_ms": 300.0,
+              "tts_ttfa_ms": 300.0,
+              "turn_ms": 950.0,
+              "voice_to_voice_headroom_p50_ms": 50.0,
+              "voice_to_voice_p50_ms": 1100.0,
+              "voice_to_voice_p95_ms": 1800.0
+            }
+          },
           "complete": {
             "default": true,
             "title": "Complete",
@@ -5147,11 +5192,6 @@
             },
             "title": "Groups",
             "type": "array"
-          },
-          "llm_ttft_budget_ms": {
-            "default": 350.0,
-            "title": "Llm Ttft Budget Ms",
-            "type": "number"
           },
           "window_days": {
             "title": "Window Days",
@@ -8283,28 +8323,69 @@
         "title": "LanesOut",
         "type": "object"
       },
-      "LatencyGroup": {
-        "description": "One (engine, region) pair's LLM time-to-first-token distribution.",
+      "LatencyBudget": {
+        "description": "The whole of TRD \u00a74, as one object, with the composed totals DERIVED.\n\nExists so a surface that judges a latency carries every target rather than the one leg\nit happens to summarise \u2014 the defect this model was written for is an operator screen\nprinting \"target for the first reply: 350 ms\" as though it were the budget, when it is\none of four legs inside a 1.1s voice-to-voice p50.\n\nFROZEN, and every field defaults to the module constant above. It is a CARRIER, not a\nsecond declaration: nothing constructs it with different numbers, and a caller that\nwants the budget wants `LATENCY_BUDGET`.\n\nThe three composed figures are `computed_field`s rather than plain properties so they\nreach the wire \u2014 a browser that had to add the legs up itself would be computing a\ntarget, which is the one thing every surface here is forbidden to do.",
         "properties": {
-          "basis": {
-            "enum": [
-              "measured",
-              "insufficient_samples"
-            ],
-            "title": "Basis",
-            "type": "string"
+          "llm_ttft_ms": {
+            "default": 350.0,
+            "title": "Llm Ttft Ms",
+            "type": "number"
           },
-          "budget_breached": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Budget Breached"
+          "pipeline_ms": {
+            "description": "The turn plus one retrieval: every sub-budget TRD \u00a74 lists, added up.",
+            "readOnly": true,
+            "title": "Pipeline Ms",
+            "type": "number"
           },
+          "retrieval_ms": {
+            "default": 100.0,
+            "title": "Retrieval Ms",
+            "type": "number"
+          },
+          "stt_ms": {
+            "default": 300.0,
+            "title": "Stt Ms",
+            "type": "number"
+          },
+          "tts_ttfa_ms": {
+            "default": 300.0,
+            "title": "Tts Ttfa Ms",
+            "type": "number"
+          },
+          "turn_ms": {
+            "description": "STT + LLM TTFT + TTS TTFA \u2014 the three legs the engine times.",
+            "readOnly": true,
+            "title": "Turn Ms",
+            "type": "number"
+          },
+          "voice_to_voice_headroom_p50_ms": {
+            "description": "What the p50 target leaves for everything nobody here measures.\n\nThe caller's own network, the carrier leg, the orchestrator's hops. Published\nrather than left to the reader precisely because it is small: 50ms on a 1100ms\ntarget is the number that says the budget is a cut of the target and not a wish.",
+            "readOnly": true,
+            "title": "Voice To Voice Headroom P50 Ms",
+            "type": "number"
+          },
+          "voice_to_voice_p50_ms": {
+            "default": 1100.0,
+            "title": "Voice To Voice P50 Ms",
+            "type": "number"
+          },
+          "voice_to_voice_p95_ms": {
+            "default": 1800.0,
+            "title": "Voice To Voice P95 Ms",
+            "type": "number"
+          }
+        },
+        "required": [
+          "turn_ms",
+          "pipeline_ms",
+          "voice_to_voice_headroom_p50_ms"
+        ],
+        "title": "LatencyBudget",
+        "type": "object"
+      },
+      "LatencyGroup": {
+        "description": "One (engine, region) pair, every leg of it.",
+        "properties": {
           "calls": {
             "title": "Calls",
             "type": "integer"
@@ -8313,38 +8394,12 @@
             "title": "Engine",
             "type": "string"
           },
-          "llm_ttft_max_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Llm Ttft Max Ms"
-          },
-          "llm_ttft_p50_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Llm Ttft P50 Ms"
-          },
-          "llm_ttft_p95_ms": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Llm Ttft P95 Ms"
+          "legs": {
+            "items": {
+              "$ref": "#/components/schemas/LegSummary"
+            },
+            "title": "Legs",
+            "type": "array"
           },
           "region": {
             "anyOf": [
@@ -8360,10 +8415,6 @@
           "turns": {
             "title": "Turns",
             "type": "integer"
-          },
-          "turns_over_budget": {
-            "title": "Turns Over Budget",
-            "type": "integer"
           }
         },
         "required": [
@@ -8371,8 +8422,7 @@
           "region",
           "calls",
           "turns",
-          "basis",
-          "turns_over_budget"
+          "legs"
         ],
         "title": "LatencyGroup",
         "type": "object"
@@ -9488,6 +9538,290 @@
         "title": "LedgerEntryOut",
         "type": "object"
       },
+      "LegSummary": {
+        "description": "One leg's distribution for one (engine, region) group, and its own verdict.\n\n**EVERY LEG CARRIES ITS OWN BUDGET, ITS OWN SAMPLE SIZE AND ITS OWN BASIS**, because it\nhas all three. A turn whose payload carried an LLM timing and no transcriber block is a\nsample for one leg and for neither the other nor the composed sum, so a single `turns`\ncount on the group would be wrong for at least one column of any real report.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "measured",
+              "insufficient_samples"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "budget_breached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Breached"
+          },
+          "budget_ms": {
+            "title": "Budget Ms",
+            "type": "number"
+          },
+          "leg": {
+            "enum": [
+              "stt",
+              "llm_ttft",
+              "tts_ttfa",
+              "turn"
+            ],
+            "title": "Leg",
+            "type": "string"
+          },
+          "max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Ms"
+          },
+          "p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Ms"
+          },
+          "turns": {
+            "title": "Turns",
+            "type": "integer"
+          },
+          "turns_over_budget": {
+            "title": "Turns Over Budget",
+            "type": "integer"
+          },
+          "unit_verified": {
+            "title": "Unit Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "leg",
+          "budget_ms",
+          "turns",
+          "basis",
+          "turns_over_budget",
+          "unit_verified"
+        ],
+        "title": "LegSummary",
+        "type": "object"
+      },
+      "LegalDocumentOut": {
+        "additionalProperties": false,
+        "description": "One published document and where this organisation stands with it.",
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "accepted_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted By Name"
+          },
+          "accepted_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Version"
+          },
+          "blocking": {
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "effective_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Date"
+          },
+          "headline": {
+            "title": "Headline",
+            "type": "string"
+          },
+          "href": {
+            "title": "Href",
+            "type": "string"
+          },
+          "provisional": {
+            "title": "Provisional",
+            "type": "boolean"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "accepted",
+              "never_accepted",
+              "reacceptance_required",
+              "changed",
+              "not_required"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "href",
+          "blocking",
+          "version",
+          "provisional",
+          "effective_date",
+          "state",
+          "headline",
+          "accepted_version",
+          "accepted_at",
+          "accepted_by_name"
+        ],
+        "title": "LegalDocumentOut",
+        "type": "object"
+      },
+      "LegalReadinessOut": {
+        "additionalProperties": false,
+        "description": "The whole screen in one read.",
+        "properties": {
+          "acceptance_statement": {
+            "title": "Acceptance Statement",
+            "type": "string"
+          },
+          "acceptance_statement_version": {
+            "title": "Acceptance Statement Version",
+            "type": "string"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/ReadinessRowOut"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "can_accept": {
+            "title": "Can Accept",
+            "type": "boolean"
+          },
+          "can_accept_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Can Accept Reason"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/LegalDocumentOut"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "may_operate": {
+            "title": "May Operate",
+            "type": "boolean"
+          },
+          "outstanding_documents": {
+            "title": "Outstanding Documents",
+            "type": "integer"
+          },
+          "pending_legal_review": {
+            "title": "Pending Legal Review",
+            "type": "boolean"
+          },
+          "provisional_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provisional Notice"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "may_operate",
+          "verdict",
+          "outstanding_documents",
+          "pending_legal_review",
+          "provisional_notice",
+          "acceptance_statement",
+          "acceptance_statement_version",
+          "can_accept",
+          "can_accept_reason",
+          "documents",
+          "blockers"
+        ],
+        "title": "LegalReadinessOut",
+        "type": "object"
+      },
       "LifecycleIn": {
         "additionalProperties": false,
         "properties": {
@@ -10517,7 +10851,7 @@
       },
       "NumberPurchaseIn": {
         "additionalProperties": false,
-        "description": "What a purchase needs from the client, and nothing it does not.\n\n`series` is DLT's number-class distinction (DATA-MODEL \u00a76): 140 dials promotions,\n160/standard dials service and transactional. It is asked here rather than assigned\nlater because a number's series is fixed at purchase and a mismatch with the\ncampaign's classification is a DLT violation the launch gate then has to refuse\n(`number_series_mismatch`).\n\n`city` is required because Exotel's own onboarding requires the KYC address proof to\nreflect the city the number is bought in \u2014 a number bought against an address in\nanother city is one the operator will not issue, whatever we record here.",
+        "description": "What a purchase needs from the client, and nothing it does not.\n\n`series` is DLT's number-class distinction (DATA-MODEL \u00a76): 140 dials promotions,\n160/standard dials service and transactional. It is asked here rather than assigned\nlater because a number's series is fixed when the operator issues it and a mismatch\nwith the campaign's classification is a DLT violation the launch gate then has to\nrefuse (`number_series_mismatch`).\n\n`city` is required because Exotel's own onboarding requires the KYC address proof to\nreflect the city the number is issued in \u2014 a number taken against an address in\nanother city is one the operator will not issue, whoever asks for it.",
         "properties": {
           "city": {
             "maxLength": 64,
@@ -12271,6 +12605,45 @@
           "reviewed_at"
         ],
         "title": "QaSampleOut",
+        "type": "object"
+      },
+      "ReadinessRowOut": {
+        "additionalProperties": false,
+        "description": "One thing standing in the way, and whose move it is.",
+        "properties": {
+          "actor": {
+            "enum": [
+              "client",
+              "calevate"
+            ],
+            "title": "Actor",
+            "type": "string"
+          },
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "title",
+          "reason",
+          "actor",
+          "next_step"
+        ],
+        "title": "ReadinessRowOut",
         "type": "object"
       },
       "RecordAlertOptInIn": {
@@ -16454,7 +16827,7 @@
       },
       "UnattributedSpendOut": {
         "additionalProperties": false,
-        "description": "Cost this month that belongs to no call \u2014 `number_rental` and nothing else today.",
+        "description": "Cost this month that belongs to no call.\n\n`number_rental` is the only unit that can land here and nothing writes one: under\nModel B a client rents their number from their own operator, not from us\n(`campaigns/provisioning.py`). Kept because a total that claims to be a partition\nmust not silently stop being one if a callless unit is ever metered.",
         "properties": {
           "cost_inr": {
             "title": "Cost Inr",
@@ -20835,7 +21208,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/kyc": {
       "post": {
-        "description": "Records what Calevate verified about a client's business, against which registry document, and who verified it. Upserts: re-recording is what happens on every re-verification. Only a `verified` record opens number provisioning (every plan tier) and outbound dialling for a self-serve account. There is deliberately no client-facing twin \u2014 a business that could mark its own identity verified would be marking the telecom gate green on a check nobody performed.",
+        "description": "Records what Calevate verified about a client's business, against which registry document, and who verified it. Upserts: re-recording is what happens on every re-verification. Only a `verified` record clears the identity gate (every plan tier) and opens outbound dialling for a self-serve account. There is deliberately no client-facing twin \u2014 a business that could mark its own identity verified would be marking the telecom gate green on a check nobody performed.",
         "operationId": "record_kyc_verification_v1_admin_tenants__tenant_id__kyc_post",
         "parameters": [
           {
@@ -20943,7 +21316,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/numbers": {
       "post": {
-        "description": "A mistyped tenant uuid is a 404, and it used to be a 409 about a NUMBER.\n\n`provision_number` maps every `IntegrityError` to `number_taken` (\"This number is\nalready provisioned \u2014 it may belong to another account\"), which is the right answer\nfor the UNIQUE index it was written for and the wrong one for the tenant foreign\nkey. An operator who mistyped the client id was told to go looking for whoever\nholds a number nobody holds. `service.tenant_exists` is the ONE definition of \"is\nthis a live organization\" and exists so every surface naming a tenant in its path\nanswers a mistyped uuid the same way \u2014 asked here rather than the predicate copied,\nexactly as `set_tenant_status` and `record_commercial_terms` ask it.",
+        "description": "Records a telephone connection the CLIENT has already taken in their own name with an Indian operator, so the campaign launch gate can match its series against a campaign's classification. Calevate does not supply, buy or resell the number: the client is the subscriber of record and issues Calevate revocable API credentials for it. `dlt_status` starts `pending` and is a separate, deliberate step.",
         "operationId": "provision_number_v1_admin_tenants__tenant_id__numbers_post",
         "parameters": [
           {
@@ -20985,7 +21358,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Provision a calling number \u2014 the series is the compliance-bearing field",
+        "summary": "Record a calling number the client holds \u2014 the series is the compliance-bearing field",
         "tags": [
           "admin"
         ],
@@ -23720,7 +24093,7 @@
     },
     "/v1/billing/invoice": {
       "get": {
-        "description": "The same statement the Calevate team sees for this account, recomputed from the usage ledger on every request \u2014 there is no stored invoice row to go stale. Requires `billing:read`, which account owners hold and staff do not. The document states whether it is a tax invoice or a proforma; it is a proforma until Calevate's GST registration is recorded, because an unregistered supplier may not collect tax (CGST s.32).",
+        "description": "The same statement the Calevate team sees for this account, recomputed from the usage ledger on every request \u2014 there is no stored invoice row to go stale. Requires `billing:read`, which account owners hold and staff do not. The document states whether it is a tax invoice or a bill of supply. It is a bill of supply (CGST Rules r.49) while Calevate is not registered for GST, which it is not and is not required to be at present turnover: an unregistered supplier may not collect tax at all (CGST s.32).",
         "operationId": "my_invoice_v1_billing_invoice_get",
         "parameters": [
           {
@@ -25074,7 +25447,7 @@
     },
     "/v1/compliance/kyc": {
       "get": {
-        "description": "What Calevate has verified about this business, and whether that is enough to buy a phone number. Read-only: Indian telecom rules make the subscriber's identity something the provider verifies, never something the subscriber asserts, so verification is recorded by Calevate operations. A business with nothing on file yet gets `recorded: false` and a 200.",
+        "description": "What Calevate has verified about this business. Read-only: Indian telecom rules make the subscriber's identity something the provider verifies, never something the subscriber asserts, so verification is recorded by Calevate operations. `number_purchase_available` is always false \u2014 Calevate does not supply telephone numbers; the client takes the connection on their own operator account. A business with nothing on file yet gets `recorded: false` and a 200.",
         "operationId": "read_kyc_record_v1_compliance_kyc_get",
         "responses": {
           "200": {
@@ -27689,6 +28062,74 @@
         "x-calevate-permission": "leads:read"
       }
     },
+    "/v1/legal/acceptances": {
+      "post": {
+        "description": "Appends one row to the acceptance ledger and one entry to the audit log, in the same transaction. Only the account owner can accept, and an impersonated session cannot. A version or an acceptance wording that is no longer current is refused rather than recorded.",
+        "operationId": "accept_v1_legal_acceptances_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalReadinessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Accept one agreement, at the version currently published (append-only)",
+        "tags": [
+          "legal"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/legal/readiness": {
+      "get": {
+        "description": "The published documents with this account's acceptance state, every organisation-level condition currently blocking outgoing calls, and whether the account may operate. Every verdict and every sentence is decided server-side.",
+        "operationId": "read_readiness_v1_legal_readiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalReadinessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Agreements and everything else standing between this account and operating",
+        "tags": [
+          "legal"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/me": {
       "get": {
         "description": "`requires(\"org:read\")`, not `current_any`: the declaration in `openapi_extra`\nabove and the dependency here must name the same permission.\n\nNothing about who gets in changes \u2014 `requires()` defaults to `realm=\"any\"` and so\nresolves the identical principal, `org:read` is not in `MUTATING_PERMISSIONS` so an\nimpersonating admin is still admitted (D-22), and every role the DB enums allow\nholds `org:read`. What changes is that the route now enforces what it advertises,\nwhich is the property `assert_policy_registry_complete` checks at boot and\n`tests/authz_audit_test.py` asserts for every route at once. A declaration with no\nlock behind it reads as protected in the OpenAPI schema and the generated TS\nclient; this was the last route where that was true.",
@@ -27855,7 +28296,7 @@
     },
     "/v1/numbers/purchase": {
       "post": {
-        "description": "Requests a phone number for this account. Refused with `kyc_not_verified` until Calevate has verified the business's identity \u2014 Indian telecom rules require the subscriber of a connection to be identified, and that applies to every account on every plan. A verified account is then refused with `number_provisioning_not_configured`, because this deployment holds no telephony-provider credentials and no provisioning adapter exists: numbers are provisioned by Calevate operations today. Neither refusal writes anything.",
+        "description": "Asks Calevate for a phone number, and is always refused, because Calevate neither supplies nor resells telephone numbers: the client takes the connection in their own name on their own account with an Indian operator (Exotel, Plivo or Vobiz), remains the subscriber of record, and issues Calevate revocable API credentials for it. Refused with `kyc_not_verified` until Calevate has verified the business's identity \u2014 Indian telecom rules require the subscriber of a connection to be identified, the operator will ask for the same documents, and it applies to every account on every plan. A verified account is then refused with `number_provisioning_not_configured`, whose remediation names the carriers and what to send back. Neither refusal writes anything.",
         "operationId": "purchase_number_v1_numbers_purchase_post",
         "requestBody": {
           "content": {
@@ -27883,7 +28324,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Buy a phone number \u2014 gated on verified KYC, and not implemented yet",
+        "summary": "Ask us for a phone number \u2014 always refused; Calevate does not supply numbers",
         "tags": [
           "campaigns"
         ],
@@ -28546,7 +28987,7 @@
     },
     "/v1/ops/platform/tm-registration": {
       "post": {
-        "description": "The company half of SEC-COMP \u00a73's first bullet. While this is not `active`, NO tenant can launch an outbound campaign, however complete their own Principal Entity registration is. Inbound answering is unaffected.",
+        "description": "Calevate's own half of SEC-COMP \u00a73's first bullet. While this is not `active`, NO tenant can launch an outbound campaign, however complete their own Principal Entity registration is. Inbound answering is unaffected.",
         "operationId": "set_tm_registration_route_v1_ops_platform_tm_registration_post",
         "parameters": [
           {

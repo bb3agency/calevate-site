@@ -13,6 +13,7 @@ import {
   resolvePlaceholders,
 } from "./placeholders";
 import type { LegalBlock, LegalDocument, LegalSection } from "./types";
+import { documentVersionLabel } from "./versions";
 
 /**
  * ONE renderer for all eight documents.
@@ -324,7 +325,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
         </h1>
         <p className="mt-3 text-[15px] leading-7 text-ink-muted">{doc.summary}</p>
 
-        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+        <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
           <div className="rounded-card border border-line bg-surface p-4">
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
               Who it applies to
@@ -339,6 +340,20 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
               {/* The shell's own placeholder — declared in CHROME_TOKENS so the audit in
                   tests/legal.test.tsx counts it as used rather than as a dead entry. */}
               <Prose text={CHROME_TOKENS.join(" ")} />
+            </dd>
+          </div>
+          {/* THE VERSION IS ON THE PAGE BECAUSE IT IS ON THE CONTRACT. A client's owner
+              accepts this document by version, and `apps/api/legal/` records that version
+              in an append-only ledger; a reader who cannot see which version they are
+              reading cannot tell whether it is the one they agreed to. The string comes
+              from `versions.ts`, which the docs-drift guard holds equal to the API's
+              catalogue — so this cell can never show a version the ledger does not use. */}
+          <div className="rounded-card border border-line bg-surface p-4">
+            <dt className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+              Version
+            </dt>
+            <dd className="mt-1 leading-6 text-ink-muted">
+              {documentVersionLabel(doc.slug) ?? "Unversioned"}
             </dd>
           </div>
         </dl>

@@ -688,10 +688,14 @@ the tree. The app lints clean.
 **33. Campaign prerequisites in the admin console** — `apps/api/admin/routes.py`,
 `apps/web/src/app/admin/tenants/[tenantId]/`
 
-Numbers and DLT templates are the two things every client campaign stalls on, and both
-are OUR operational work: we buy the number, we file the template with the registrar
-under the client's PE. So they are admin writes with a client-realm read, and the admin
-tenant page grows a "Campaign setup" panel that does both.
+Numbers and DLT templates are the two things every client campaign stalls on. ⚠AMENDED
+(D-474, 26 Aug 2026): this said "both are OUR operational work: we buy the number, we file
+the template with the registrar under the client's PE", and both halves were wrong. The
+CLIENT buys the number on their own carrier account and is the subscriber of record
+(Model B), and the CLIENT is the Principal Entity who files their own templates on their
+own DLT login — we draft the content. They are admin writes with a client-realm read
+because they are compliance facts the launch gate reads, and the admin tenant page grows a
+"Campaign setup" panel that RECORDS both.
 
 - `POST /tenants/{id}/numbers` (+ `/dlt-status`) and `POST /tenants/{id}/dlt-templates`
   (+ `/status`), all `admin:tenants`, all audited. The audit summary records the

@@ -44,6 +44,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 # A barrier this test file waits on is either released by the other party (the race
 # happened) or times out (the lock stopped the other party getting that far). Both are
@@ -98,6 +99,11 @@ async def _tenant(plan_tier: str = "self_serve") -> tuple[uuid.UUID, uuid.UUID]:
             text("UPDATE organizations SET plan_tier = :tier WHERE id = :i"),
             {"tier": plan_tier, "i": tenant_id},
         )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away. Since that release every dial gate refuses an organisation that has not
+    # accepted them, and a fixture without them makes this file report
+    # `agreements_not_accepted` in place of the refusal it is actually about.
+    await accept_agreements(tenant_id)
     return tenant_id, agent_id
 
 
@@ -774,7 +780,7 @@ def _gst_registered_supplier(monkeypatch: pytest.MonkeyPatch):
     """
     from apps.api.core.settings import get_settings
 
-    monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate Technologies Private Limited")
+    monkeypatch.setenv("GST_SUPPLIER_LEGAL_NAME", "Calevate")
     monkeypatch.setenv("GST_SUPPLIER_ADDRESS", "Plot 42, Madhapur, Hyderabad 500081")
     monkeypatch.setenv("GST_SUPPLIER_GSTIN", "36AABCC1234D1Z5")
     monkeypatch.setenv("GST_SUPPLY_SAC", "998315")

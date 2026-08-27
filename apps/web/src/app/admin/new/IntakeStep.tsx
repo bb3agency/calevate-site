@@ -63,10 +63,13 @@ import { examplesFor } from "@/lib/verticalExamples";
  * `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake` accepts rather than to
  * what a designer would draw: EIGHT cards for FLOWS §1's eight fields, and no ninth.
  *
- * The two steps still missing from `/admin/new` after this — number provisioning (6) and
+ * The two steps still missing from `/admin/new` after this — the client's number (6) and
  * the test-call gate (7) — stay ABSENT rather than stubbed, for the reason the wizard's
- * own header gives: they depend on Bolna verification this deployment has not done, and a
- * greyed-out control implying the feature exists is worse than a documented gap.
+ * own header gives: a greyed-out control implying the feature exists is worse than a
+ * documented gap. Step 6 is not a feature we could build anyway — the client buys the
+ * connection on their own operator account (Model B, FLOWS §10) and an operator RECORDS
+ * it on the client's page; step 7 depends on Bolna verification this deployment has not
+ * done.
  *
  * ## The render paths, and what each one refuses to claim (BUILD-LOG §52)
  *

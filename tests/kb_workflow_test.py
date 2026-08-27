@@ -17,6 +17,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb import service
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 from tests.impersonation_grant_test import view_as_headers
 
 
@@ -29,6 +30,11 @@ async def _tenant_with_published_agent() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"fakeagent_kb_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:
@@ -363,6 +369,11 @@ async def test_an_unpublished_agent_cannot_receive_knowledge() -> None:
         language="te-IN",
         created_by=None,
     )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and
+    # publish gate now refuses an organisation that has not accepted them, so a fixture
+    # without this reports `agreements_not_accepted` in place of the answer under test.
+    await accept_agreements(uuid.UUID(str(created["id"])))
     async with tenant_session(created["id"]) as session:
         submitted = await service.submit_source(
             session,

@@ -2321,9 +2321,10 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   can be trusted to run (hard rule 5 forbids a bypass). So the honest value of this
 #   field, whose meaning is "is there an engine-side campaign object OUR code depends
 #   on", is False. If that ever changes it is a decision-log entry, not a flag flip.
-# * `number_series=frozenset()`. Numbers come from the telephony vendor directly (D-05:
-#   Exotel, Vobiz for the 140-series) — `campaigns/provisioning.py` is that seam. This
-#   adapter's `provision_number` has always raised; now it says so before being called.
+# * `number_series=frozenset()`. Nobody buys a number through this product: the client
+#   holds the connection on their own carrier account (Model B — `campaigns/
+#   provisioning.py`, `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). This adapter's
+#   `provision_number` has always raised; now it says so before being called.
 # * `transfer=False`. **The reason changed and the value did not (D-262).** This used to
 #   say "Bolna may well support it; nobody has run the pilot gate". Bolna DOES support it,
 #   read at source: `bolna/agent_manager/task_manager.py` (bolna-ai/bolna@cd2e192)
@@ -3100,9 +3101,11 @@ class BolnaEngine:
         require_capability("transfer", engine=self)
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
-        # Numbers come from the telephony vendor directly (D-05), which is the seam in
-        # `campaigns/provisioning.py`. `BOLNA_CAPABILITIES.number_series` is empty, so
-        # this refuses every series rather than only the DLT ones.
+        # Nobody buys a number through this product. Model B: the CLIENT holds the
+        # connection on their own Exotel / Plivo / Vobiz account and we connect it
+        # (`campaigns/provisioning.py`; `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9).
+        # `BOLNA_CAPABILITIES.number_series` is empty, so this refuses every series
+        # rather than only the DLT ones.
         require_capability("numbers", engine=self)
         # Unreachable while `number_series` is empty. Kept as a real refusal rather than
         # an `assert`, because the way this line gets reached is somebody widening the
@@ -3111,8 +3114,11 @@ class BolnaEngine:
         raise ProblemError(
             kind="dependency",
             code="engine_capability_unverified",
-            title="Number provisioning is not automated yet",
-            detail="Numbers are provisioned with the telephony provider directly (M1).",
+            title="The voice platform does not supply numbers",
+            detail=(
+                "The client's calling number is taken on their own operator account and "
+                "connected to the platform; nothing here buys one."
+            ),
         )
 
     # --- inbound routing (D-420) ---------------------------------------------

@@ -36,6 +36,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import EXTERNAL_DEPLOYMENT_CAPABILITIES, FakeEngine
 from sqlalchemy import text
+from tests.conftest import accept_agreements
 
 
 def _header(series: str = "160") -> str:
@@ -90,6 +91,11 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             notes=None,
             created_by=None,
         )
+    # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
+    # away. Since that release every dial gate refuses an organisation that has not
+    # accepted them, and a fixture without them makes this file report
+    # `agreements_not_accepted` in place of the refusal it is actually about.
+    await accept_agreements(tenant_id)
     return tenant_id, agent_id
 
 
