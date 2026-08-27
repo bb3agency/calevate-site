@@ -552,7 +552,10 @@ def test_with_nothing_configured_it_refuses_with_something_a_user_can_do(
 
     problem = assist_unavailable(capability)
     assert problem.code == "assist_no_credential"
-    assert "AZURE_OPENAI_RESOURCE" in (problem.remediation or "")
+    # THE OPERATOR'S SENTENCE IS STILL THE OPERATOR'S SENTENCE. This assertion used to be
+    # made against the DEFAULT audience, which is how the env-var text reached a client.
+    operator = assist_unavailable(capability, audience="operator")
+    assert "AZURE_OPENAI_RESOURCE" in (operator.remediation or "")
 
     quota = assist_unavailable(AssistCapability(available=False, reason=QUOTA_EXHAUSTED_REASON))
     assert "Add credit" in (quota.remediation or "")

@@ -38,6 +38,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
+from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.copilot import service
@@ -173,6 +174,11 @@ async def ask_copilot(
         #    everything below this line costs money and holds no connection.
         async with tenant_session(tenant_id) as gate_session:
             quota = await require_ai_assist(gate_session, tenant_id=tenant_id)
+            # WHOSE AI ANSWERS — the account's own model where it may serve this leg.
+            # On the gate's session rather than a fourth one: it is a single indexed row,
+            # it is needed before the first token is spent, and the alternative is opening
+            # a connection of its own for one SELECT.
+            tenant_leg = await account_assist_leg(gate_session)
     except ProblemError as refusal:
         yield _error_event(refusal)
         return
@@ -190,6 +196,7 @@ async def ask_copilot(
             # path that reaches here — `require_ai_assist` RAISES at the ceiling — and
             # it is written as the READ so that this caller stays correct if the gate
             # ever learns to answer instead of raise.
+            tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
         ):
             if event.text is not None:

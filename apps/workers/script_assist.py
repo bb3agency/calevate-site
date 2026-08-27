@@ -44,8 +44,10 @@ from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     ASSIST_TIMEOUT_S,
     AZURE_PROVIDER,
+    PROVIDER_UNAVAILABLE_REASON,
     SARVAM_CHAT_URL,
     AssistCapability,
+    TenantModelLeg,
     _first_json_object,
     assist_capability,
     assist_unavailable,
@@ -268,15 +270,21 @@ async def _draft_via_sarvam(description: str) -> _RawDraft | None:
     return _RawDraft(script=_script_from_model_json(raw))
 
 
-async def draft_script(description: str, *, quota_exhausted: bool = False) -> ScriptDraft:
+async def draft_script(
+    description: str,
+    *,
+    tenant_leg: TenantModelLeg | None = None,
+    quota_exhausted: bool = False,
+) -> ScriptDraft:
     """Draft a `CallScript` from a business description (the AI writing assist).
 
     Same control flow as `run_assist`: ask the ONE selector who serves, run Azure first,
     fall to the disclosed Sarvam leg if Azure cannot or does not answer, and refuse only
     when nothing can. `quota_exhausted` is the gate's verdict passed IN (this module has no
-    session), so the ceiling reaches the one function that spends a token.
+    session), so the ceiling reaches the one function that spends a token. `tenant_leg` is
+    the account's own model, passed in the same way and for the same reason — it is a row.
     """
-    capability = assist_capability(quota_exhausted=quota_exhausted)
+    capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
         raise assist_unavailable(capability)
 
@@ -286,14 +294,18 @@ async def draft_script(description: str, *, quota_exhausted: bool = False) -> Sc
             return ScriptDraft(script=drafted.script, capability=capability, usage=drafted.usage)
         # Azure could not answer — re-ask the selector with the fact we now have rather
         # than deciding locally what an outage means (run_assist's rule).
-        capability = assist_capability(quota_exhausted=quota_exhausted, provider_unavailable=True)
+        capability = assist_capability(
+            tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
+        )
         if not capability.available:
             raise assist_unavailable(capability)
 
     drafted = await _draft_via_sarvam(description)
     if drafted is None:
         # Both legs silent: a refusal the author can act on, not an empty editor.
-        raise assist_unavailable(AssistCapability(available=False, reason="provider_unavailable"))
+        raise assist_unavailable(
+            AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+        )
     return ScriptDraft(script=drafted.script, capability=capability)
 
 

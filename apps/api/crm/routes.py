@@ -18,6 +18,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
@@ -357,6 +358,12 @@ async def assist_call(
         #    `record_ai_assist_usage` accepts nothing else, because its idempotency is a
         #    switch that turns metering off (D-140).
         ref = new_assist_ref()
+        # WHOSE AI ANSWERS. The account's own model decides, where it may serve this leg —
+        # the founder's rule that the assistant uses the same AI as the rest of the service.
+        # Read HERE rather than inside `run_assist` because that selector is a pure function
+        # of its arguments (its docstring argues for it) and this transaction already has a
+        # tenant-scoped session open.
+        tenant_leg = await account_assist_leg(session)
         result = await run_assist(
             source.spec,
             # `text_redacted`, assembled by `crm/assist.py`, which never names the raw
@@ -370,6 +377,7 @@ async def assist_call(
             # rather than as a literal `False` so that this caller stays correct if the
             # gate ever learns to answer instead of raise. A literal would be a promise
             # about another module's control flow, made in this one.
+            tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
         )
     except Exception:

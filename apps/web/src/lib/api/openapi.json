@@ -4474,6 +4474,183 @@
         "title": "CreditsOut",
         "type": "object"
       },
+      "DashboardDataUseAttestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "no_training_opt_in_confirmed": {
+            "title": "No Training Opt In Confirmed",
+            "type": "boolean"
+          },
+          "paid_tier_confirmed": {
+            "title": "Paid Tier Confirmed",
+            "type": "boolean"
+          },
+          "source_note": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Source Note",
+            "type": "string"
+          },
+          "vendor_account_ref": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Vendor Account Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor_account_ref",
+          "paid_tier_confirmed",
+          "no_training_opt_in_confirmed",
+          "source_note"
+        ],
+        "title": "DashboardDataUseAttestIn",
+        "type": "object"
+      },
+      "DashboardDataUseListOut": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/DashboardDataUseOut"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "providers",
+          "statement"
+        ],
+        "title": "DashboardDataUseListOut",
+        "type": "object"
+      },
+      "DashboardDataUseOut": {
+        "additionalProperties": false,
+        "description": "One declared leg, as the panel renders it.\n\nNO FIELD CARRIES A DEFAULT, the rule every ops panel model here follows: every fact the\nconsole must trust is required on the wire, and `null` is used where the answer genuinely\nhas no value \u2014 which for `attested_at` means \"nobody has looked\", a real and distinct\nstate from an operator having looked and found a problem.",
+        "properties": {
+          "attested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "attested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested By"
+          },
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "dashboard_leg_built": {
+            "title": "Dashboard Leg Built",
+            "type": "boolean"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "no_training_opt_in_confirmed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Training Opt In Confirmed"
+          },
+          "paid_tier_confirmed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Tier Confirmed"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          },
+          "vendor_account_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Account Ref"
+          }
+        },
+        "required": [
+          "provider",
+          "eligible",
+          "blocked_reason",
+          "dashboard_leg_built",
+          "vendor_account_ref",
+          "paid_tier_confirmed",
+          "no_training_opt_in_confirmed",
+          "attested_at",
+          "attested_by",
+          "source_note"
+        ],
+        "title": "DashboardDataUseOut",
+        "type": "object"
+      },
+      "DashboardDataUseWriteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/DashboardDataUseOut"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "DashboardDataUseWriteOut",
+        "type": "object"
+      },
       "DashboardDayOut": {
         "additionalProperties": false,
         "description": "One IST calendar day of the dashboard's 7-day call chart.\n\n**The four class counts PARTITION `calls.status`** \u2014 every value the CHECK\nconstraint allows (`crm.models.CALL_STATUSES`) belongs to exactly one of them, so\n`completed + no_answer + failed + in_flight == total` on every bucket and an owner\ncan check the arithmetic against the bar they are looking at.\n`tests/dashboard_daily_test.py` pins both halves of that claim: the partition\nagainst the constraint's own tuple, and the sum against real rows.\n\nThe grouping is the one the product already uses. `CALL_STATUS_STYLES` in\napps/web/src/components/ui.tsx already paints these exact sets in these exact\ncolours, so a bar and a status badge on the same screen never disagree about what a\ncall was:\n\n- `completed` (green) \u2014 the one status that means a conversation happened.\n- `no_answer` (amber) \u2014 `no_answer`, `busy`, `voicemail`. Three ways a dial reaches\n  the network and not a person. Deliberately NOT folded into `failed`: nothing\n  malfunctioned, and the owner's next move (\"ring them back\") is a different move\n  from the one a failure calls for.\n- `failed` (red) \u2014 the dial itself broke. Ours to fix, not the callee's.\n- `in_flight` \u2014 `queued`, `ringing`, `in_progress`. Not an outcome YET, and a\n  FOURTH field rather than a silent omission: today's bar always carries some, and\n  a reader seeing three bands add to less than `total` cannot tell a live call from\n  a dropped row. The chart draws three bands and may show this one as the gap.\n\nNo status is dropped. A ninth one added to `CALL_STATUSES` without a class here\nfails the partition test rather than quietly unbalancing every bucket.",
@@ -29306,6 +29483,103 @@
           }
         },
         "summary": "Set one platform setting (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/dashboard-data-use": {
+      "get": {
+        "description": "Lists every declared LLM leg with whether the in-app AI assistant may run on it, the ground if it may not, and the latest operator attestation about that vendor's data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this platform can actually build \u2014 `dashboard_leg_built` says whether the second is true, so attesting a provider whose leg is not built is not mistaken for enabling it. This surface does not govern the in-call leg, which sends raw caller speech.",
+        "operationId": "list_dashboard_data_use_v1_ops_dashboard_data_use_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardDataUseListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every LLM leg's dashboard-assist eligibility and its latest data-use attestation",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/dashboard-data-use/{provider}": {
+      "post": {
+        "description": "Records what you read in the vendor's own console as a NEW dated row \u2014 a correction is a later attestation, never an edit, so what was believed at the time a client's content reached that vendor stays answerable. Requires `X-Confirm-Action: attest_dashboard_data_use:<provider>`. A negative answer is worth recording too: 'somebody looked and it is not on the paid tier' is a different and more useful state than 'nobody has looked'.",
+        "operationId": "attest_provider_data_use_v1_ops_dashboard_data_use__provider__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "maxLength": 48,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DashboardDataUseAttestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardDataUseWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest one LLM leg's data-use position for the dashboard assist (step-up, audited)",
         "tags": [
           "ops"
         ],

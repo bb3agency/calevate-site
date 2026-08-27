@@ -46,6 +46,7 @@ from apps.workers.extraction import (
     AZURE_PROVIDER,
     SARVAM_CHAT_URL,
     AssistCapability,
+    TenantModelLeg,
     assist_capability,
     assist_unavailable,
     azure_credentials,
@@ -471,7 +472,10 @@ async def _run_azure_loop(
 
 
 async def run_copilot(
-    payload: CopilotAskIn, *, quota_exhausted: bool = False
+    payload: CopilotAskIn,
+    *,
+    tenant_leg: TenantModelLeg | None = None,
+    quota_exhausted: bool = False,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -491,9 +495,10 @@ async def run_copilot(
 
     `quota_exhausted` is the GATE's verdict passed IN, never re-read here — this module has
     no session and no tenant, and a literal `False` would be a promise about
-    `require_ai_assist`'s control flow made in the wrong file.
+    `require_ai_assist`'s control flow made in the wrong file. `tenant_leg` arrives the same
+    way and for the same reason: it is a row, and this module has no session to read one.
     """
-    capability = assist_capability(quota_exhausted=quota_exhausted)
+    capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
         raise assist_unavailable(capability)
 
@@ -512,7 +517,9 @@ async def run_copilot(
             )
             if streamed_anything:
                 raise
-        capability = assist_capability(quota_exhausted=quota_exhausted, provider_unavailable=True)
+        capability = assist_capability(
+            tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
+        )
         if not capability.available:
             raise assist_unavailable(capability)
 
@@ -522,9 +529,21 @@ async def run_copilot(
 
 def disclosure_for(capability: AssistCapability) -> str | None:
     """What the `done` event carries. D-127 G-6's sentence, plus what the substitution
-    costs on THIS surface (`FALLBACK_NO_TOOLS_NOTE`)."""
+    costs on THIS surface.
+
+    ⚠ **THE NO-TOOLS NOTE IS APPENDED ONLY ON THE SARVAM LEG, AND IT USED TO BE APPENDED TO
+    EVERY DISCLOSURE.** That was safe while every substitution landed on Sarvam. Since the
+    selector became tenant-aware an AZURE answer can itself be a substitution — for an
+    account whose chosen provider may not serve this leg — and that answer runs the full
+    tool-calling loop. Appending the note there would tell somebody their fields could not
+    be filled while the model was filling them, which is the one failure mode worse than
+    saying no."""
     disclosure = capability.disclosure
-    return None if disclosure is None else disclosure + FALLBACK_NO_TOOLS_NOTE
+    if disclosure is None:
+        return None
+    if capability.provider == AZURE_PROVIDER:
+        return disclosure
+    return disclosure + FALLBACK_NO_TOOLS_NOTE
 
 
 __all__ = [

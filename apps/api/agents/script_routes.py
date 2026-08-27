@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing, script_builder
+from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
@@ -235,7 +236,12 @@ async def assist_script(
 
     # RUN — the model call, on the controlled worker path (never a raw handler call).
     ref = new_assist_ref()
-    draft = await draft_script(payload.description, quota_exhausted=quota.at_ceiling)
+    # WHOSE AI DRAFTS. The account's own model where it may serve this leg — read on the
+    # session already open, for `crm/routes.assist_call`'s reason.
+    tenant_leg = await account_assist_leg(session)
+    draft = await draft_script(
+        payload.description, tenant_leg=tenant_leg, quota_exhausted=quota.at_ceiling
+    )
 
     # METER — a completed run is money spent; record it in its own transaction so a later
     # failure cannot roll back the record of a payment already made (crm/assist §4).

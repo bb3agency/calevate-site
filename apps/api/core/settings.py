@@ -484,7 +484,7 @@ def resolve_hmac_key(
     local_fallback: str,
     app_env: str,
 ) -> bytes:
-    """The HMAC key for one purpose, or a refusal an operator can act on.
+    """The HMAC key for one purpose, or a refusal — audience-split, see `_unusable_hmac_key`.
 
     ONE resolver, because this repo now holds three HMAC secrets that each have to make
     the same three decisions — configured, too short, absent — and three copies of that
@@ -509,18 +509,26 @@ def resolve_hmac_key(
     Callers pass `app_env` rather than having it read here so this stays a pure function
     of its arguments — the caller has already loaded settings, and a second read would
     be a second thing to keep consistent under test.
+
+    ⚠ **`purpose` AND `title` NOW REACH THE LOG AND NOT THE BODY, AND THAT IS THE
+    CORRECTION.** See `_unusable_hmac_key` below for the whole argument; the short version
+    is that every door into this refusal is a CLIENT door, and the bodies it produced named
+    an environment variable, a secrets manager, an internal document section and two
+    standards documents to a shop owner in the client console.
     """
     if secret:
         if len(secret.encode()) < MIN_HMAC_KEY_BYTES:
             # Not logged with the secret, obviously, and not with its length as a
             # searchable field beyond the byte count an operator needs to fix it.
-            log.error("hmac_key_too_short", extra={"env_var": env_var, "app_env": app_env})
-            raise ProblemError(
-                kind="dependency",
+            raise _unusable_hmac_key(
+                env_var=env_var,
+                purpose=purpose,
                 code=code,
                 title=title,
-                detail=f"This deployment's HMAC key for {purpose} is too short.",
-                remediation=(
+                app_env=app_env,
+                event="hmac_key_too_short",
+                reason=f"is shorter than {MIN_HMAC_KEY_BYTES} bytes",
+                fix=(
                     f"{env_var} must be at least {MIN_HMAC_KEY_BYTES} bytes "
                     "(RFC 2104 §3; NIST SP 800-107 Rev. 1 §5.3.4); inject a longer one "
                     "from the secrets manager (DEV-SETUP §4)."
@@ -528,15 +536,89 @@ def resolve_hmac_key(
             )
         return secret.encode()
     if app_env != "local":
-        log.error("hmac_key_missing", extra={"env_var": env_var, "app_env": app_env})
-        raise ProblemError(
-            kind="dependency",
+        raise _unusable_hmac_key(
+            env_var=env_var,
+            purpose=purpose,
             code=code,
             title=title,
-            detail=f"This deployment has no HMAC key for {purpose}.",
-            remediation=f"Inject {env_var} from the secrets manager (DEV-SETUP §4).",
+            app_env=app_env,
+            event="hmac_key_missing",
+            reason="is not set",
+            fix=f"Inject {env_var} from the secrets manager (DEV-SETUP §4).",
         )
     return local_fallback.encode()
+
+
+def _unusable_hmac_key(
+    *,
+    env_var: str,
+    purpose: str,
+    code: str,
+    title: str,
+    app_env: str,
+    event: str,
+    reason: str,
+    fix: str,
+) -> ProblemError:
+    """The refusal, and the log line that carries what an operator needs to fix it.
+
+    **THE FIX IS IN THE LOG, NOT IN THE BODY.** `core/envelope.py::_unusable_kek` made this
+    correction for `PLATFORM_KEK` and this is the same shape rather than a second one — one
+    way per problem, and the argument is identical: both doors into this branch are CLIENT
+    doors. `audit_chain_not_configured` fires on a client campaign launch and on a client
+    reading a raw transcript; `idempotency_not_configured` fires on ANY client POST carrying
+    an `Idempotency-Key`. The bodies used to read "This deployment has no HMAC key for the
+    audit hash chain" and "AUDIT_CHAIN_SECRET must be at least 32 bytes (RFC 2104 §3; NIST
+    SP 800-107 Rev. 1 §5.3.4); inject a longer one from the secrets manager (DEV-SETUP §4)."
+    An environment variable, a secrets manager, an internal document and two standards
+    documents are four things a shop owner cannot act on, and the deployment is not theirs.
+
+    Nothing is lost by moving it. `extra` carries the variable, the environment, the reason,
+    the PURPOSE and the whole old remediation verbatim; `/healthz/ready` already names these
+    keys for an operator (`runtime_config_missing_keys`), so the deployment does not take
+    traffic in this state in the first place. What the client gets instead is the true
+    statement — something on our side is wrong, nothing of theirs has changed — plus the
+    `trace_id` every problem body carries, which is what turns this into a support
+    conversation rather than a dead end.
+
+    **THE CODE STAYS PER-PURPOSE AND THE TITLE STAYS AN ARGUMENT.** `code` reaches alerting
+    and a support conversation, so "the audit chain" and "idempotency" must still be
+    distinguishable — the audience split is about the WORDS a person reads, never about
+    collapsing the states behind them. `title` is now logged rather than rendered, which is
+    what keeps the caller's own name for the thing in front of the operator who has to find
+    it.
+
+    Never logged with the secret, and never with anything derived from it: a length or a
+    prefix is a search-space reduction on a key. The variable name is the actionable content.
+    """
+    log.error(
+        event,
+        extra={
+            "env_var": env_var,
+            "app_env": app_env,
+            "purpose": purpose,
+            "code": code,
+            "title": title,
+            "reason": reason,
+            # The operator's half of the old remediation, relocated verbatim so the person
+            # who can act on it still gets every word of it.
+            "fix": fix,
+        },
+    )
+    return ProblemError(
+        kind="dependency",
+        code=code,
+        title="Something on our side needs attention",
+        detail=(
+            "A part of Calevate that keeps a tamper-proof record of what happens on your "
+            "account is not set up correctly, so we have stopped rather than carry on. "
+            "Nothing of yours has been changed or lost."
+        ),
+        remediation=(
+            "There is nothing for you to fix. Your Calevate team has been alerted — "
+            "quote the reference on this message if you contact us."
+        ),
+    )
 
 
 #: What an operator must SET, per reason `email_transport_reason` can return.

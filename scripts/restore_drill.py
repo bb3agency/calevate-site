@@ -233,6 +233,12 @@ _APPEND_ONLY_PROBE_SET = {
     # carries a CHECK constraint: a probe that could fail on the constraint instead of on
     # the trigger would report a protected ledger as protected for the wrong reason.
     "fx_rate_observations": "source_url = source_url || 'x'",
+    # D-477: not tenant-scoped either, for `platform_model_prices`' reason. `source_note`
+    # is a real value change and NOT `vendor_account_ref`, which carries the
+    # `ck_platform_dashboard_data_use_evidence_present` CHECK — a probe that could fail on
+    # the constraint instead of on the trigger would report a protected ledger as
+    # protected for the wrong reason (`fx_rate_observations`' own note).
+    "platform_dashboard_data_use": "source_note = source_note || 'x'",
 }
 
 
@@ -725,6 +731,16 @@ class RestoreDrill:
             "INSERT INTO platform_model_prices (model, effective_from, "
             "input_usd_per_mtok, output_usd_per_mtok, attested_by, source_note) "
             f"VALUES ('gpt-4o-mini', now(), 0.1500, 0.6000, '{ADMIN_ID}', "
+            "'restore-drill fixture')",
+            # D-477: one attestation, for `platform_model_prices`' reason — a FOR EACH ROW
+            # trigger cannot fire on an empty table. `attested_by` is the ADMIN_ID seeded
+            # above; both text columns are non-blank for the evidence CHECK. The project
+            # reference is marked as a fixture so it can never be mistaken for a real
+            # vendor account.
+            "INSERT INTO platform_dashboard_data_use (provider, attested_at, attested_by, "
+            "vendor_account_ref, paid_tier_confirmed, no_training_opt_in_confirmed, "
+            "source_note) VALUES ('google', now(), "
+            f"'{ADMIN_ID}', 'restore-drill-fixture-project', false, false, "
             "'restore-drill fixture')",
             # D-475: one pulled rate, for the same reason — `append_only_enforced` needs a
             # row on `fx_rate_observations` for its FOR EACH ROW trigger to fire against.

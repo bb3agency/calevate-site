@@ -114,7 +114,7 @@ from apps.api.core.settings import get_settings
 # answers "does this deployment have an Azure leg at all", which is the question that
 # decides whether a model needs a deployment to be addressable or goes to the engine
 # verbatim. A second read here would be a second definition of "configured".
-from apps.workers.extraction import azure_credentials
+from apps.workers.extraction import TenantModelLeg, azure_credentials
 
 #: WHICH LEVEL SUPPLIED THE MODEL. A closed vocabulary rather than a `str`, for
 #: `AgentDirection`'s reason (D-440): it is compared against, returned to a browser and
@@ -474,6 +474,241 @@ def offerable_models() -> frozenset[str]:
     return frozenset(model for model in SELECTABLE_LLM_MODELS if unofferable_reason(model) is None)
 
 
+# --- MAY THE DASHBOARD ASSIST RUN ON THIS LEG? ---------------------------------------
+#
+# **A DIFFERENT QUESTION FROM `selectable`, GOVERNED BY A DIFFERENT REGIME, AND THE PLACE
+# THIS REPOSITORY PREVIOUSLY CONTRADICTED ITSELF.** Everything above this line answers "may
+# a client CHOOSE this model for their phone agents" — the IN-CALL leg. What follows answers
+# "may the DASHBOARD assistant run on this model's provider", and the two do not imply each
+# other in either direction.
+#
+# The contradiction, recorded rather than resolved here, because resolving it is not this
+# module's to do (D-477, OPERATIONS §2 gate 41):
+#
+#   * `calevate_shared/config.py`'s `gemini_api_key` comment bars the Google AI Studio
+#     Developer API from the DASHBOARD leg, on a stated ground about free-tier data use.
+#   * `calevate_shared/engine.py`'s `GoogleDirectModel` block permits two Gemini models on
+#     the IN-CALL leg on entirely different grounds — the thinking-budget trap being
+#     eliminated, and price — and does not mention data use at all.
+#
+# ⚠ **NOTHING HERE ASSERTS A VENDOR'S TERMS AS A FIRST-HAND FINDING, AND THE EVIDENCE CLASS
+# IS THE POINT.** `ai.google.dev`, `policies.google.com`, `aistudio.google.com` and
+# `platform.openai.com` are all egress-blocked from this environment (re-measured
+# 27 Aug 2026), so no vendor-owned page about either data-use position has been read from
+# here. What is held for Google is **SECONDARY** — two independent third-party verbatim
+# mirrors of the Gemini API Additional Terms, captured ten months apart and agreeing almost
+# word for word, relayed into this tree: the unpaid tier uses submitted content to improve
+# Google products with human reviewers able to read it, and instructs developers not to
+# submit personal information to it. That class is strong enough to keep the leg SHUT and is
+# not strong enough to open it (hard rule 11), which is exactly the direction this code
+# takes. For OpenAI there is nothing at all, and `DASHBOARD_TERMS_UNREAD` says so.
+#
+# So what is built is the MECHANISM, with the account-level question as an explicit OPERATOR
+# ATTESTATION — the pattern this repo already uses twice, for the LLM price
+# (`ops/model_pricing.AttestedModelPrice`) and for the Azure resource's region (OPERATIONS §2
+# gates 20/20c). The founder attests; the code enforces; neither guesses.
+
+#: The legs this repository can actually BUILD a dashboard chat request for.
+#:
+#: AN ENGINEERING FACT, NOT A COMPLIANCE ONE, and it is separate from eligibility below so
+#: that the two never get argued about as one thing. `apps/workers/chat.ChatDialect` is
+#: `"openai" | "sarvam"`, and the only dashboard leg any surface constructs is the Azure one
+#: (`copilot/service._azure_leg`, `workers/extraction.azure_extractor`,
+#: `workers/script_assist._draft_via_azure`). No endpoint for the Google Developer API has
+#: been verified from a primary source in this tree, and inventing one would be a wire value
+#: taken from memory — the exact class of mistake hard rule 11 and D-417 exist for.
+#:
+#: ⚠ **ATTESTING A PROVIDER'S DATA-USE POSITION DOES NOT BY ITSELF MOVE THE ASSISTANT ONTO
+#: IT.** That is stated on the ops screen too, because `ops/model_pricing.ModelOfferability
+#: .withheld_reason` was added for exactly the failure of not stating it: a panel that
+#: invites an operator to do a five-minute job which cannot succeed.
+DASHBOARD_ADDRESSABLE_PROVIDERS: Final[frozenset[LlmProvider]] = frozenset({"azure_openai"})
+
+#: Legs whose dashboard use is gated on an operator attesting the vendor's data-use terms.
+#:
+#: `google` is here because the bar on that leg is a data-use ground, and a data-use ground
+#: is a question about ONE ACCOUNT'S TIER — which nobody in a repository can answer and an
+#: operator with the vendor console can. It is the same shape as the price: a fact about our
+#: subscription, attested with provenance, never defaulted.
+#:
+#: **THE TIER IS A PROPERTY OF THE PROJECT, NOT OF THE KEY, AND THAT IS WHY THE ATTESTATION
+#: CAPTURES A PROJECT ID.** Google's live Cloud Billing discovery document
+#: (`cloudbilling.googleapis.com/$discovery/rest?version=v1`, revision `20260821`, read
+#: 27 Aug 2026 — VENDOR-PUBLISHED) defines `billingEnabled` as "True if the project is
+#: associated with an open billing account… False if… therefore cannot use paid services",
+#: answered by `projects.getBillingInfo` for a PROJECT ID under an OAuth scope a Gemini API
+#: key cannot satisfy. Nothing verifiable maps a key back to its project, so that joint is
+#: irreducibly human — the Azure region gate's exact shape. The project id is stored as a
+#: first-class column so a later credentialled check has a subject; OPERATIONS §2 gate 41
+#: names that as the next step, because a human silently unlinking billing flips the terms
+#: the same instant and a quarterly signature is the wrong instrument for it.
+DASHBOARD_NEEDS_DATA_USE_ATTESTATION: Final[frozenset[LlmProvider]] = frozenset({"google"})
+
+#: Legs withheld from the dashboard because NOBODY HAS READ THE VENDOR'S POSITION.
+#:
+#: **`openai` IS HERE AND THE DIRECTION IS FAIL-CLOSED, WHICH IS THE WHOLE ANSWER.** The
+#: task of deciding it was taken deliberately rather than by omission: OpenAI's own pages are
+#: egress-blocked from this environment, no primary source about their API data-use position
+#: was read this session, and `ModelLifecycle.retirement_stance` already teaches the
+#: distinction this repository needs — "the vendor says nothing" is not "nobody looked", and
+#: only the second one is true here. An unread position may not become a permission.
+#: Attesting it is NOT the remedy either: an attestation is a reading of a vendor's terms,
+#: and moving `openai` out of this set is a reviewed commit that cites what was read.
+DASHBOARD_TERMS_UNREAD: Final[frozenset[LlmProvider]] = frozenset({"openai"})
+
+#: A function returning every leg whose data-use terms an operator has attested permit the
+#: dashboard assist. Installed by ops, exactly like `LlmCredentialReader` above.
+LlmDashboardDataUseReader = Callable[[], frozenset[LlmProvider]]
+
+_data_use_reader: LlmDashboardDataUseReader | None = None
+
+
+def install_dashboard_data_use_reader(reader: LlmDashboardDataUseReader | None) -> None:
+    """Register where dashboard data-use attestations come from. `None` uninstalls.
+
+    The third seam of the same shape as `install_llm_credential_reader` and
+    `billing/rates.install_llm_price_attestations`, and deliberately not a fourth mechanism:
+    a sync, no-argument reader over an in-process snapshot (`ops/pricing_snapshot.py`), so
+    the picker and the assist selector stay exercisable with no database at all.
+    """
+    global _data_use_reader
+    _data_use_reader = reader
+
+
+def dashboard_data_use_attested() -> frozenset[LlmProvider]:
+    """The legs an operator has attested are on a tier the vendor does not train on.
+
+    **WITH NO READER INSTALLED THE ANSWER IS EMPTY, AND EMPTY IS "NOBODY HAS ATTESTED" —
+    NEVER "THE OPERATOR SAID NO".** The two are different states and only one of them is a
+    finding. `dashboard_leg_reason` reports the absent attestation as an absent attestation,
+    which is what an operator can act on; a missing reading rendered as a refusal would be a
+    claim about a vendor that nobody made.
+    """
+    if _data_use_reader is not None:
+        return _data_use_reader()
+    return frozenset()
+
+
+#: THE THREE GROUNDS a leg can be barred from the dashboard assist, one sentence each, for an
+#: OPERATOR. Separate strings because they have three different remedies: a console
+#: attestation, a reviewed commit citing a vendor page somebody read, and code that does not
+#: exist yet. A screen that could not tell them apart would send all three to the same place.
+NO_DATA_USE_ATTESTATION_REASON: Final = (
+    "nobody has attested that this platform's account with this provider is on a tier where "
+    "the vendor does not train on submitted prompts and responses, and that nothing on that "
+    "account opts our content back into the free-tier terms — the dashboard assistant sends "
+    "a client's screen content, so both answers are needed; record them in the ops console "
+    "(for Google, the Billing Tier column on AI Studio's Projects page, and Gemini API "
+    "Logs/Datasets sharing OFF)"
+)
+UNREAD_DASHBOARD_TERMS_REASON: Final = (
+    "nobody has read this provider's data-use terms for the dashboard leg from a primary "
+    "source, and an unread position is not a permission — read the vendor's page and land "
+    "the finding as a reviewed commit, which is not something an attestation can stand in for"
+)
+NO_DASHBOARD_LEG_REASON: Final = (
+    "this repository can build no dashboard chat request for this provider — "
+    "workers/chat.ChatDialect speaks openai and sarvam only, and no endpoint for this "
+    "provider has been verified from a primary source here"
+)
+
+#: THE ONE SENTENCE A CLIENT SEES when their own model's provider cannot serve the assistant.
+#:
+#: The three grounds are collapsed for `CLIENT_UNAVAILABLE_REASON`'s reason and one more that
+#: matters here: not one of them is about the CLIENT'S configuration. Their model works,
+#: their agents are running on it, and the limitation is entirely ours — so the only true
+#: sentence is the one that says so and does not ask them to do anything.
+CLIENT_DASHBOARD_UNAVAILABLE_REASON: Final = (
+    "the AI model on your account runs your phone agents, but Calevate cannot yet use it for "
+    "the in-app assistant"
+)
+
+
+def dashboard_leg_reason(
+    provider: LlmProvider,
+    *,
+    audience: LlmReasonAudience = "operator",
+    attested: frozenset[LlmProvider] | None = None,
+) -> str | None:
+    """Why the DASHBOARD assist may not run on `provider`, or `None` when it may.
+
+    **THE ORDER IS COMPLIANCE FIRST, ENGINEERING SECOND, AND IT IS NOT ARBITRARY.** A leg
+    whose data-use position is unread or unattested must report THAT even if we could build a
+    request for it tomorrow: reporting "we have not built the leg" first would let the
+    engineering work land and silently clear the only ground that was actually load-bearing.
+    The reverse order fails open the moment somebody adds a dialect.
+
+    ⚠ **THE ABSENT ATTESTATION AND THE UNBUILT LEG ARE BOTH REPORTED, IN THAT ORDER, AND
+    NEITHER IS HIDDEN BY THE OTHER.** Attesting Google's tier today changes this function's
+    answer from the first sentence to the third — which is a real, tested change and the
+    reason the attestation is not a field nothing reads — and it does NOT make the leg
+    eligible, because `DASHBOARD_ADDRESSABLE_PROVIDERS` is a separate fact. The ops console
+    says that in as many words on the attestation form, so nobody is invited to do a job
+    that cannot finish (`ModelOfferability.withheld_reason`'s lesson, applied one surface
+    over).
+
+    `audience` follows `unofferable_reason`: `None`-ness is audience-independent, because
+    eligibility is one fact; only the SENTENCE differs. The default is `"operator"` for that
+    function's reason — the admin realm and the guards are the majority of callers here,
+    and the client realm opts in.
+
+    **`attested` LETS A CALLER ASK ABOUT STATE IT HAS ALREADY READ, AND THE OPS CONSOLE MUST
+    PASS IT.** The default reads the in-process SNAPSHOT (`ops/pricing_snapshot.py`), which
+    is what every hot path wants — sync, zero IO, at most one poll interval stale. That
+    staleness is invisible on an assist and unacceptable on the attestation screen: an
+    operator who has just recorded an attestation and is shown the ground it cleared,
+    unchanged, has been told their write did not land. The console reads the store in the
+    same request and hands the answer in, so the screen states the STORE's truth while the
+    ladder states the snapshot's — which is the honest split, because the ladder really is
+    running on the snapshot until it refreshes.
+    """
+    permitted = dashboard_data_use_attested() if attested is None else attested
+    ground: str | None = None
+    if provider in DASHBOARD_TERMS_UNREAD:
+        ground = UNREAD_DASHBOARD_TERMS_REASON
+    elif provider in DASHBOARD_NEEDS_DATA_USE_ATTESTATION and provider not in permitted:
+        ground = NO_DATA_USE_ATTESTATION_REASON
+    elif provider not in DASHBOARD_ADDRESSABLE_PROVIDERS:
+        ground = NO_DASHBOARD_LEG_REASON
+    if ground is None or audience == "operator":
+        return ground
+    return CLIENT_DASHBOARD_UNAVAILABLE_REASON
+
+
+def dashboard_leg_providers() -> frozenset[LlmProvider]:
+    """Every declared leg the dashboard assist may run on right now.
+
+    Derived from `dashboard_leg_reason` over the declared vocabulary rather than written as a
+    second set beside it (D-104): a leg that stops being eligible must not be able to stay in
+    a constant somebody forgot.
+    """
+    return frozenset(p for p in get_args(LlmProvider) if dashboard_leg_reason(p) is None)
+
+
+def tenant_dashboard_leg(*, model: str) -> TenantModelLeg:
+    """`model` as the assist selector's tenant half — WITHOUT a database and WITHOUT a cycle.
+
+    A pure function over the identifier the caller already resolved
+    (`agents/service.resolved_llm_model`), so this module keeps its "reads no database"
+    property and `workers/extraction` keeps its "pure function of its arguments" one. The
+    dataclass is defined in `workers/extraction` and constructed here, which is the direction
+    that already works: `llm_models` imports that module, never the reverse.
+
+    Raises through `leg_for_model` on an identifier the catalogue does not know — the same
+    refusal `bind_model` and `_operator_unofferable_reason` make, and for the same reason: a
+    model with no declared leg has no provider whose dashboard position could be asked about,
+    so answering "not eligible" would imply the question made sense.
+    """
+    provider = leg_for_model(model).provider
+    reason = dashboard_leg_reason(provider)
+    return TenantModelLeg(
+        model=model,
+        provider=provider,
+        serves_dashboard=reason is None,
+        blocked_reason=reason,
+    )
+
+
 def resolve_llm_model(
     *, agent_model: str | None, organization_model: str | None
 ) -> ResolvedLlmModel:
@@ -659,21 +894,34 @@ def validate_llm_model(
 
 
 __all__ = [
+    "CLIENT_DASHBOARD_UNAVAILABLE_REASON",
     "CLIENT_UNAVAILABLE_REASON",
+    "DASHBOARD_ADDRESSABLE_PROVIDERS",
+    "DASHBOARD_NEEDS_DATA_USE_ATTESTATION",
+    "DASHBOARD_TERMS_UNREAD",
     "LLM_MODEL_SOURCES",
     "NO_ATTESTED_PRICE_REASON",
     "NO_CREDENTIAL_REASON",
+    "NO_DASHBOARD_LEG_REASON",
+    "NO_DATA_USE_ATTESTATION_REASON",
     "NO_DEPLOYMENT_REASON",
     "QUOTED_CALL_MINUTES",
     "UNAVAILABLE_REASON",
+    "UNREAD_DASHBOARD_TERMS_REASON",
     "LlmCredentialReader",
+    "LlmDashboardDataUseReader",
     "LlmModelSource",
     "LlmReasonAudience",
     "ResolvedLlmModel",
     "SelectableModel",
+    "TenantModelLeg",
     "available_models",
+    "dashboard_data_use_attested",
+    "dashboard_leg_providers",
+    "dashboard_leg_reason",
     "deployment_for",
     "every_selectable_model_is_priced",
+    "install_dashboard_data_use_reader",
     "install_llm_credential_reader",
     "installed_llm_providers",
     "offerable_models",
@@ -681,6 +929,7 @@ __all__ = [
     "quoted_inr_per_minute",
     "resolve_llm_model",
     "selectable_models",
+    "tenant_dashboard_leg",
     "unofferable_reason",
     "validate_llm_model",
 ]

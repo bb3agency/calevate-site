@@ -23,6 +23,7 @@ run-unique tenant, and nothing asserts a global row count.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -516,7 +517,7 @@ class _FrozenClock:
 
 
 def test_a_configured_secret_below_the_hmac_key_size_is_refused_like_an_absent_one(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A weak key is not a warning to read later — it is the same condition as no key.
 
@@ -537,12 +538,21 @@ def test_a_configured_secret_below_the_hmac_key_size_is_refused_like_an_absent_o
         impersonation_grant_secret = "too-short-for-hs256"  # 19 bytes
 
     monkeypatch.setattr(grant_module, "get_settings", lambda: _Short())
-    with pytest.raises(ProblemError) as raised:
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         grant_module.mint_grant(
             tenant_id=uuid.uuid4(), admin_id=uuid.uuid4(), auth_time=datetime.now(UTC)
         )
     assert raised.value.code == "impersonation_not_configured"
-    assert "32" in (raised.value.remediation or ""), "the refusal must name the requirement"
+    # ⚠ **THE REQUIREMENT MOVED FROM THE BODY TO THE LOG (D-477), AND THIS ASSERTION MOVED
+    # WITH IT.** `resolve_hmac_key`'s refusals are read by CLIENTS on other codes — an
+    # `Idempotency-Key` POST, a campaign launch — so the shared resolver's body is now
+    # written for a person with no environment to edit, and the byte floor, the variable
+    # and the standards citations go to the operator's log line intact
+    # (`core/settings.py::_unusable_hmac_key`, `core/envelope.py::_unusable_kek`'s shape).
+    record = next(r for r in caplog.records if r.getMessage() == "hmac_key_too_short")
+    fix = str(getattr(record, "fix", ""))
+    assert "32" in fix, "the refusal must name the requirement to the person who can meet it"
+    assert "IMPERSONATION_GRANT_SECRET" in fix
 
     # And the positive half, so this pins a THRESHOLD rather than a blanket refusal.
     class _LongEnough:

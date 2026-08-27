@@ -38,6 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import cast, get_args
 
 from calevate_shared.engine import LLM_MODELS, LlmProvider
 from sqlalchemy import text
@@ -279,6 +280,212 @@ async def offerable_models(session: AsyncSession, *, at: datetime) -> frozenset[
     `at`. The set half of `model_offerability`, for a caller that only needs membership."""
     return frozenset(
         model for model, o in (await model_offerability(session, at=at)).items() if o.offerable
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardDataUseAttestation:
+    """What an operator attested about ONE provider's data-use terms, with its provenance.
+
+    Frozen and provenance-carrying for `AttestedModelPrice`'s reasons: an attestation that
+    reached a caller must not be mutable underneath it, and the next reader must inherit the
+    evidence (`vendor_account_ref`, `source_note`, `attested_by`) rather than the conclusion.
+
+    `permits_dashboard` is the AND of the two settings that can each defeat the paid tier —
+    see `ops/models.PlatformDashboardDataUse` for what each one is and what neither of them
+    buys. It is a property rather than a stored column so that the rule lives in one place
+    and an old row can never disagree with today's rule about its own two booleans.
+    """
+
+    provider: LlmProvider
+    vendor_account_ref: str
+    paid_tier_confirmed: bool
+    no_training_opt_in_confirmed: bool
+    attested_at: datetime
+    #: The operator, by display name where there is one and by id otherwise — never empty.
+    attested_by: str
+    source_note: str
+
+    @property
+    def permits_dashboard(self) -> bool:
+        """May the dashboard assist run on this provider on the strength of this row?"""
+        return self.paid_tier_confirmed and self.no_training_opt_in_confirmed
+
+
+async def dashboard_data_use_attestations(
+    session: AsyncSession,
+) -> dict[LlmProvider, DashboardDataUseAttestation]:
+    """The LATEST attestation for each provider, keyed by provider.
+
+    Latest rather than effective-dated, and the difference from `attested_model_prices` is
+    deliberate: a price is a fact about a PERIOD (a re-rendered invoice needs the figure that
+    was live in its month), while a data-use term is a fact about NOW (may this content go to
+    this vendor today). The history is kept because "what did we believe when" is the audit
+    question, and it is read by the console, not by the gate.
+
+    ONE ROUND TRIP: `DISTINCT ON (provider) … ORDER BY provider, attested_at DESC` over
+    `ix_platform_dashboard_data_use_provider`, the same shape the price reader uses.
+
+    A row naming a provider this build no longer declares is SKIPPED rather than raising: the
+    table deliberately stores provider as text so history survives a leg being withdrawn, and
+    a withdrawn leg's stale attestation must not blank every other provider's.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (d.provider) d.provider, d.vendor_account_ref, "
+                "d.paid_tier_confirmed, d.no_training_opt_in_confirmed, d.attested_at, "
+                # COALESCE to the id text, never NULL — `admin_users.name` is nullable and an
+                # unattributed attestation is not an attestation (`attested_by`'s comment on
+                # the price reader gives the argument in full).
+                "COALESCE(a.name, d.attested_by::text), d.source_note "
+                "FROM platform_dashboard_data_use d "
+                "LEFT JOIN admin_users a ON a.id = d.attested_by "
+                "ORDER BY d.provider, d.attested_at DESC"
+            )
+        )
+    ).all()
+    declared = frozenset(get_args(LlmProvider))
+    result: dict[LlmProvider, DashboardDataUseAttestation] = {}
+    for r in rows:
+        provider = str(r[0])
+        if provider not in declared:
+            continue
+        result[cast("LlmProvider", provider)] = DashboardDataUseAttestation(
+            provider=cast("LlmProvider", provider),
+            vendor_account_ref=str(r[1]),
+            paid_tier_confirmed=bool(r[2]),
+            no_training_opt_in_confirmed=bool(r[3]),
+            attested_at=r[4],
+            attested_by=str(r[5]),
+            source_note=str(r[6]),
+        )
+    return result
+
+
+async def dashboard_permitted_providers(session: AsyncSession) -> frozenset[LlmProvider]:
+    """The legs whose LATEST attestation permits the dashboard assist.
+
+    The shape `agents/llm_models.install_dashboard_data_use_reader` consumes. An absent
+    provider means NOBODY HAS ATTESTED, which the gate reports as an absent attestation —
+    never as an operator having said no. The two are different states and only one is a
+    finding (`dashboard_data_use_attested`'s docstring).
+    """
+    attested = await dashboard_data_use_attestations(session)
+    return frozenset(p for p, a in attested.items() if a.permits_dashboard)
+
+
+def _require_declared_provider(provider: str) -> LlmProvider:
+    if provider not in get_args(LlmProvider):
+        raise ProblemError(
+            kind="not_found",
+            code="dashboard_data_use_unknown_provider",
+            title="No such AI provider",
+            detail=f"{provider!r} isn't one of Calevate's declared LLM legs.",
+            remediation=(
+                "The declared legs are "
+                + ", ".join(sorted(get_args(LlmProvider)))
+                + ". Adding one is a code change, not something enterable here."
+            ),
+        )
+    return cast("LlmProvider", provider)
+
+
+async def attest_dashboard_data_use(
+    session: AsyncSession,
+    *,
+    provider: str,
+    vendor_account_ref: str,
+    paid_tier_confirmed: bool,
+    no_training_opt_in_confirmed: bool,
+    attested_at: datetime,
+    source_note: str,
+    actor_id: object,
+) -> DashboardDataUseAttestation:
+    """Record ONE operator attestation as a NEW dated row. Never an UPDATE.
+
+    The caller MUST have step-up confirmed and MUST write the audit row on this same session
+    — `attest_price`'s contract exactly, because this is the same class of act: a person
+    putting their name to a fact about the outside world that the platform will then rely on.
+
+    **A "NO" IS A VALID AND USEFUL ATTESTATION AND IS NOT REFUSED.** Recording that an
+    operator LOOKED and found the project on the unpaid tier is worth more than an absent
+    row: the gate reports "nobody has attested" for the second and can report a checked
+    negative for the first. So the two booleans are stored as given; only their AND decides
+    eligibility.
+
+    Refuses an undeclared provider (the leg vocabulary is closed), a blank project reference
+    or evidence note (the database CHECK is the backstop; this is the sentence an operator can
+    act on), and a duplicate `(provider, attested_at)` — a correction is a DISTINCT instant,
+    so colliding on one means re-attesting the same instant, the one write this append-only
+    table cannot express.
+    """
+    declared = _require_declared_provider(provider)
+    account_ref = vendor_account_ref.strip()
+    note = source_note.strip()
+    if not account_ref or not note:
+        raise ProblemError(
+            kind="validation",
+            code="dashboard_data_use_evidence_missing",
+            title="An attestation needs the account it is about and where you looked",
+            detail=(
+                "Both the vendor project/account reference and the evidence note are required."
+            ),
+            remediation=(
+                "Name the vendor project the platform's key for this provider belongs to "
+                "(for Google, the Cloud project shown on the AI Studio Projects page), and "
+                "say where you read the tier. Without the project reference nobody can ever "
+                "re-check this claim — they can only re-make it."
+            ),
+        )
+    existing = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM platform_dashboard_data_use "
+                "WHERE provider = :p AND attested_at = :at"
+            ),
+            {"p": declared, "at": attested_at},
+        )
+    ).first()
+    if existing is not None:
+        raise ProblemError(
+            kind="conflict",
+            code="dashboard_data_use_duplicate_instant",
+            title="An attestation already exists for this provider at this instant",
+            detail=(
+                f"{declared!r} already has an attestation at {attested_at.isoformat()}. A "
+                "correction is a NEW instant, never an edit of an existing one."
+            ),
+            remediation=(
+                "Attest again with a later instant (the default is now). The history is "
+                "append-only by design — it is the record of what was believed, and when."
+            ),
+        )
+    await session.execute(
+        text(
+            "INSERT INTO platform_dashboard_data_use "
+            "(provider, attested_at, attested_by, vendor_account_ref, paid_tier_confirmed, "
+            "no_training_opt_in_confirmed, source_note) "
+            "VALUES (:p, :at, :by, :ref, :paid, :noopt, :note)"
+        ),
+        {
+            "p": declared,
+            "at": attested_at,
+            "by": actor_id,
+            "ref": account_ref,
+            "paid": paid_tier_confirmed,
+            "noopt": no_training_opt_in_confirmed,
+            "note": note,
+        },
+    )
+    return DashboardDataUseAttestation(
+        provider=declared,
+        vendor_account_ref=account_ref,
+        paid_tier_confirmed=paid_tier_confirmed,
+        no_training_opt_in_confirmed=no_training_opt_in_confirmed,
+        attested_at=attested_at,
+        attested_by=str(actor_id),
+        source_note=note,
     )
 
 

@@ -133,6 +133,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.kb.routes import router as kb_router
     from apps.api.legal.routes import router as legal_readiness_router
     from apps.api.ops.config_routes import router as ops_config_router
+    from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
     from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.routes import router as ops_router
@@ -323,6 +324,10 @@ def _mount_routers(application: FastAPI) -> None:
     # configuration, not a credential), effective-dated and append-only. What lets a model
     # whose catalogue price is unverified become offerable.
     application.include_router(ops_model_prices_router)
+    # Which LLM legs the in-app assistant may run on, and the operator attestation behind it
+    # (D-477). Its own router beside the price panel for `model_price_routes.py`'s reason:
+    # same realm and permission, different store and a different write shape.
+    application.include_router(ops_data_use_router)
     # The exchange rate every dollar of vendor cost is converted at — read-only, and on
     # `platform:config` beside the price panel for the same reason: it is a number that
     # decides money and it is not a credential. There is no write route (`ops/fx_routes.py`

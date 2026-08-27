@@ -1,6 +1,6 @@
 """The seam between the ops price store and the money/picker modules that read it.
 
-The catalogue lane defined a deliberately narrow contract, in two halves that are the same
+The catalogue lane defined a deliberately narrow contract, in parts that are all the same
 shape (its own words, `billing/rates.install_llm_price_attestations` and
 `agents/llm_models.install_llm_credential_reader`):
 
@@ -8,17 +8,24 @@ shape (its own words, `billing/rates.install_llm_price_attestations` and
     module and the picker can read WITHOUT importing this console module and WITHOUT a
     database.
 
-    price attestations  () -> Mapping[str, billing.rates.LlmPriceAttestation]
-    installed legs       () -> frozenset[calevate_shared.engine.LlmProvider]
+    price attestations   () -> Mapping[str, billing.rates.LlmPriceAttestation]
+    installed legs        () -> frozenset[calevate_shared.engine.LlmProvider]
+    dashboard data use    () -> frozenset[calevate_shared.engine.LlmProvider]
 
-Both must be synchronous and take no session, because they are called several layers deep
-in code that has no business opening a database — the picker on a request, the metering
-path on a job — and because they must stay exercisable with no database at all (tests
-install a fake reader; the default is empty, which is the honest "nothing attested yet"
-state). This module is the ops side of both seams: it keeps an in-process SNAPSHOT of the
-attested prices and installed credentials, refreshes it off the request path, and installs
-two readers over it. The shape is `core/platform_config`'s: durable truth in Postgres, an
-in-memory snapshot in front, a background poll that refreshes it.
+The third (D-477) is the same shape for the same reason and is deliberately NOT folded into
+the second: "we hold a key for this leg" and "an operator has attested this leg's vendor does
+not train on what we send it" are two facts with two owners, and a single set would make an
+installed key look like a compliance clearance.
+
+All three must be synchronous and take no session, because they are called several layers
+deep in code that has no business opening a database — the picker on a request, the metering
+path on a job, the assist selector inside a worker — and because they must stay exercisable
+with no database at all (tests install a fake reader; the default is empty, which is the
+honest "nothing attested yet" state). This module is the ops side of all three seams: it
+keeps an in-process SNAPSHOT of the attested prices, the installed credentials and the
+data-use attestations, refreshes it off the request path, and installs the readers over it.
+The shape is `core/platform_config`'s: durable truth in Postgres, an in-memory snapshot in
+front, a background poll that refreshes it.
 
 WHY A SNAPSHOT AND NOT A LIVE QUERY. The readers are sync and the store is async — a sync
 reader physically cannot await a query — so the value has to already be in memory when it
@@ -43,13 +50,17 @@ from types import MappingProxyType
 
 from calevate_shared.engine import LlmProvider
 
-from apps.api.agents.llm_models import install_llm_credential_reader
+from apps.api.agents.llm_models import (
+    install_dashboard_data_use_reader,
+    install_llm_credential_reader,
+)
 from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attestations
 from apps.api.core.logging import get_logger
 from apps.api.db.session import untenanted_session
 from apps.api.ops.model_pricing import (
     AttestedModelPrice,
     attested_model_prices,
+    dashboard_permitted_providers,
     installed_llm_legs,
 )
 
@@ -66,13 +77,21 @@ _POLL_INTERVAL_S = 30.0
 
 @dataclass(frozen=True, slots=True)
 class PricingSnapshot:
-    """What this process last read from the price store. Both fields are read-only views."""
+    """What this process last read from the ops store. Every field is a read-only view."""
 
     attestations: Mapping[str, LlmPriceAttestation]
     installed_providers: frozenset[LlmProvider]
+    #: Legs whose LATEST data-use attestation permits the DASHBOARD assist. Empty means
+    #: "nobody has attested", never "the operator said no" — see
+    #: `agents/llm_models.dashboard_data_use_attested`.
+    dashboard_data_use: frozenset[LlmProvider]
 
 
-_EMPTY = PricingSnapshot(attestations=MappingProxyType({}), installed_providers=frozenset())
+_EMPTY = PricingSnapshot(
+    attestations=MappingProxyType({}),
+    installed_providers=frozenset(),
+    dashboard_data_use=frozenset(),
+)
 _snapshot: PricingSnapshot = _EMPTY
 _refresher: asyncio.Task[None] | None = None
 
@@ -118,6 +137,7 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
             # `agents.llm_models.installed_llm_providers()`'s default when nothing is stored
             # and never makes an Azure-catalogue model disappear from the picker.
             installed = await installed_llm_legs(session)
+            data_use = await dashboard_permitted_providers(session)
     except Exception as exc:
         log.error("pricing_snapshot_refresh_failed", extra={"reason": type(exc).__name__})
         return _snapshot
@@ -130,6 +150,7 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
     _snapshot = PricingSnapshot(
         attestations=MappingProxyType(attestations),
         installed_providers=installed,
+        dashboard_data_use=data_use,
     )
     return _snapshot
 
@@ -144,6 +165,11 @@ def _read_installed_providers() -> frozenset[LlmProvider]:
     return _snapshot.installed_providers
 
 
+def _read_dashboard_data_use() -> frozenset[LlmProvider]:
+    """The sync reader the dashboard-assist eligibility gate installs. Zero IO."""
+    return _snapshot.dashboard_data_use
+
+
 def install_pricing_readers() -> None:
     """Point the money module and the picker at THIS process's snapshot.
 
@@ -154,13 +180,15 @@ def install_pricing_readers() -> None:
     """
     install_llm_price_attestations(_read_attestations)
     install_llm_credential_reader(_read_installed_providers)
+    install_dashboard_data_use_reader(_read_dashboard_data_use)
 
 
 def uninstall_pricing_readers() -> None:
-    """Reset both seams to their empty default. For tests, which must not leak a snapshot
-    between cases — the mirror of the catalogue lane's `install_*(None)`."""
+    """Reset all three seams to their empty default. For tests, which must not leak a
+    snapshot between cases — the mirror of the catalogue lane's `install_*(None)`."""
     install_llm_price_attestations(None)
     install_llm_credential_reader(None)
+    install_dashboard_data_use_reader(None)
 
 
 async def _poll_forever() -> None:
@@ -177,7 +205,7 @@ async def _poll_forever() -> None:
 def start_pricing_refresher() -> None:
     """Begin polling the price store in this process. Idempotent.
 
-    Installs the two readers and starts the poll together, so a caller adopts the whole
+    Installs the readers and starts the poll together, so a caller adopts the whole
     seam with one line — the shape `start_config_refresher` has. The task reference is held
     in a module global so it cannot be garbage-collected mid-flight.
     """

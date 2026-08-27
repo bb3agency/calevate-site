@@ -89,6 +89,16 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "reached through impersonation; and a price is OUR cost basis, not the "
         "client's to see"
     ),
+    "/v1/ops/dashboard-data-use": (
+        "which LLM legs the in-app assistant may run on, and the operator attestation "
+        "behind each (D-477) — superadmin ops surface, gated on platform:config for the "
+        "same reason /v1/ops/model-prices is. A view-as session is on a CLIENT dashboard, "
+        "never the ops console. Note what a client DOES see of this fact and where: when "
+        "their own model cannot serve the assistant they are told so in their own terms "
+        "by the answer's disclosure and by `assist_unavailable`'s client remediation, "
+        "which is the whole of what is theirs to know — the vendor account, the tier and "
+        "the ground behind it are OURS"
+    ),
     "/v1/ops/fx-rate": (
         "the USD/INR rate vendor costs are converted at, and how fresh it is (D-475) — "
         "superadmin ops surface, gated on platform:config for /v1/ops/model-prices' "

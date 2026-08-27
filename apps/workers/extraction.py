@@ -100,7 +100,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 import httpx
 from calevate_shared.engine import (
@@ -124,6 +124,14 @@ from apps.api.core.settings import get_settings
 from apps.workers import chat
 from apps.workers.chat import TokenUsage, usage_from_body
 from apps.workers.redaction import redact
+
+if TYPE_CHECKING:
+    # TYPE-ONLY, AND THE GUARD IS LOAD-BEARING RATHER THAN STYLISTIC. `agents/llm_models`
+    # imports `azure_credentials` from THIS module at runtime, so a runtime import back
+    # would be a cycle. The audience vocabulary is a `Literal` of two strings — it has no
+    # runtime behaviour to import — and reusing it is what keeps one audience split in this
+    # repository instead of two spelled differently (CLAUDE.md: one way per problem).
+    from apps.api.agents.llm_models import LlmReasonAudience
 
 log = get_logger(__name__)
 
@@ -1112,7 +1120,19 @@ def get_extractor() -> Extractor:
 
 #: No Azure OpenAI credential on this deployment: no resource, no key, or no deployment
 #: ID. The ordinary state today — no Azure resource exists yet.
+#:
+#: ⚠ **IT MEANS "THIS PLATFORM HAS NO ASSISTANT LEG", NEVER "THIS CLIENT HAS NO AI".** A
+#: client whose agents are running right now on a model they chose reached this code and was
+#: told "no AI provider is configured", which is a PLATFORM fact reported as a fact about
+#: their account, and it was false from where they were sitting.
+#: `TENANT_PROVIDER_UNSUPPORTED_REASON` is the state that used to be misreported as this one.
 NO_CREDENTIAL_REASON: Final = "no_credential"
+#: The account HAS a working AI provider — its agents are on the phone with it — but that
+#: provider may not serve the DASHBOARD assist leg, so something else answered (or nothing
+#: could). Supplied BY THE CALLER as part of `TenantModelLeg`, because "may this provider
+#: serve this leg" is a compliance question owned by `agents/llm_models.dashboard_leg_reason`
+#: and this module deliberately holds no provider policy of its own.
+TENANT_PROVIDER_UNSUPPORTED_REASON: Final = "tenant_provider_unsupported"
 #: The tenant is past its included monthly assist quota and has not accepted the charge
 #: (G-5). Supplied BY THE CALLER — see `assist_capability`.
 QUOTA_EXHAUSTED_REASON: Final = "quota_exhausted"
@@ -1155,23 +1175,82 @@ SARVAM_PROVIDER: Final = "sarvam"
 #: learns the meter stopped. Enforcement is real; it is not omniscient.
 ASSIST_QUOTA_ENFORCED: Final = True
 
-#: What each fallback reason means, in the words the client reads. One sentence per code,
-#: written once: a disclosure composed at each surface is a disclosure that eventually
-#: says something different on two screens about the same event.
-_FALLBACK_DISCLOSURE: Final[dict[str, str]] = {
-    NO_CREDENTIAL_REASON: (
-        "This was written by Sarvam, not the assistant model, because no Azure OpenAI "
-        "credential is configured on this deployment."
+#: What each substitution means, in the words the client reads — keyed by **(who answered,
+#: why)** rather than by the reason alone.
+#:
+#: **THE KEY GREW A FIRST HALF BECAUSE ONE REASON NOW HAS TWO ANSWERERS.** Every sentence
+#: here used to begin "This was written by Sarvam", which was safe while Sarvam was the only
+#: leg a substitution could land on. It is not any more: when a client's own provider cannot
+#: serve this leg, the PLATFORM's assistant model answers instead, and that is a substitution
+#: under D-127 G-7 exactly as a Sarvam answer is. Keying on the reason alone would have
+#: printed "written by Sarvam" over an answer Azure wrote.
+#:
+#: Written once, here, rather than composed at each surface: a disclosure assembled per
+#: screen is one that eventually says something different on two screens about one event.
+#:
+#: NO SENTENCE NAMES A CREDENTIAL, A SETTING OR A DEPLOYMENT. These reach a client who has
+#: no ops console; the operator's half of the same event goes to the log line in
+#: `assist_unavailable` and to the ops console's own reason string.
+_FALLBACK_DISCLOSURE: Final[dict[tuple[str, str], str]] = {
+    (SARVAM_PROVIDER, NO_CREDENTIAL_REASON): (
+        "This was written by Sarvam, not the assistant model, because the assistant model "
+        "is not switched on for this account yet."
     ),
-    QUOTA_EXHAUSTED_REASON: (
+    (SARVAM_PROVIDER, QUOTA_EXHAUSTED_REASON): (
         "This was written by Sarvam, not the assistant model, because this month's "
         "included assistant usage is used up."
     ),
-    PROVIDER_UNAVAILABLE_REASON: (
+    (SARVAM_PROVIDER, PROVIDER_UNAVAILABLE_REASON): (
         "This was written by Sarvam, not the assistant model, because the assistant model "
         "did not answer."
     ),
+    (SARVAM_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
+        "This was written by Sarvam, not the AI model you chose for your account: your "
+        "chosen model runs your phone agents, but it cannot be used for the in-app "
+        "assistant."
+    ),
+    (AZURE_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
+        "This was written by Calevate's own assistant model, not the AI model you chose "
+        "for your account: your chosen model runs your phone agents, but it cannot be "
+        "used for the in-app assistant."
+    ),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class TenantModelLeg:
+    """The model THIS ACCOUNT runs on, and whether the dashboard assist may run on it too.
+
+    **THE ARGUMENT THAT MADE THE SELECTOR TENANT-AWARE WITHOUT MAKING IT DATABASE-AWARE.**
+    `assist_capability` is a pure function of its arguments and one settings read, and that
+    is what lets one test drive every state without a database. So the tenant's half arrives
+    as a VALUE the caller resolved (`agents/assist_leg.tenant_dashboard_leg`), never as a
+    query this module makes.
+
+    **`serves_dashboard` IS NOT `selectable`, AND CONFLATING THEM IS THE COMPLIANCE DEFECT
+    THIS TYPE EXISTS TO PREVENT.** A model being permitted for the IN-CALL leg says nothing
+    about the DASHBOARD leg: the two are governed differently, and the ground is owned by
+    `agents/llm_models.dashboard_leg_reason` — which this module deliberately does not
+    import, both because it would be a cycle (`llm_models` imports `azure_credentials` from
+    here) and because a selector that decided provider policy would be a second place the
+    policy is stated.
+
+    `blocked_reason` is the OPERATOR's ground when `serves_dashboard` is False — a missing
+    attestation, an unread vendor position, an unbuilt leg. It reaches a log line and the ops
+    console. It never reaches a client: `assist_unavailable`'s client audience writes its own
+    sentence, because none of those three grounds is a thing a client can act on.
+    """
+
+    #: The identifier the account's agents actually run, from `resolve_llm_model`.
+    model: str
+    #: OUR provider vocabulary for that model's leg (`calevate_shared.engine.LlmProvider`),
+    #: carried as a plain `str` so this module needs no engine import to hold it.
+    provider: str
+    #: May the DASHBOARD assist run on this provider here — the compliance question AND the
+    #: engineering one, ANDed by `agents/llm_models.dashboard_leg_reason`.
+    serves_dashboard: bool
+    #: Why not, for an operator. `None` exactly when `serves_dashboard`.
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1183,23 +1262,42 @@ class AssistCapability:
     preferred model answering". Both facts are one lookup and one object.
 
     `reason` is non-None exactly when `available` is False. `fallback_reason` is non-None
-    exactly when `provider` is not the preferred one — and when it is set, `disclosure`
-    is the sentence that MUST travel with the answer, in the response and on the screen
-    (G-6). A fallback nobody is told about silently changes output quality, which is the
-    single outcome that decision rules out.
+    exactly when the answer came from something OTHER THAN the model this account would
+    otherwise have run — and when it is set, `disclosure` is the sentence that MUST travel
+    with the answer, in the response and on the screen (G-6). A fallback nobody is told
+    about silently changes output quality, which is the single outcome that decision rules
+    out.
+
+    ⚠ **"THE PREFERRED ONE" IS NOW THE TENANT'S PROVIDER, NOT AZURE.** This docstring used
+    to read "`fallback_reason` is non-None exactly when `provider` is not the preferred one",
+    which was true while the preferred leg was Azure for everybody. Since the ladder became
+    tenant-aware, an AZURE answer can itself be a substitution — for an account whose chosen
+    model runs on a provider that may not serve this leg — so the pair
+    `(provider, fallback_reason)` is what selects the disclosure, and a surface must read
+    `disclosure` rather than infer the sentence from either half alone.
     """
 
     available: bool
     provider: str | None = None
     reason: str | None = None
     fallback_reason: str | None = None
+    #: The OPERATOR's ground for `reason`/`fallback_reason`, when there is one an operator
+    #: could act on that a client could not — today, `TenantModelLeg.blocked_reason`.
+    #:
+    #: **IT IS CARRIED SO IT CAN BE RELOCATED, NOT SO IT CAN BE SHOWN.** The defect this
+    #: field is part of fixing was a refusal written for an operator and rendered to a client;
+    #: the opposite failure — a refusal made friendly and therefore untraceable — is worse,
+    #: because nobody learns the assistant is off. `assist_unavailable` logs this (ids and
+    #: authored codes only, hard rule 6) and never puts it in a `ProblemError` a client reads.
+    operator_detail: str | None = None
 
     @property
     def disclosure(self) -> str | None:
-        """The sentence to show beside a fallback answer, or None when there was none."""
-        if self.fallback_reason is None:
+        """The sentence to show beside a substituted answer, or None when nothing was
+        substituted. Keyed by WHO answered and WHY — see `_FALLBACK_DISCLOSURE`."""
+        if self.fallback_reason is None or self.provider is None:
             return None
-        return _FALLBACK_DISCLOSURE.get(self.fallback_reason)
+        return _FALLBACK_DISCLOSURE.get((self.provider, self.fallback_reason))
 
 
 def azure_credentials() -> tuple[str, str, str] | None:
@@ -1275,32 +1373,56 @@ def azure_extractor(*, timeout_s: float = EXTRACTION_TIMEOUT_S) -> AzureOpenAIEx
 
 
 def assist_capability(
-    *, quota_exhausted: bool = False, provider_unavailable: bool = False
+    *,
+    tenant_leg: TenantModelLeg | None = None,
+    quota_exhausted: bool = False,
+    provider_unavailable: bool = False,
 ) -> AssistCapability:
     """THE selector (D-127 G-6). Every user-triggered AI surface asks this and nothing
     re-reads settings for itself.
 
     THE LADDER, and each rung is a decision rather than a check:
 
-    1. **Azure serves it** when a credential resolves, the configured model is one we
-       ship, the tenant is inside its quota and the provider has not just failed. This is
-       the preferred answer and carries no disclosure, because nothing was substituted.
-    2. **Sarvam serves it, disclosed**, when Azure cannot. A fallback is honest here:
-       both are instruction-following LLMs over the same redacted text, and the difference
-       is quality, not correctness — so the answer stands and the client is told whose it
-       is. `OfflineExtractor` is deliberately NOT in this ladder: it is a deterministic
-       reader of literal transcript text, and offering its output as "your re-summarised
-       call" would be substituting a different KIND of thing while claiming to substitute
-       a model.
-    3. **Refuse**, with the reason that stopped Azure, when there is no Sarvam key
-       either. `assist_unavailable()` turns that into a message with a remediation.
+    1. **The account's OWN provider serves it** when the model this account runs
+       (`tenant_leg`) sits on a provider that may serve the dashboard leg AND this
+       deployment can address that provider. Today that is the Azure leg, and it is the
+       rung the founder's instruction names: the assistant uses the same AI the client uses
+       for the rest of the service. Nothing was substituted, so nothing is disclosed.
+    2. **The platform's own assistant model serves it, DISCLOSED**, when the account's
+       provider cannot serve this leg. **This rung is why the tenant argument exists.**
+       Before it, an account on a provider we cannot run the assistant on was told "no AI
+       provider is configured on this deployment" — a PLATFORM fact reported as a fact about
+       the client's account, and false from where they were sitting: their agents were on
+       the phone with that provider at the time. It is a substitution under G-7 and carries
+       `TENANT_PROVIDER_UNSUPPORTED_REASON`, so the client is told whose answer it is.
+    3. **Sarvam serves it, disclosed**, when neither of the above can. A fallback is honest
+       here: both are instruction-following LLMs over the same redacted text, and the
+       difference is quality, not correctness — so the answer stands and the client is told
+       whose it is. `OfflineExtractor` is deliberately NOT in this ladder: it is a
+       deterministic reader of literal transcript text, and offering its output as "your
+       re-summarised call" would be substituting a different KIND of thing while claiming to
+       substitute a model.
+    4. **Refuse**, with the reason that stopped everything, when there is no Sarvam key
+       either. `assist_unavailable()` turns that into a message with a remediation — one for
+       a client, one for an operator, because the two can act on different things.
 
-    `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than reads. Neither
-    is knowable from configuration: the first is a per-tenant month-to-date sum that
-    `usage_events` owns (`require_ai_assist`, reached through `crm/routes.py::assist_call`),
-    and the second is only knowable by having just tried. Passing them in keeps this
-    function a pure function of its inputs, which is what lets one test drive all six
-    states without a database.
+    `tenant_leg`, `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than
+    reads, and for one reason: none is knowable from configuration. The first is a row this
+    module has no session to read and a POLICY (`agents/llm_models.dashboard_leg_reason`)
+    this module deliberately does not own; the second is a per-tenant month-to-date sum that
+    `usage_events` owns (`require_ai_assist`, reached through `crm/routes.py::assist_call`);
+    the third is only knowable by having just tried. Passing them in keeps this function a
+    pure function of its inputs, which is what lets one test drive every state without a
+    database.
+
+    **`tenant_leg` IS OPTIONAL, AND THE DEFAULT IS DELIBERATE RATHER THAN LAZY.** `None`
+    means "the caller has no account in hand", which is a real state and not a missing
+    argument: `scripts/eval.py` scores providers with no tenant at all, and the internal
+    re-ask after a provider failure passes the same value it was given. On `None` the ladder
+    behaves exactly as it did before this rung existed — rung 1 collapses into rung 2 with
+    nothing to disclose — so no caller is silently changed by omission. Every CLIENT-facing
+    caller passes it; a required argument would have forced `eval.py` and the conformance
+    fixtures to invent a tenant to satisfy a signature.
     """
     settings = get_settings()
 
@@ -1311,46 +1433,149 @@ def assist_capability(
         blocked = QUOTA_EXHAUSTED_REASON
     elif provider_unavailable:
         blocked = PROVIDER_UNAVAILABLE_REASON
-    elif azure_credentials() is None:
-        blocked = NO_CREDENTIAL_REASON
+
+    # Is the answer a SUBSTITUTION for what this account would otherwise have run? Asked
+    # once, here, because rungs 2 and 3 both need it and they need it for different
+    # sentences — the Azure rung to disclose, the Sarvam rung to name the earlier ground.
+    substituted = tenant_leg is not None and not tenant_leg.serves_dashboard
+    detail = tenant_leg.blocked_reason if substituted and tenant_leg is not None else None
 
     if blocked is None:
-        return AssistCapability(available=True, provider=AZURE_PROVIDER)
+        if azure_credentials() is not None:
+            # RUNGS 1 AND 2 ARE ONE WIRE AND TWO PROMISES, and that is not a shortcut. The
+            # only dashboard leg this repository can address is the Azure one, so an account
+            # whose own provider IS Azure and an account being substituted onto it reach the
+            # identical endpoint; what differs is whether the client is owed a sentence.
+            # Collapsing them would be the silent-substitution outcome G-7 rules out.
+            return AssistCapability(
+                available=True,
+                provider=AZURE_PROVIDER,
+                fallback_reason=TENANT_PROVIDER_UNSUPPORTED_REASON if substituted else None,
+                operator_detail=detail,
+            )
+        # NO AZURE LEG. Which refusal this becomes is the falsehood the reported defect was:
+        # an account with a working provider is NOT an account with no AI configured, and the
+        # two states get different codes and different sentences.
+        blocked = TENANT_PROVIDER_UNSUPPORTED_REASON if substituted else NO_CREDENTIAL_REASON
+
     if settings.sarvam_api_key:
-        return AssistCapability(available=True, provider=SARVAM_PROVIDER, fallback_reason=blocked)
-    return AssistCapability(available=False, reason=blocked)
+        return AssistCapability(
+            available=True,
+            provider=SARVAM_PROVIDER,
+            fallback_reason=blocked,
+            operator_detail=detail,
+        )
+    return AssistCapability(available=False, reason=blocked, operator_detail=detail)
 
 
-def assist_unavailable(capability: AssistCapability) -> ProblemError:
+#: The refusal's REMEDIATION, keyed by (audience, reason). The client half and the operator
+#: half of one event, side by side, so neither can be edited without its counterpart in view.
+#:
+#: **THE CLIENT HALF NAMES NO ENVIRONMENT VARIABLE, NO SETTING, NO DOCUMENT AND NO
+#: DEPLOYMENT**, because a client console has none of those and telling somebody to install
+#: `AZURE_OPENAI_RESOURCE` is instructing them to do something they have no power to do. It
+#: says what happened in their terms, keeps the support reference visible, and where the
+#: honest answer is "your Calevate team has to finish this" it says exactly that.
+#:
+#: **THE OPERATOR HALF IS THE OLD TEXT, PRESERVED RATHER THAN DELETED.** A refusal that
+#: became friendly and untraceable would be a worse defect than the one this table fixes, so
+#: the env-var-level specificity still exists and still reaches somebody who can act on it —
+#: here for the admin realm, and through `assist_unavailable`'s log line on every refusal.
+_ASSIST_REMEDIATION: Final[dict[tuple[str, str], str]] = {
+    ("client", QUOTA_EXHAUSTED_REASON): (
+        "This month's included AI assistance is used up. Add credit, or wait for the "
+        "next billing month."
+    ),
+    ("operator", QUOTA_EXHAUSTED_REASON): (
+        "This tenant is past its included monthly assist quota and has not accepted the "
+        "charge. billing/ai_quota.py owns the ceiling."
+    ),
+    ("client", PROVIDER_UNAVAILABLE_REASON): (
+        "The assistant did not answer just now, and there is no second assistant set up "
+        "for your account. Please try again in a few minutes; if it keeps happening, "
+        "contact Calevate support and mention the AI assistant."
+    ),
+    ("operator", PROVIDER_UNAVAILABLE_REASON): (
+        "The assistant model did not answer and this deployment has no second model "
+        "configured. Install a Sarvam API key (DEV-SETUP §4) to give it a fallback leg."
+    ),
+    ("client", NO_CREDENTIAL_REASON): (
+        "The in-app assistant has not been switched on for your account yet. Your phone "
+        "agents are not affected and are running normally. Ask your Calevate team to "
+        "enable it — there is nothing to change on your side."
+    ),
+    ("operator", NO_CREDENTIAL_REASON): (
+        "No AI provider is configured on this deployment. Install an Azure OpenAI "
+        "resource (AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + "
+        "AZURE_OPENAI_DEPLOYMENT) or a Sarvam API key (DEV-SETUP §4)."
+    ),
+    ("client", TENANT_PROVIDER_UNSUPPORTED_REASON): (
+        "The AI model you chose for your account runs your phone agents, but it cannot be "
+        "used for the in-app assistant, and no other assistant is set up for your account "
+        "yet. Your agents are not affected. Ask your Calevate team to enable the "
+        "assistant — there is nothing to change on your side."
+    ),
+    ("operator", TENANT_PROVIDER_UNSUPPORTED_REASON): (
+        "This account's chosen model runs on a provider that may not serve the dashboard "
+        "assist leg (agents/llm_models.dashboard_leg_reason says which ground), and this "
+        "deployment has nothing to substitute. Install an Azure OpenAI resource "
+        "(AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT) or a "
+        "Sarvam API key (DEV-SETUP §4)."
+    ),
+}
+
+#: What the person is told went wrong, before the remediation. Split for the same reason:
+#: "this deployment" is a word a client has no referent for.
+_ASSIST_DETAIL: Final[dict[str, str]] = {
+    "client": "The AI assistant is not available right now.",
+    "operator": "This deployment cannot run the AI assistant right now.",
+}
+
+
+def assist_unavailable(
+    capability: AssistCapability, *, audience: LlmReasonAudience = "client"
+) -> ProblemError:
     """The refusal a user meets when nothing can serve. Never a bare 500, never a spinner.
 
     `remediation` is what SEC-COMP calls the actionable half and what `ProblemNotice`
-    renders verbatim on the screen, so it is written for the person who will read it:
-    a client can act on "top up" and cannot act on "configure a service account", so the
-    two reasons get different sentences even though both are the same HTTP status.
+    renders verbatim on the screen, so it is written for the person who will read it — and
+    "the person who will read it" is the whole of what `audience` decides. The vocabulary is
+    `agents/llm_models.LlmReasonAudience`, reused rather than re-minted: that module already
+    solved this exact problem for the model picker, and a second audience flag spelled
+    differently here would be the two-ways-to-do-one-thing defect CLAUDE.md names.
+
+    **THE DEFAULT IS `"client"`, WHICH IS A BEHAVIOUR CHANGE AND IS THE FIX.** Every caller
+    of this function today is a client-console surface — the copilot, the re-summarise route,
+    the script assist — and every one of them was rendering operator text. `llm_models`
+    defaults the other way because ITS callers are mostly the admin realm; the defaults
+    differ because the caller populations differ, which is the only honest reason to choose
+    one.
+
+    **THE OPERATOR DETAIL IS RELOCATED, NOT DELETED.** Every refusal logs the operator
+    sentence and the ground behind it, whichever audience is being answered, so the specific
+    remediation an operator needs still reaches somebody who can act on it. Ids and authored
+    codes only — no phone number, no transcript text, no extraction payload (hard rule 6),
+    and no credential.
     """
     reason = capability.reason or NO_CREDENTIAL_REASON
-    remediation = {
-        QUOTA_EXHAUSTED_REASON: (
-            "This month's included AI assistance is used up. Add credit, or wait for the "
-            "next billing month."
-        ),
-        PROVIDER_UNAVAILABLE_REASON: (
-            "The assistant model did not answer and this deployment has no second model "
-            "configured. Try again in a few minutes; if it persists, contact support."
-        ),
-    }.get(
-        reason,
-        "No AI provider is configured on this deployment. Install an Azure OpenAI "
-        "resource (AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + "
-        "AZURE_OPENAI_DEPLOYMENT) or a Sarvam API key (DEV-SETUP §4).",
+    operator_remediation = _ASSIST_REMEDIATION[("operator", reason)]
+    log.warning(
+        "assist_unavailable",
+        extra={
+            "reason": reason,
+            "audience": audience,
+            # The ground an operator can act on, always, on both audiences. This is the line
+            # that keeps a friendlier refusal from becoming an untraceable one.
+            "operator_detail": capability.operator_detail,
+            "operator_remediation": operator_remediation,
+        },
     )
     return ProblemError(
         kind="dependency",
         code=f"assist_{reason}",
         title="AI assistance is not available",
-        detail="This deployment cannot run the AI assistant right now.",
-        remediation=remediation,
+        detail=_ASSIST_DETAIL[audience],
+        remediation=_ASSIST_REMEDIATION[(audience, reason)],
     )
 
 
@@ -1371,7 +1596,11 @@ class AssistResult:
 
 
 async def run_assist(
-    spec: ExtractionSchemaSpec, redacted_transcript: str, *, quota_exhausted: bool = False
+    spec: ExtractionSchemaSpec,
+    redacted_transcript: str,
+    *,
+    tenant_leg: TenantModelLeg | None = None,
+    quota_exhausted: bool = False,
 ) -> AssistResult:
     """Run ONE user-triggered assist over REDACTED call text (D-127 G-2, G-6, G-7).
 
@@ -1394,6 +1623,12 @@ async def run_assist(
     does not first fail an assertion about bytes — it fails HERE, with
     `assist_input_not_redacted`, from inside the function the route calls. The guard
     catches the exact mistake its author predicted, in the exact place predicted.
+
+    IT RUNS ON THE ACCOUNT'S OWN PROVIDER WHERE IT CAN. `tenant_leg` is the model this
+    account's agents actually run, resolved by the caller (`agents/assist_leg
+    .tenant_dashboard_leg`) and handed in — see `assist_capability` for why it is an
+    argument and why it is optional. When that provider may not serve this leg the platform
+    answers instead, and the answer says so.
 
     THE FALLBACK IS DISCLOSED, NEVER SILENT. Azure failing mid-flight re-asks the ONE
     selector with `provider_unavailable=True` rather than deciding locally, so a surface
@@ -1424,7 +1659,7 @@ async def run_assist(
             ),
         )
 
-    capability = assist_capability(quota_exhausted=quota_exhausted)
+    capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
         raise assist_unavailable(capability)
 
@@ -1461,7 +1696,11 @@ async def run_assist(
         # today (the ladder blocks on it first, so this branch is unreachable with it
         # set), and a re-ask that silently forgot an input would become wrong the moment
         # somebody reorders those rungs.
-        capability = assist_capability(quota_exhausted=quota_exhausted, provider_unavailable=True)
+        # `tenant_leg` is re-stated for `quota_exhausted`'s reason: a re-ask that silently
+        # dropped an input would stop disclosing the substitution the first ask disclosed.
+        capability = assist_capability(
+            tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
+        )
         if not capability.available:
             raise assist_unavailable(capability)
 
@@ -1534,12 +1773,14 @@ __all__ = [
     "PROVIDER_UNAVAILABLE_REASON",
     "QUOTA_EXHAUSTED_REASON",
     "SARVAM_PROVIDER",
+    "TENANT_PROVIDER_UNSUPPORTED_REASON",
     "AssistCapability",
     "AssistResult",
     "AzureOpenAIExtractor",
     "Extractor",
     "OfflineExtractor",
     "SarvamExtractor",
+    "TenantModelLeg",
     "TokenUsage",
     "assist_capability",
     "assist_unavailable",

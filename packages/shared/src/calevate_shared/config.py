@@ -394,12 +394,42 @@ class Settings(BaseSettings):
     # than the sentence, because a reader trusting it would conclude an installed Gemini
     # key is inert, and it is not.
     #
-    # `generativelanguage.googleapis.com` is a global host with no region anywhere in the
-    # URL, and on the free tier Google states it uses submitted prompts and responses to
-    # improve its products with human reviewers able to read them — which for a Processor
-    # holding an Indian SMB's callers' transcripts is not a tradeoff, it is a disclosure
-    # we could not make. All of that is still true and is still why this key is barred
-    # from the two surfaces below.
+    # THE REGION HALF IS VENDOR-PUBLISHED AND CONFIRMED. Google's own live Gemini discovery
+    # document (`generativelanguage.googleapis.com/$discovery/rest?version=v1beta`, revision
+    # `20260823`, read 27 Aug 2026) declares ONE global `rootUrl` and contains the string
+    # "region" zero times and "residen" zero times; Google's own SDK raises
+    # `ValueError("Gemini API does not support project/location.")` before a packet leaves
+    # the machine (`googleapis/python-genai`, `google/genai/_api_client.py`, main, read
+    # 27 Aug 2026). There is no region to ask for on this API.
+    #
+    # THE DATA-USE HALF IS **SECONDARY**, AND THIS COMMENT USED TO STATE IT FLATLY. Every
+    # Google-owned host that publishes those terms is egress-blocked from this environment
+    # (`ai.google.dev`, `policies.google.com`, `aistudio.google.com`, and `web.archive.org`
+    # too — re-measured 27 Aug 2026), so NOBODY IN THIS TREE HAS READ THEM ON A GOOGLE HOST.
+    # What is held is two independent third-party verbatim mirrors of the Gemini API
+    # Additional Terms — captured **May 2025 and March 2026**, ten months apart, by
+    # unrelated parties, and agreeing almost word for word, with a search-engine summary
+    # agreeing again. Two independent captures that far apart do not drift into agreement
+    # by accident, which is what makes this SECONDARY rather than hearsay; it is still not
+    # a page anybody here opened. They say: on the
+    # unpaid tier Google uses submitted content and responses "to provide, improve, and
+    # develop Google products and services and machine learning technologies", human
+    # reviewers "may read, annotate, and process your API input and output", and the terms
+    # instruct in as many words: "Do not submit sensitive, confidential, or personal
+    # information to the Unpaid Services." The EEA/Switzerland/UK carve-out that applies the
+    # paid terms to free usage does NOT include India. For a Processor holding an Indian
+    # SMB's callers' transcripts that is not a tradeoff, it is a disclosure we could not
+    # make — which is still why this key is barred from the two surfaces below. Read the
+    # label with the claim: SECONDARY is strong enough to keep a door SHUT and is not
+    # strong enough to open one (hard rule 11).
+    #
+    # ⚠ **PAID DOES NOT MEAN UNLOGGED**, and a reader must not collapse the two. On the same
+    # SECONDARY evidence the paid terms log prompts and responses for a limited period for
+    # abuse detection, permit authorised employees to read flagged content, and state the
+    # data "may be stored transiently or cached in any country" — an explicit disclaimer of
+    # residency, not a residency claim. What an operator may attest is that the vendor does
+    # not TRAIN on submitted content (`ops/dashboard_data_use_routes.py`, D-477); that is one
+    # property and it is the only one the dashboard-eligibility gate turns on.
     #
     # WHAT CHANGED: D-127 disqualified it for the DASHBOARD leg and D-410 moved both LLM
     # surfaces to Azure — and then D-456/D-459 reopened the IN-CALL leg on two models the
@@ -409,8 +439,14 @@ class Settings(BaseSettings):
     # picks a Gemini agent runs on this credential, inside the engine, on the in-call leg.
     #
     # THE TWO BARS THAT DID NOT MOVE, which is the half a reader must not lose:
-    # * The DASHBOARD assist leg. D-127 G-2 is a rule about RAW PII, and the free tier's
-    #   human-review disclosure is why this key is not an assist rung.
+    # * The DASHBOARD assist leg. D-127 G-2 is a rule about RAW PII, and the unpaid tier's
+    #   human-review disclosure is why this key is not an assist rung by default. **D-477
+    #   made that a MECHANISM rather than a sentence**: `agents/llm_models
+    #   .dashboard_leg_reason` bars the `google` leg until an operator attests, in the ops
+    #   console, that the Cloud project this key belongs to is on the paid tier AND has not
+    #   opted its logs back into the unpaid terms. Attesting does not on its own switch the
+    #   assistant onto Google — no dashboard chat leg is built for it — and the console says
+    #   so.
     # * The FIRST POST-CALL EXTRACTION, which reads the raw transcript.
     #   `GEMINI_EXTRACTION_DEFAULT is False` (`workers/extraction.py`) is the greppable
     #   form of that sentence and D-410 did not move it.
@@ -441,6 +477,12 @@ class Settings(BaseSettings):
     # still carrying `GEMINI_API_KEY` into a BOOT FAILURE. That is hard rule 8's two-step
     # deprecation in its ordinary form — stop reading it in this release, remove it in a
     # later one — and this is the release that stopped reading it.
+    #
+    # ⚠ **THE SAME QUESTION HANGS OVER THE IN-CALL LEG, AND NOTHING HERE GATES IT.** A
+    # client who picks a Gemini agent sends RAW CALLER SPEECH through this credential on
+    # every turn — strictly worse exposure than the dashboard leg's redacted screen text —
+    # and at least one tenant is on `gemini-2.5-flash-lite` today. That is the founder's
+    # question, not a column's: OPERATIONS §2 gate 41 owns it and names what closes it.
     #
     # WHAT CLOSES IT: deleting this field once no `.env` in use carries the key. That is a
     # deferral naming what closes it rather than a schedule, per CLAUDE.md. It is NOT

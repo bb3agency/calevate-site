@@ -328,11 +328,94 @@ class FxRateObservation(Base):
     observation_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
 
 
+class PlatformDashboardDataUse(Base):
+    """WHAT AN OPERATOR ATTESTED ABOUT ONE LLM PROVIDER'S DATA-USE TERMS FOR THE DASHBOARD
+    ASSIST LEG — and about the vendor account those terms are a property of.
+
+    PLATFORM-SCOPED AND APPEND-ONLY, for `PlatformModelPrice`'s reasons exactly: there is one
+    vendor account per provider for the whole deployment, so there is no tenant whose row this
+    could be (`db/registry.RLS_EXEMPT_TENANT_COLUMNS`), and a correction is a NEW dated row so
+    that "what did we believe, and on whose word, when we let a client's screen content reach
+    this vendor" stays answerable after the fact. That question is the entire point of the
+    table; a row somebody could edit afterwards would answer it with today's belief.
+
+    ═══ WHY IT IS THREE FACTS AND NOT ONE SIGNATURE ═══
+
+    A single "yes, the terms are fine" boolean is unfalsifiable and un-recheckable. The tier
+    that decides the terms is a property of the vendor's PROJECT, not of the API key, and the
+    binding between the two is the one joint nothing in this tree can verify — which is
+    exactly the shape of the Azure region attestation (OPERATIONS §2 gate 20), where the
+    portal is the only instrument. So the row captures the project by id, and the two
+    independent settings that can each defeat the paid tier, separately:
+
+    * `vendor_account_ref` — the vendor project/account the credential belongs to. FIRST
+      CLASS and required, because without it nobody can ever re-check the claim: Google's
+      Cloud Billing API answers `billingEnabled` for a PROJECT ID
+      (`cloudbilling.googleapis.com/$discovery/rest?version=v1`, revision `20260821`, read
+      27 Aug 2026 — VENDOR-PUBLISHED), and a boolean with no project id attached is a claim
+      that can only ever be re-attested, never verified.
+    * `paid_tier_confirmed` — the project is linked to an OPEN billing account. On Google
+      this is the AI Studio Projects page's "Billing Tier" column. SECONDARY evidence (every
+      Google-owned host is egress-blocked from this environment, re-measured 27 Aug 2026)
+      says the unpaid tier's terms have Google use submitted content to improve its products
+      with human reviewers able to read it, and instruct developers in as many words not to
+      submit personal information to it.
+    * `no_training_opt_in_confirmed` — no setting on that project puts submitted content back
+      under the unpaid terms. On Google this is Gemini API Logs/Datasets sharing, which is off
+      by default and, when on, SECONDARY evidence says returns a billing-enabled project's
+      logs to the unpaid terms including model training. **An attestation that asked only the
+      billing question would give a false negative on exactly this path**, which is why it is
+      a second column rather than a sentence in `source_note`.
+
+    ⚠ **`paid_tier_confirmed` DOES NOT MEAN "NOT LOGGED", "NEVER HUMAN-READ" OR "STORED IN
+    INDIA", AND NOTHING HERE MAY BE READ AS SAYING SO.** On the same SECONDARY evidence the
+    paid terms log prompts and responses for a limited period for abuse detection, permit
+    authorised employees to read flagged content, and state the data "may be stored
+    transiently or cached in any country". This table records that the vendor does not TRAIN
+    on the content. That is one property, and it is the one the dashboard-eligibility gate
+    turns on.
+
+    ⚠ **THE SAME QUESTION GOVERNS THE IN-CALL LEG, WHICH IS LIVE TODAY**, and this table does
+    NOT gate it: in-call sends raw caller speech to whatever provider a client's chosen model
+    sits on. OPERATIONS §2 gate 41 is where that is owned, and it is a founder's decision, not
+    a column.
+    """
+
+    __tablename__ = "platform_dashboard_data_use"
+
+    #: `calevate_shared.engine.LlmProvider`, as text. A plain string and not an enum for
+    #: `PlatformModelPrice.model`'s reason: an attestation read back to explain a decision
+    #: must still resolve for a leg the product no longer declares.
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: When the operator attested it. Part of the PK, so a re-attestation is a new row and two
+    #: writers at one instant collide rather than silently both existing. The LATEST row per
+    #: provider is what the eligibility gate reads.
+    attested_at: Mapped[datetime] = mapped_column(primary_key=True)
+    #: The operator who attested it — every row here was typed by a person, so NOT NULL,
+    #: referencing `admin_users` exactly as `platform_model_prices.attested_by` does.
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    #: The vendor project/account id the platform's credential for this provider belongs to.
+    #: See the class docstring: without it the claim can never be re-checked, only re-made.
+    vendor_account_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Is that account on the vendor's PAID tier — the tier whose terms exclude training on
+    #: submitted content?
+    paid_tier_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: Is it free of any opt-in that puts submitted content back under the unpaid terms?
+    no_training_opt_in_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: WHERE the operator looked, in their own words — "AI Studio Projects page, Billing Tier
+    #: = Paid, project calevate-prod, 27 Aug 2026". The evidence that makes this an
+    #: attestation rather than a guess, and the reason recorded in `audit_log`. NOT NULL.
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 __all__ = [
     "FX_RATE",
     "USD_PER_MTOK",
     "FxRateObservation",
     "PlatformConfigVersion",
+    "PlatformDashboardDataUse",
     "PlatformEngineHealth",
     "PlatformModelPrice",
     "PlatformSecret",

@@ -289,6 +289,12 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "for the whole platform and there is no tenant whose row it could be. Holds an "
         "engine name, a minute and two integers: no tenant id, no call, no number."
     ),
+    "platform_dashboard_data_use": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). What an operator attested "
+        "about ONE LLM provider's data-use terms for the dashboard assist leg — one vendor "
+        "account per provider for the whole deployment, so there is no tenant whose row this "
+        "could be and it carries no tenant_id. Reachable only behind `platform:config`."
+    ),
     "platform_model_prices": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). Operator-attested vendor "
         "list prices per LLM model, effective-dated — one Azure/OpenAI/Google subscription "
@@ -408,6 +414,11 @@ APPEND_ONLY_TABLES = [
     # stays answerable for a re-rendered invoice. Unlike platform_secrets there is NO
     # rewrap exception: the blanket `calevate_forbid_mutation` applies, so every column is
     # immutable once written and there is no UPDATE this table ever needs.
+    # What an operator attested about a provider's data-use terms for the dashboard assist
+    # leg (D-477). Append-only for platform_model_prices' reason: "what did we believe, on
+    # whose word, when we let a client's screen content reach this vendor" must stay
+    # answerable after the fact, and a row somebody could edit answers it with today's belief.
+    "platform_dashboard_data_use",
     "platform_model_prices",
     # Acceptance of a legal document is CONTRACT FORMATION, not consent: there is no
     # withdrawal row and no status column, because a client who ends the engagement does

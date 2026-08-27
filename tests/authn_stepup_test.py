@@ -318,7 +318,7 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
             ):
                 sites += 1
                 assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
-    # 22: the twenty-one dangerous mutations, plus D-210's door —
+    # 23: the twenty-two dangerous mutations, plus D-210's door —
     # `admin/routes.py::mint_impersonation_grant`, which is a step-up on ENTERING a
     # client account rather than on changing something. Counted the same way because the
     # census is about the pairing, not about the verb.
@@ -341,7 +341,14 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # `unit_cost_paid`. Its effect OUTLIVES the session for the operator-allowlist
     # reason — a wrong or malicious price keeps charging every client on that model
     # long after the session that set it is gone — so it takes the composed gate too.
-    assert sites == 22, f"found {sites} step-up call sites, expected 22; the census went stale"
+    #
+    # THE TWENTY-SECOND is `ops/dashboard_data_use_routes.py::attest_provider_data_use`
+    # (D-477): a super-admin attests that a vendor's terms for OUR account permit the
+    # dashboard assistant to send a client's screen content to that vendor. Same
+    # outlives-the-session ground and a worse blast radius than a price — a false
+    # attestation keeps routing other businesses' data to a provider on terms nobody
+    # checked, and unlike a wrong price nothing downstream would ever notice.
+    assert sites == 23, f"found {sites} step-up call sites, expected 23; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

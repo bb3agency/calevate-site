@@ -36,6 +36,7 @@ them is written inside a transaction that aborts, exactly as
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -86,11 +87,66 @@ async def _verdict() -> tuple[int, int]:
     return result.breaks_found, result.entries_checked
 
 
+# --- who each half of the refusal is for --------------------------------------
+
+#: Anything a person in the client console cannot act on. Both codes this resolver
+#: produces are raised on client paths — `audit_chain_not_configured` on a campaign launch
+#: and on a raw-transcript read, `idempotency_not_configured` on ANY client POST carrying
+#: an `Idempotency-Key` — so the BODY is read by somebody with no environment to edit and
+#: no secrets manager to reach. `core/envelope.py`'s `_OPERATOR_ONLY` list, for this
+#: resolver's vocabulary.
+_OPERATOR_ONLY = (
+    "AUDIT_CHAIN_SECRET",
+    "IDEMPOTENCY_SCOPE_SECRET",
+    "IMPERSONATION_GRANT_SECRET",
+    "DEV-SETUP",
+    "secrets manager",
+    "RFC 2104",
+    "NIST",
+    "deployment",
+    "HMAC",
+)
+
+
+def _hmac_log(caplog: pytest.LogCaptureFixture) -> logging.LogRecord:
+    """The one refusal record — where the operator's fix now lives."""
+    records = [
+        r for r in caplog.records if r.getMessage() in ("hmac_key_missing", "hmac_key_too_short")
+    ]
+    assert len(records) == 1, [r.getMessage() for r in caplog.records]
+    return records[0]
+
+
+def _operator_fix(caplog: pytest.LogCaptureFixture) -> str:
+    return str(getattr(_hmac_log(caplog), "fix", ""))
+
+
+def _assert_reader_can_act_on_it(problem: ProblemError) -> None:
+    """The body says what happened and who is fixing it, in nobody's environment.
+
+    This is the assertion that stops the regression: the operator sentence was correct and
+    useful, it was simply pointed at the wrong reader, and nothing but a test keeps it
+    from drifting back once somebody wants the body to be more specific.
+    """
+    body = f"{problem.title} {problem.detail} {problem.remediation}"
+    for token in _OPERATOR_ONLY:
+        assert token not in body, f"{token!r} is operator vocabulary in a client-read body"
+    assert "nothing for you to fix" in (problem.remediation or "")
+
+
 # --- 1. the refusals ----------------------------------------------------------
 
 
-def test_an_absent_secret_is_refused_outside_local(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No key, no chain — and the refusal names the variable.
+def test_an_absent_secret_is_refused_outside_local(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No key, no chain — and the OPERATOR's half of the refusal names the variable.
+
+    ⚠ **THE VARIABLE MOVED FROM THE BODY TO THE LOG, AND THIS TEST MOVED WITH IT.** It
+    used to assert `AUDIT_CHAIN_SECRET` in `remediation`, which is how an environment
+    variable came to be printed to a shop owner: this refusal fires on a CLIENT campaign
+    launch and on a client reading a raw transcript. `core/envelope.py::_unusable_kek`
+    made the same correction for `PLATFORM_KEK`; `_unusable_hmac_key` is that shape.
 
     This is the whole finding: the fallback applied in `prod` too, so the failure mode
     was silence rather than an outage. Failing closed is severe on purpose — every
@@ -100,15 +156,19 @@ def test_an_absent_secret_is_refused_outside_local(monkeypatch: pytest.MonkeyPat
     ever takes traffic.
     """
     for env in ("staging", "prod"):
+        caplog.clear()
         _use(monkeypatch, _Stub(app_env=env))
-        with pytest.raises(ProblemError) as raised:
+        with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
             audit_module._active_key()
+        # The CODE still distinguishes this from every other dependency refusal — the
+        # audience split is about the words a person reads, never about collapsing states.
         assert raised.value.code == "audit_chain_not_configured"
-        assert "AUDIT_CHAIN_SECRET" in (raised.value.remediation or "")
+        assert "AUDIT_CHAIN_SECRET" in _operator_fix(caplog)
+        _assert_reader_can_act_on_it(raised.value)
 
 
 def test_a_configured_secret_below_the_hmac_key_size_is_refused_the_same_way(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A weak key is not a warning to read later — it is the same condition as no key.
 
@@ -123,12 +183,13 @@ def test_a_configured_secret_below_the_hmac_key_size_is_refused_the_same_way(
     """
     short = "x" * (MIN_HMAC_KEY_BYTES - 1)
     _use(monkeypatch, _Stub(app_env="prod", audit_chain_secret=short))
-    with pytest.raises(ProblemError) as raised:
+    with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
         audit_module._active_key()
     assert raised.value.code == "audit_chain_not_configured"
-    assert str(MIN_HMAC_KEY_BYTES) in (raised.value.remediation or ""), (
-        "the refusal must name the requirement, not just decline"
+    assert str(MIN_HMAC_KEY_BYTES) in _operator_fix(caplog), (
+        "the refusal must name the requirement to the person who can meet it"
     )
+    _assert_reader_can_act_on_it(raised.value)
 
     # The positive half, so this pins a THRESHOLD rather than a blanket refusal.
     _use(monkeypatch, _Stub(app_env="prod", audit_chain_secret="y" * MIN_HMAC_KEY_BYTES))

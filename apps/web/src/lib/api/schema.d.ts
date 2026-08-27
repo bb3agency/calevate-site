@@ -4561,6 +4561,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/dashboard-data-use": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every LLM leg's dashboard-assist eligibility and its latest data-use attestation
+         * @description Lists every declared LLM leg with whether the in-app AI assistant may run on it, the ground if it may not, and the latest operator attestation about that vendor's data-use terms. Eligibility needs BOTH an attestation and a dashboard leg this platform can actually build — `dashboard_leg_built` says whether the second is true, so attesting a provider whose leg is not built is not mistaken for enabling it. This surface does not govern the in-call leg, which sends raw caller speech.
+         */
+        get: operations["list_dashboard_data_use_v1_ops_dashboard_data_use_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/dashboard-data-use/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest one LLM leg's data-use position for the dashboard assist (step-up, audited)
+         * @description Records what you read in the vendor's own console as a NEW dated row — a correction is a later attestation, never an edit, so what was believed at the time a client's content reached that vendor stays answerable. Requires `X-Confirm-Action: attest_dashboard_data_use:<provider>`. A negative answer is worth recording too: 'somebody looked and it is not on the paid tier' is a different and more useful state than 'nobody has looked'.
+         */
+        post: operations["attest_provider_data_use_v1_ops_dashboard_data_use__provider__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/dnc/global": {
         parameters: {
             query?: never;
@@ -6875,6 +6915,59 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** DashboardDataUseAttestIn */
+        DashboardDataUseAttestIn: {
+            /** No Training Opt In Confirmed */
+            no_training_opt_in_confirmed: boolean;
+            /** Paid Tier Confirmed */
+            paid_tier_confirmed: boolean;
+            /** Source Note */
+            source_note: string;
+            /** Vendor Account Ref */
+            vendor_account_ref: string;
+        };
+        /** DashboardDataUseListOut */
+        DashboardDataUseListOut: {
+            /** Providers */
+            providers: components["schemas"]["DashboardDataUseOut"][];
+            /** Statement */
+            statement: string;
+        };
+        /**
+         * DashboardDataUseOut
+         * @description One declared leg, as the panel renders it.
+         *
+         *     NO FIELD CARRIES A DEFAULT, the rule every ops panel model here follows: every fact the
+         *     console must trust is required on the wire, and `null` is used where the answer genuinely
+         *     has no value — which for `attested_at` means "nobody has looked", a real and distinct
+         *     state from an operator having looked and found a problem.
+         */
+        DashboardDataUseOut: {
+            /** Attested At */
+            attested_at: string | null;
+            /** Attested By */
+            attested_by: string | null;
+            /** Blocked Reason */
+            blocked_reason: string | null;
+            /** Dashboard Leg Built */
+            dashboard_leg_built: boolean;
+            /** Eligible */
+            eligible: boolean;
+            /** No Training Opt In Confirmed */
+            no_training_opt_in_confirmed: boolean | null;
+            /** Paid Tier Confirmed */
+            paid_tier_confirmed: boolean | null;
+            /** Provider */
+            provider: string;
+            /** Source Note */
+            source_note: string | null;
+            /** Vendor Account Ref */
+            vendor_account_ref: string | null;
+        };
+        /** DashboardDataUseWriteOut */
+        DashboardDataUseWriteOut: {
+            provider: components["schemas"]["DashboardDataUseOut"];
         };
         /**
          * DashboardDayOut
@@ -20605,6 +20698,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_dashboard_data_use_v1_ops_dashboard_data_use_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardDataUseListOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_provider_data_use_v1_ops_dashboard_data_use__provider__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardDataUseAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardDataUseWriteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

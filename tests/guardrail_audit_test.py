@@ -297,6 +297,7 @@ class TestRlsCoverage:
             # founder's, not a tenant's — so it carries no `tenant_id` and is
             # policied on the ops GUC rather than tenant-isolated.
             "platform_model_prices",
+            "platform_dashboard_data_use",
             "platform_state",
             "platform_ai_spend",
             # The state behind `engine_error_spike` (OPERATIONS §4): one row per

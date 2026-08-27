@@ -240,6 +240,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per model in `calevate_shared.engine.LLM_MODELS`, a closed catalogue "
         "whose size is a decision-log entry — never a caller's row count."
     ),
+    "GET /v1/ops/dashboard-data-use": BoundedByConstruction(
+        by="one row per DECLARED LLM leg — `get_args(calevate_shared.engine.LlmProvider)`, "
+        "a three-member Literal a reviewed commit widens, never a caller's row count."
+    ),
     "POST /v1/ops/secrets/kek/rewrap": BoundedByConstruction(
         by="`unreadable` is at most one entry per registry key, same registry as above."
     ),
