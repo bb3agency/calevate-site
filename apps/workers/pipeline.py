@@ -1457,14 +1457,16 @@ async def _persist_extraction(
         await session.execute(
             text(
                 "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
-                "model, valid, errors, moments, created_at, updated_at) VALUES "
+                "model, valid, errors, needs_review, moments, created_at, updated_at) VALUES "
                 "(:id, :tid, :cid, :ver, CAST(:data AS jsonb), :model, :valid, "
-                "CAST(:errors AS jsonb), CAST(:moments AS jsonb), now(), now()) "
+                "CAST(:errors AS jsonb), CAST(:needs_review AS jsonb), "
+                "CAST(:moments AS jsonb), now(), now()) "
                 "ON CONFLICT (tenant_id, call_id) DO UPDATE SET "
                 "  schema_version = EXCLUDED.schema_version, "
                 "  data = EXCLUDED.data, "
                 "  valid = EXCLUDED.valid, "
                 "  errors = EXCLUDED.errors, "
+                "  needs_review = EXCLUDED.needs_review, "
                 "  moments = EXCLUDED.moments, "
                 "  updated_at = now()"
             ),
@@ -1477,6 +1479,12 @@ async def _persist_extraction(
                 "model": None,
                 "valid": extraction.valid,
                 "errors": _json(extraction.errors) if extraction.errors else None,
+                # NULL when there is nothing to flag, matching `errors` and `moments`: an
+                # empty map and "not computed" are the same for the reader, and NULL is the
+                # smaller row.
+                "needs_review": (
+                    _json(extraction.needs_review) if extraction.needs_review else None
+                ),
                 "moments": _json(moments) if moments is not None else None,
             },
         )

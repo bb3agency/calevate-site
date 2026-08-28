@@ -431,6 +431,35 @@ async def test_a_marker_written_by_the_worker_is_read_back_by_the_api() -> None:
     ]
 
 
+async def test_a_needs_review_flag_written_by_the_worker_is_read_back_by_the_api() -> None:
+    """P4, the same worker→JSONB→Pydantic seam as the moments test above and for the same
+    reason: `needs_review` is written as SQL/JSONB by the pipeline and read as a Pydantic
+    map through the redaction switch, and a shape mismatch is invisible to a unit test on
+    either side. The reason carries no digits (hard rule 6) even though the value does."""
+    tenant_id, _execution_id, call_id = await _completed_call("nr")
+    await _persist_extraction(
+        tenant_id,
+        call_id,
+        ExtractionOutput(
+            data={"callback_number": "1234567890"},
+            valid=True,
+            errors={},
+            needs_review={
+                "callback_number": "Callback number was captured but is not a "
+                "standard Indian mobile number — check it before dialling."
+            },
+        ),
+        schema_version=1,
+        moments=None,
+    )
+
+    async with tenant_session(tenant_id) as session:
+        detail = await get_call(session, call_id, raw=False)
+    assert detail.extraction["callback_number"] == "1234567890"
+    assert "callback_number" in detail.extraction_needs_review
+    assert "1234567890" not in detail.extraction_needs_review["callback_number"]
+
+
 async def test_the_scheduled_sweep_clears_the_markers_with_the_extraction() -> None:
     """A marker names what the caller said and when. Leaving it behind after the
     extraction is emptied is a second copy of erased personal data surviving under a

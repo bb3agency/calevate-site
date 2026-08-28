@@ -5812,6 +5812,10 @@ export interface components {
             extraction?: {
                 [key: string]: unknown;
             };
+            /** Extraction Needs Review */
+            extraction_needs_review?: {
+                [key: string]: string;
+            };
             /**
              * Extraction Valid
              * @default true

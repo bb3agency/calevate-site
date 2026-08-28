@@ -326,12 +326,23 @@ export default function CallDetailPage({
             {/* These keys are the agent's extraction schema (TRD §7) — the same
                 definition that becomes the Leads table columns and the CSV export. */}
             <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-              {Object.entries(detail.extraction as Record<string, unknown>).map(([key, value]) => (
-                <div key={key} className="flex justify-between gap-4 border-b border-line py-1.5 text-sm">
-                  <dt className="capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
-                  <dd className="text-right font-medium text-ink">{formatValue(value)}</dd>
-                </div>
-              ))}
+              {Object.entries(detail.extraction as Record<string, unknown>).map(([key, value]) => {
+                // A captured field the extractor flagged for a human to confirm before
+                // acting on it (today: a phone that is not a standard Indian mobile). The
+                // value still shows — it is usable — with an amber note carrying the reason.
+                const review = detail.extraction_needs_review?.[key];
+                return (
+                  <div key={key} className="border-b border-line py-1.5 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <dt className="capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
+                      <dd className="text-right font-medium text-ink">{formatValue(value)}</dd>
+                    </div>
+                    {review && (
+                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{review}</p>
+                    )}
+                  </div>
+                );
+              })}
             </dl>
             {!detail.extraction_valid && (
               <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">

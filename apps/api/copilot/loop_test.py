@@ -17,17 +17,17 @@ import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 
 from apps.api.copilot import service
+from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
+from apps.api.core.errors import ProblemError
+from apps.api.core.settings import get_settings
+from apps.workers import chat
+from apps.workers import extraction as extraction_module
 
 #: A real selectable Gemini model, read from the catalogue rather than spelled here.
 #: `tests/sarvam_model_identifier_test.py` keeps Google model ids in `engine.py` and
 #: the lifecycle registry alone; a fixture that needs one reads it back. `min` only
 #: makes the pick deterministic.
 _GOOGLE_MODEL = min(GOOGLE_DIRECT_MODELS)
-from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
-from apps.api.core.errors import ProblemError
-from apps.api.core.settings import get_settings
-from apps.workers import chat
-from apps.workers import extraction as extraction_module
 
 PAYLOAD = CopilotAskIn.model_validate(
     {

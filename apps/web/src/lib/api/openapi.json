@@ -1679,6 +1679,13 @@
             "title": "Extraction",
             "type": "object"
           },
+          "extraction_needs_review": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Extraction Needs Review",
+            "type": "object"
+          },
           "extraction_valid": {
             "default": true,
             "title": "Extraction Valid",

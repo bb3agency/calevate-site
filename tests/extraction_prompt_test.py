@@ -285,11 +285,36 @@ def test_a_phone_number_smuggled_into_the_callback_time_is_rejected() -> None:
 
 
 def test_the_field_that_asks_for_a_phone_number_still_gets_one() -> None:
-    """The other direction, so the fix is not "reject all digits"."""
+    """The other direction, so the fix is not "reject all digits". A bare ten-digit
+    Indian mobile is CANONICALISED to E.164 (+91…) rather than stored as typed, and a
+    canonical mobile carries no needs-review flag."""
     outcome = validate_extraction(SPEC, {"callback_number": "9999999999"})
 
-    assert outcome.data["callback_number"] == "9999999999"
+    assert outcome.data["callback_number"] == "+919999999999"
     assert outcome.valid
+    assert "callback_number" not in outcome.needs_review
+
+
+def test_a_punctuated_phone_number_is_stored_as_one_clean_dialable_form() -> None:
+    """THE BUG: a phone value was validated for placement but never normalised, so
+    `+91 99999-99999` reached the Leads column verbatim. All four spellings of one number
+    now collapse to the single E.164 form, with no digit added or dropped."""
+    for typed in ("+91 99999-99999", "099999 99999", "919999999999", "99999 99999"):
+        outcome = validate_extraction(SPEC, {"callback_number": typed})
+        assert outcome.data["callback_number"] == "+919999999999", typed
+        assert "callback_number" not in outcome.needs_review, typed
+
+
+def test_a_captured_number_that_is_not_an_indian_mobile_is_flagged_for_review() -> None:
+    """P4: a dial-critical field carrying a value that is not a standard Indian mobile is
+    STORED (usable) but flagged — the SMB dials off this record, so a number that does not
+    look like a mobile is worth a human glance. The flag names no digits (hard rule 6)."""
+    outcome = validate_extraction(SPEC, {"callback_number": "1234567890"})
+
+    assert outcome.data["callback_number"] == "1234567890"
+    assert "callback_number" in outcome.needs_review
+    assert "1234567890" not in outcome.needs_review["callback_number"]
+    assert outcome.valid  # a needs-review field is not an invalid extraction
 
 
 def test_a_speaker_label_is_never_a_value() -> None:
@@ -355,11 +380,25 @@ def test_an_unreadable_boolean_is_an_error_not_a_silent_true() -> None:
 
 def test_a_relative_time_is_not_accepted_as_a_date() -> None:
     """ "repu" is not a date, and a date column filled with a guess is a booking on the
-    wrong day."""
+    wrong day. It is NULL, not a validation failure (P2): the relative phrasing belongs in
+    a text field, and a date column holds a real calendar date or nothing — so a correct
+    model answer of "repu" must not be downgraded to a field-level error."""
     outcome = validate_extraction(SPEC, {"visit_date": "repu"})
 
     assert "visit_date" not in outcome.data
+    assert "visit_date" not in outcome.errors
+    assert outcome.valid
+
+
+def test_a_relative_time_in_a_required_date_field_is_a_miss_not_a_parse_error() -> None:
+    """The null-not-error rule must still fail a REQUIRED date the caller never pinned —
+    but as "required but not captured", the same miss every unstated required field is,
+    never as a date-parse exception leaking into the errors map."""
+    required = ExtractionField(key="visit_date", label="Visit date", type="date", required=True)
+    outcome = validate_extraction(ExtractionSchemaSpec(fields=[required]), {"visit_date": "repu"})
+
     assert "visit_date" in outcome.errors
+    assert "not captured" in outcome.errors["visit_date"]
 
 
 def test_a_good_answer_passes_through_unharmed() -> None:
@@ -384,7 +423,7 @@ def test_a_good_answer_passes_through_unharmed() -> None:
         "intent": "book",
         "party_size": 2,
         "wants_callback": True,
-        "callback_number": "9999999999",
+        "callback_number": "+919999999999",
         "callback_time": "repu udayam pathi gantalaku",
         "visit_date": "2026-08-12",
     }

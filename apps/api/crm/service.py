@@ -270,8 +270,8 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     extraction = (
         await session.execute(
             text(
-                "SELECT data, valid, moments FROM call_extractions WHERE call_id = :cid "
-                "ORDER BY created_at DESC LIMIT 1"
+                "SELECT data, valid, moments, needs_review FROM call_extractions "
+                "WHERE call_id = :cid ORDER BY created_at DESC LIMIT 1"
             ),
             {"cid": call_id},
         )
@@ -301,6 +301,13 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         extraction=(extraction[0] or {}) if extraction else {},
         extraction_valid=bool(extraction[1]) if extraction else True,
         moments=_moments_out(extraction[2] if extraction else None, raw=raw),
+        # Per-field "confirm before acting" advisories (P4). NOT on the redaction switch:
+        # the reasons are PII-free by construction (the flagged value lives in `extraction`
+        # above, this map names only the field and why), so one form serves both the
+        # redacted and the raw read.
+        extraction_needs_review=(
+            extraction[3] if extraction and isinstance(extraction[3], dict) else {}
+        ),
     )
 
 

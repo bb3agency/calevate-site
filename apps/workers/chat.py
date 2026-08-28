@@ -312,6 +312,7 @@ def _request_body(
     tools: Sequence[Mapping[str, Any]] | None,
     tool_choice: str | Mapping[str, Any] | None,
     stream: bool,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """The request, with every optional key OMITTED rather than sent as null.
 
@@ -324,6 +325,13 @@ def _request_body(
     body: dict[str, Any] = {"model": leg.wire_model, "messages": list(messages)}
     if temperature is not None:
         body["temperature"] = temperature
+    if max_tokens is not None:
+        # A ceiling on the answer, not a target. It is a VERIFIED-VENDOR-SDK key on every
+        # dialect here — Sarvam's own client lists `max_tokens` among its fourteen body keys
+        # (see the `stream_options` note below), and it is standard OpenAI/Azure. Its job is
+        # to bound a runaway generation; when it is HIT the answer is truncated, which the
+        # caller learns from `finish_reason == "length"` rather than from a silently short body.
+        body["max_tokens"] = max_tokens
     if response_format is not None:
         body["response_format"] = dict(response_format)
     if tools:
@@ -413,6 +421,7 @@ async def complete(
     response_format: Mapping[str, Any] | None = None,
     tools: Sequence[Mapping[str, Any]] | None = None,
     tool_choice: str | Mapping[str, Any] | None = None,
+    max_tokens: int | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> ChatOutcome:
     """One blocking chat completion. RAISES `httpx.HTTPStatusError` on a non-2xx.
@@ -444,6 +453,7 @@ async def complete(
                 tools=tools,
                 tool_choice=tool_choice,
                 stream=False,
+                max_tokens=max_tokens,
             ),
         )
     finally:

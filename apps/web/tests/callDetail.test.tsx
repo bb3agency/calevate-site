@@ -104,6 +104,33 @@ describe("the call detail screen", () => {
     expect(screen.getByText(/Personal details .* are hidden in this view/)).toBeTruthy();
   });
 
+  it("flags a captured field for review without leaking the value (P4)", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          extraction: { callback_number: "1234567890" },
+          extraction_needs_review: {
+            callback_number:
+              "Callback number was captured but is not a standard Indian mobile number — check it before dialling.",
+          },
+        }),
+      ),
+    );
+
+    // The value still shows (it is usable), with the amber advisory beneath it — and the
+    // reason names the field, never a digit of the number (hard rule 6).
+    expect(await screen.findByText("1234567890")).toBeTruthy();
+    const note = screen.getByText(/is not a standard Indian mobile number/);
+    expect(note.textContent).not.toMatch(/1234567890/);
+  });
+
+  it("shows no review note for a clean extraction", async () => {
+    await renderClientPage(page, routes(detail()));
+    expect(await screen.findByText("Ravi")).toBeTruthy();
+    expect(screen.queryByText(/check it before dialling/)).toBeNull();
+  });
+
   it("prints the caller's number and never puts it in a link", async () => {
     const { container } = await renderClientPage(
       page,

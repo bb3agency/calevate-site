@@ -47,12 +47,14 @@ from apps.workers import extraction as extraction_module
 from apps.workers.extraction import (
     AZURE_PROVIDER,
     AZURE_SCHEMA_NAME,
+    EXTRACTION_MAX_TOKENS,
     NO_CREDENTIAL_REASON,
     PROVIDER_UNAVAILABLE_REASON,
     QUOTA_EXHAUSTED_REASON,
     SARVAM_PROVIDER,
     AssistCapability,
     AzureOpenAIExtractor,
+    ExtractionTruncatedError,
     OfflineExtractor,
     SarvamExtractor,
     assist_capability,
@@ -60,6 +62,7 @@ from apps.workers.extraction import (
     azure_credentials,
     azure_extractor,
     build_azure_response_schema,
+    extract_call,
     get_extractor,
     run_assist,
 )
@@ -129,6 +132,9 @@ class FakeAzure:
         }
         #: Set for a content-filter refusal — `choices: []`, an ordinary 200.
         self.blocked = False
+        #: Set to answer with `finish_reason: "length"` — the model hit `max_tokens` and the
+        #: JSON is truncated. The content is still shaped, so the ONLY signal is the reason.
+        self.truncated = False
         #: Azure's own token count. `None` returns a body WITHOUT the block, which is how
         #: "we do not know what this cost" is spelled — distinct from zero.
         #:
@@ -156,7 +162,7 @@ class FakeAzure:
             if self.blocked
             else [
                 {
-                    "finish_reason": "stop",
+                    "finish_reason": "length" if self.truncated else "stop",
                     "message": {"role": "assistant", "content": json.dumps(self.answer)},
                 }
             ]
@@ -373,6 +379,32 @@ async def test_a_null_content_is_not_a_string_called_none() -> None:
     azure.handler = lambda request: httpx.Response(200, json=handler_body)  # type: ignore[method-assign]
 
     assert await azure.extractor().run(SPEC, REDACTED_TRANSCRIPT) == {}
+
+
+async def test_a_truncated_answer_is_a_visible_model_error_not_a_silent_empty_extraction() -> None:
+    """P5. Before the `max_tokens` cap, a long transcript could truncate the JSON and the
+    fence-stripper returned `{}` — indistinguishable from a genuine wrong-number call that
+    extracts to nothing, so an all-null lead read as "we looked, there was nothing". A
+    truncation now raises `ExtractionTruncatedError`, which `extract_call` turns into a visible
+    `_model` error while the call, the lead and the metering all survive."""
+    azure = FakeAzure()
+    azure.truncated = True
+
+    with pytest.raises(ExtractionTruncatedError):
+        await azure.extractor().run(SPEC, REDACTED_TRANSCRIPT)
+
+    out = await extract_call(SPEC, REDACTED_TRANSCRIPT, extractor=azure.extractor())
+    assert not out.valid
+    assert out.errors == {"_model": "ExtractionTruncatedError"}
+
+
+async def test_the_extraction_request_carries_a_max_tokens_ceiling() -> None:
+    """P5, the wire half: the cap has to actually be sent or a truncation can still happen
+    unbounded. `max_tokens` is a VERIFIED-VENDOR-SDK key on this dialect."""
+    azure = FakeAzure()
+    await azure.extractor().run(SPEC, REDACTED_TRANSCRIPT)
+
+    assert azure.body["max_tokens"] == EXTRACTION_MAX_TOKENS
 
 
 # --- 2. G-7: the first post-call extraction never reaches the assist provider ------

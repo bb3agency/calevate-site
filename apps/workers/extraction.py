@@ -156,6 +156,27 @@ SARVAM_CHAT_URL: Final = "https://api.sarvam.ai/v1/chat/completions"
 #: `pipeline.py` names this number in its retry arithmetic.
 EXTRACTION_TIMEOUT_S: Final = 30.0
 
+#: The ceiling on ONE extraction answer, in tokens. It is a safety valve, not a target: an
+#: extraction reply is a JSON object of short field values plus a two-sentence summary, well
+#: under this even for a 40-field schema, so a well-formed answer never approaches it. Its
+#: job is the failure the value below fixes — before this was set, `max_tokens` was unbounded
+#: and a pathological schema/transcript could truncate the JSON, which `_first_json_object`
+#: then returned as `{}`, INDISTINGUISHABLE from a genuine wrong-number call that extracts to
+#: nothing. With the cap set, a truncation surfaces as `finish_reason == "length"`, which the
+#: runners below turn into a visible `_model` error rather than a silent all-null lead.
+EXTRACTION_MAX_TOKENS: Final = 2048
+
+
+class ExtractionTruncatedError(ValueError):
+    """The model hit `EXTRACTION_MAX_TOKENS` before finishing its JSON.
+
+    A `ValueError` on purpose: `extract_call`'s ladder already catches `ValueError` and
+    turns it into `errors["_model"]`, so a truncated answer becomes a visible model failure
+    (the call, lead and metering all survive) instead of a silently empty extraction — the
+    exact confusion `EXTRACTION_MAX_TOKENS` exists to end.
+    """
+
+
 #: The per-leg provider budget for the USER-TRIGGERED assist, where somebody is.
 #:
 #: WHY A SECOND NUMBER AT ALL. `run_assist` runs two legs IN SERIES — Azure, then the
@@ -295,7 +316,10 @@ class SarvamExtractor:
             timeout_s=self._timeout_s,
             temperature=0,
             response_format={"type": "json_object"},
+            max_tokens=EXTRACTION_MAX_TOKENS,
         )
+        if outcome.finish_reason == "length":
+            raise ExtractionTruncatedError(self.model_name)
         return _first_json_object(outcome.content)
 
 
@@ -610,6 +634,7 @@ class AzureOpenAIExtractor:
             timeout_s=self._timeout_s,
             temperature=0,
             response_format=response_format,
+            max_tokens=EXTRACTION_MAX_TOKENS,
             client=self._client,
         )
 
@@ -667,6 +692,12 @@ class AzureOpenAIExtractor:
                 },
             )
         self.last_usage = outcome.usage
+        if outcome.finish_reason == "length":
+            # Truncated at the cap: the JSON is unreliable, so refuse it rather than let
+            # `_first_json_object` return a short/empty object that reads as "nothing to
+            # extract". Raised AFTER `last_usage` is set so the truncated turn is still
+            # metered — we paid for it (hard rule 7).
+            raise ExtractionTruncatedError(self.model_name)
         # STILL THE FENCE-STRIPPER AND NOT A BARE `json.loads`. Under strict mode the
         # content is a schema-shaped document and this is a no-op; on the degraded path it
         # is the only thing standing between a fenced answer and an empty extraction. One
@@ -1786,6 +1817,7 @@ async def extract_call(
         callback_requested=bool(raw.get("callback_requested")),
         valid=outcome.valid,
         errors=outcome.errors,
+        needs_review=outcome.needs_review,
     )
 
 

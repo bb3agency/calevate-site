@@ -137,11 +137,20 @@ class ExtractionOutput(BaseModel):
     callback_requested: bool = False
     valid: bool = True
     errors: dict[str, str] = Field(default_factory=dict)
+    #: Fields that were CAPTURED but a human should confirm before acting on them — keyed by
+    #: field key, valued with a client-safe reason (NO PII: the value itself lives in
+    #: `data`). Distinct from `errors`, which is "we could not use this at all"; a
+    #: needs-review field is stored and usable, it just carries a deterministic doubt. Today
+    #: the one producer is a dial-critical field (a phone) whose captured value is not a
+    #: standard Indian mobile — the number an SMB will actually ring off this record.
+    needs_review: dict[str, str] = Field(default_factory=dict)
 
 
 class ValidationOutcome(BaseModel):
     data: dict[str, Any]
     errors: dict[str, str]
+    #: See `ExtractionOutput.needs_review`. Advisory, per field, PII-free.
+    needs_review: dict[str, str] = Field(default_factory=dict)
 
     @property
     def valid(self) -> bool:
@@ -153,6 +162,50 @@ def _is_phone_field(field: ExtractionField) -> bool:
     key, label and the reason that also serves as the model's instruction."""
     haystack = f"{field.key} {field.label} {field.reason}".lower()
     return any(hint in haystack for hint in _PHONE_FIELD_HINTS)
+
+
+#: An Indian mobile is ten digits opening 6-9 (TRAI's mobile number range). This is the
+#: whole shape the product dials, so it is what "a phone number we can canonicalise"
+#: means and what a captured number is judged dialable against (`needs_review`, below).
+_INDIAN_MOBILE_RE = re.compile(r"^[6-9]\d{9}$")
+
+#: The canonical stored form: E.164 with the +91 the product is scoped to.
+_CANONICAL_MOBILE_RE = re.compile(r"^\+91[6-9]\d{9}$")
+
+
+def normalize_phone(raw: str) -> str:
+    """A phone-shaped value with its formatting removed, canonicalised to E.164 where it
+    is unambiguously an Indian mobile.
+
+    THE BUG THIS FIXES: a phone value was validated for PLACEMENT (it may only land in a
+    field that asked for a number) but never NORMALISED, so `"+91 99999-99999"` reached a
+    client's Leads column verbatim — one row holding `+91 99999-99999` and the next
+    `9999999999` for the same number, neither dialable as typed.
+
+    IT STRIPS FORMATTING ONLY. It never adds or drops a digit of the number, because a
+    phone number one digit wrong is the worst output this system can produce (the prompt
+    says exactly that). The +91 country code is CONTEXT, not a digit of the subscriber
+    number, and is added only to a bare ten-digit Indian mobile — the one case where the
+    country is not a guess on an India-only product (CLAUDE.md: phone = E.164 strings, the
+    house form every provisioned-number column already uses). A 0-trunk prefix or an
+    existing 91/+91 is folded to the same canonical form; anything else (a landline, an
+    unusual length, a number that is not clearly a mobile) is returned as clean digits with
+    any leading '+' preserved, never coerced onto +91 — guessing the country would change
+    the number.
+
+    Only ever called on a phone-SHAPED value (`_PHONE_SHAPED_RE`, ten or more digits), so a
+    flat number "A-204" or a short reference in a number-named field is left untouched by
+    `coerce_value` and never reaches here.
+    """
+    has_plus = raw.strip().startswith("+")
+    digits = "".join(c for c in raw if c.isdigit())
+    if len(digits) == 11 and digits.startswith("0") and _INDIAN_MOBILE_RE.match(digits[1:]):
+        digits = digits[1:]
+    if len(digits) == 12 and digits.startswith("91") and _INDIAN_MOBILE_RE.match(digits[2:]):
+        return "+91" + digits[2:]
+    if _INDIAN_MOBILE_RE.match(digits):
+        return "+91" + digits
+    return ("+" if has_plus else "") + digits
 
 
 def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
@@ -207,6 +260,12 @@ def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
                 # Right value, wrong column: a phone number in the name field is PII
                 # nobody redacts and a name nobody has.
                 return None, f"{field.label} does not hold phone numbers"
+            if _is_phone_field(field) and _PHONE_SHAPED_RE.search(value):
+                # A phone field carrying a phone-shaped value: canonicalise it so the Leads
+                # column holds one dialable form, not whatever punctuation the number
+                # arrived in. A non-phone-shaped value in a number-named field (a flat
+                # number "A-204", an order ref) is NOT touched — it falls through unchanged.
+                return normalize_phone(value), None
             return value, None
         if field.type == "number":
             if isinstance(raw, bool):
@@ -233,7 +292,17 @@ def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
                 return None, f"{token!r} is not one of {allowed}"
             return match, None
         if field.type == "date":
-            parsed = date.fromisoformat(str(raw).strip()[:10])
+            try:
+                parsed = date.fromisoformat(str(raw).strip()[:10])
+            except ValueError:
+                # The value is not an absolute ISO date — almost always a relative time the
+                # prompt tells the model to keep in the caller's own words ("repu udayam",
+                # "next Monday"). That is "no absolute date was stated", which is NULL, not a
+                # validation failure: a date column holds a real calendar date or nothing,
+                # and the relative phrasing belongs in a text field. Returning an error here
+                # instead downgraded a correct model answer to a field-level failure — and,
+                # on a required date field, to an invalid extraction.
+                return None, None
             return parsed.isoformat(), None
     except (ValueError, TypeError) as exc:
         return None, f"{field.label}: {exc}"
@@ -252,6 +321,7 @@ def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> Vali
     """
     data: dict[str, Any] = {}
     errors: dict[str, str] = {}
+    needs_review: dict[str, str] = {}
     for field in spec.fields:
         value, error = coerce_value(field, raw.get(field.key))
         if error:
@@ -262,7 +332,16 @@ def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> Vali
             continue
         if value is not None:
             data[field.key] = value
-    return ValidationOutcome(data=data, errors=errors)
+            # A captured phone that is not a canonical Indian mobile is stored AND flagged:
+            # the SMB dials off this record, so "we heard a number but it does not look like
+            # a mobile" is worth a human glance before a call. The message names no digits
+            # (hard rule 6) — the value is in `data` for the field's owner to read.
+            if _is_phone_field(field) and not _CANONICAL_MOBILE_RE.match(str(value)):
+                needs_review[field.key] = (
+                    f"{field.label} was captured but is not a standard Indian mobile "
+                    "number — check it before dialling."
+                )
+    return ValidationOutcome(data=data, errors=errors, needs_review=needs_review)
 
 
 def build_extraction_prompt(spec: ExtractionSchemaSpec, transcript: str) -> str:

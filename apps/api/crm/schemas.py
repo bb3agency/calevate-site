@@ -105,6 +105,11 @@ class CallDetailOut(CallSummaryOut):
     moments: list[CallMomentOut]
     extraction: dict[str, Any] = Field(default_factory=dict)
     extraction_valid: bool = True
+    #: Captured fields a human should confirm before acting on — `{field_key: reason}`,
+    #: PII-free (the value is in `extraction`). Empty when nothing was flagged. Today the
+    #: one producer is a dial-critical field (a phone) whose captured value is not a
+    #: standard Indian mobile — see `calevate_shared.extraction.validate_extraction`.
+    extraction_needs_review: dict[str, str] = Field(default_factory=dict)
     has_recording: bool = False
     disclosure_played: bool | None = None
 

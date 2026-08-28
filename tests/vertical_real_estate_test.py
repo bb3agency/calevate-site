@@ -215,6 +215,9 @@ class _Fabricates:
         "bhk_size": "1BHK",
         "timeline": "next year",
         "site_visit_interest": True,
+        # Added when the date type gained golden coverage (D-480): a fabricated ISO
+        # date lands as an invented value on a case where none was stated.
+        "visit_date": "2027-01-01",
     }
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:

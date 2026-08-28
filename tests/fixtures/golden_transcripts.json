@@ -160,6 +160,12 @@
       "type": "bool",
       "reason": "true ONLY if the caller agreed to a site visit. A refusal ('vaddu', 'avasaram ledu') is not a yes, and neither is the agent offering one.",
       "required": false
+    },
+    {
+      "key": "visit_date",
+      "label": "Visit date",
+      "type": "date",
+      "reason": "the calendar date the caller is coming in, if they gave one"
     }
   ],
   "cases": [
@@ -3754,6 +3760,50 @@
       "note": "Degenerate input as an ATTACK on restraint rather than on the agent's mouth. A caller who floods the line names half the schema's vocabulary without ever stating a requirement, and every word of it sits inside an enquiry frame or a refusal — so an extractor that files anything here has been fooled by keyword density, which is precisely how a heuristic scanner fails. The existing `silent_call` and `hostile_caller_complaint` cases cover the two other degenerate shapes (nothing said, and said angrily); this is the third, and it is the one that produces a CRM row. Rewritten once during authoring: the first draft said 'ela book cheyali' in a clause of its own, which the offline scanner filed as `intent=book` — the flood working exactly as designed. That leak is reported as a finding and pinned in `tests/redteam_extraction_poisoning_test.py`; shipping it here would have put an unwaivable `restraint` failure into the gate.",
       "scenario": 6,
       "red_team": true,
+      "expect_outcome": "resolved"
+    },
+    {
+      "id": "cl_visit_date_relative_stays_absent",
+      "vertical": "clinic",
+      "scenario": 3,
+      "title": "A relative time does not fill the date column (P2)",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Naaku appointment kavali.",
+        "agent: Ee roju kudaradu, repu vaddama?",
+        "caller: Sare, repu udayam vasta.",
+        "agent: Manchidi, repu udayam book chesanu."
+      ],
+      "expect": {
+        "intent": "book",
+        "callback_time": "repu udayam"
+      },
+      "expect_absent": [
+        "visit_date",
+        "callback_number",
+        "name"
+      ],
+      "expect_outcome": "resolved"
+    },
+    {
+      "id": "cl_visit_date_absolute_captured",
+      "vertical": "clinic",
+      "scenario": 1,
+      "title": "An explicit ISO date the caller states is captured as a date",
+      "transcript": [
+        "agent: Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi.",
+        "caller: Appointment book cheyandi, date rendu vela iravai aaru, september pandcommidi.",
+        "agent: 2026-09-19 na, sare book chesanu.",
+        "caller: Thanks andi."
+      ],
+      "expect": {
+        "intent": "book",
+        "visit_date": "2026-09-19"
+      },
+      "expect_absent": [
+        "callback_number",
+        "party_size"
+      ],
       "expect_outcome": "resolved"
     }
   ]

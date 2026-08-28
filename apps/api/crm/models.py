@@ -229,6 +229,14 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     #: `workers/retention.py` — a marker outliving the extraction it indexes would be a
     #: second copy of erased data under a column nobody thought of.
     moments: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    #: Per-field "confirm before acting" advisories — `{field_key: reason}` (e7c2f9a41d38).
+    #: Distinct from `errors` (which drives `valid`): a needs-review field is stored and
+    #: usable, it just carries a deterministic doubt — today a dial-critical field (a phone)
+    #: whose captured value is not a standard Indian mobile. PII-FREE by construction (the
+    #: value lives in `data`; the reason names only the field). NULL/`{}` differ as they do
+    #: for `moments`, and it is erased with `data` by all three sweeps in
+    #: `workers/retention.py` for the same reason a marker must not outlive its extraction.
+    needs_review: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: WHEN WE DESTROYED THIS ROW'S CONTENTS — never when the agent captured nothing
     #: (migration f2a6d81b39c4). `data = '{}'` is written both by an extraction that found
     #: nothing and by all three sweeps in `workers/retention.py` that empty one, and the

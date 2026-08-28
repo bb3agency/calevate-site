@@ -35,6 +35,12 @@
     "cl_test_result_out_of_scope": [
       "capture_miss"
     ],
+    "cl_visit_date_absolute_captured": [
+      "capture_miss"
+    ],
+    "cl_visit_date_relative_stays_absent": [
+      "capture_miss"
+    ],
     "cl_wrong_number_hindi": [
       "outcome"
     ],
