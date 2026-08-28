@@ -105,6 +105,7 @@ const TENANT_SPEND: TenantSpend = {
   cost_currency: "INR",
   cost_currency_stated: false,
   unattributed: { minutes: "0.0000", cost_inr: "120.00" },
+  ai_assist: { used_inr: "412.50", requests: 87 },
   by_unit: [{ unit_type: "telephony_s", qty: "2550", cost_inr: "180000.00" }],
   by_agent: [
     {
@@ -336,6 +337,28 @@ describe("the operator's half", () => {
     // OPERATIONS §2 gate 7: every cost figure here is scaled by an assumption we made, and
     // an operator quoting a margin is entitled to know that before they quote it.
     expect(text).toContain("Cost is scaled by an assumption");
+  });
+
+  it("surfaces the absorbed copilot cost, apart from the call margin", async () => {
+    // The reported defect: a client's in-app copilot spend is metered but the money board
+    // could not see it, because it is `_NOT_AI_UNITS`-excluded from the call margin. It is
+    // published on its own line, and it is marked as absorbed — not billed to the client
+    // and not in the revenue/cost/margin above.
+    const { container } = await renderAdminRoute(tenantPage, { [TENANT_ROUTE]: TENANT_SPEND });
+    await screen.findByText("AI assistant — cost we absorb");
+    const text = container.textContent ?? "";
+    expect(text).toContain("₹412.50");
+    expect(text).toContain("87 assists");
+    expect(text).toContain("not billed to the client");
+  });
+
+  it("says nothing about AI when the month generated none", async () => {
+    // Null, not ₹0.00 — the same "different facts" the margin-% tile draws.
+    const { container } = await renderAdminRoute(tenantPage, {
+      [TENANT_ROUTE]: { ...TENANT_SPEND, ai_assist: null },
+    });
+    await screen.findByText("₹7,20,899.00");
+    expect(container.textContent).not.toContain("AI assistant — cost we absorb");
   });
 
   it("says 'not billed yet' rather than 0% when nothing has been billed", async () => {

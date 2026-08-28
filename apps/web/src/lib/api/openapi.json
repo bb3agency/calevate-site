@@ -1,6 +1,26 @@
 {
   "components": {
     "schemas": {
+      "AbsorbedAiSpendOut": {
+        "additionalProperties": false,
+        "description": "The dashboard-AI cost Calevate ABSORBED for this client this month (D-127 G-3).\n\nAdmin realm only, and deliberately SEPARATE from the four margin figures above it. Our\ndashboard-AI cost (the re-summarise, the script draft and the in-app copilot) is metered\nper tenant under `ai_assist_ktok_*` and is NOT billed to the client \u2014 so it is not\nrevenue, it is not a call cost, and it is not in `cost_inr`/`margin_inr`. Folding it\ninto the call margin would add cost with no matching revenue and break the\n`sum(by_unit.cost_inr) == cost_inr` partition the whole page rests on (the exact reason\n`attribution._CALL_ROWS_SQL` filters `_NOT_AI_UNITS`).\n\nBut an operator reading \"which client is costing us money\" has to be able to see it: a\nclient with zero calls and a busy copilot costs us real rupees this money board would\notherwise report as \u20b90.00. So it is published here as its own line, sourced from\n`billing/ai_quota.py::read_ai_quota` \u2014 the ONE reader of the AI ledger, not a second\nspelling of its SQL \u2014 which is the same computation the client's AI assistance screen\nand the per-tenant ceiling already use.",
+        "properties": {
+          "requests": {
+            "title": "Requests",
+            "type": "integer"
+          },
+          "used_inr": {
+            "title": "Used Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "used_inr",
+          "requests"
+        ],
+        "title": "AbsorbedAiSpendOut",
+        "type": "object"
+      },
       "AcceptIn": {
         "additionalProperties": false,
         "description": "What the owner is accepting, echoed back so a stale tab is refused rather than\nrecorded. Both fields are the SERVER's own strings from the read above \u2014 the browser\nmints neither, exactly as it mints no amount on the AI-extra purchase.",
@@ -16715,6 +16735,16 @@
         "additionalProperties": false,
         "description": "GET /v1/admin/tenants/{tenant_id}/spend \u2014 one client's month, both directions.\n\nThe four header figures are D-12's margin, in D-12's OWN definitions \u2014 the retainer\nplus `calling_revenue_inr` against the sum of `_ROW_COST_SQL`, with `margin_pct` the\none shared function `margin_for_tenant` and the fleet board both call. They are folded\nout of `period_attribution`'s single scan rather than read from a second\n`margin_for_tenant` call, and that is a partition fix rather than a shortcut: a second\ncall is a second statement at a second instant over an append-only table the meter\nwrites to all month, so on an open month the header's `cost_inr` could exceed the\n`by_unit` lines beneath it by one completing call \u2014 the parts silently not adding up,\non the page whose whole promise is that they do. Same rows, same expressions, so on a\nmonth nobody is dialling in this is `margin_for_tenant` to the paisa, which is the\nidentity `tests/spend_attribution_test.py` pins.",
         "properties": {
+          "ai_assist": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AbsorbedAiSpendOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "by_agent": {
             "items": {
               "$ref": "#/components/schemas/AgentSpendOut"
@@ -16865,6 +16895,7 @@
           "cost_currency",
           "cost_currency_stated",
           "unattributed",
+          "ai_assist",
           "by_unit",
           "by_agent",
           "top_calls",

@@ -5043,6 +5043,31 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * AbsorbedAiSpendOut
+         * @description The dashboard-AI cost Calevate ABSORBED for this client this month (D-127 G-3).
+         *
+         *     Admin realm only, and deliberately SEPARATE from the four margin figures above it. Our
+         *     dashboard-AI cost (the re-summarise, the script draft and the in-app copilot) is metered
+         *     per tenant under `ai_assist_ktok_*` and is NOT billed to the client — so it is not
+         *     revenue, it is not a call cost, and it is not in `cost_inr`/`margin_inr`. Folding it
+         *     into the call margin would add cost with no matching revenue and break the
+         *     `sum(by_unit.cost_inr) == cost_inr` partition the whole page rests on (the exact reason
+         *     `attribution._CALL_ROWS_SQL` filters `_NOT_AI_UNITS`).
+         *
+         *     But an operator reading "which client is costing us money" has to be able to see it: a
+         *     client with zero calls and a busy copilot costs us real rupees this money board would
+         *     otherwise report as ₹0.00. So it is published here as its own line, sourced from
+         *     `billing/ai_quota.py::read_ai_quota` — the ONE reader of the AI ledger, not a second
+         *     spelling of its SQL — which is the same computation the client's AI assistance screen
+         *     and the per-tenant ceiling already use.
+         */
+        AbsorbedAiSpendOut: {
+            /** Requests */
+            requests: number;
+            /** Used Inr */
+            used_inr: string;
+        };
+        /**
          * AcceptIn
          * @description What the owner is accepting, echoed back so a stale tab is refused rather than
          *     recorded. Both fields are the SERVER's own strings from the read above — the browser
@@ -12212,6 +12237,7 @@ export interface components {
          *     identity `tests/spend_attribution_test.py` pins.
          */
         TenantSpendOut: {
+            ai_assist: components["schemas"]["AbsorbedAiSpendOut"] | null;
             /** By Agent */
             by_agent: components["schemas"]["AgentSpendOut"][];
             /** By Unit */

@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
+from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.attribution import (
     AgentAttribution,
     CallAttribution,
@@ -223,6 +224,35 @@ class UnattributedSpendOut(Strict):
     cost_inr: str
 
 
+class AbsorbedAiSpendOut(Strict):
+    """The dashboard-AI cost Calevate ABSORBED for this client this month (D-127 G-3).
+
+    Admin realm only, and deliberately SEPARATE from the four margin figures above it. Our
+    dashboard-AI cost (the re-summarise, the script draft and the in-app copilot) is metered
+    per tenant under `ai_assist_ktok_*` and is NOT billed to the client — so it is not
+    revenue, it is not a call cost, and it is not in `cost_inr`/`margin_inr`. Folding it
+    into the call margin would add cost with no matching revenue and break the
+    `sum(by_unit.cost_inr) == cost_inr` partition the whole page rests on (the exact reason
+    `attribution._CALL_ROWS_SQL` filters `_NOT_AI_UNITS`).
+
+    But an operator reading "which client is costing us money" has to be able to see it: a
+    client with zero calls and a busy copilot costs us real rupees this money board would
+    otherwise report as ₹0.00. So it is published here as its own line, sourced from
+    `billing/ai_quota.py::read_ai_quota` — the ONE reader of the AI ledger, not a second
+    spelling of its SQL — which is the same computation the client's AI assistance screen
+    and the per-tenant ceiling already use.
+    """
+
+    #: OUR absorbed cost, exact paise. `read_ai_quota.used_inr` summed from `usage_events`
+    #: at the price each assist actually ran at (`record_ai_assist_usage`), so a month during
+    #: which `azure_openai_model` was flipped holds both models' rows at their own prices.
+    used_inr: str
+    #: Distinct AI-assist actions this month — `COUNT(DISTINCT ref)`, one per user action
+    #: across every assist surface (copilot, re-summarise, script draft), never per model
+    #: turn. The number an operator counts, beside the rupees that actually protect us.
+    requests: int
+
+
 class TenantSpendOut(Strict):
     """GET /v1/admin/tenants/{tenant_id}/spend — one client's month, both directions.
 
@@ -268,6 +298,11 @@ class TenantSpendOut(Strict):
     cost_currency_stated: bool
     #: Absent on every month that has no callless cost row.
     unattributed: UnattributedSpendOut | None
+    #: OUR absorbed dashboard-AI cost (D-127 G-3), published on its own and NOT in the
+    #: margin above. Null when this client generated no AI-assist usage this month — "they
+    #: ran the copilot and it cost us ₹X" and "they never opened it" are different facts an
+    #: operator acts on differently. See `AbsorbedAiSpendOut`.
+    ai_assist: AbsorbedAiSpendOut | None
     by_unit: list[UnitSpendOut]
     by_agent: list[AgentSpendOut]
     top_calls: list[CallSpendOut]
@@ -460,6 +495,12 @@ async def tenant_spend(
         raise ProblemError.not_found("Client")
     async with tenant_session(tenant_id) as scoped:
         period = await period_attribution(scoped, tenant_id=tenant_id, month=month)
+        # OUR absorbed dashboard-AI cost, read in the SAME scope and for the SAME resolved
+        # month (`period.month`, already validated by the attribution above), through the
+        # one reader of the AI ledger. It is `_NOT_AI_UNITS`-excluded from `period` by
+        # design — see `AbsorbedAiSpendOut` — so this is where the copilot spend a client
+        # generated becomes visible on the money board an operator opens.
+        ai = await read_ai_quota(scoped, tenant_id=tenant_id, month=period.month)
     margin = _margin_of(period)
     ranked = _by_cost(period)
     return TenantSpendOut(
@@ -486,6 +527,15 @@ async def tenant_spend(
                 minutes=str(period.unattributed.minutes),
                 cost_inr=str(period.unattributed.cost_inr),
             )
+        ),
+        # Published only when there is something to show: `requests_used` is the
+        # `COUNT(DISTINCT ref)` over the AI unit types, so > 0 means this client actually
+        # ran an assist this month. `used_inr` goes through `to_paise` like every other
+        # rupee on this response.
+        ai_assist=(
+            AbsorbedAiSpendOut(used_inr=str(to_paise(ai.used_inr)), requests=ai.requests_used)
+            if ai.requests_used > 0
+            else None
         ),
         by_unit=[
             UnitSpendOut(unit_type=u.unit_type, qty=str(u.qty), cost_inr=str(u.cost_inr))

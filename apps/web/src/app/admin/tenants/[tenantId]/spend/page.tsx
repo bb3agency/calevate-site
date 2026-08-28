@@ -176,6 +176,31 @@ function TenantSpendBoard({ data }: { data: TenantSpend }) {
         </div>
       )}
 
+      {/* ABSORBED DASHBOARD-AI COST (D-127 G-3), on its own and deliberately NOT in the
+          margin above. The re-summarise, the script draft and the in-app copilot are
+          metered per tenant but not billed to the client, so they are neither revenue nor
+          a call cost — folding them into the figures above would add cost with no matching
+          revenue. This is where a client who runs the copilot but places no calls stops
+          reading as a ₹0.00 month. Only rendered when there is something to show. */}
+      {data.ai_assist && (
+        <div className={`rounded-card border p-4 ${NOTICE_TONES.neutral}`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[13px] font-semibold text-ink">AI assistant — cost we absorb</p>
+            <p className="text-lg font-bold tabular-nums text-ink">
+              {formatINR(data.ai_assist.used_inr)}
+            </p>
+          </div>
+          <p className="mt-1 text-xs text-ink-muted">
+            {formatCount(data.ai_assist.requests)}{" "}
+            {data.ai_assist.requests === 1 ? "assist" : "assists"} this month (copilot,
+            re-summarise and script drafting). Calevate absorbs this cost — it is{" "}
+            <strong className="font-semibold text-ink">not billed to the client</strong> and is
+            not part of the revenue, cost or margin above. The client sees their own AI usage
+            on their AI-assistance screen, against a monthly allowance.
+          </p>
+        </div>
+      )}
+
       <Card title="What our cost is made of" bodyClassName="p-0">
         {data.by_unit.length === 0 ? (
           <div className="p-6">

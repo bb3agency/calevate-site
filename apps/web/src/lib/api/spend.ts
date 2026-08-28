@@ -61,6 +61,13 @@ export type TenantSpend = Schemas["TenantSpendOut"];
 export type AgentSpend = Schemas["AgentSpendOut"];
 export type CallSpend = Schemas["CallSpendOut"];
 export type UnitSpend = Schemas["UnitSpendOut"];
+/**
+ * OUR absorbed dashboard-AI cost for one client-month (D-127 G-3). Admin realm only, and
+ * NOT part of the call margin: the client is not billed for it and sees their own AI usage
+ * on the AI-assistance screen. Null when the month generated no assists. See
+ * `spend_routes.AbsorbedAiSpendOut`.
+ */
+export type AbsorbedAiSpend = Schemas["AbsorbedAiSpendOut"];
 
 /** Every live client's month, worst margin first. Admin realm only. */
 export type FleetSpend = Schemas["FleetSpendOut"];

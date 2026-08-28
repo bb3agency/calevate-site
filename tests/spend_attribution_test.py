@@ -32,6 +32,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import attribution, spend_routes
 from apps.api.billing import service as billing
+from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.attribution import period_attribution
 from apps.api.billing.service import to_paise
 from apps.api.billing.spend_routes import (
@@ -204,6 +205,37 @@ async def _metered_call(
             },
         )
     return call_id
+
+
+async def _metered_assist(
+    tenant_id: UUID,
+    *,
+    tokens_in: int = 5_000,
+    tokens_out: int = 1_500,
+    feature: str | None = None,
+) -> Decimal:
+    """One dashboard-AI assist, metered exactly as the copilot route meters it.
+
+    Goes through the real writer (`record_ai_assist_usage`) rather than an INSERT, so the
+    row shape — `ai_assist_ktok_*` unit types, `call_id NULL`, server-minted `ref`, price
+    derived from the model — is the one production produces. Returns the rupees it cost us.
+    """
+    from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+    from apps.api.core.settings import get_settings
+    from apps.api.crm.assist import ASSIST_FEATURE_COPILOT
+
+    async with tenant_session(tenant_id) as session:
+        metered = await record_ai_assist_usage(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            model=get_settings().azure_openai_model,
+            feature=feature or ASSIST_FEATURE_COPILOT,
+        )
+    assert metered.recorded, "the assist did not land"
+    return metered.cost_inr
 
 
 def _field_names(model: type[BaseModel], depth: int = 0) -> set[str]:
@@ -516,6 +548,121 @@ async def test_the_admin_page_publishes_the_margin_cards_own_numbers() -> None:
     assert body["by_agent"][0]["cost_inr"] == "3600.00"
     assert body["top_calls"][0]["cost_inr"] == "3600.00"
     assert body["cost_currency_stated"] is False
+
+
+async def test_absorbed_ai_cost_surfaces_on_the_admin_board_with_zero_calls() -> None:
+    """THE REPORTED DEFECT: a client running the in-app copilot generates absorbed AI cost
+    that the money board could not see, because `period_attribution` filters `_NOT_AI_UNITS`
+    (the D-127 G-3 rule that keeps our absorbed cost out of the CALL margin). With no calls
+    the whole board read ₹0.00 / "No metered units" while we were spending real rupees on
+    the client's copilot.
+
+    The header call-margin figures stay call-only — the absorbed cost is its OWN line and
+    is NOT folded into `cost_inr`/`margin_inr`, so the partition the rest of the page rests
+    on is untouched — and the copilot spend is now visible where an operator looks.
+    """
+    tenant_id, _ = await _tenant(monthly_fee="9999.00", included_min=100)
+    cost = await _metered_assist(tenant_id)
+    token = await _make_admin()
+
+    async with _client() as http:
+        response = await http.get(
+            f"/v1/admin/tenants/{tenant_id}/spend", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    # The board is no longer blind to it.
+    assert body["ai_assist"] is not None, "the absorbed copilot cost must be visible"
+    assert body["ai_assist"]["requests"] == 1
+    assert Decimal(body["ai_assist"]["used_inr"]) > 0
+    # ...and it equals the AI ledger's own reader to the paisa — one computation, not a
+    # second spelling.
+    async with tenant_session(tenant_id) as session:
+        quota = await read_ai_quota(session, tenant_id=tenant_id)
+    assert Decimal(body["ai_assist"]["used_inr"]) == to_paise(quota.used_inr)
+    assert to_paise(cost) == to_paise(quota.used_inr), "the writer and the reader agree"
+
+    # The CALL margin is call-only and undisturbed: no calls, so ₹0 cost, and the absorbed
+    # AI rupees are NOT in it.
+    assert body["calls"] == 0
+    assert body["cost_inr"] == "0.00", "absorbed AI cost must not enter the call cost"
+    assert body["by_unit"] == [], "AI units never appear in the call-cost partition"
+    assert not any(u["unit_type"].startswith("ai_assist") for u in body["by_unit"])
+
+
+async def test_absorbed_ai_cost_is_absent_from_a_month_that_generated_none() -> None:
+    """Null, not ₹0.00: "they ran the copilot and it cost us nothing measurable" and "they
+    never opened it" are different facts, the same distinction `unattributed` and
+    `margin_pct` already draw on this page."""
+    tenant_id, reception = await _tenant(monthly_fee="9999.00", included_min=100)
+    await _metered_call(tenant_id, reception, seconds=600, unit_cost="0.5000")
+    token = await _make_admin()
+
+    async with _client() as http:
+        body = (
+            await http.get(
+                f"/v1/admin/tenants/{tenant_id}/spend",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        ).json()
+
+    assert body["ai_assist"] is None
+    # The call side is unaffected — the page still works exactly as before for a month with
+    # calls and no assists.
+    assert body["by_unit"][0]["unit_type"] == "telephony_s"
+
+
+async def test_absorbed_ai_cost_never_reaches_the_client_spend_realm() -> None:
+    """Our absorbed cost is admin-realm only. The client is not billed AI assist — they see
+    their AI usage on their own AI-assistance screen (`GET /v1/billing/ai-quota`), never as
+    "spend" here — so `SpendOut` carries no `ai_assist` field and the client route's JSON
+    carries no such key even on a month that generated one.
+
+    Belt and braces alongside `test_the_client_spend_route_returns_no_cost_bearing_key`,
+    which would miss this: `used_inr` matches none of its cost-shaped substrings."""
+    tenant_id, _ = await _tenant(monthly_fee=None)
+    await _metered_assist(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+    token = await _make_member(tenant_id)
+
+    async with _client() as http:
+        response = await http.get("/v1/billing/spend", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "ai_assist" not in body, "absorbed AI cost is admin-realm only"
+    assert "ai_assist" not in SpendOut.model_fields
+
+
+async def test_the_two_tenants_absorbed_ai_costs_do_not_cross() -> None:
+    """The absorbed-AI read is inside the client's own `tenant_session`, so RLS scopes it
+    exactly as the call attribution beside it — one busy copilot never shows up on another
+    client's money board."""
+    a_tenant, _ = await _tenant(monthly_fee="9999.00")
+    b_tenant, _ = await _tenant(monthly_fee="9999.00")
+    await _metered_assist(a_tenant, tokens_in=8_000, tokens_out=2_000)
+    token = await _make_admin()
+
+    async with _client() as http:
+        a_body = (
+            await http.get(
+                f"/v1/admin/tenants/{a_tenant}/spend",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        ).json()
+        b_body = (
+            await http.get(
+                f"/v1/admin/tenants/{b_tenant}/spend",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        ).json()
+
+    assert a_body["ai_assist"] is not None and a_body["ai_assist"]["requests"] == 1
+    assert b_body["ai_assist"] is None, "B ran no assist and must show none of A's"
 
 
 async def test_a_mistyped_tenant_is_a_404_not_a_page_about_nothing() -> None:
