@@ -228,20 +228,42 @@ def test_only_user_and_assistant_roles_can_be_replayed() -> None:
         )
 
 
-def test_openais_two_published_anti_hallucination_sentences_are_present_verbatim() -> None:
-    """Quoted, not paraphrased: they are TESTED guidance from the vendor of the model
-    family this runs on (openai/openai-cookbook `examples/gpt4-1_prompting_guide.ipynb` @
-    main, read 27 Aug 2026), and a rewrite is an untested variant of a tested string."""
-    for sentence in (
-        "if you don't have enough information to call the tool, ask the user for the "
-        "information you need",
-        "do NOT guess or make up an answer",
-    ):
-        # Case-folded on the FIRST LETTER ONLY, because both sentences begin ours: the
-        # vendor's are mid-sentence in their example and ours open one. Nothing else about
-        # the wording may drift, which is what the rest of the comparison pins.
-        for text in (prompt_module.SYSTEM_PROMPT, prompt_module.CLOSING_RULES):
-            assert sentence in text or sentence[0].upper() + sentence[1:] in text
+def test_openais_answer_anti_hallucination_sentence_is_present_verbatim() -> None:
+    """Quoted, not paraphrased: it is TESTED guidance from the vendor of the model family
+    this runs on (openai/openai-cookbook `examples/gpt4-1_prompting_guide.ipynb` @ main,
+    read 27 Aug 2026), and a rewrite is an untested variant of a tested string.
+
+    ⚠ **ONLY THE ANSWER-JOB SENTENCE IS PINNED HERE NOW.** The other tested string — "if you
+    don't have enough information to call the tool, ask the user for the information you
+    need" — was DELIBERATELY dropped, not drifted: applied whole it made the copilot refuse
+    its own fill job, treating "draft values for a hospital open 9am-9pm" as a fact it lacked
+    rather than content it was asked to write. The scoping is argued in `prompt.py` above
+    `SYSTEM_PROMPT`, and `test_the_fill_job_is_told_to_draft_rather_than_interrogate` pins the
+    behaviour that replaced it. The answer-job sentence below is unchanged and still binds:
+    guessing a FACT in an answer is still forbidden."""
+    sentence = "do NOT guess or make up an answer"
+    for text in (prompt_module.SYSTEM_PROMPT, prompt_module.CLOSING_RULES):
+        # Case-folded on the FIRST LETTER ONLY: the vendor's is mid-sentence in their
+        # example and ours opens one. Nothing else about the wording may drift.
+        assert sentence in text or sentence[0].upper() + sentence[1:] in text
+
+
+def test_the_fill_job_is_told_to_draft_rather_than_interrogate() -> None:
+    """THE BEHAVIOUR THAT REPLACED THE BLANKET "ask the user" STRING. The reported failure
+    was a copilot that, told "you choose the names" and "fill in values for a hospital open
+    9am-9pm", looped back asking what values to use instead of drafting them. Both the system
+    prompt and the restated closing rules must instruct proactive drafting, and the closing
+    rules matter most: they sit last, where the model resolves a conflict, so a passive
+    restatement there would re-impose the loop whatever the prefix says.
+
+    FAILS IF: a later edit re-introduces a blanket "ask the user for the information you
+    need" without the draft-first framing, which is the exact regression this guards."""
+    for text in (prompt_module.SYSTEM_PROMPT, prompt_module.CLOSING_RULES):
+        assert "draft" in text.lower()
+    assert "BE PROACTIVE" in prompt_module.SYSTEM_PROMPT
+    # The fact/PII ban survives the rescoping — drafting form content is permitted, passing
+    # off an invented real-world fact as real is not.
+    assert "fabricate a FACT" in prompt_module.SYSTEM_PROMPT
 
 
 def test_the_prompt_says_the_copilot_cannot_save_dial_launch_or_spend() -> None:
