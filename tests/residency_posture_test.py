@@ -136,7 +136,13 @@ def test_the_multi_provider_posture_is_the_one_in_force() -> None:
     )
 
     google = DECLARED_POSTURE.leg("google")
-    assert google.region is None and google.builder is None and google.builder_suffix is None
+    # D-478: the copilot builds the Gemini OpenAI-compat endpoint here, so the leg now carries
+    # an arity-0 builder and its frozen suffix — but still pins NO region (the Developer API
+    # has none to pin), which is the field that decides whether a human owes an attestation.
+    assert google.region is None and google.region_in_host is False
+    assert google.builder == "google_openai_compat_base_url" and google.builder_arity == 0
+    assert google.builder_suffix == "generativelanguage.googleapis.com/v1beta/openai"
+    assert google.delegated_gate is None
 
     assert "india-azure-openai" in guard.POSTURES, (
         "the WITHDRAWN posture must stay checkable: a mechanism that can only express the "
@@ -329,16 +335,18 @@ def test_every_posture_in_the_table_is_stated_against_the_real_tree() -> None:
 
 
 def test_declaring_google_only_over_the_real_tree_is_refused_by_every_check() -> None:
-    """The leg with no builder, stated over the shipped tree.
+    """The single Gemini leg, stated over the shipped tree.
 
-    It earns its own test rather than only a row in the loop above because the two things it
+    It earns its own test rather than only a row in the loop above because the things it
     proves are invisible from a count. Check 3 refuses the Azure and OpenAI literals by
     naming Gemini's host as the only one this declaration permits — possible only because
     `permitted_host` is read from the spec and the watched-host set is derived from the
-    table. And check 4 says NOTHING, because a leg with no builder has no function to read:
-    the obligation moved into check 3's zero-literal rule instead, which is stronger.
+    table. Check 4 now says nothing NOT because the leg is builderless (D-478 gave it one)
+    but because its arity-0 builder PASSES every clause: right arity, no region parameter,
+    a frozen-suffix template with no runtime hole. The declaration still fails on the legs
+    tuple, because the shipped tree declares three legs and this posture names one.
 
-    FAILS IF: `google-direct` is deleted, or `builder=None` starts demanding a function.
+    FAILS IF: `google-direct` is deleted, or the Gemini builder stops satisfying check 4.
     """
     references = guard.endpoint_references()
     constants = guard.frozen_region_constants()
@@ -351,8 +359,8 @@ def test_declaring_google_only_over_the_real_tree_is_refused_by_every_check() ->
     assert all(GOOGLE_ONLY.legs[0].permitted_host in failure for failure in endpoints), endpoints
 
     assert guard.builder_failures(None, GOOGLE_ONLY) == [], (
-        "a leg with no builder has nothing for check 4 to read, and demanding a function "
-        "there would demand an endpoint the engine would never send"
+        "the Gemini leg's arity-0 builder passes check 4 on the real tree; a failure here "
+        "would mean google_openai_compat_base_url() grew an argument or a runtime hole"
     )
 
     record = guard.declaration_failures("google-direct")
@@ -361,6 +369,57 @@ def test_declaring_google_only_over_the_real_tree_is_refused_by_every_check() ->
     assert GOOGLE_ONLY.legs[0].delegated_gate is None
     assert guard.delegation_failures("no gate here", GOOGLE_ONLY) == []
     assert "NO REGIONAL CLAIM" in GOOGLE_ONLY.legs[0].warrant
+
+
+def test_the_gemini_host_is_still_refused_outside_the_one_builder_suffix() -> None:
+    """THE NEGATIVE TEST FOR D-478's RELAXATION: widening the Google leg to permit its
+    builder must NOT have widened it to permit the host anywhere else.
+
+    D-478 turned the leg's "ZERO literals may name generativelanguage.googleapis.com" into
+    "exactly ONE — the builder's frozen suffix in the contract". This proves the OTHER half:
+    a SECOND literal naming the host — a hand-built endpoint in a handler, a stray constant,
+    a fixture — is still refused, exactly as it was before the leg had any builder at all.
+
+    FAILS IF: the exemption is granted by host substring rather than by the exact frozen
+    suffix in BUILDER_HOME, which is how a real relaxation would leak.
+    """
+    # The one literal that IS permitted: the builder's frozen suffix, in the contract.
+    permitted = guard.Reference(
+        guard.BUILDER_HOME, 1, "generativelanguage.googleapis.com/v1beta/openai", frozen=True
+    )
+    assert guard.endpoint_failures([permitted], {}, {}, DECLARED) == []
+
+    # A second literal naming the same host, built by hand somewhere else — still refused.
+    hand_built = guard.Reference(
+        "apps/api/copilot/service.py",
+        1,
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        frozen=False,
+    )
+    refused = guard.endpoint_failures([hand_built], {}, {}, DECLARED)
+    assert refused, refused
+    assert all("generativelanguage.googleapis.com" in failure for failure in refused), refused
+    assert any("by hand" in failure for failure in refused), refused
+
+    # And the exemption is keyed to BUILDER_HOME, not to any file: the SAME frozen suffix
+    # string sitting in another file is refused, so the relaxation cannot be smuggled out.
+    elsewhere = guard.Reference(
+        "apps/api/copilot/service.py",
+        1,
+        "generativelanguage.googleapis.com/v1beta/openai",
+        frozen=True,
+    )
+    assert guard.endpoint_failures([elsewhere], {}, {}, DECLARED), (
+        "the builder-suffix exemption is granted only inside the contract; the same string "
+        "in a handler is a second, undeclared constructor and must still be refused"
+    )
+
+    # NOT broadened to `.googleapis.com`: the Sheets/OAuth hosts stay out of scope entirely.
+    sheets = guard.Reference("apps/workers/google_sheets.py", 1, "sheets.googleapis.com", False)
+    assert guard.endpoint_failures([sheets], {}, {}, DECLARED) == [], (
+        "sheets.googleapis.com is the tenant's own CRM-export destination and names no model "
+        "host this guard watches; a `.googleapis.com` suffix match would sweep it in"
+    )
 
 
 def test_a_posture_name_the_guard_does_not_know_is_a_hard_failure() -> None:
@@ -510,12 +569,13 @@ def test_main_refuses_to_run_a_single_check_without_a_resolvable_posture(
 
 def test_a_tree_that_lost_a_builder_while_still_declaring_its_leg_is_caught() -> None:
     """The other direction — kept here so the pair is readable in one place rather than split
-    across two files by accident of history. Stated on BOTH builder-bearing legs, because a
-    check that looked at one of them would be exactly as green on a tree that had lost the
-    other."""
+    across two files by accident of history. Stated on ALL THREE builder-bearing legs (the
+    Google leg joined them at D-478), because a check that looked at one of them would be
+    exactly as green on a tree that had lost another."""
     for leg, definition in (
         (DECLARED.leg("azure_openai"), "def azure_openai_base_url("),
         (DECLARED.leg("openai"), "def openai_base_url("),
+        (DECLARED.leg("google"), "def google_openai_compat_base_url("),
     ):
         assert leg is not None
         renamed = _contract().replace(definition, "def build_url(", 1)
@@ -735,7 +795,14 @@ def test_every_declared_leg_is_named_by_a_model_and_has_its_builder_called() -> 
 
     no_caller = guard.inert_leg_failures(
         providers=providers,
-        calls={"azure_openai_base_url": ["x.py:1"], "openai_base_url": []},
+        # Azure and Google's builders are called, OpenAI's is not — so exactly the OpenAI leg
+        # is the half-wired one. Google's entry is required since D-478 gave it a builder: an
+        # empty/absent entry would make it a SECOND uncalled leg and mask the isolation.
+        calls={
+            "azure_openai_base_url": ["x.py:1"],
+            "openai_base_url": [],
+            "google_openai_compat_base_url": ["y.py:1"],
+        },
         spec=DECLARED,
     )
     assert len(no_caller) == 1, no_caller
@@ -862,8 +929,11 @@ def test_the_endpoint_validator_is_stated_per_leg() -> None:
     with pytest.raises(ValueError, match="requires llm_base_url"):
         ModelConfig(llm_provider="openai", llm_model="gpt-5.4-mini")
 
+    # The IN-CALL google leg takes NO base URL: the engine has a first-class `google`
+    # provider and dials Google itself. Its D-478 builder serves the DASHBOARD copilot only
+    # (`copilot/service.py`), which is a different surface than this `ModelConfig`.
     assert ModelConfig(llm_provider="google", llm_model="gemini-2.5-flash").llm_base_url is None
-    with pytest.raises(ValueError, match="takes no base URL"):
+    with pytest.raises(ValueError, match="takes no in-call base URL"):
         ModelConfig(
             llm_provider="google",
             llm_model="gemini-2.5-flash",

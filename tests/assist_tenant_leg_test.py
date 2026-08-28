@@ -42,6 +42,7 @@ from apps.api.agents.llm_models import (
 from apps.api.core.settings import get_settings
 from apps.workers.extraction import (
     AZURE_PROVIDER,
+    GOOGLE_PROVIDER,
     NO_CREDENTIAL_REASON,
     PROVIDER_UNAVAILABLE_REASON,
     QUOTA_EXHAUSTED_REASON,
@@ -103,6 +104,11 @@ BLOCKED_LEG = TenantModelLeg(
     serves_dashboard=False,
     blocked_reason=NO_DATA_USE_ATTESTATION_REASON,
 )
+#: A Gemini account whose leg an operator HAS attested, so it serves the dashboard (D-478).
+#: Rung 1 runs it on the account's own model when the key is installed here.
+GOOGLE_SERVING_LEG = TenantModelLeg(
+    model="gemini-2.5-flash", provider="google", serves_dashboard=True, blocked_reason=None
+)
 
 
 # --- 1. dashboard eligibility is NOT in-call selectability ---------------------------
@@ -142,15 +148,34 @@ def test_the_unattested_default_is_barred_and_never_permitted() -> None:
     assert dashboard_leg_providers() == frozenset({"azure_openai"})
 
 
-def test_an_attestation_changes_the_ground_it_reports_and_does_not_invent_a_leg() -> None:
-    """**BOTH HALVES ARE THE POINT.** Attesting Google's data-use position clears the
-    COMPLIANCE ground — which is what makes the attestation a field something reads rather
-    than a column nothing consults — and it does NOT make the leg eligible, because this
-    repository can build no dashboard chat request for it. Reporting only the second ground
-    would let engineering work silently clear the one that was load-bearing; reporting only
-    the first would invite an operator to a job that cannot finish."""
+def test_attesting_the_addressable_gemini_leg_makes_it_eligible(configured: Any) -> None:
+    """**BOTH HALVES ARE THE POINT, AND D-478 FLIPPED THE SECOND.** Attesting Google's
+    data-use position clears the COMPLIANCE ground — which is what makes the attestation a
+    field something reads rather than a column nothing consults. Until D-478 that STILL left
+    the leg ineligible, because no dashboard chat request could be built for it; now
+    `google` is in `DASHBOARD_ADDRESSABLE_PROVIDERS` (the copilot builds the Gemini
+    OpenAI-compat leg), so clearing the compliance ground clears the LAST ground and the leg
+    becomes eligible. The attestation form is now a job that can actually finish."""
     assert dashboard_leg_reason("google") == NO_DATA_USE_ATTESTATION_REASON
+    assert "google" not in dashboard_leg_providers()
 
+    install_dashboard_data_use_reader(lambda: frozenset({"google"}))
+
+    assert dashboard_leg_reason("google") is None
+    assert "google" in dashboard_leg_providers()
+
+
+def test_a_provider_attested_but_not_addressable_still_reports_the_unbuilt_leg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE DEFENSIVE GROUND, KEPT ALIVE PAST D-478. `NO_DASHBOARD_LEG_REASON` fires when a
+    provider clears every COMPLIANCE ground but the repository can build no chat request for
+    it — the state `google` was in before D-478 and the state a fourth, un-dialected provider
+    would arrive in. It is unreachable for the three legs today (all three are either unread,
+    or addressable once attested), so it is exercised by removing the addressable dialect out
+    from under an attested `google`: reporting only the compliance clearance would then invite
+    an operator to a job that cannot finish."""
+    monkeypatch.setattr(llm_models, "DASHBOARD_ADDRESSABLE_PROVIDERS", frozenset({"azure_openai"}))
     install_dashboard_data_use_reader(lambda: frozenset({"google"}))
 
     assert dashboard_leg_reason("google") == NO_DASHBOARD_LEG_REASON
@@ -206,6 +231,39 @@ def test_the_accounts_own_provider_serves_and_discloses_nothing(configured: Any)
     assert capability.provider == AZURE_PROVIDER
     assert capability.fallback_reason is None
     assert capability.disclosure is None
+
+
+def test_the_account_runs_on_its_own_gemini_when_it_serves_and_the_key_is_installed(
+    configured: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RUNG 1, THE GEMINI ARM (D-478). The account runs Gemini, the leg is attested, and the
+    key is installed — so the assistant runs on the account's OWN model, not the platform's
+    Azure one, and nothing is disclosed. Checked BEFORE Azure precisely so a Gemini account
+    with Azure also configured is not silently moved onto Azure."""
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "gk-test", raising=False)
+
+    capability = assist_capability(tenant_leg=GOOGLE_SERVING_LEG)
+
+    assert capability.available is True
+    assert capability.provider == GOOGLE_PROVIDER
+    assert capability.fallback_reason is None
+    assert capability.disclosure is None
+
+
+def test_a_serving_gemini_account_with_no_key_here_falls_to_the_platform(
+    configured: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The half-configured edge: the leg is attested but this deployment holds no Gemini key,
+    so rung 1 cannot fire and Azure answers. `serves_dashboard` is True, so this is not
+    flagged as a substitution — an operator misconfiguration (an attestation without the key
+    it attests) that the realistic deployment does not hit, and OPERATIONS §2 gate 41's
+    credentialled check owns."""
+    monkeypatch.setattr(get_settings(), "gemini_api_key", None, raising=False)
+
+    capability = assist_capability(tenant_leg=GOOGLE_SERVING_LEG)
+
+    assert capability.available is True
+    assert capability.provider == AZURE_PROVIDER
 
 
 def test_a_blocked_tenant_provider_is_served_by_the_platform_and_told_about_it(

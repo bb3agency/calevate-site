@@ -32,6 +32,10 @@ import {
   OPS_MODEL_PRICES_PATH,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
+import {
+  OPS_DASHBOARD_DATA_USE_PATH,
+  type DashboardDataUseList,
+} from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -210,6 +214,29 @@ const FX_RATE: FxRate = {
   history: [],
 };
 
+// The dashboard AI data-use panel shares the same screen, and is stubbed for the same reason
+// as the prices and rate above: an unstubbed route paints a `ProblemNotice` over a screen
+// these cases assert the exact controls of. One attested-and-eligible leg is enough for the
+// panel to render its populated state without a lever of its own that these cases exercise.
+const DASHBOARD_DATA_USE: DashboardDataUseList = {
+  providers: [
+    {
+      provider: "azure_openai",
+      eligible: true,
+      blocked_reason: null,
+      dashboard_leg_built: true,
+      vendor_account_ref: "calevate-eastus2",
+      paid_tier_confirmed: true,
+      no_training_opt_in_confirmed: true,
+      attested_at: "2026-08-20T09:00:00Z",
+      attested_by: "Ops",
+      source_note: "Azure portal read 2026-08-20",
+    },
+  ],
+  statement:
+    "I have opened this provider's own console and checked the account our API key belongs to.",
+};
+
 /**
  * Merge route tables WITHOUT spreading.
  *
@@ -238,6 +265,7 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       [ADMIN_ME_PATH]: identity,
       [OPS_CONFIG_PATH]: configList([configField()]),
       [OPS_MODEL_PRICES_PATH]: MODEL_PRICES,
+      [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
       [OPS_FX_RATE_PATH]: FX_RATE,
       [OPS_SECRETS_PATH]: SECRETS,
       [`${OPS_SECRETS_PATH}/kek`]: KEK,

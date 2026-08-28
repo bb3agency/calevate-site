@@ -1254,16 +1254,20 @@ async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
 
 
 def _endpoint_for_leg(leg: PostureLeg) -> str | None:
-    """The endpoint to PUBLISH for one declared leg, built from its own builder exactly as
-    `in_call_llm` does: a per-resource Azure host, the fixed OpenAI `us` host, or None for a
-    leg that names no endpoint at all (google's client is an API key alone).
+    """The IN-CALL endpoint to PUBLISH for one declared leg, built from its own builder
+    exactly as `in_call_llm` does: a per-resource Azure host, the fixed OpenAI `us` host, or
+    None for a leg whose in-call endpoint is not ours to build.
 
-    DISPATCHED ON THE LEG'S DECLARED `builder`, never on a vendor name, and it RAISES on a
-    builder it has no recipe for — so a fourth leg cannot join the posture without teaching
-    this clause how the leg is addressed, which is the whole point of the clause being in
-    the exit-door suite rather than one adapter's tests.
+    GATED ON `in_call_endpoint_is_ours`, NOT ON `builder is None` (D-478). The google leg
+    now CARRIES a builder — but it is `google_openai_compat_base_url`, the DASHBOARD copilot
+    surface, and the IN-CALL google leg still names no endpoint because the engine builds
+    its own client from a single API key. `ModelConfig` refuses an in-call base URL on that
+    leg, so feeding it one here is exactly the config the round-trip must never send. Beyond
+    that gate it is DISPATCHED ON THE LEG'S DECLARED `builder`, never on a vendor name, and
+    it RAISES on a builder it has no recipe for — so a fourth leg whose in-call endpoint IS
+    ours cannot join the posture without teaching this clause how it is addressed.
     """
-    if leg.builder is None:
+    if not leg.in_call_endpoint_is_ours:
         return None
     if leg.builder == "azure_openai_base_url":
         return azure_openai_base_url("calevate-conformance")

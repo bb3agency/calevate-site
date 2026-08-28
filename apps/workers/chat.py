@@ -154,13 +154,27 @@ def usage_from_body(body: Mapping[str, Any]) -> TokenUsage | None:
 #: both differ, and neither difference is visible from the response of a request that
 #: works.
 #:
-#: TWO MEMBERS, NOT A BOOLEAN, and not a per-difference flag either. A `sends_bearer:
+#: THREE MEMBERS, NOT A BOOLEAN, and not a per-difference flag either. A `sends_bearer:
 #: bool` beside a `supports_stream_options: bool` would let a caller assemble a
 #: combination no vendor implements, which is how a "configuration" grows states nobody
 #: has ever run. A closed vocabulary of vendors we have actually read the client for
 #: cannot: each member is a citation, and adding one means reading a third vendor's
 #: client first.
-ChatDialect = Literal["openai", "sarvam"]
+#:
+#: * `openai` — the OpenAI wire format on OpenAI's own API and on Azure's v1 surface, key
+#:   in `Authorization: Bearer`.
+#: * `sarvam` — the same body with a DIFFERENT credential header (`api-subscription-key`)
+#:   and no `stream_options` slot; see `_AUTH_HEADER` and `_request_body`.
+#: * `google` — Gemini via Google's OpenAI-compat endpoint (D-478). VERIFIED-LIVE
+#:   (`generativelanguage.googleapis.com/v1beta/openai/chat/completions` probed from this
+#:   container, 27 Aug 2026): it accepts the OpenAI `messages` body and authenticates by
+#:   `Authorization: Bearer <API_KEY>`, exactly as `openai` does — the native
+#:   `:generateContent` surface 404'd, so this compat path is the one that answers. It runs
+#:   NON-STREAMED ONLY: Gemini's streamed tool-call deltas can carry a `None` `index`
+#:   (`openai/openai-python#2806`, read 27 Aug 2026), which `_ToolCallAccumulator` addresses
+#:   BY index, so `stream()` refuses this dialect rather than corrupt the accumulation.
+#:   `complete()` with tools returns a clean full `tool_calls` array.
+ChatDialect = Literal["openai", "sarvam", "google"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,22 +280,27 @@ class StreamEvent:
 #: the symptom would have been "the assistant is broken" on a console, not a wire error
 #: anyone was watching. Hard rule 11 is the rule this violated, and it violated it in the
 #: costly direction: the value was in our own code, which made it look verified.
+#: `google` shares `openai`'s `Authorization` entry — VERIFIED-LIVE, see `ChatDialect` —
+#: so the map has two header NAMES across three dialects. It is `sarvam` that is the outlier.
 _AUTH_HEADER: Final[dict[ChatDialect, str]] = {
     "openai": "Authorization",
     "sarvam": "api-subscription-key",
+    "google": "Authorization",
 }
 
 
 def _headers(leg: ChatLeg) -> dict[str, str]:
     """This leg's credential, in the header ITS vendor reads.
 
-    The key travels raw on `sarvam` and prefixed on `openai`, which is the vendors'
-    difference and not a choice of ours. `core/logging.REDACT_KEYS` masks both names, so
-    neither reaches a log by either spelling — check there before adding a third.
+    The key travels raw on `sarvam` and prefixed with `Bearer ` on `openai` and `google`
+    (Gemini's OpenAI-compat surface takes the same header as OpenAI — VERIFIED-LIVE, see
+    `ChatDialect`), which is the vendors' difference and not a choice of ours.
+    `core/logging.REDACT_KEYS` masks both names, so neither reaches a log by either
+    spelling — check there before adding a third.
     """
     if leg.dialect == "sarvam":
         return {_AUTH_HEADER["sarvam"]: leg.api_key}
-    return {_AUTH_HEADER["openai"]: f"Bearer {leg.api_key}"}
+    return {_AUTH_HEADER[leg.dialect]: f"Bearer {leg.api_key}"}
 
 
 def _request_body(
@@ -551,7 +570,21 @@ async def stream(
     `choices` array (see `STREAM_OPTIONS`), so the loop below reads `usage` off every frame
     and `choices` off the ones that have any — a single pass that does not need to know
     which frame is last.
+
+    **THE `google` DIALECT IS REFUSED HERE, LOUD, BEFORE A PACKET LEAVES (D-478).** Gemini's
+    streamed `tool_calls` deltas can carry a `None` `index` (`openai/openai-python#2806`, read
+    27 Aug 2026), and `_ToolCallAccumulator` addresses fragments BY `index` — a `None` there
+    is dropped, silently losing a tool call's arguments on a phone-adjacent UI. The Gemini leg
+    therefore runs NON-STREAMED (`complete()`), which returns a clean full `tool_calls` array;
+    a caller that reaches for `stream()` on it is a bug we make fail rather than corrupt.
     """
+    if leg.dialect == "google":
+        raise ValueError(
+            "the 'google' chat dialect must not be streamed (D-478): Gemini's streamed "
+            "tool-call deltas can carry a None index (openai/openai-python#2806), which "
+            "_ToolCallAccumulator addresses by index — use complete() instead, which returns "
+            "a full tool_calls array in one non-streamed response"
+        )
     owns_client = client is None
     http = client or httpx.AsyncClient(
         timeout=httpx.Timeout(timeout_s, connect=timeout_s), follow_redirects=False

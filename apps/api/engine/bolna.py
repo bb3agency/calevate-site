@@ -1892,19 +1892,26 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
             )
             base_url = None
     elif provider_wire is not None:
-        # A LEG WITH NO ENDPOINT (google) can only be identified by the `provider` string
-        # the engine echoes — there is no host to read a region off, and none to verify —
-        # so it is reverse-mapped from the vendor's wire value. Accepted ONLY for a
-        # builder-less leg, and both halves of that guard matter: an endpoint leg seen with
-        # no base URL cannot be reported (its `ModelConfig` requires one — the construction
-        # below would raise), and the UNSET/passthrough body also carries `provider:
-        # "openai"` with no base URL (`_llm_routing`), which must read back as NO leg rather
-        # than as OpenAI-direct. `builder is None` is exactly the line that separates the
-        # google leg from both. The `provider` echo is the same evidence class as the
-        # `model` and `base_url` reads above — their server returns the stored agent object
-        # (`get_agent`'s docstring) — and is settled against a live account by the same gate.
+        # A LEG WITH NO IN-CALL ENDPOINT (google) can only be identified by the `provider`
+        # string the engine echoes — there is no host to read a region off, and none to
+        # verify — so it is reverse-mapped from the vendor's wire value. Accepted ONLY for a
+        # leg whose in-call endpoint is not ours, and both halves of that guard matter: an
+        # endpoint leg seen with no base URL cannot be reported (its `ModelConfig` requires
+        # one — the construction below would raise), and the UNSET/passthrough body also
+        # carries `provider: "openai"` with no base URL (`_llm_routing`), which must read
+        # back as NO leg rather than as OpenAI-direct.
+        #
+        # ⚠ `not in_call_endpoint_is_ours`, NOT `builder is None` (D-478). The google leg
+        # NOW CARRIES A BUILDER — but it is the DASHBOARD copilot's `google_openai_compat_
+        # base_url`, and the in-call google leg still names no endpoint, so `builder is None`
+        # stopped separating it from azure/openai. `in_call_endpoint_is_ours` is the property
+        # that still does: False for google, True for the two endpoint legs, so both halves
+        # above hold unchanged. Same line `ModelConfig` and `service.in_call_llm` moved to.
+        # The `provider` echo is the same evidence class as the `model` and `base_url` reads
+        # above — their server returns the stored agent object (`get_agent`'s docstring) —
+        # and is settled against a live account by the same gate.
         mapped = _OUR_PROVIDER.get(provider_wire)
-        if mapped is not None and DECLARED_POSTURE.leg(mapped).builder is None:
+        if mapped is not None and not DECLARED_POSTURE.leg(mapped).in_call_endpoint_is_ours:
             llm_provider = mapped
     return (
         ModelConfig(

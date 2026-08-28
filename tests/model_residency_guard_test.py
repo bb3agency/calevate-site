@@ -35,8 +35,8 @@ The properties the guard still proves, each with its own negative control:
    is checked for every vendor any known LEG names**, not only the declared ones.
 3. NO ENDPOINT OUTSIDE ITS LEG'S BUILDER — a hand-written f-string, a builder suffix spelled
    in the wrong file, an unfrozen copy of it in the right one, OpenAI's global endpoint under
-   a leg that pins `us`, Gemini's host under a leg that permits ZERO literals, and the Azure
-   regional hostname that D-410 rejects FOR NOW.
+   a leg that pins `us`, Gemini's host anywhere but its one builder suffix (D-478), and the
+   Azure regional hostname that D-410 rejects FOR NOW.
 4. NO BUILDER CAN EMIT A REGION OTHER THAN ITS LEG'S — a builder that grew a `location=`
    parameter, one that interpolates a runtime value, one that never refuses a bad resource,
    and one that has been renamed out from under the check.
@@ -508,38 +508,39 @@ def test_every_leg_host_the_table_knows_is_both_watched_and_judged(tmp_path: Pat
         if declared.leg(leg.provider) is None:
             assert leg.permitted_host in offenders[0], offenders
             continue
-        # A DECLARED leg refuses its own host for its own reason, and the three reasons are
-        # deliberately different sentences: one builder (Azure), the missing residency label
-        # (OpenAI), zero literals at all (Google).
+        # A DECLARED leg refuses its own host for its own reason, and the sentences are
+        # deliberately different: built by hand (Azure and, since D-478, Google — both have a
+        # builder and an out-of-contract literal is a second constructor) or the missing
+        # residency label (OpenAI).
         assert any(
             marker in offenders[0] for marker in ("by hand", "residency label", "ZERO literals")
         ), (leg.provider, offenders)
 
 
-def test_a_gemini_endpoint_is_refused_by_a_stricter_rule_than_the_others(tmp_path: Path) -> None:
-    """THE ONE RULE THIS CHANGE MADE STRICTER RATHER THAN LOOSER, and it is worth knowing
-    which way it cuts.
+def test_a_gemini_endpoint_built_by_hand_is_refused_outside_the_one_builder(
+    tmp_path: Path,
+) -> None:
+    """D-478 MOVED THE GOOGLE LEG FROM "ZERO LITERALS" TO "EXACTLY ONE", and this proves the
+    other half: the one literal is the builder's frozen suffix in the contract, and every
+    OTHER literal naming the host — a hand-built endpoint in a handler, a stray constant —
+    is still refused.
 
-    Every other leg's budget is "exactly one literal may name your host — the builder's own
-    frozen suffix". The Google leg's is ZERO, anywhere, including in the contract, because
-    the engine's Google provider builds its own client from a single API key and never reads
-    a base URL of ours. So a literal naming its host is not a second constructor; it is a
-    first one, for an endpoint nobody would ever send.
+    Until D-478 the leg carried no builder (the in-call Google provider builds its own client
+    from a single API key), so the budget was ZERO literals anywhere. D-478 puts the dashboard
+    copilot on the Gemini OpenAI-compat `/chat/completions` surface, which
+    `google_openai_compat_base_url()` assembles from `GEMINI_BUILDER_SUFFIX` — so a SECOND
+    literal, in a synthetic tree that is not the contract, is a second constructor and refused
+    exactly as the Azure leg's hand-built subdomain URL is.
 
-    IT ALSO RETIRES A MARKED ASSUMPTION. The old spec had to name a PATH (`/v1beta/openai`,
-    the OpenAI-compatible surface) while the engine's own client speaks the NATIVE protocol,
-    and nobody could say which a declaration would adopt. With no builder there is no path to
-    be wrong about — the question stops existing rather than being deferred.
-
-    FAILS IF: the Google leg grows a `builder`/`builder_suffix` without a decision-log entry,
-    which would silently relax this from zero literals to one.
+    FAILS IF: the exemption is granted by host substring rather than by the exact frozen
+    suffix in BUILDER_HOME, which would let any handler name the host.
     """
     root = _tree(tmp_path, f'URL = "https://{guard.GEMINI_DIRECT_HOST}/v1beta/openai"\n')
     offenders = _failures(root)
     assert len(offenders) == 1, offenders
     assert guard.GEMINI_DIRECT_HOST in offenders[0], offenders
-    assert "ZERO literals" in offenders[0], offenders
-    assert "single API key" in offenders[0], offenders
+    assert "by hand" in offenders[0], offenders
+    assert guard.GEMINI_BUILDER in offenders[0], offenders
 
     # The Sheets hosts are the boundary and they are NOT judged: `.googleapis.com` is a
     # domain shared by a model API and by the tenant's own CRM destination, so the watched
@@ -789,10 +790,10 @@ def test_the_blindness_guard_fires_when_the_scan_finds_nothing() -> None:
     detection broken — presents as a clean tree, so the run refuses to call a scan that
     found nothing a pass."""
     blind = guard.blindness_failures(0, {}, [])
-    # Four kinds of blindness, and the last one is now PER LEG WITH A BUILDER: the template
-    # floor, the parse canary, the subject canary, and one missing-reference finding for each
-    # of the two legs whose endpoint any literal may name at all.
-    assert len(blind) == 5, blind
+    # Four kinds of blindness, and the last one is PER LEG WITH A BUILDER: the template floor,
+    # the parse canary, the subject canary, and one missing-reference finding for each of the
+    # THREE legs whose endpoint any literal may name at all (Google joined at D-478).
+    assert len(blind) == 6, blind
     assert any("it is blind" in failure for failure in blind)
     assert any(
         all(region in failure for region in guard.KNOWN_REGIONS)
@@ -801,10 +802,10 @@ def test_the_blindness_guard_fires_when_the_scan_finds_nothing() -> None:
     ), blind
     assert any(guard.REGION_CONSTANT in failure for failure in blind)
     assert any(guard.OPENAI_REGION_CONSTANT in failure for failure in blind)
-    assert not any(guard.GEMINI_DIRECT_HOST in failure for failure in blind), (
-        "the Google leg's whole rule is that NO literal names its host, so demanding a "
-        "reference for it would demand the violation"
-    )
+    # SINCE D-478 the Google leg HAS a builder, so it too owes a reference: an empty scan is
+    # blind to its host exactly as it is to the others'. (Its region is still None — the
+    # reference canary is about the host literal, not a residency claim.)
+    assert any(guard.GEMINI_DIRECT_HOST in failure for failure in blind), blind
 
     seeing = guard.blindness_failures(
         guard.MINIMUM_TEMPLATES,
@@ -812,6 +813,7 @@ def test_the_blindness_guard_fires_when_the_scan_finds_nothing() -> None:
         [
             guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True),
             guard.Reference(guard.BUILDER_HOME, 2, guard.OPENAI_BUILDER_SUFFIX, frozen=True),
+            guard.Reference(guard.BUILDER_HOME, 3, guard.GEMINI_BUILDER_SUFFIX, frozen=True),
         ],
     )
     assert seeing == []
@@ -833,6 +835,7 @@ def test_the_two_canaries_fail_apart() -> None:
     references = [
         guard.Reference(guard.BUILDER_HOME, 1, guard.BUILDER_SUFFIX, frozen=True),
         guard.Reference(guard.BUILDER_HOME, 2, guard.OPENAI_BUILDER_SUFFIX, frozen=True),
+        guard.Reference(guard.BUILDER_HOME, 3, guard.GEMINI_BUILDER_SUFFIX, frozen=True),
     ]
 
     parse_broken = guard.blindness_failures(guard.MINIMUM_TEMPLATES, _pinned(), references)
@@ -1053,9 +1056,17 @@ def test_the_google_apis_that_remain_are_not_judged() -> None:
     """`workers/google_sheets.py` reaches `oauth2.` and `sheets.googleapis.com` on every
     CRM export, and D-410 left Google there deliberately (SECURITY-COMPLIANCE §4: Sheets
     only, no model legs). Those are the tenant's own destination and carry no inference; a
-    guard that fired on them would be turned off within a week."""
+    guard that fired on them would be turned off within a week.
+
+    SINCE D-478 the ONE `googleapis.com` reference the scan may see is the Gemini leg's
+    builder suffix in the contract — the copilot's OpenAI-compat host. The Sheets and OAuth
+    hosts still must NOT appear as references at all: the watched string is the full Gemini
+    host, never `.googleapis.com`, precisely so they do not."""
     hosts = [reference.template for reference in guard.endpoint_references()]
-    assert not any("googleapis.com" in template for template in hosts), hosts
+    assert not any("sheets.googleapis.com" in template for template in hosts), hosts
+    assert not any("oauth2.googleapis.com" in template for template in hosts), hosts
+    googleapis = [template for template in hosts if "googleapis.com" in template]
+    assert googleapis == [guard.GEMINI_BUILDER_SUFFIX], googleapis
 
 
 def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
@@ -1360,4 +1371,5 @@ def test_a_module_qualified_builder_call_still_counts_as_a_caller(tmp_path: Path
     assert guard.builder_call_sites(roots=(mention,)) == {
         guard.BUILDER: [],
         guard.OPENAI_BUILDER: [],
+        guard.GEMINI_BUILDER: [],
     }

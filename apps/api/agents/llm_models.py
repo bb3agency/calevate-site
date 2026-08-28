@@ -511,18 +511,23 @@ def offerable_models() -> frozenset[str]:
 #: The legs this repository can actually BUILD a dashboard chat request for.
 #:
 #: AN ENGINEERING FACT, NOT A COMPLIANCE ONE, and it is separate from eligibility below so
-#: that the two never get argued about as one thing. `apps/workers/chat.ChatDialect` is
-#: `"openai" | "sarvam"`, and the only dashboard leg any surface constructs is the Azure one
-#: (`copilot/service._azure_leg`, `workers/extraction.azure_extractor`,
-#: `workers/script_assist._draft_via_azure`). No endpoint for the Google Developer API has
-#: been verified from a primary source in this tree, and inventing one would be a wire value
-#: taken from memory — the exact class of mistake hard rule 11 and D-417 exist for.
+#: that the two never get argued about as one thing. `apps/workers/chat.ChatDialect` speaks
+#: `"openai" | "sarvam" | "google"`, and the copilot constructs the Azure leg
+#: (`copilot/service._azure_leg`) AND, since D-478, the Gemini one
+#: (`copilot/service._google_leg`, over `google_openai_compat_base_url()` — the one verified
+#: emitter of the Developer API host). `openai` is still NOT here: no endpoint for OpenAI's
+#: own API is constructed for the dashboard leg, and inventing one would be a wire value taken
+#: from memory — the class of mistake hard rule 11 and D-417 exist for.
 #:
 #: ⚠ **ATTESTING A PROVIDER'S DATA-USE POSITION DOES NOT BY ITSELF MOVE THE ASSISTANT ONTO
 #: IT.** That is stated on the ops screen too, because `ops/model_pricing.ModelOfferability
 #: .withheld_reason` was added for exactly the failure of not stating it: a panel that
-#: invites an operator to do a five-minute job which cannot succeed.
-DASHBOARD_ADDRESSABLE_PROVIDERS: Final[frozenset[LlmProvider]] = frozenset({"azure_openai"})
+#: invites an operator to do a five-minute job which cannot succeed. For `google` both facts
+#: are now true — it is addressable AND its attestation gates it — so the attestation form is
+#: a job that can actually finish.
+DASHBOARD_ADDRESSABLE_PROVIDERS: Final[frozenset[LlmProvider]] = frozenset(
+    {"azure_openai", "google"}
+)
 
 #: Legs whose dashboard use is gated on an operator attesting the vendor's data-use terms.
 #:
@@ -608,8 +613,8 @@ UNREAD_DASHBOARD_TERMS_REASON: Final = (
 )
 NO_DASHBOARD_LEG_REASON: Final = (
     "this repository can build no dashboard chat request for this provider — "
-    "workers/chat.ChatDialect speaks openai and sarvam only, and no endpoint for this "
-    "provider has been verified from a primary source here"
+    "workers/chat.ChatDialect speaks openai, sarvam and google only, and no endpoint for "
+    "this provider has been verified from a primary source here"
 )
 
 #: THE ONE SENTENCE A CLIENT SEES when their own model's provider cannot serve the assistant.

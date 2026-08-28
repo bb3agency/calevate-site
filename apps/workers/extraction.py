@@ -1152,6 +1152,12 @@ PROVIDER_UNAVAILABLE_REASON: Final = "provider_unavailable"
 #: Provider names as they appear in a disclosure and in a log line.
 AZURE_PROVIDER: Final = "azure"
 SARVAM_PROVIDER: Final = "sarvam"
+#: The account's OWN provider when it runs Gemini and that leg serves the dashboard (D-478).
+#: It appears only on rung 1 — the account running its own model — so it never carries a
+#: `fallback_reason` and is never a substitute for anyone: `google` is not in
+#: `_FALLBACK_DISCLOSURE`, and does not need to be. Unlike `AZURE_PROVIDER` ("azure" for the
+#: engine's "azure_openai"), the display name and the engine `LlmProvider` coincide here.
+GOOGLE_PROVIDER: Final = "google"
 
 #: Is a per-tenant assist quota enforced on a path a client can reach? YES, since D-146.
 #:
@@ -1441,12 +1447,31 @@ def assist_capability(
     detail = tenant_leg.blocked_reason if substituted and tenant_leg is not None else None
 
     if blocked is None:
+        # RUNG 1, THE GEMINI ARM (D-478). The account runs its OWN Gemini model, that leg
+        # serves the dashboard (attested AND addressable — `serves_dashboard`), and this
+        # deployment holds the key. Nothing is substituted, so nothing is disclosed. It is
+        # checked BEFORE the Azure return so an account on Gemini gets its own model rather
+        # than being silently moved onto the platform's Azure one. `provider` and the engine
+        # `LlmProvider` coincide for Google, so the comparison reads plainly.
+        #
+        # ⚠ The "attested but no key installed here" case falls through to the Azure return
+        # below WITHOUT a disclosure (`serves_dashboard` is True, so `substituted` is False).
+        # That is an operator half-configuration — an attestation recorded without the key it
+        # attests — and the realistic deployment installs all three keys the founder holds; a
+        # credentialled console check is OPERATIONS §2 gate 41's, not this selector's.
+        if (
+            tenant_leg is not None
+            and tenant_leg.serves_dashboard
+            and tenant_leg.provider == GOOGLE_PROVIDER
+            and settings.gemini_api_key
+        ):
+            return AssistCapability(available=True, provider=GOOGLE_PROVIDER)
         if azure_credentials() is not None:
             # RUNGS 1 AND 2 ARE ONE WIRE AND TWO PROMISES, and that is not a shortcut. The
-            # only dashboard leg this repository can address is the Azure one, so an account
-            # whose own provider IS Azure and an account being substituted onto it reach the
-            # identical endpoint; what differs is whether the client is owed a sentence.
-            # Collapsing them would be the silent-substitution outcome G-7 rules out.
+            # Azure leg is both the account's own provider (when the account runs Azure) and
+            # the platform's substitute (when the account's provider may not serve this leg),
+            # and the two reach the identical endpoint; what differs is whether the client is
+            # owed a sentence. Collapsing them would be the silent-substitution G-7 rules out.
             return AssistCapability(
                 available=True,
                 provider=AZURE_PROVIDER,
@@ -1769,6 +1794,7 @@ __all__ = [
     "AZURE_PROVIDER",
     "AZURE_SCHEMA_NAME",
     "GEMINI_EXTRACTION_DEFAULT",
+    "GOOGLE_PROVIDER",
     "NO_CREDENTIAL_REASON",
     "PROVIDER_UNAVAILABLE_REASON",
     "QUOTA_EXHAUSTED_REASON",

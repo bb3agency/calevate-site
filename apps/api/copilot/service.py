@@ -28,12 +28,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
 import httpx
-from calevate_shared.engine import SARVAM_DEFAULT_LLM, azure_openai_base_url
+from calevate_shared.engine import (
+    SARVAM_DEFAULT_LLM,
+    azure_openai_base_url,
+    google_openai_compat_base_url,
+)
 
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.sanitize import clean_value, strip_invisible
@@ -44,6 +48,7 @@ from apps.workers import chat
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
+    GOOGLE_PROVIDER,
     SARVAM_CHAT_URL,
     AssistCapability,
     TenantModelLeg,
@@ -132,21 +137,33 @@ class FillRefusedError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class CopilotSpend:
-    """What one copilot answer cost and who wrote it. TWO FIELDS AND NOTHING ELSE.
+    """What one copilot answer cost, who wrote it, and — when the run knows it — on which
+    model.
 
-    It exists to satisfy `crm/assist.py::MeterableAssist` structurally — `.usage` and
-    `.capability`, the only two things metering is entitled to know — so that ONE metering
-    path prices the re-summarise, the script draft and this. A richer result carried into
-    `meter_assist` would be an invitation to price a fourth surface differently.
+    It satisfies `crm/assist.py::MeterableAssist` structurally — `.usage` and `.capability`,
+    the two things metering is entitled to know — so that ONE metering path prices the
+    re-summarise, the script draft and this. `model` is the third, added for D-478's Gemini
+    leg (see below): it is not part of the `MeterableAssist` Protocol, and the copilot route
+    reads it off this concrete type to pass to `meter_assist`, so the other two surfaces are
+    untouched. A richer result beyond these would be an invitation to price a surface
+    differently.
 
     `usage is None` means WE DO NOT KNOW WHAT THIS COST, never that it was free, and
     `meter_assist` already handles the two causes differently (a free Sarvam leg is logged;
     an uncounted Azure answer fires `ai_assist_unmeterable`). See `_sum_usage` for the
     multi-turn rule, which is where this could most easily have become a lie.
+
+    `model` IS THE MODEL THE LEDGER MUST NAME, and it is carried rather than re-derived
+    because the answering leg is the only place it is known (D-478). On Azure it is `None` —
+    `meter_assist` reads the live `azure_openai_model` setting, because Azure answers under a
+    deployment id and the model behind it is an operator switch. On the Gemini leg it is the
+    account's own model id, which `rates.llm_inr_per_ktok` prices directly; handing `None`
+    there would meter a Gemini answer at the Azure model's price on an append-only ledger.
     """
 
     usage: TokenUsage | None
     capability: AssistCapability
+    model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,20 +294,48 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
 # --- the provider legs ---------------------------------------------------------------
 
 
-def _azure_leg() -> chat.ChatLeg | None:
-    """Azure addressed for `workers/chat.py`, or None if this deployment holds no
-    credential. `azure_credentials()` is THE reader of the three settings — a second
-    assembly of them here would be a second definition of "configured"."""
-    credentials = azure_credentials()
-    if credentials is None:
-        return None
-    resource, api_key, deployment = credentials
-    return chat.ChatLeg(
-        url=f"{azure_openai_base_url(resource)}/chat/completions",
-        api_key=api_key,
-        wire_model=deployment,
-        dialect="openai",
-    )
+def _chat_leg(provider: str, *, model: str | None) -> chat.ChatLeg | None:
+    """The ONE map from the ANSWERING provider to an addressed `chat.ChatLeg`, or None if
+    this deployment holds no credential for it.
+
+    Keyed on `capability.provider` — the provider the selector decided answers — NOT on the
+    tenant's own provider, because a substituted account (its own provider cannot serve this
+    leg) is answered by Azure while its `tenant_leg.provider` is something else. One function
+    rather than a `_azure_leg`/`_google_leg` pair, so the provider→(dialect, base URL,
+    credential) triple is stated in exactly one place (the "one resolver" D-478 asks for):
+
+    * **`azure`** — `azure_credentials()` is THE reader of the three Azure settings, and the
+      wire model is the DEPLOYMENT id (D-410/D-417), not the model name. `model` is unused
+      here: Azure answers under the operator's deployment regardless of which account it is
+      standing in for.
+    * **`google`** — Gemini over its OpenAI-compat surface (D-478). The base URL is
+      `google_openai_compat_base_url()`, the one verified emitter of the Developer API host
+      (`scripts/check_model_residency.py` grants it the tree's single host literal); the wire
+      model is the account's own Gemini id (`model`); the key is `gemini_api_key`. Bearer
+      auth, non-streamed — `run_copilot` calls `chat.complete`, never `chat.stream`, on it.
+    """
+    settings = get_settings()
+    if provider == AZURE_PROVIDER:
+        credentials = azure_credentials()
+        if credentials is None:
+            return None
+        resource, api_key, deployment = credentials
+        return chat.ChatLeg(
+            url=f"{azure_openai_base_url(resource)}/chat/completions",
+            api_key=api_key,
+            wire_model=deployment,
+            dialect="openai",
+        )
+    if provider == GOOGLE_PROVIDER:
+        if not settings.gemini_api_key or model is None:
+            return None
+        return chat.ChatLeg(
+            url=f"{google_openai_compat_base_url()}/chat/completions",
+            api_key=settings.gemini_api_key,
+            wire_model=model,
+            dialect="google",
+        )
+    return None
 
 
 def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
@@ -364,14 +409,62 @@ async def _answer_via_sarvam(
 # --- the loop -------------------------------------------------------------------------
 
 
-async def _run_azure_loop(
-    payload: CopilotAskIn, capability: AssistCapability
+#: One model turn, as the events `chat.stream` yields — text fragments, then ONE terminal
+#: `StreamEvent` carrying the `ChatOutcome`. The two legs differ ONLY in this: Azure STREAMS
+#: (fragments live), the Gemini leg is NON-STREAMED (`chat.complete`, one text event at the
+#: end, then the outcome), because Gemini's streamed tool-call deltas can carry a `None` index
+#: that would corrupt the accumulator (`workers/chat.stream` refuses it, `openai/openai-python
+#: #2806`). Both shapes satisfy the loop below, so the loop is written once.
+_TurnRunner = Callable[
+    [chat.ChatLeg, Sequence[chat.ChatMessage], Sequence[Mapping[str, object]]],
+    AsyncIterator[chat.StreamEvent],
+]
+
+
+def _azure_turn(
+    leg: chat.ChatLeg,
+    messages: Sequence[chat.ChatMessage],
+    tools: Sequence[Mapping[str, object]],
+) -> AsyncIterator[chat.StreamEvent]:
+    """The streamed turn: `chat.stream` verbatim. `timeout_s` is a READ timeout here."""
+    return chat.stream(
+        leg, messages, timeout_s=STREAM_IDLE_S, temperature=0.2, tools=tools, tool_choice="auto"
+    )
+
+
+async def _google_turn(
+    leg: chat.ChatLeg,
+    messages: Sequence[chat.ChatMessage],
+    tools: Sequence[Mapping[str, object]],
+) -> AsyncIterator[chat.StreamEvent]:
+    """The NON-STREAMED turn, re-shaped as the loop's events: one blocking `chat.complete`
+    with tools (which returns a clean full `tool_calls` array — the reason the leg is not
+    streamed, D-478), emitted as one text event and then the terminal outcome. `timeout_s` is
+    a WHOLE-request timeout here, which is correct for a blocking call."""
+    outcome = await chat.complete(
+        leg, messages, timeout_s=STREAM_IDLE_S, temperature=0.2, tools=tools, tool_choice="auto"
+    )
+    if outcome.content:
+        yield chat.StreamEvent(text=outcome.content)
+    yield chat.StreamEvent(outcome=outcome)
+
+
+async def _run_tool_loop(
+    payload: CopilotAskIn,
+    capability: AssistCapability,
+    *,
+    leg: chat.ChatLeg,
+    turn: _TurnRunner,
+    model: str | None,
 ) -> AsyncIterator[CopilotEvent]:
-    """Up to `MAX_TURNS` streamed turns on the preferred leg. Raises `httpx.HTTPError` if
-    the FIRST turn never produced anything, so the caller can still fall back."""
-    leg = _azure_leg()
-    if leg is None:  # pragma: no cover - unreachable via the selector
-        raise assist_unavailable(capability)
+    """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
+    turn never produced anything, so the caller can still fall back.
+
+    ONE LOOP FOR BOTH LEGS (D-478). `turn` is the only thing that differs — Azure's streamed
+    turn or Gemini's non-streamed one — so the tool-calling, re-validation, refusal-feedback
+    and metering are byte-for-byte the same on both, which is what keeps the field-filling
+    identical. `model` is threaded into `CopilotSpend` so the ledger names the Gemini model
+    on the Gemini leg (`None` = Azure's live-switched setting)."""
     messages = prompt_module.build_messages(payload)
     tools = [prompt_module.set_fields_tool()]
     turns: list[chat.ChatOutcome] = []
@@ -379,14 +472,7 @@ async def _run_azure_loop(
 
     for turn_index in range(MAX_TURNS):
         outcome: chat.ChatOutcome | None = None
-        async for event in chat.stream(
-            leg,
-            messages,
-            timeout_s=STREAM_IDLE_S,
-            temperature=0.2,
-            tools=tools,
-            tool_choice="auto",
-        ):
+        async for event in turn(leg, messages, tools):
             if event.text is not None:
                 # EGRESS STRIPPING ON EVERY FRAGMENT, not once at the end: fragments are
                 # what the browser renders, and a tag-block character split across two
@@ -411,7 +497,9 @@ async def _run_azure_loop(
         ]
         if not calls:
             # The model answered in prose. Done — this is the ordinary end of a question.
-            yield CopilotEvent(spend=CopilotSpend(usage=_sum_usage(turns), capability=capability))
+            yield CopilotEvent(
+                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+            )
             return
 
         # ONE CALL, EVEN IF THE MODEL SENT SEVERAL. The tool takes an array precisely so
@@ -460,7 +548,9 @@ async def _run_azure_loop(
             continue
 
         yield CopilotEvent(fill=items)
-        yield CopilotEvent(spend=CopilotSpend(usage=_sum_usage(turns), capability=capability))
+        yield CopilotEvent(
+            spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+        )
         return
 
     # OUT OF TURNS. The person gets a sentence they can act on, and — when the last thing
@@ -468,7 +558,9 @@ async def _run_azure_loop(
     # unhelpful advice to somebody whose real problem is that the field is read-only.
     detail = f" ({'; '.join(refusal.reasons)})" if refusal is not None else ""
     yield CopilotEvent(text=f"{EXHAUSTED_MESSAGE}{detail}")
-    yield CopilotEvent(spend=CopilotSpend(usage=_sum_usage(turns), capability=capability))
+    yield CopilotEvent(
+        spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+    )
 
 
 async def run_copilot(
@@ -502,11 +594,28 @@ async def run_copilot(
     if not capability.available:
         raise assist_unavailable(capability)
 
-    if capability.provider == AZURE_PROVIDER:
+    # THE TWO TOOL-CAPABLE LEGS run the same bounded loop and fall back the same way. Azure is
+    # the platform's own model (rung 1 or 2); Google (D-478) is the account's own Gemini model
+    # (rung 1). The metered model differs — `None` lets `meter_assist` read the live Azure
+    # setting, the Gemini id is named explicitly — and the turn differs (streamed vs not), but
+    # the fallback rule is identical: a failure BEFORE the first fragment can retry on Sarvam,
+    # one AFTER it cannot, because part of the answer is already on the screen.
+    if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
+        if capability.provider == GOOGLE_PROVIDER:
+            # `tenant_leg` is not None here: Google only reaches rung 1, which requires the
+            # account's own leg. Its model is the wire model AND the ledger name.
+            model = tenant_leg.model if tenant_leg is not None else None
+            leg, turn = _chat_leg(GOOGLE_PROVIDER, model=model), _google_turn
+        else:
+            model, leg, turn = None, _chat_leg(AZURE_PROVIDER, model=None), _azure_turn
+        if leg is None:  # pragma: no cover - unreachable via the selector
+            raise assist_unavailable(capability)
         streamed_anything = False
         try:
             async with asyncio.timeout(TOTAL_BUDGET_S):
-                async for event in _run_azure_loop(payload, capability):
+                async for event in _run_tool_loop(
+                    payload, capability, leg=leg, turn=turn, model=model
+                ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
             return
@@ -535,13 +644,14 @@ def disclosure_for(capability: AssistCapability) -> str | None:
     EVERY DISCLOSURE.** That was safe while every substitution landed on Sarvam. Since the
     selector became tenant-aware an AZURE answer can itself be a substitution — for an
     account whose chosen provider may not serve this leg — and that answer runs the full
-    tool-calling loop. Appending the note there would tell somebody their fields could not
-    be filled while the model was filling them, which is the one failure mode worse than
-    saying no."""
+    tool-calling loop. The Gemini leg (D-478) runs the loop WITH tools too. Appending the note
+    on either would tell somebody their fields could not be filled while the model was filling
+    them, which is the one failure mode worse than saying no. So the note is for the only leg
+    that genuinely has no tools: Sarvam."""
     disclosure = capability.disclosure
     if disclosure is None:
         return None
-    if capability.provider == AZURE_PROVIDER:
+    if capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
         return disclosure
     return disclosure + FALLBACK_NO_TOOLS_NOTE
 

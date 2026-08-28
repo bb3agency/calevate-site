@@ -106,6 +106,7 @@ from apps.api.core.settings import get_settings
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
+    GOOGLE_PROVIDER,
     SARVAM_PROVIDER,
     AssistCapability,
 )
@@ -265,6 +266,7 @@ async def meter_assist(
     ref: str,
     result: MeterableAssist,
     feature: str = ASSIST_FEATURE_RESUMMARISE,
+    model: str | None = None,
 ) -> AssistMetering:
     """Turn one `AssistResult` into `usage_events` rows, or say why it did not.
 
@@ -315,20 +317,36 @@ async def meter_assist(
     # certainly did not — the residual race is one request wide and the alternative is
     # widening `AssistResult` to carry the model, which is a Protocol change for a
     # one-request window.
-    model = get_settings().azure_openai_model
+    #
+    # **`model` PASSED IN OVERRIDES THE AZURE SETTING, AND THE GEMINI LEG IS WHY (D-478).**
+    # A dashboard assist answered on the account's own Gemini model ran a DIFFERENT model
+    # than `azure_openai_model` names, and `rates.llm_inr_per_ktok` prices Gemini directly —
+    # so metering it under the Azure model would put a wrong `unit_cost_paid` and a wrong
+    # `meta.model` on an APPEND-ONLY row. The caller that knows which model answered (the
+    # copilot route, from `CopilotSpend.model`) passes it; the surfaces that run only Azure
+    # pass nothing and keep the live-switch read. `None` is "this ran on Azure", never a
+    # missing value.
+    model = model or get_settings().azure_openai_model
     usage = result.usage
     if usage is None:
-        if result.capability.provider == AZURE_PROVIDER:
+        if result.capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
+            # BOTH PAID LEGS, ONE ALERT. Azure and the account's own Gemini (D-478) are both
+            # metered spend; an answer either returned without a `usage` block is a metering
+            # OUTAGE on the surface `result.capability.provider` names — never estimated,
+            # because a fabricated quantity on an append-only ledger is worse than a hole a
+            # human is told about. The provider is on the alert so an operator knows which
+            # vendor to look at.
             alert(
                 "CORE_LOGIC",
                 "ai_assist_unmeterable",
                 detail=(
-                    "A dashboard assist ran on Azure OpenAI and the response carried no "
-                    "usage block, so it could not be metered: this spend is invisible "
-                    "to the tenant's AI ceiling and to the platform brake. Nothing was "
-                    "estimated. Check whether Azure has stopped sending the block "
-                    "before the month's real spend outruns PLATFORM_AI_BRAKE_INR."
+                    "A paid dashboard assist carried no usage block, so it could not be "
+                    "metered: this spend is invisible to the tenant's AI ceiling and to the "
+                    "platform brake. Nothing was estimated. Check whether the provider has "
+                    "stopped sending the block before the month's real spend outruns "
+                    "PLATFORM_AI_BRAKE_INR."
                 ),
+                provider=str(result.capability.provider),
                 # Ids, a model name and a feature name. No tenant name, no transcript,
                 # no output — and never the key, which is the one thing on this path
                 # whose leak is worse than PII.

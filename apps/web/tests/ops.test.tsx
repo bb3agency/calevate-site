@@ -32,6 +32,10 @@ import {
   OPS_MODEL_PRICES_PATH,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
+import {
+  OPS_DASHBOARD_DATA_USE_PATH,
+  type DashboardDataUseList,
+} from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 
 import { formatISTInput, istInputToInstant } from "@/components/ui";
@@ -154,6 +158,10 @@ function configRoutes(
     [OPS_MODEL_PRICES_PATH]: modelPrices(),
     // The exchange-rate panel shares this screen too, and is stubbed for the same reason.
     [OPS_FX_RATE_PATH]: fxRate(),
+    // The dashboard AI data-use panel shares this screen too, and is stubbed for the same
+    // reason: an unrouted read paints a `ProblemNotice` over a screen these cases assert the
+    // exact controls of.
+    [OPS_DASHBOARD_DATA_USE_PATH]: dashboardDataUse(),
     [OPS_SECRETS_PATH]: secretsList(),
     [`${OPS_SECRETS_PATH}/kek`]: kekState(),
     ...extra,
@@ -203,6 +211,41 @@ function modelPrices(): ModelPrices {
       },
     ],
     as_of: "2026-08-23T00:00:00Z",
+  };
+}
+
+/** One attested-and-eligible leg plus one blocked leg is enough for the data-use panel to
+ *  render its populated state with no lever these cases exercise. */
+function dashboardDataUse(): DashboardDataUseList {
+  return {
+    providers: [
+      {
+        provider: "azure_openai",
+        eligible: true,
+        blocked_reason: null,
+        dashboard_leg_built: true,
+        vendor_account_ref: "calevate-eastus2",
+        paid_tier_confirmed: true,
+        no_training_opt_in_confirmed: true,
+        attested_at: "2026-08-20T09:00:00Z",
+        attested_by: "Ops",
+        source_note: "Azure portal read 2026-08-20",
+      },
+      {
+        provider: "google",
+        eligible: false,
+        blocked_reason:
+          "This platform cannot yet build a dashboard chat request for Google.",
+        dashboard_leg_built: false,
+        vendor_account_ref: null,
+        paid_tier_confirmed: null,
+        no_training_opt_in_confirmed: null,
+        attested_at: null,
+        attested_by: null,
+        source_note: null,
+      },
+    ],
+    statement: "I have opened this provider's own console and checked the account our API key belongs to.",
   };
 }
 

@@ -14,8 +14,15 @@ from typing import Any
 
 import httpx
 import pytest
+from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 
 from apps.api.copilot import service
+
+#: A real selectable Gemini model, read from the catalogue rather than spelled here.
+#: `tests/sarvam_model_identifier_test.py` keeps Google model ids in `engine.py` and
+#: the lifecycle registry alone; a fixture that needs one reads it back. `min` only
+#: makes the pick deterministic.
+_GOOGLE_MODEL = min(GOOGLE_DIRECT_MODELS)
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -364,3 +371,121 @@ async def test_azure_failing_after_a_fragment_does_not_restart_on_the_fallback(
     with pytest.raises(httpx.ReadError):
         await _drain()
     assert fallback_called is False
+
+
+# --- the Gemini leg: the account's own model, NON-STREAMED, with tools (D-478) ----------
+
+GOOGLE_TENANT = extraction_module.TenantModelLeg(
+    model=_GOOGLE_MODEL, provider="google", serves_dashboard=True, blocked_reason=None
+)
+
+
+@pytest.fixture
+def google_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment holding ONLY a Gemini key: no Azure leg, no Sarvam. So the account's own
+    Gemini leg is the only thing that can answer, and it does so on rung 1."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "azure_openai_resource", None, raising=False)
+    monkeypatch.setattr(settings, "azure_openai_api_key", None, raising=False)
+    monkeypatch.setattr(settings, "azure_openai_deployment", None, raising=False)
+    monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
+    monkeypatch.setattr(settings, "gemini_api_key", "gk-test", raising=False)
+
+
+def _scripted_complete(
+    monkeypatch: pytest.MonkeyPatch, outcomes: Sequence[chat.ChatOutcome]
+) -> list[dict[str, Any]]:
+    """Replace `chat.complete` with a script, AND make `chat.stream` explode — so a test on
+    the Gemini leg proves it is NON-STREAMED (the whole point of D-478's transport choice)
+    rather than merely not asserting a stream."""
+    calls: list[dict[str, Any]] = []
+    remaining = list(outcomes)
+
+    async def _complete(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> chat.ChatOutcome:
+        calls.append({"leg": leg, "messages": [dict(m) for m in messages], "kwargs": kwargs})
+        return remaining.pop(0) if remaining else chat.ChatOutcome(content="…")
+
+    def _forbidden_stream(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        # A plain function that raises the instant it is CALLED — `chat.stream(...)` on the
+        # Gemini path would blow up before iteration, which is louder than an assertion that
+        # only fires if the test remembers to iterate.
+        raise AssertionError("the Gemini copilot leg must never stream (openai/openai-python#2806)")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    monkeypatch.setattr(chat, "stream", _forbidden_stream)
+    return calls
+
+
+async def _drain_google() -> list[service.CopilotEvent]:
+    return [event async for event in service.run_copilot(PAYLOAD, tenant_leg=GOOGLE_TENANT)]
+
+
+async def test_the_gemini_leg_fills_a_field_non_streamed_on_the_accounts_own_model(
+    google_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RUNG 1, END TO END. The account's own Gemini model answers with a `tool_calls` array
+    from a single blocking completion, the field reaches the browser exactly as on the Azure
+    leg, and the leg is addressed at the Gemini OpenAI-compat host with the account's model as
+    the wire model. Nothing is disclosed — this is the account's own provider."""
+    calls = _scripted_complete(
+        monkeypatch,
+        [
+            chat.ChatOutcome(
+                content="",
+                tool_calls=(
+                    chat.ToolCall(
+                        id="c1",
+                        name="set_fields",
+                        arguments=json.dumps({"items": [{"field_id": "open", "value": "09:00"}]}),
+                    ),
+                ),
+                finish_reason="tool_calls",
+                usage=chat.TokenUsage(prompt_tokens=120, output_tokens=15),
+            )
+        ],
+    )
+    events = await _drain_google()
+
+    assert len(calls) == 1
+    leg = calls[0]["leg"]
+    assert leg.dialect == "google"
+    assert leg.wire_model == _GOOGLE_MODEL
+    # Built from the one permitted emitter of the Developer API host — assert against the
+    # builder, never a host literal (the residency guard grants that literal to engine.py
+    # alone; spelling it here would be a second constructor it refuses).
+    assert leg.url == f"{google_openai_compat_base_url()}/chat/completions"
+    # Tools were sent (field-filling works), and no `stream` — this is `chat.complete`.
+    assert "tools" in calls[0]["kwargs"]
+    assert [e.fill for e in events if e.fill] == [
+        (CopilotFillItem(field_id="open", value="09:00"),)
+    ]
+    spend = events[-1].spend
+    assert spend is not None
+    assert spend.capability.provider == extraction_module.GOOGLE_PROVIDER
+    # Metered under the ACCOUNT'S OWN model, not the Azure setting (hard rule 7).
+    assert spend.model == _GOOGLE_MODEL
+    assert spend.usage == chat.TokenUsage(prompt_tokens=120, output_tokens=15)
+    # Nothing was substituted, so nothing is disclosed.
+    assert service.disclosure_for(spend.capability) is None
+
+
+async def test_the_gemini_leg_answers_in_prose_when_the_model_calls_no_tool(
+    google_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordinary end of a question on the non-streamed leg: the whole answer arrives as one
+    text event (like the Sarvam fallback), then the spend. Proves the non-streamed turn is
+    reshaped into the loop's events correctly."""
+    _scripted_complete(
+        monkeypatch,
+        [chat.ChatOutcome(content="Nine in the morning.", finish_reason="stop", usage=None)],
+    )
+    events = await _drain_google()
+
+    assert [e.text for e in events if e.text] == ["Nine in the morning."]
+    spend = events[-1].spend
+    assert spend is not None
+    assert spend.capability.provider == extraction_module.GOOGLE_PROVIDER
+    # No usage block: unknown cost, never zero — `meter_assist` records it unmetered, loudly.
+    assert spend.usage is None

@@ -66,13 +66,16 @@ wrong.
    it printed OK on an empty set. A declared leg must now be named by at least one model in
    the catalogue AND its builder must be called somewhere, or the run is red.
 
-**AND ONE RULE GOT STRICTER RATHER THAN LOOSER.** The Google leg carries `builder=None` and
-`builder_suffix=None`, because the engine's Google provider builds its own client from a
-single API key and never reads a base URL of ours. So its obligation is not "exactly one
-literal may name this host" — it is **ZERO literals anywhere, including in the contract**.
-That is stronger than any other leg's rule, and it retires the marked assumption the old
-`google-direct` spec carried about WHICH Google surface a path would name: with no builder
-there is no path to be wrong about.
+**AND THE GOOGLE LEG'S RULE MOVED FROM "ZERO LITERALS" TO "EXACTLY ONE" (D-478).** It used to
+carry `builder=None`/`builder_suffix=None`, because the IN-CALL Google provider builds its own
+client from a single API key and reads no base URL of ours — so its obligation was ZERO
+literals anywhere. D-478 puts the DASHBOARD copilot on the Gemini OpenAI-compat
+`/chat/completions` surface, which `google_openai_compat_base_url()` in the contract assembles,
+so the leg now carries that arity-0 builder and its frozen suffix (`GEMINI_BUILDER_SUFFIX`).
+The obligation is now the ordinary one every builder-carrying leg has: EXACTLY ONE frozen
+literal in the contract may name the host, and every other literal, handler or fixture — the
+in-call path included, which still names nothing — is refused. The region question did not
+move: the Developer API has none to pin, in host, path or field.
 
 ================================================================================
 
@@ -235,6 +238,7 @@ BUILDER_HOME: Final = "packages/shared/src/calevate_shared/engine.py"
 #: The functions permitted to produce each leg's endpoint (checks 3 and 4).
 BUILDER: Final = "azure_openai_base_url"
 OPENAI_BUILDER: Final = "openai_base_url"
+GEMINI_BUILDER: Final = "google_openai_compat_base_url"
 
 #: Azure OpenAI's CUSTOM-SUBDOMAIN host suffix — the form D-410 ships, and the form that
 #: **carries no region**. The Azure leg's two human gates are downstream of that fact.
@@ -278,21 +282,32 @@ OPENAI_DIRECT_HOST: Final = "api.openai.com"
 #: which is somebody else's domain.
 OPENAI_BUILDER_SUFFIX: Final = ".api.openai.com/v1"
 
-#: Google's Gemini DEVELOPER API — the AI Studio surface, not Vertex.
+#: Google's Gemini DEVELOPER API — the AI Studio (OpenAI-compat) surface, not Vertex.
 #:
-#: ⚠ **ZERO LITERALS IN THIS TREE MAY NAME IT, INCLUDING IN `BUILDER_HOME`.** Its leg
-#: carries no builder, because the engine's Google provider constructs its client from a
-#: single API key and never reads a base URL of ours (`bolna/llms/gemini_llm.py:48-49` @
-#: `0172347b601e`, VERIFIED-OSS; the credential is one entry named `GOOGLE`,
-#: `providers.md:105-109`). So there is no suffix to assemble and nothing to exempt — a
-#: stronger obligation than every other leg's "exactly one", and the thing that retires the
-#: old spec's marked assumption about which Google surface a path would name.
+#: ⚠ **UNTIL D-478 ZERO LITERALS MAY NAME IT; NOW EXACTLY ONE MAY.** The in-call leg still
+#: builds its own client from a single API key and reads no base URL of ours
+#: (`bolna/llms/gemini_llm.py:48-49` @ `0172347b601e`, VERIFIED-OSS; the credential is one
+#: entry named `GOOGLE`, `providers.md:105-109`). But D-478 puts the DASHBOARD copilot on the
+#: Gemini OpenAI-compat `/chat/completions` surface directly — `google_openai_compat_base_url`
+#: in `BUILDER_HOME` is the first place this product assembles a Gemini URL — so the leg's
+#: obligation became the ordinary one every leg with a builder carries: exactly ONE frozen
+#: literal (`GEMINI_BUILDER_SUFFIX` below, `_GOOGLE_OPENAI_COMPAT_SUFFIX` in the contract) may
+#: name the host, and every other literal, handler or fixture is refused as before.
 #:
 #: IT IS THE FULL HOST AND NOT `.googleapis.com`, deliberately. `sheets.googleapis.com` and
 #: `oauth2.googleapis.com` are the tenant's OWN destination on the Sheets leg and carry no
 #: inference (see "NOT IN SCOPE" above); a suffix match would drag every CRM export into a
 #: check about where a MODEL runs, which is how a guard gets turned off.
 GEMINI_DIRECT_HOST: Final = "generativelanguage.googleapis.com"
+
+#: The rest of the Gemini OpenAI-compat endpoint, exactly as `google_openai_compat_base_url`
+#: assembles it (`_GOOGLE_OPENAI_COMPAT_SUFFIX` in `BUILDER_HOME`). Unlike the two suffixes
+#: above it carries NO leading dot: nothing goes in front of the host — the builder takes no
+#: argument and emits `https://` + this string whole — so the join is at the scheme, not at a
+#: residency label. VERIFIED-LIVE: `POST https://<this>/chat/completions` with an OpenAI body
+#: authenticated by `Authorization: Bearer <API_KEY>` (probed from this container, 27 Aug
+#: 2026; native `:generateContent` 404'd — the compat path is the one that answers).
+GEMINI_BUILDER_SUFFIX: Final = "generativelanguage.googleapis.com/v1beta/openai"
 
 #: WOULD THE AZURE REGIONAL HOSTNAME RESTORE THE AST PROOF ON THAT LEG? Yes — and this flag
 #: is the whole cost of adopting it, which is why the machinery is written now rather than
@@ -478,10 +493,16 @@ GOOGLE_LEG: Final = LegSpec(
     region_constant=None,
     region_in_host=False,
     addresses_a_deployment=False,
-    # NO BUILDER, WHICH IS A STRONGER OBLIGATION THAN ONE. See `GEMINI_DIRECT_HOST`.
-    builder=None,
-    builder_arity=None,
-    builder_suffix=None,
+    # ONE BUILDER, ARITY ZERO (D-478). The Developer API has no region to pass and the
+    # copilot needs no base URL of its own, so `google_openai_compat_base_url()` takes NO
+    # argument and returns `https://` + `GEMINI_BUILDER_SUFFIX` whole — modelled on
+    # `OPENAI_LEG`'s arity-0 builder, minus its region (which Google's host cannot carry).
+    # With arity 0 there is no hostile label to interpolate, so check 4 requires no DNS-label
+    # raise here; the obligation is check 3's "exactly ONE literal names the host". See
+    # `GEMINI_DIRECT_HOST`.
+    builder=GEMINI_BUILDER,
+    builder_arity=0,
+    builder_suffix=GEMINI_BUILDER_SUFFIX,
     permitted_host=GEMINI_DIRECT_HOST,
     # BOTH WORDS, because the vendor and the product are named differently by different
     # people and a `Settings` field gets whichever the author had in mind.
@@ -499,9 +520,10 @@ GOOGLE_LEG: Final = LegSpec(
     warrant=(
         "NO REGIONAL CLAIM IS MADE OR CHECKABLE on this leg, and unlike every other row "
         "here the vendor could not make one if it wanted to — the Developer API has no "
-        "region in its host, none in its path and no field in which to ask for one. What IS "
-        "proved is stronger than the other legs' rule in one respect: ZERO literals in this "
-        "tree may name its host, because there is no builder for one to be the suffix of"
+        "region in its host, none in its path and no field in which to ask for one. Since "
+        "D-478 the copilot builds the OpenAI-compat endpoint here, so the rule is the "
+        "ordinary one: EXACTLY ONE frozen literal may name the host — the builder's suffix "
+        "in BUILDER_HOME — and every other literal, handler or fixture is refused"
     ),
 )
 
@@ -553,8 +575,8 @@ POSTURES: Final[dict[str, PostureSpec]] = {
         warrant=(
             "three legs, checked one at a time: each pinned region has exactly one frozen "
             "spelling, no Settings field can carry a region or any known vendor's endpoint, "
-            "each leg's endpoint has exactly one constructor (and the Google leg has NONE, "
-            "so zero literals may name its host), no builder has a region input, and no "
+            "each leg's endpoint has exactly one constructor (the Google leg's, since D-478, "
+            "being its arity-0 OpenAI-compat builder), no builder has a region input, and no "
             "declared leg is inert. ⚠ ONLY THE OPENAI LEG'S REGION IS PROVED HERE — Azure's "
             "is attested by a human in the portal (gates 20/20c) and Google's does not exist"
         ),
@@ -590,7 +612,8 @@ POSTURES: Final[dict[str, PostureSpec]] = {
         legs=(GOOGLE_LEG,),
         warrant=(
             "one Gemini Developer API leg, which makes NO REGIONAL CLAIM and cannot, with "
-            "no endpoint literal permitted anywhere at all"
+            "exactly one endpoint literal permitted — the OpenAI-compat builder's suffix "
+            "(D-478) — and every other mention of the host refused"
         ),
     ),
 }

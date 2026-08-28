@@ -19,8 +19,16 @@ from typing import Any
 
 import httpx
 import pytest
+from calevate_shared.engine import GOOGLE_DIRECT_MODELS
 
 from apps.workers import chat
+
+#: A real selectable Gemini model, SOURCED FROM THE CATALOGUE rather than spelled as a
+#: literal here. `tests/sarvam_model_identifier_test.py` keeps every Google model id in
+#: `engine.py` and the lifecycle registry alone, so a fixture that needs one reads it back
+#: rather than duplicating the string — the centralization the guard exists to hold. `min`
+#: only makes the pick deterministic; either member exercises the `google` dialect equally.
+_GOOGLE_MODEL = min(GOOGLE_DIRECT_MODELS)
 
 LEG = chat.ChatLeg(
     url="https://example.invalid/openai/v1/chat/completions",
@@ -37,6 +45,16 @@ SARVAM_LEG = chat.ChatLeg(
     api_key="k",
     wire_model="sarvam-105b",
     dialect="sarvam",
+)
+
+#: Gemini via Google's OpenAI-compat surface (D-478). Same body and same `Authorization:
+#: Bearer` envelope as `openai` (VERIFIED-LIVE, see `chat.ChatDialect`), but NON-STREAMED
+#: only — the streaming refusal is the property that keeps `#2806` out of the accumulator.
+GOOGLE_LEG = chat.ChatLeg(
+    url="https://example.invalid/v1beta/openai/chat/completions",
+    api_key="k",
+    wire_model=_GOOGLE_MODEL,
+    dialect="google",
 )
 
 
@@ -156,6 +174,120 @@ async def test_a_streamed_sarvam_request_omits_the_stream_options_key_sarvam_has
 
     assert seen["body"]["stream"] is True
     assert "stream_options" not in seen["body"]
+
+
+async def test_the_google_leg_sends_the_openai_body_and_a_bearer_key() -> None:
+    """Gemini's OpenAI-compat surface takes the SAME envelope as OpenAI (D-478).
+
+    VERIFIED-LIVE (the compat `/chat/completions` endpoint probed from this container,
+    27 Aug 2026 — see `chat.ChatDialect` for the host and the finding): an anonymous OpenAI
+    body returned 400 "Missing or invalid Authorization header", so the endpoint accepts the
+    `messages` body and reads the key from `Authorization: Bearer` exactly as the `openai`
+    dialect does. This pins that `_headers` folds `google` into the bearer branch and does NOT
+    reach for Sarvam's header.
+    """
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["headers"] = dict(request.headers)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+
+    async with _client(handler) as client:
+        await chat.complete(
+            GOOGLE_LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
+        )
+
+    assert seen["headers"]["authorization"] == "Bearer k"
+    assert "api-subscription-key" not in seen["headers"]
+    assert seen["body"] == {
+        "model": _GOOGLE_MODEL,
+        "messages": [{"role": "user", "content": "q"}],
+    }
+
+
+async def test_a_google_completion_returns_a_full_tool_calls_array() -> None:
+    """The reason the Gemini leg runs NON-STREAMED: a blocking `complete()` with tools
+    returns a clean full `tool_calls` array, so field-filling works without ever meeting the
+    `None`-index streaming bug (`openai/openai-python#2806`) `stream()` refuses.
+
+    FAILS IF: `complete` stops reading `tool_calls`, or the google leg stops being served by
+    the same non-streamed path as every other dialect.
+    """
+    tools = [{"type": "function", "function": {"name": "fill_field", "parameters": {}}}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["tools"] == tools
+        assert body["model"] == _GOOGLE_MODEL
+        assert "stream" not in body
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "c1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "fill_field",
+                                        "arguments": '{"name":"Asha"}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 4},
+            },
+        )
+
+    async with _client(handler) as client:
+        outcome = await chat.complete(
+            GOOGLE_LEG,
+            [{"role": "user", "content": "q"}],
+            timeout_s=1,
+            tools=tools,
+            client=client,
+        )
+
+    assert outcome.tool_calls == (
+        chat.ToolCall(id="c1", name="fill_field", arguments='{"name":"Asha"}'),
+    )
+    assert outcome.finish_reason == "tool_calls"
+    assert outcome.usage == chat.TokenUsage(prompt_tokens=12, output_tokens=4)
+
+
+async def test_streaming_the_google_dialect_is_refused_loud() -> None:
+    """`stream()` on the Gemini leg RAISES rather than corrupt the by-index accumulator.
+
+    Gemini's streamed tool-call deltas can carry a `None` `index` (`openai/openai-python
+    #2806`, read 27 Aug 2026); `_ToolCallAccumulator` drops a fragment with no index, silently
+    losing a tool call's arguments. So the leg runs non-streamed and a caller that reaches for
+    `stream()` is made to fail loud — no request is issued.
+
+    FAILS IF: the refusal is removed, or a fourth dialect is added to the bearer branch
+    without deciding whether it, too, is stream-unsafe.
+    """
+    issued = False
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - never reached
+        nonlocal issued
+        issued = True
+        return httpx.Response(200, content=b"data: [DONE]\n\n")
+
+    async with _client(handler) as client:
+        with pytest.raises(ValueError, match="must not be streamed"):
+            async for _ in chat.stream(
+                GOOGLE_LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
+            ):
+                pass
+
+    assert issued is False, "the refusal must fire before any request leaves"
 
 
 async def test_a_streamed_request_asks_for_usage() -> None:

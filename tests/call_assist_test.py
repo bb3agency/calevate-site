@@ -57,8 +57,10 @@ from apps.api.crm import routes as crm_routes
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.workers import extraction as extraction_module
+from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
+    GOOGLE_PROVIDER,
     SARVAM_PROVIDER,
     AssistCapability,
     AssistResult,
@@ -874,11 +876,12 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
 
 
 def test_the_provider_names_the_response_can_carry_are_the_ladders_own() -> None:
-    """`meter_assist` branches on `capability.provider == AZURE_PROVIDER`, so the two
-    constants have to be the ones `assist_capability` actually sets. A typo here would
-    meter a Sarvam fallback at Azure prices and alert on nothing."""
+    """`meter_assist` branches on `capability.provider`, so the constants have to be the ones
+    `assist_capability` actually sets. A typo here would meter a Sarvam fallback at Azure
+    prices and alert on nothing, or route a paid Gemini answer into the free bucket."""
     assert AZURE_PROVIDER == "azure"
     assert SARVAM_PROVIDER == "sarvam"
+    assert GOOGLE_PROVIDER == "google"
 
 
 def test_the_route_declares_a_mutating_permission_that_exists_and_is_granted() -> None:
@@ -1089,3 +1092,78 @@ async def test_a_sarvam_fallback_is_still_the_recognised_free_case(
 
     assert metering.metered is False
     assert fired == [], "a free, disclosed fallback is not an incident"
+
+
+async def test_a_gemini_answer_the_provider_did_not_count_is_unmeterable_not_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-478's paid third leg. A Gemini answer that carried no usage block is a metering
+    OUTAGE — the same severity as Azure's, NOT the unknown-provider case — so it fires
+    `ai_assist_unmeterable` with the provider named, never `ai_assist_unknown_provider` and
+    never a fabricated zero.
+
+    FAILS IF: `google` drops out of the paid-leg branch and falls into the unknown-provider
+    catch-all, which would page an operator with the wrong message on a real outage."""
+    fired: list[tuple[str, dict[str, str]]] = []
+
+    def _capture(stage: str, code: str, *, detail: str | None = None, **ids: str) -> None:
+        fired.append((code, ids))
+
+    monkeypatch.setattr(assist, "alert", _capture)
+    result = AssistResult(
+        output=ExtractionOutput(summary="Gemini answered but sent no usage."),
+        capability=AssistCapability(available=True, provider=GOOGLE_PROVIDER),
+        usage=None,
+    )
+
+    metering = await assist.meter_assist(
+        None,  # type: ignore[arg-type]
+        tenant_id=uuid.uuid4(),
+        ref="assist-gemini-uncounted",
+        result=result,
+        model="gemini-2.5-flash",
+    )
+
+    assert metering.metered is False
+    assert [code for code, _ in fired] == ["ai_assist_unmeterable"]
+    assert fired[0][1]["provider"] == GOOGLE_PROVIDER
+
+
+async def test_a_gemini_answer_meters_under_the_gemini_model_not_the_azure_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE PRICE HALF (hard rule 7). A Gemini answer with usage must reach
+    `record_ai_assist_usage` under the GEMINI model id the run named — `rates.llm_inr_per_ktok`
+    prices it directly — NOT `azure_openai_model`, which would put a wrong `unit_cost_paid`
+    and a wrong `meta.model` on an append-only row. Proved by capturing the model that reaches
+    the ledger writer, with no database: the writer is the one place the price is derived."""
+    captured: dict[str, Any] = {}
+
+    async def _fake_record(session: Any, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+
+        class _Recorded:
+            recorded = True
+            cost_inr = Decimal("0.01")
+
+        return _Recorded()
+
+    monkeypatch.setattr(assist, "record_ai_assist_usage", _fake_record)
+    result = AssistResult(
+        output=ExtractionOutput(summary="Gemini answered."),
+        capability=AssistCapability(available=True, provider=GOOGLE_PROVIDER),
+        usage=TokenUsage(prompt_tokens=100, output_tokens=40),
+    )
+
+    metering = await assist.meter_assist(
+        None,  # type: ignore[arg-type]
+        tenant_id=uuid.uuid4(),
+        ref="assist-gemini-metered",
+        result=result,
+        model="gemini-2.5-flash",
+    )
+
+    assert metering.metered is True
+    assert captured["model"] == "gemini-2.5-flash"
+    assert captured["model"] != get_settings().azure_openai_model
+    assert captured["tokens_in"] == 100 and captured["tokens_out"] == 40

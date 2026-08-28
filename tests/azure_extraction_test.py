@@ -1042,15 +1042,17 @@ def test_the_key_is_read_in_one_place_and_is_never_console_editable() -> None:
     question about the constant — it is a question about whether a `Settings` field could
     stand in for it. Two things settle it, and both are mechanical:
 
-      1. **Nothing on this path reads a setting except the five named below**, read out of
+      1. **Nothing on this path reads a setting except the six named below**, read out of
          the AST, so a new `settings.azure_something` fails this test on the commit that
          adds it rather than on the day someone edits it in a web form.
-      2. **The key is read in exactly ONE function.** A second reader is what turns a
+      2. **The Azure key is read in exactly ONE function.** A second reader is what turns a
          credential from a thing held once into a thing that can end up in a URL.
 
     The resource, deployment and model ARE console-editable, deliberately: none is a
     secret, and the model is D-410's `gpt-4.1-mini` switch, which has to move without a
-    deploy or it is not a switch.
+    deploy or it is not a switch. `gemini_api_key` joined the readers with D-478's rung-1
+    Gemini assist leg; it is a secret, so it is asserted NON-editable alongside the two
+    other keys.
     """
     import ast
     from pathlib import Path
@@ -1075,6 +1077,7 @@ def test_the_key_is_read_in_one_place_and_is_never_console_editable() -> None:
 
     assert read == {
         "sarvam_api_key",
+        "gemini_api_key",
         "azure_openai_resource",
         "azure_openai_api_key",
         "azure_openai_deployment",
@@ -1093,6 +1096,9 @@ def test_the_key_is_read_in_one_place_and_is_never_console_editable() -> None:
         "the Azure key became console-editable as a plaintext row"
     )
     assert "sarvam_api_key" not in managed
+    # `gemini_api_key` joined the readers when the assist ladder gained its rung-1 Gemini leg
+    # (D-478). It is a SECRET like the other two keys, so it must not be console-editable.
+    assert "gemini_api_key" not in managed
     assert read & managed <= {
         "azure_openai_resource",
         "azure_openai_deployment",

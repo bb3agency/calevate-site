@@ -905,6 +905,42 @@ const OPS_MODEL_PRICES = {
   as_of: "2026-08-23T00:00:00Z",
 };
 
+// TWO legs whose states differ: an ATTESTED, eligible Azure leg (its facts grid, provenance
+// and the "assistant may run here" notice render) and a Google leg that is NOT eligible and
+// NOT attested (the blocked-reason notice, the "nobody has looked" note and the record form
+// render). A one-leg fixture would leave half the panel's markup unscanned.
+const OPS_DASHBOARD_DATA_USE = {
+  providers: [
+    {
+      provider: "azure_openai",
+      eligible: true,
+      blocked_reason: null,
+      dashboard_leg_built: true,
+      vendor_account_ref: "calevate-eastus2",
+      paid_tier_confirmed: true,
+      no_training_opt_in_confirmed: true,
+      attested_at: "2026-08-20T09:00:00Z",
+      attested_by: "Ops",
+      source_note: "Azure portal read 2026-08-20",
+    },
+    {
+      provider: "google",
+      eligible: false,
+      blocked_reason:
+        "This platform cannot yet build a dashboard chat request for Google.",
+      dashboard_leg_built: false,
+      vendor_account_ref: null,
+      paid_tier_confirmed: null,
+      no_training_opt_in_confirmed: null,
+      attested_at: null,
+      attested_by: null,
+      source_note: null,
+    },
+  ],
+  statement:
+    "I have opened this provider's own console and checked the account our API key belongs to.",
+};
+
 /**
  * The identity record, shared by the client screen that submits it and the admin screen
  * that decides it — they read the SAME endpoint (`/v1/compliance/kyc`), the admin one
@@ -2141,6 +2177,7 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/config": OPS_CONFIG,
       "/v1/ops/model-prices": OPS_MODEL_PRICES,
+      "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,
       "/v1/ops/secrets/kek": OPS_KEK,
     },

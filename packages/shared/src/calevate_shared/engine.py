@@ -1477,6 +1477,16 @@ _AZURE_ENDPOINT_SUFFIX: Final = ".openai.azure.com/openai/v1"
 #: is what makes that label a label.
 _OPENAI_ENDPOINT_SUFFIX: Final = ".api.openai.com/v1"
 
+#: The Google leg's DASHBOARD endpoint suffix — host and path together, with NO region
+#: label because the Gemini Developer API has no region to prefix (see
+#: `google_openai_compat_base_url`). It is the whole host, not a `.`-led join like the two
+#: above, because nothing goes in front of it: `google_openai_compat_base_url()` assembles
+#: `https://` + this and that is the whole authority-plus-path. It is the ONE literal in this
+#: tree permitted to name `generativelanguage.googleapis.com` (D-478); every other mention of
+#: that host is a `check_model_residency` failure, exactly as the Azure and OpenAI suffixes are
+#: the sole permitted spellings of their hosts.
+_GOOGLE_OPENAI_COMPAT_SUFFIX: Final = "generativelanguage.googleapis.com/v1beta/openai"
+
 
 def azure_openai_base_url(resource: str) -> str:
     """Azure OpenAI's **v1** base URL for one resource — THE only way to build one (D-410).
@@ -1566,6 +1576,44 @@ def openai_base_url() -> str:
     return f"https://{OPENAI_DATA_RESIDENCY}{_OPENAI_ENDPOINT_SUFFIX}"
 
 
+def google_openai_compat_base_url() -> str:
+    """Google Gemini's **OpenAI-compatibility** base URL — THE only way this tree builds one,
+    and the DASHBOARD leg only (D-478).
+
+    NO ARGUMENT, for `openai_base_url()`'s reason: there is exactly one endpoint this product
+    may address for the Gemini dashboard leg, it is fixed, and a parameter would be a caller's
+    chance to vary the one thing the leg is permitted for. There is no region label to
+    interpolate either — the Gemini Developer API has NO region (`GOOGLE_DIRECT_LEG`;
+    `googleapis/python-genai` raises `ValueError("Gemini API does not support
+    project/location.")` before a packet leaves the machine), so unlike `openai_base_url()`
+    there is nothing in front of the host and this leg proves no region at all.
+
+    ⚠ **THIS IS THE OPENAI-COMPAT SURFACE, NOT THE NATIVE `:generateContent` API.** The
+    engine's IN-CALL Google leg talks the native protocol through Bolna's own `genai.Client`
+    and reads no base URL of ours; THIS leg is the dashboard copilot calling Google directly
+    over the OpenAI-shaped `/chat/completions` endpoint, the same wire `workers/chat.py`
+    speaks to Azure and OpenAI. The two are different surfaces on the same vendor, which is
+    why `GOOGLE_DIRECT_LEG` now carries a builder where it once carried none: the copilot is
+    the first place in this tree that assembles a Gemini URL.
+
+    EVIDENCE STANDING: VERIFIED-LIVE (generativelanguage.googleapis.com probed from this
+    container, 27 Aug 2026). `POST
+    https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` with an OpenAI
+    chat body returned `400 {"error":{"message":"Missing or invalid Authorization header."}}`
+    — proving the endpoint exists, accepts the OpenAI `messages` body, and authenticates via
+    the `Authorization` header (`Authorization: Bearer <API_KEY>`, the `openai` dialect). The
+    native `:generateContent` path 404'd, so it is deliberately not used. `tools`/`tool_choice`
+    are supported (SECONDARY: Google's OpenAI-compat docs via web search; `ai.google.dev` is
+    egress-blocked here so this is not a first-party read). Streaming is NOT used on this leg —
+    see `workers/chat.py`'s `google` dialect for the `None`-index tool-call bug (#2806) that
+    forces it non-streamed.
+
+    THE `/chat/completions` SUFFIX IS APPENDED BY THE CALLER, exactly as the Azure and OpenAI
+    legs already do (`copilot/service._google_leg`, `workers/extraction.AzureOpenAIExtractor`).
+    """
+    return f"https://{_GOOGLE_OPENAI_COMPAT_SUFFIX}"
+
+
 def _azure_resource_of(base_url: str) -> str | None:
     """The `<resource>` in an endpoint `azure_openai_base_url` could have produced, or
     `None` if this URL is not one of ours.
@@ -1648,6 +1696,25 @@ class PostureLeg:
     #: gate that owns what no check here can prove. `None` is a claim, not an omission.
     delegated_gate: tuple[str, str] | None
 
+    @property
+    def in_call_endpoint_is_ours(self) -> bool:
+        """Does the IN-CALL engine dial an endpoint WE build and hand it for this leg?
+
+        True on `azure_openai` (our Azure resource) and `openai` (our region-pinned host);
+        FALSE on `google`. **NOT `builder is not None`, and D-478 is why the distinction had
+        to be drawn.** Until then the google leg had no builder, so "has a builder" and "the
+        in-call engine takes our base URL" were the same set of legs and either test worked.
+        D-478 gave the google leg a builder for the DASHBOARD copilot's OpenAI-compat surface
+        (`google_openai_compat_base_url`, `copilot/service.py`), which does NOT make its
+        IN-CALL endpoint ours: the engine has a first-class `google` provider and dials Google
+        itself (`engine/bolna.py` route; the leg's only agent-object identifier is the model
+        name), so a base URL on the in-call google leg is a value nothing sends. This property
+        is that fact stated once, read by `ModelConfig._llm_endpoint_is_coherent` here and by
+        `agents/service.py::in_call_llm` — the two places that used to spell it as a builder
+        test and would otherwise drift apart.
+        """
+        return self.addresses_a_deployment or self.region_in_host
+
 
 #: THE INCUMBENT LEG (D-410, region moved by D-449). Azure OpenAI's v1 surface on our own
 #: resource, with a static key in `Authorization: Bearer`.
@@ -1710,45 +1777,56 @@ OPENAI_DIRECT_LEG: Final = PostureLeg(
     delegated_gate=None,
 )
 
-#: THE LEG WITH NO BUILDER. Google's Gemini Developer API, which takes no base URL from us.
+#: THE GOOGLE LEG. Google's Gemini, on TWO surfaces at once — and the second is why this
+#: leg now carries a builder where it once carried none (D-478).
 #:
-#: **`builder=None` IS A STRONGER OBLIGATION THAN A BUILDER, NOT A WEAKER ONE.** Every other
-#: leg's rule is "exactly one literal in this tree may name your host". This leg's rule is
-#: **ZERO** — `check_model_residency` refuses `generativelanguage.googleapis.com` anywhere,
-#: including in this file, because the engine's Google provider constructs its client from a
-#: single API key and never reads a base URL of ours (`bolna/llms/gemini_llm.py:48-49` @
-#: `0172347b601e`, VERIFIED-OSS; the credential is one entry named `GOOGLE`,
-#: `providers.md:105-109`).
+#: **ITS RULE IS NOW "EXACTLY ONE LITERAL", NOT "ZERO".** Until D-478 the engine's IN-CALL
+#: Google leg constructed its client from a single API key and read no base URL of ours
+#: (`bolna/llms/gemini_llm.py:48-49` @ `0172347b601e`, VERIFIED-OSS; the credential is one
+#: entry named `GOOGLE`, `providers.md:105-109`), so no literal in this tree named the host
+#: and `check_model_residency` refused `generativelanguage.googleapis.com` everywhere. D-478
+#: adds the DASHBOARD leg — the in-app copilot calling Google's OpenAI-COMPAT
+#: `/chat/completions` surface directly (`google_openai_compat_base_url`,
+#: `copilot/service._google_leg`) — which is the first place this product assembles a Gemini
+#: URL. So the leg's obligation is now the ordinary one every leg with a builder carries:
+#: exactly ONE literal may name its host, the frozen suffix `_GOOGLE_OPENAI_COMPAT_SUFFIX` in
+#: this file, and the guard still refuses that host ANYWHERE ELSE — a handler, a constant, a
+#: second builder, a fixture.
 #:
-#: AND IT RETIRES A MARKED ASSUMPTION THIS TREE HAS BEEN CARRYING. The previous
-#: `google-direct` spec had to name a PATH — `/v1beta/openai`, the OpenAI-compatible surface
-#: — while the engine's own client speaks the NATIVE protocol at `…/` with `api_version =
-#: "v1beta"`, and nobody could say which one a declaration would adopt. With no builder there
-#: is no path to be wrong about: the question stops existing rather than being deferred.
+#: **THE IN-CALL AND DASHBOARD SURFACES ARE DIFFERENT WIRES ON ONE VENDOR.** The engine's own
+#: client speaks the NATIVE protocol at `…/` with `api_version = "v1beta"`; the dashboard leg
+#: speaks the OpenAI-compat `/v1beta/openai` surface. Only the second is ours to build, so the
+#: builder names that path and there is no ambiguity about which surface the declaration
+#: adopts: `builder=None` used to retire that question by refusing to answer it, and now the
+#: builder answers it — the OpenAI-compat surface, the one the copilot actually calls.
 #:
 #: `region=None` IS UNLIKE `openai-direct`'s OLD `None`, AND THE DIFFERENCE IS WORTH THE
 #: SENTENCE. OpenAI HAS regions and we pin one. Google's Developer API has none AT ALL — the
 #: region is not unset, it is UNEXPRESSIBLE: `googleapis/python-genai@66807187f212`,
 #: `google/genai/_api_client.py:681-682` raises `ValueError("Gemini API does not support
-#: project/location.")` before a packet leaves the machine.
+#: project/location.")` before a packet leaves the machine. A builder that names the host
+#: therefore proves NO region (unlike `openai_base_url`), which is exactly why D-478 is a
+#: posture change and needs the D-477 data-use attestation and D-127 G-2 redaction in front
+#: of it rather than an AST proof: see `docs/ROADMAP.md` D-478.
 GOOGLE_DIRECT_LEG: Final = PostureLeg(
     provider="google",
     region=None,
     region_constant=None,
     region_in_host=False,
     addresses_a_deployment=False,
-    builder=None,
-    builder_arity=None,
-    builder_suffix=None,
+    builder="google_openai_compat_base_url",
+    builder_arity=0,
+    builder_suffix=_GOOGLE_OPENAI_COMPAT_SUFFIX,
     permitted_host="generativelanguage.googleapis.com",
     # NOTHING IS DELEGATED because there is no regional claim to confirm; sending a person to
     # a console to attest a region that cannot be requested would be worse than sending them
-    # nowhere. ⚠ WHAT WOULD NEED A GATE IF ANY MODEL ON THIS LEG WERE EVER MADE SELECTABLE is
-    # COMMERCIAL rather than residency-shaped and is deliberately NOT invented here: Google's
-    # free tier states it uses submitted prompts and responses to improve its products with
-    # human reviewers able to read them, and only the PAID tier does not — and the engine's
-    # credential store takes one key with no project, no billing account and no tier field,
-    # so "is this a paid key" is invisible on the wire and unreadable back from any API.
+    # nowhere. ⚠ WHAT THE LEG'S DASHBOARD USE OWES IS COMMERCIAL rather than residency-shaped
+    # and is NOT a residency gate here: Google's free tier states it uses submitted prompts and
+    # responses to improve its products with human reviewers able to read them, and only the
+    # PAID tier does not. That is the D-477 data-use attestation gate
+    # (`agents/llm_models.dashboard_leg_reason`), not a `delegated_gate` on this record — this
+    # field owns only what a residency check cannot prove, and residency is not what the Gemini
+    # tier question is about.
     delegated_gate=None,
 )
 
@@ -2105,7 +2183,9 @@ class ModelConfig(BaseModel):
     llm_provider: LlmProvider | None = None
     #: The OpenAI-compatible endpoint for whichever leg `llm_provider` names — always the
     #: output of that leg's own builder, never typed by hand and never a tenant's to choose.
-    #: `None` on the `google` leg, which takes no base URL from us at all.
+    #: `None` on the `google` leg, whose IN-CALL endpoint is the engine's own (its D-478
+    #: builder serves the dashboard copilot, a different surface — see
+    #: `PostureLeg.in_call_endpoint_is_ours`).
     llm_base_url: str | None = None
     #: **THE REQUEST-FIELD BEHAVIOURS THIS MODEL BREAKS ON, IN OUR VOCABULARY** — the seam
     #: that carries `LlmModelSpec.traps` from the catalogue to whichever adapter builds the
@@ -2197,12 +2277,17 @@ class ModelConfig(BaseModel):
                 )
             return self
         leg = DECLARED_POSTURE.leg(self.llm_provider)
-        if leg.builder is None:
+        if not leg.in_call_endpoint_is_ours:
+            # A leg the IN-CALL engine dials itself — `google` (first-class engine provider),
+            # or any leg with no builder. Its `builder`, when it has one, serves a DIFFERENT
+            # surface (the dashboard copilot), so a base URL here is a value nothing sends.
+            # This was `leg.builder is None` until D-478 gave the google leg a dashboard
+            # builder; see `PostureLeg.in_call_endpoint_is_ours` for why that stopped working.
             if self.llm_base_url:
                 raise ValueError(
-                    f"the {leg.provider!r} leg takes no base URL: the engine builds its own "
-                    "client from a single API key and never reads one, so a configured "
-                    "endpoint here is a value nothing sends"
+                    f"the {leg.provider!r} leg takes no in-call base URL: the engine builds "
+                    "its own client from a single API key and never reads one, so a "
+                    "configured endpoint here is a value nothing sends"
                 )
             return self
         if not self.llm_base_url:

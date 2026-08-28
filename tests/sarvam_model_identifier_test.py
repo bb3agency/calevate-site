@@ -366,17 +366,29 @@ def test_no_shipped_module_names_an_adopted_google_model() -> None:
     the contract, which declares the `Literal` and prices it, and the lifecycle registry,
     which dates it.
 
-    WHY THAT IS ENOUGH RATHER THAN A CONSOLATION. What the ban prevented was an identifier
-    reaching a vendor from a call site nobody re-reads. Nothing in this product can reach a
-    vendor with a model it did not resolve through `SELECTABLE_LLM_MODELS`, and both of
-    these are `selectable=False` with a `withdrawn_reason` — so a call site that spelled one
-    would be refused before the wire, by the picker, by the two column CHECK constraints and
-    by the publish path. What this scan still adds is the thing those cannot: it catches the
-    name arriving from a doc or an old branch and being written down as though it were a
-    choice, on a leg whose only safe model retires in eight weeks.
+    ⚠ **THIS RULE IS NOW CENTRALIZATION, NOT A RETIREMENT WATCH, AND ITS TEXT USED TO SAY
+    OTHERWISE.** It once read that both models are `selectable=False` with a
+    `withdrawn_reason` and that "Google retires them on 16 Oct 2026" — and both halves are
+    now false: `gemini-2.5-flash` and `-flash-lite` are `selectable=True` with no
+    `withdrawn_reason` (D-456/D-459), and that retirement date was WITHDRAWN this repo's own
+    `model_lifecycle.py` had restated it as fact and it belonged to preview snapshots
+    (CLAUDE.md, hard rule 11's worked example). The withdrawn-model watch is a DIFFERENT
+    scan, `test_no_shipped_module_names_a_retired_google_model` over `GEMINI_RETIRED_LLMS`.
 
-    FAILS IF: a worker, an adapter or a pilot script spells one of these — including in an
-    f-string default or a fixture that ships.
+    WHAT THIS SCAN STILL BUYS, now that the two are adopted: a Google model id lives in the
+    two files that legitimately hold every identifier — the contract that declares the
+    `Literal` and prices it, and the lifecycle registry that dates it — and a call site or a
+    shipped fixture that needs one READS IT BACK rather than duplicating the string. That is
+    the same one-home discipline `SARVAM_DEFAULT_LLM` and the Azure deployment constant
+    already keep: a literal spelled at the call site is a second source of truth that drifts
+    the day the catalogue id changes, on the leg where a stale id is a silent 404. Resolving
+    the model through `SELECTABLE_LLM_MODELS` is how the product reaches the vendor; this
+    keeps the picker the ONLY place the choice is made and the literal out of everywhere the
+    catalogue does not live.
+
+    FAILS IF: a worker, an adapter, a pilot script or a test spells one of these instead of
+    importing it from `engine.py` — see `apps/workers/chat_test.py::_GOOGLE_MODEL` for the
+    read-it-back idiom.
     """
     allowed = {CANONICAL_HOME, LIFECYCLE_REGISTRY}
     offenders: dict[str, set[str]] = {}
@@ -390,11 +402,11 @@ def test_no_shipped_module_names_an_adopted_google_model() -> None:
 
     assert not offenders, (
         "these modules spell a Google model identifier: "
-        f"{ChainMapLike(offenders)}. Both are in the catalogue and both are "
-        "`selectable=False` — Google retires them on 16 Oct 2026 and the engine's thinking "
-        "budget can be zeroed on no successor — so a call site naming one is either dead "
-        "configuration or a choice nobody made. The only files that may spell them are "
-        f"{sorted(allowed)}."
+        f"{ChainMapLike(offenders)}. Both are selectable catalogue entries, and their id "
+        "lives in exactly two files so a call site resolves the model through "
+        "`SELECTABLE_LLM_MODELS` rather than duplicating a literal that drifts the day the "
+        "catalogue id changes — import it back (see `chat_test.py::_GOOGLE_MODEL`). The only "
+        f"files that may spell them are {sorted(allowed)}."
     )
 
 

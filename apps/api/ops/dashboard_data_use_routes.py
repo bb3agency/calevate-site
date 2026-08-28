@@ -25,8 +25,10 @@ training.
 ⚠ **ATTESTING DOES NOT BY ITSELF MOVE THE ASSISTANT ONTO A PROVIDER**, and the response says
 so in `blocked_reason` rather than leaving an operator to find out. Eligibility is the AND of
 this attestation and `agents/llm_models.DASHBOARD_ADDRESSABLE_PROVIDERS` — whether this
-repository can build a dashboard chat request for the leg at all — and today only the Azure
-leg satisfies the second. The screen states both grounds because
+repository can build a dashboard chat request for the leg at all. Since D-478 both the Azure
+leg AND the Gemini OpenAI-compat leg satisfy the second, so for `google` the attestation is
+now the LAST ground and clearing it makes the leg eligible; `openai` still does not (no leg is
+built for it). The screen states both grounds because
 `ops/model_pricing.ModelOfferability.withheld_reason` exists for exactly the failure of not
 stating them: a panel inviting an operator to do a five-minute job that cannot succeed.
 

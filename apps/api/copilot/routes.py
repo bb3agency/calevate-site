@@ -242,6 +242,11 @@ async def ask_copilot(
                 ref=ref,
                 result=spend,
                 feature=ASSIST_FEATURE_COPILOT,
+                # The model the answer ran on, when the run knows it (D-478: the account's
+                # own Gemini id). `None` on the Azure leg, where `meter_assist` reads the
+                # live `azure_openai_model` setting — the model behind Azure's deployment is
+                # an operator switch, not a per-run fact.
+                model=spend.model,
             )
             metered = metering.metered
             await write_audit(

@@ -6,6 +6,7 @@ import {
   useAdminMe,
 } from "@/app/admin/access";
 import { ConfigPanel } from "@/app/admin/ops/ConfigPanel";
+import { DashboardDataUsePanel } from "@/app/admin/ops/DashboardDataUsePanel";
 import { FxRatePanel } from "@/app/admin/ops/FxRatePanel";
 import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
 import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
@@ -118,6 +119,24 @@ export default function OpsConfigPage() {
         />
       ) : (
         <FxRatePanel />
+      )}
+
+      {/* The dashboard AI data-use attestation (D-477), on the SAME permission as the config
+          panel — an attestation is configuration, not a credential: it is visible, revertible
+          by a superseding attestation, and carries no secret (a project id is an account
+          label). It records what makes the in-app assistant permitted to run on a client's
+          chosen provider, so it sits beside the prices and settings rather than beside the
+          credentials, and the same identity-answered/refused/mount doctrine applies. */}
+      {identityLoading ? (
+        <PanelPending title="Dashboard AI data-use" />
+      ) : mayConfigure.refused ? (
+        <WithheldPanel
+          title="Dashboard AI data-use"
+          reason={mayConfigure.reason ?? "Your admin account cannot change platform configuration."}
+          subject="This panel would list every LLM provider the in-app AI assistant could run on, whether it may today, and the latest data-use attestation for each."
+        />
+      ) : (
+        <DashboardDataUsePanel access={mayConfigure} />
       )}
 
       {/* THE SHARPEST EDGE IN EITHER CONSOLE, so the withheld cards here say LESS than the

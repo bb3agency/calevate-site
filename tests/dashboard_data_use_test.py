@@ -34,7 +34,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.agents.llm_models import (
-    NO_DASHBOARD_LEG_REASON,
     NO_DATA_USE_ATTESTATION_REASON,
     dashboard_leg_reason,
 )
@@ -58,9 +57,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from tests.model_pricing_test import _purge_table
 
-#: The only leg this suite writes rows for. `google` because it is the one the mechanism
-#: was built for and the one a live tenant is on; nothing here makes it eligible, because
-#: eligibility also needs a dashboard leg this repository has not built.
+#: The only leg this suite writes rows for. `google` because it is the one the mechanism was
+#: built for and the one a live tenant is on. Since D-478 the dashboard leg for it IS built
+#: (`DASHBOARD_ADDRESSABLE_PROVIDERS`), so attesting it here is the LAST ground and makes it
+#: eligible — the mechanism's payoff, and what these tests now assert.
 PROVIDER = "google"
 
 
@@ -221,10 +221,10 @@ async def test_an_undeclared_provider_is_refused() -> None:
 async def test_the_gate_reads_the_attestation_through_the_installed_reader() -> None:
     """END TO END, and BOTH halves of the answer.
 
-    Attesting moves the reported ground from "nobody has attested" to "we have not built
-    the leg" — which is what makes this a field something READS rather than a column
-    nothing consults — and it does NOT make the leg eligible, because addressability is a
-    separate fact. Hiding either would be a defect in a different direction.
+    Before attesting, the reported ground is "nobody has attested" — which is what makes this
+    a field something READS rather than a column nothing consults. Since D-478 the Gemini
+    dashboard leg IS built, so the attestation clears the LAST ground and the leg becomes
+    eligible; before D-478 it would have moved to "we have not built the leg" instead.
     """
     install_pricing_readers()
     await refresh_pricing_snapshot()
@@ -233,7 +233,7 @@ async def test_the_gate_reads_the_attestation_through_the_installed_reader() -> 
     await _attest()
     await refresh_pricing_snapshot()
 
-    assert dashboard_leg_reason(PROVIDER) == NO_DASHBOARD_LEG_REASON
+    assert dashboard_leg_reason(PROVIDER) is None
 
 
 # --- 4. the surface -------------------------------------------------------------
@@ -260,9 +260,10 @@ async def test_get_lists_every_declared_leg_with_its_ground_and_the_statement() 
     body = response.json()
     rows = {row["provider"]: row for row in body["providers"]}
     assert set(rows) == {"azure_openai", "openai", "google"}
-    # The screen states BOTH grounds, so nobody is invited to attest a leg that attesting
-    # will not switch on — `ModelOfferability.withheld_reason`'s lesson, one surface over.
-    assert rows["google"]["dashboard_leg_built"] is False
+    # Since D-478 the Gemini leg IS built, so `dashboard_leg_built` is True — but it is still
+    # NOT eligible here, because this suite has attested nothing. The two facts are reported
+    # separately so the panel can say plainly that attesting WILL now switch it on.
+    assert rows["google"]["dashboard_leg_built"] is True
     assert rows["google"]["eligible"] is False
     assert rows["google"]["attested_at"] is None
     assert rows["azure_openai"]["eligible"] is True
@@ -299,10 +300,11 @@ async def test_attest_via_the_route_needs_step_up_and_lands_an_audit_row() -> No
     row = ok.json()["provider"]
     assert row["vendor_account_ref"] == "calevate-prod-000"
     assert row["paid_tier_confirmed"] is True
-    # STILL NOT ELIGIBLE, and the response says so rather than leaving an operator to find
-    # out by watching the assistant not move.
-    assert row["eligible"] is False
-    assert row["blocked_reason"] == NO_DASHBOARD_LEG_REASON
+    # NOW ELIGIBLE (D-478): the Gemini dashboard leg is built, so this attestation clears the
+    # last ground and the response says the assistant will run on it — rather than leaving an
+    # operator to find out by watching it not move.
+    assert row["eligible"] is True
+    assert row["blocked_reason"] is None
 
     assert await _audit_count() == before + 1
 

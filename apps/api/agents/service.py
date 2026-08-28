@@ -782,10 +782,12 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
         assert credentials is not None
         resource, _api_key, _platform_deployment = credentials
         decided["llm_base_url"] = azure_openai_base_url(resource)
-    elif leg.builder is not None:
-        # The OpenAI leg. `builder is not None` rather than a second `provider ==` test, so
-        # a fourth leg with a builder is carried by this branch instead of falling silently
-        # into the endpoint-less one — the direction that fails loud.
+    elif leg.in_call_endpoint_is_ours:
+        # The OpenAI leg. `in_call_endpoint_is_ours` rather than `builder is not None`: since
+        # D-478 the google leg ALSO has a builder (for the dashboard copilot's OpenAI-compat
+        # surface), but its IN-CALL endpoint is the engine's own — Bolna dials Google via its
+        # first-class `google` provider — so google must fall through to the endpoint-less
+        # arm, not pick up `openai_base_url()`. See `PostureLeg.in_call_endpoint_is_ours`.
         decided["llm_base_url"] = openai_base_url()
     return decided
 
