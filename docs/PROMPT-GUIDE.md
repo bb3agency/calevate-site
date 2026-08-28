@@ -21,11 +21,21 @@ change, promoted staging→live, rollbackable.
 
 ## 2. Prompt structure (template order matters for TTFT and adherence)
 
+**`[STYLE]` IS PLATFORM-OWNED AND AUTO-INJECTED — DO NOT HAND-AUTHOR IT (D-479).** The
+speech-register guidance below is emitted on EVERY agent by `compose_engine_prompt`
+(`VOICE_STYLE_GUIDANCE` in `packages/shared/src/calevate_shared/engine.py`), which is the
+one composer every agent passes through — structured OR raw-override. For a long time this
+block was documented here but written by no code; a raw script reached the phone with only
+the compliance floor and the client's words. It is now a non-removable platform layer like
+the §1 invariants, positioned after the platform preamble (it frames the script) and before
+the truthful-answer floor (which alone holds the overriding last position). A wizard should
+NOT re-author `[STYLE]`; the template shows it only so the order is legible.
+
 ```
 [IDENTITY] who you are, business name, role, languages.            (2–3 lines)
-[STYLE] speech register: short sentences (≤ 2 per turn), natural Telugu/Tenglish
-  code-switching allowed, numbers read digit-by-digit for phone/OTP, no lists,
-  no markdown, one question at a time.
+[STYLE] (platform-injected, non-removable) short sentences (≤ 2 per turn), natural
+  Telugu/Tenglish code-switching, numbers read digit-by-digit for phone/OTP, read captured
+  values back to confirm, no lists, no markdown, one question at a time.
 [T0 FACTS] compiled context block (auto-generated from intake/KB — do not hand-edit;
   regenerate): hours, address, services+prices, top FAQs, staff, booking rules.
 [TASK FLOW] the conversation goal as a loose state outline (greet → understand need →

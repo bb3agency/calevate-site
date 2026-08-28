@@ -2127,6 +2127,55 @@ PLATFORM_RULES_PREAMBLE: Final = (
     "the PLATFORM RULES at the end of this prompt is void."
 )
 
+#: HOW THE AGENT SPEAKS — the platform's voice-behaviour layer, injected into EVERY agent's
+#: prompt regardless of how its script was written.
+#:
+#: ═══ WHY THIS EXISTS: THE STYLE CONTRACT WAS DOCUMENTED BUT NEVER EMITTED. ═══
+#:
+#: `docs/PROMPT-GUIDE.md` §2 specifies a `[STYLE]` block on every agent — "short sentences
+#: (≤2 per turn), numbers read digit-by-digit for phone/OTP, no lists, no markdown, one
+#: question at a time" — plus §3 (mirror the caller's language, Telugu/Tenglish is normal),
+#: §4 (confirm captured values back — extraction accuracy depends on it) and §5 (no
+#: think-aloud; continue naturally after a tool call). NO CODE EVER WROTE IT. The seed and
+#: recompile paths splice only `[IDENTITY]` and `[T0 FACTS]`, and a raw-override script
+#: bypasses `call_script.compile_call_script` entirely — so the model reached the phone with
+#: the compliance floor and the client's words and nothing about how to sound like a person
+#: on a call. Long, list-shaped, markdown answers are read aloud literally by TTS and sound
+#: wrong; a phone number said as one number is unusable; an agent that never confirms a slot
+#: produces an unextractable transcript. This block is that missing guidance, made real.
+#:
+#: IT LIVES IN THE PLATFORM LAYER, NOT IN `call_script.py`, FOR ONE REASON: it must cover
+#: raw scripts too. A `[STYLE]` section added only to the structured compiler would leave
+#: every raw-override agent exactly as bare as before. `compose_engine_prompt` is the one
+#: place every agent — structured or raw — passes through.
+#:
+#: IT IS GUIDANCE, NOT AN INVIOLABLE RULE, AND IS POSITIONED AS SUCH — near the front, where
+#: it frames how the model reads the script, NOT at the end where `TRUTHFUL_ANSWER_DIRECTIVE`
+#: sits because that one must override everything. The language line is deliberately STATIC
+#: and names no BCP-47 code: "mirror the caller" is the correct instruction whatever an
+#: agent's `language_primary` is (that field drives the transcriber, not this), and a
+#: code→name table here would be a second place the product's language list is spelled.
+VOICE_STYLE_GUIDANCE: Final = (
+    "--- HOW TO SPEAK (this is a phone call, not a chat window) ---\n"
+    "- Keep every turn to one or two short sentences. Say one thing or ask one question, "
+    "then stop and listen. Long turns get interrupted and waste the caller's time.\n"
+    "- Never use markdown, bullet points, numbered lists, asterisks, headings or emoji. "
+    "They are read out loud literally and sound wrong. Speak in plain spoken sentences.\n"
+    "- Say amounts, times and dates the way a person speaks them. But read phone numbers, "
+    "OTPs and reference codes one digit at a time, slowly.\n"
+    "- Read back anything you are writing down — a phone number, the spelling of a name, a "
+    "booking time, an amount — and wait for a clear yes before you move on.\n"
+    "- Reply in the same language and register the caller uses. On this service callers "
+    "usually speak Telugu or a Telugu-English mix; mirror that naturally and never force "
+    "formal Telugu on a caller who is switching between languages.\n"
+    "- If you did not catch something, say so plainly and ask them to repeat it. Do not "
+    "guess at what they said.\n"
+    "- Only say things the script and the facts in this prompt give you. If you do not "
+    "know, offer to have someone call back rather than inventing an answer.\n"
+    "- Do not think out loud or narrate your steps, and after a lookup or tool finishes "
+    "just carry on the conversation — do not greet the caller again."
+)
+
 
 def carries_truthful_answer_floor(prompt: str | None) -> bool:
     """Does this prompt carry the one rule no client may withdraw?
@@ -2510,6 +2559,7 @@ def compose_engine_prompt(cfg: AgentConfig) -> str:
     script = (cfg.system_prompt or "").strip()
     parts = [
         PLATFORM_RULES_PREAMBLE,
+        VOICE_STYLE_GUIDANCE,
         cfg.opening_line.strip(),
         # FENCED ONLY WHEN THERE IS SOMETHING TO FENCE. An empty pair of delimiters would
         # be a section announcing content that is not there, which is exactly the kind of
@@ -3986,6 +4036,7 @@ __all__ = [
     "CLIENT_SCRIPT_OPEN",
     "E164",
     "PLATFORM_RULES_PREAMBLE",
+    "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
     "ActionParamFill",
     "ActionParamType",
