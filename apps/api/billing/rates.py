@@ -655,6 +655,17 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     LLM makes the correction matter. Taking `minutes` as an argument is what stops the
     cost model quoting minute one and reasoning about minute ten.
 
+    **THE ONE LEVER THAT WOULD BEND THIS CURVE IS PROMPT CACHING, AND WHETHER THE ENGINE
+    EXPOSES IT IS UNKNOWN — NOT IN THE MIRROR (OPERATIONS §2 gate 42).** The system prompt
+    is byte-identical every turn (`compose_engine_prompt`), so a provider that cached the
+    resent prefix would bill it at a cache-hit rate — but the Bolna docs mirror documents
+    prompt caching for DeepSeek ONLY (`bolna-findings/mirror/pages/providers/llm-model/
+    deepseek.md:59-61`), not for our azure-openai / openai / google legs, and exposes no
+    cache field on the agent config. This function therefore prices the FULL resend, with
+    NO cache discount assumed: a saving nobody has cited may not be folded into the margin
+    model (hard rule 11). Gate 42 closes it with a primary source and a `cached_tokens`
+    reading on a real call; until then this curve is the honest one.
+
     **AND `model` IS KEYWORD-ONLY AND HAS NO DEFAULT** for the reason the section comment
     gives: the two selectable models differ by 2.7x, the switch between them is live, and
     a default here would make every caller's silence read as a claim about which one is
