@@ -54,6 +54,7 @@ import {
   type Focusable,
 } from "./ScriptSections";
 import { AssistPanel } from "./AssistPanel";
+import { scriptCopilotFields } from "./scriptSurface";
 
 // Soft budget from PROMPT-GUIDE §1: ~2,500 tokens total. We count characters (the client
 // has no tokenizer) and warn past a conservative character equivalent — this is guidance,
@@ -165,57 +166,10 @@ function Editor({
     route: "/c/{slug}/agents/{id}/script",
     title: raw ? "Call script (raw)" : "Call script",
     realm: "client",
-    fields: raw
-      ? [
-          {
-            id: "script-raw_override",
-            label: "Script body (raw)",
-            type: "textarea",
-            value: script.raw_override ?? "",
-            help: "Sent to the engine verbatim. The structured fields are ignored while this is set.",
-          },
-        ]
-      : [
-          {
-            id: "script-opening_line",
-            label: "Opening line",
-            type: "textarea",
-            value: script.opening_line,
-            help: "The first thing the caller hears, after the compliance sentences.",
-          },
-          ...script.steps.map((step, index) => ({
-            id: `script-steps-${index}-instruction`,
-            label: `Step ${index + 1}`,
-            type: "textarea" as const,
-            value: step.instruction,
-          })),
-          ...script.faqs.flatMap((faq, index) => [
-            {
-              id: `script-faqs-${index}-question`,
-              label: `FAQ ${index + 1} question`,
-              type: "text" as const,
-              value: faq.question,
-            },
-            {
-              id: `script-faqs-${index}-answer`,
-              label: `FAQ ${index + 1} answer`,
-              type: "textarea" as const,
-              value: faq.answer,
-            },
-          ]),
-          {
-            id: "script-faq_fallback",
-            label: "What it says when it does not know",
-            type: "textarea",
-            value: script.faq_fallback,
-          },
-          ...script.end_call_extra_rules.map((rule, index) => ({
-            id: `script-end_call_extra_rules-${index}`,
-            label: `End-of-call rule ${index + 1}`,
-            type: "text" as const,
-            value: rule,
-          })),
-        ],
+    // The `<field>` list, with the system-prompt drafting steer on its `help` (why the steer
+    // and why `help` is its channel: `scriptSurface.ts`). Pure and split out so the model's
+    // whole view of this screen is testable without the editor's query hooks.
+    fields: scriptCopilotFields(script, raw),
     facts: script.variables.map((variable) => ({
       key: variable.key,
       label: `Variable {{${variable.key}}}`,
