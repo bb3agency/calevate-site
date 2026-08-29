@@ -331,14 +331,21 @@ export default function CallDetailPage({
                 // acting on it (today: a phone that is not a standard Indian mobile). The
                 // value still shows — it is usable — with an amber note carrying the reason.
                 const review = detail.extraction_needs_review?.[key];
+                // dt and dd are DIRECT children of the single wrapper div — a <dl> accepts
+                // a <div> that groups a dt/dd, but NOT a div nesting another div around them
+                // (axe definition-list / dlitem). The review note is a full-width sibling
+                // that wraps beneath via flex-wrap.
                 return (
-                  <div key={key} className="border-b border-line py-1.5 text-sm">
-                    <div className="flex justify-between gap-4">
-                      <dt className="capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
-                      <dd className="text-right font-medium text-ink">{formatValue(value)}</dd>
-                    </div>
+                  <div
+                    key={key}
+                    className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-line py-1.5 text-sm"
+                  >
+                    <dt className="capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
+                    <dd className="text-right font-medium text-ink">{formatValue(value)}</dd>
                     {review && (
-                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{review}</p>
+                      <p className="mt-1 w-full text-xs text-amber-700 dark:text-amber-400">
+                        {review}
+                      </p>
                     )}
                   </div>
                 );
