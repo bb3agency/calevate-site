@@ -133,43 +133,37 @@ const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[
     icon: PhoneIncoming,
     title: "It answers the phone",
     body:
-      "A receptionist that picks up, answers what people ask about your business, and " +
-      "writes down what they wanted — in Telugu, Hindi or English.",
+      "Picks up, answers what callers ask, and writes down what they wanted.",
   },
   {
     icon: Megaphone,
     title: "It calls your list back",
     body:
-      "Upload a list and the agent works through it. Anyone who doesn't answer is tried " +
-      "again later, and you can pause the whole thing at any point.",
+      "Upload a list. It works through it, retries the no-answers, and stops when you say.",
   },
   {
     icon: Table2,
     title: "Every enquiry lands as a row",
     body:
-      "You decide what the agent has to find out — name, area, budget, which treatment — " +
-      "and those become the columns you sort and follow up from.",
+      "Name, area, budget, treatment — you pick the questions, they become your columns.",
   },
   {
     icon: FileAudio,
     title: "You can listen back",
     body:
-      "Every call is recorded and kept. The moments that matter are timestamped, so you " +
-      "jump to where the slot was agreed instead of replaying the whole call.",
+      "Every call recorded, with the moment the slot was agreed timestamped for you.",
   },
   {
     icon: Webhook,
     title: "It reaches your own tools",
     body:
-      "Send each enquiry to your CRM over a signed webhook, or straight into a Google " +
-      "Sheet. Every delivery is logged, and failures are retried.",
+      "Straight into your CRM or a Google Sheet. Deliveries logged, failures retried.",
   },
   {
     icon: Database,
     title: "Your knowledge, under your control",
     body:
-      "Upload your price list or FAQs. Nothing an agent says from it goes live until " +
-      "somebody approves it, and we check the published copy still matches ours.",
+      "Upload your price list. Nothing goes live until a person approves it.",
   },
 ];
 
@@ -207,26 +201,23 @@ const QUALIFICATION: { icon: typeof Filter; title: string; body: string }[] = [
     icon: PhoneOutgoing,
     title: "Everyone on the list gets the first call",
     body:
-      "Not the ones your team got to before the day ran out — all of them, in the order " +
-      "they came in. A web enquiry becomes an outgoing call without waiting for someone " +
-      "to notice it, and the gap between the form and the dial is timed on every one.",
+      "All of them, in the order they came in. A web enquiry becomes a call without " +
+      "waiting for someone to notice it, and the gap between the form and the dial is " +
+      "timed on every one.",
   },
   {
     icon: Filter,
     title: "They come back sorted, not just recorded",
     body:
-      "Each call lands as a row with the things you said you needed to know filled in, " +
-      "and the lead marked — contacted, interested, hot. Someone who says they want to " +
-      "book reaches you as an alert while they are still thinking about it.",
+      "Each one lands as a row, marked contacted, interested or hot. A hot lead alerts " +
+      "you while they are still thinking about it.",
   },
   {
     icon: Handshake,
     title: "Your people open the day on a shortlist",
     body:
-      "The long conversation happens with someone who has already been spoken to and " +
-      "already said they are interested. Nobody spends their morning finding out who is " +
-      "not. Your dashboard reads it back as a funnel: calls, the ones that became " +
-      "conversations, and the ones that turned into a qualified lead.",
+      "Your team talks to people who already said yes. Nobody spends the morning " +
+      "finding out who didn’t.",
   },
 ];
 
@@ -236,15 +227,15 @@ const COMPLIANCE: { icon: typeof Clock; title: string; body: string }[] = [
     icon: Clock,
     title: "9am to 9pm, always",
     body:
-      "Outbound calling hours are fixed by the platform, not by a setting you can raise. " +
-      "A campaign cannot dial outside them.",
+      "Fixed by the platform, not by a setting you can raise. A campaign cannot dial " +
+      "outside them.",
   },
   {
     icon: ShieldCheck,
     title: "Do-not-call is checked first",
     body:
-      "Suppressed numbers are scrubbed before every dispatch, and anyone who asks to be " +
-      "removed during a call is added straight away.",
+      "Scrubbed before every dispatch. Anyone who asks to be removed mid-call is added " +
+      "immediately.",
   },
   {
     icon: BadgeCheck,
@@ -470,9 +461,8 @@ export default function Home() {
                   to a call you couldn&apos;t take.
                 </h1>
                 <p data-hero-item className="mt-6 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl">
-                  Calevate is an AI receptionist that picks up when you can&apos;t. It answers
-                  your callers, follows up on the enquiries you already have, and writes down
-                  what each person wanted — in Telugu, Hindi or English.
+                  An AI receptionist that answers your callers and chases your leads — in
+                  Telugu, Hindi or English.
                 </p>
                 <div data-hero-item className="mt-9 flex flex-wrap items-center gap-3">
                   <Link href="/signup" className={CTA_PRIMARY}>
@@ -583,7 +573,7 @@ export default function Home() {
                       <Icon aria-hidden className="h-5 w-5" />
                     </span>
                     <h3 className="mt-5 text-[17px] font-semibold text-ink">{title}</h3>
-                    <p className="mt-1.5 text-sm text-ink-muted">{body}</p>
+                    <p className="mt-1.5 text-sm text-pretty text-ink-muted">{body}</p>
                   </Reveal>
                 ))}
               </div>
@@ -625,7 +615,7 @@ export default function Home() {
                       <Icon aria-hidden className="h-5 w-5" />
                     </span>
                     <h3 className="mt-5 text-[17px] font-semibold text-ink">{title}</h3>
-                    <p className="mt-1.5 text-sm text-ink-muted">{body}</p>
+                    <p className="mt-1.5 text-sm text-pretty text-ink-muted">{body}</p>
                   </Reveal>
                 ))}
               </div>
@@ -784,7 +774,7 @@ export default function Home() {
                         className="rounded-2xl border border-line bg-surface p-5"
                       >
                         <dt className="text-[17px] font-semibold text-ink">{term}</dt>
-                        <dd className="mt-1.5 text-sm text-ink-muted">{detail}</dd>
+                        <dd className="mt-1.5 text-sm text-pretty text-ink-muted">{detail}</dd>
                       </div>
                     ))}
                   </dl>
@@ -937,7 +927,7 @@ export default function Home() {
                       <Icon aria-hidden className="h-5 w-5" />
                     </span>
                     <h3 className="mt-5 text-[17px] font-semibold text-ink">{term}</h3>
-                    <p className="mt-1.5 text-sm text-ink-muted">{detail}</p>
+                    <p className="mt-1.5 text-sm text-pretty text-ink-muted">{detail}</p>
                   </Reveal>
                 ))}
               </div>
@@ -978,7 +968,7 @@ export default function Home() {
                       {String(index + 1).padStart(2, "0")}
                     </span>
                     <h3 className="mt-3 text-[17px] font-semibold text-ink">{term}</h3>
-                    <p className="mt-1.5 text-sm text-ink-muted">{detail}</p>
+                    <p className="mt-1.5 text-sm text-pretty text-ink-muted">{detail}</p>
                   </Reveal>
                 ))}
               </div>
@@ -1011,7 +1001,7 @@ export default function Home() {
                   className="rounded-2xl border border-line bg-surface p-6"
                 >
                   <h2 className="text-[17px] font-semibold text-ink">Already a client</h2>
-                  <p className="mt-1.5 text-sm text-ink-muted">
+                  <p className="mt-1.5 text-sm text-pretty text-ink-muted">
                     Your workspace is at{" "}
                     <code className="rounded bg-black/5 px-1 font-mono text-[13px] text-ink dark:bg-white/10">
                       /c/your-slug
@@ -1053,7 +1043,7 @@ export default function Home() {
                   <h2 className="text-[17px] font-semibold text-ink">
                     {SIGNUP_OPEN ? "New here" : "Not a client yet"}
                   </h2>
-                  <p className="mt-1.5 text-sm text-ink-muted">
+                  <p className="mt-1.5 text-sm text-pretty text-ink-muted">
                     {SIGNUP_OPEN
                       ? "Create your workspace and set up your first agent. Nothing calls anyone until you say so."
                       : "Calevate does not open accounts online. Every workspace is set up by hand with you."}
