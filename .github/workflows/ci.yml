@@ -493,6 +493,45 @@ jobs:
       - name: mypy (strict)
         run: uv run mypy apps packages
 
+  dependency-audit:
+    # Hard rule 9's STRUCTURAL BACKSTOP, which was missing. `pnpm-workspace.yaml`'s
+    # `minimumReleaseAge` quarantines a FRESHLY published malicious version for 24h, and
+    # the hand-added `overrides` pin past a KNOWN advisory — but nothing detected a CVE
+    # disclosed against a version already sitting in the lockfile. That is exactly what an
+    # audit gate is for. "Run `pnpm audit` regularly" (hard rule 9) had no enforcer; this
+    # is it, on both ecosystems.
+    #
+    # BLOCKING AT high/critical ONLY, deliberately. A moderate/low advisory should not
+    # wedge every merge in a one-week-old product with no on-call rotation; high and
+    # critical do. Both audits were run clean at this level before this gate was added, so
+    # it goes in green rather than red-on-arrival (the wrong way to introduce a gate).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+      # The FULL dependency set CI ships, INCLUDING the `errors` group (sentry-sdk runs on
+      # api and workers in production, DEPLOYMENT §8), so the audit sees every dependency
+      # that actually ships — not just the root's. `--group errors` on every `uv sync` is
+      # also what `guardrail_audit_test` requires of every job.
+      - run: uv sync --all-packages --group errors
+      # pip-audit installed INTO the project venv so `--local` audits the resolved tree.
+      # NOT `--strict`: our own `calevate-shared` workspace package is "not found on PyPI"
+      # and is skipped, which `--strict` would (wrongly) treat as a failure. A real CVE
+      # still exits non-zero without it.
+      - name: "pip-audit (Python deps)"
+        run: uv run --with pip-audit pip-audit --local
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4.3.0 (@v4 tip)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # `--audit-level=high` so only high/critical fail the build (see the job comment).
+      - name: "pnpm audit (JS deps)"
+        run: pnpm -C apps/web audit --audit-level=high
+
   deploy-artefacts:
     # THE FILES THAT PUT THIS SYSTEM IN PRODUCTION HAD NO CI STEP OF ANY KIND.
     #

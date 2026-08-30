@@ -77,6 +77,49 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "staff") -> str:
 # --- 1. totality --------------------------------------------------------------------
 
 
+def test_validation_fields_drops_the_offending_input_value() -> None:
+    """The converter a service uses instead of `detail=str(exc)` — which in pydantic v2
+    embeds `input_value=…` and round-trips the submitter's own secret back to them
+    (a `custom_api` action config can hold a credential the user typed). It keeps the field
+    NAME and the rule (what they need to fix it) and drops the value entirely."""
+    from apps.api.core.errors import validation_fields
+    from pydantic import BaseModel, ValidationError
+
+    class _Cfg(BaseModel):
+        endpoint: str
+        secret: str
+
+    try:
+        _Cfg.model_validate({"endpoint": 123, "secret": "sk-live-super-secret-value"})
+    except ValidationError as exc:
+        fields = validation_fields(exc)
+        rendered = str(fields)
+        assert any(f["field"] == "endpoint" for f in fields), fields
+        # The submitted values — including the secret — never appear in the output.
+        assert "sk-live-super-secret-value" not in rendered
+        assert "123" not in rendered
+    else:  # pragma: no cover - the input above is invalid by construction
+        raise AssertionError("expected a ValidationError")
+
+
+def test_validation_fields_keeps_the_full_field_path_for_a_raw_pydantic_error() -> None:
+    """A raw `ValidationError` (from `model_validate`) has no source prefix on its `loc`,
+    unlike fastapi's `RequestValidationError`, so the top-level field name must survive —
+    the reason `validation_fields` joins the whole `loc` rather than slicing `[1:]`."""
+    from apps.api.core.errors import validation_fields
+    from pydantic import BaseModel, ValidationError
+
+    class _Cfg(BaseModel):
+        base_url: str
+
+    try:
+        _Cfg.model_validate({})
+    except ValidationError as exc:
+        assert validation_fields(exc)[0]["field"] == "base_url"
+    else:  # pragma: no cover
+        raise AssertionError("expected a ValidationError")
+
+
 def test_every_error_kind_renders_a_remediation() -> None:
     """Off the type, not off a list — widening `ErrorKind` cannot leave the floor behind.
 

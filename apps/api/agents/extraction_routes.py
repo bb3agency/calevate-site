@@ -113,7 +113,9 @@ def _validate_fields(fields: list[ExtractionField]) -> None:
             kind="validation",
             code="extraction_schema_invalid",
             title="That variable list can't be saved",
-            detail=str(exc),
+            # Not `str(exc)`: pydantic v2 embeds `input_value=…` (the submitted variable
+            # definitions). A generic detail plus the field marker is what the form needs.
+            detail="One or more variables are invalid.",
             fields=[{"name": "fields", "reason": "invalid variable list"}],
         ) from exc
 

@@ -27,7 +27,7 @@ from apps.api.actions.schema import (
     ParamSpec,
     WhatsAppConfig,
 )
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import ProblemError, validation_fields
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -84,11 +84,17 @@ def _parse_config(
             return WhatsAppConfig.model_validate(config)
         return CalendarConfig.model_validate(config)
     except ValueError as exc:
+        # `detail=str(exc)` here round-tripped the operator's own submitted config back to
+        # them, and a `custom_api` action config can contain a credential they typed — in
+        # pydantic v2 `str(ValidationError)` embeds `input_value=…`. Emit the flat field
+        # triple instead (field name + rule, value dropped), which is what they need to fix
+        # it, via the one converter the global validation handler's shape comes from.
         raise ProblemError(
             kind="validation",
             code="action_config_invalid",
             title="That action is not configured correctly",
-            detail=str(exc),
+            detail="One or more fields are invalid.",
+            fields=validation_fields(exc),
             remediation="Check the fields for this integration and try again.",
         ) from exc
 

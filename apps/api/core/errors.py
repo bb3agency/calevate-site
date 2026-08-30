@@ -219,6 +219,35 @@ class InvalidStatusTransitionError(ProblemError):
         )
 
 
+def validation_fields(exc: Exception) -> list[dict[str, str]]:
+    """A hand-caught pydantic `ValidationError` as our flat `{field, rule, message}` triple,
+    with the offending `input` DROPPED (hard rule 6: it can be a phone number — or, on the
+    action-config route, a credential the caller typed).
+
+    For a service that catches `Model.model_validate(...)` and would otherwise put
+    `detail=str(exc)` on a `ProblemError` — which in pydantic v2 embeds `input_value=…` and
+    round-trips the submitter's own secret back to them. This keeps the field NAMES and the
+    rule (which the submitter needs to fix their input) and discards only the value.
+
+    THE FULL `loc` IS JOINED, unlike the global `RequestValidationError` handler which slices
+    `[1:]`: fastapi prepends the source (`"body"`/`"query"`) to every loc, a raw
+    `ValidationError` from `model_validate` does not — so slicing here would drop the
+    top-level field name. `errors()` exists on `pydantic.ValidationError`; anything else
+    yields one generic field rather than raising, so a caller can pass whatever it caught.
+    """
+    errors = exc.errors() if hasattr(exc, "errors") else []
+    if not errors:
+        return [{"field": "body", "rule": "invalid", "message": "Invalid value"}]
+    return [
+        {
+            "field": ".".join(str(p) for p in err.get("loc", ())) or "body",
+            "rule": str(err.get("type", "invalid")),
+            "message": str(err.get("msg", "Invalid value")),
+        }
+        for err in errors
+    ]
+
+
 def _problem_response(problem: dict[str, Any], headers: dict[str, str]) -> JSONResponse:
     return JSONResponse(
         status_code=int(problem["status"]),
