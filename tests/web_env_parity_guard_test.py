@@ -157,13 +157,22 @@ class TestUndeclaredReads:
         self, tree: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """The typo case, which is the likeliest of all and the one `tsc` is blindest to:
-        `process.env.ANYTHING` type-checks."""
-        _edit(
-            tree,
+        `process.env.ANYTHING` type-checks.
+
+        The key has more than one legitimate reader (the API client and the CSP builder's
+        env-derived connect origin), so the "now dead" half only holds once EVERY reader is
+        misspelled — a single typo would leave a surviving reader and the key alive. Mutating
+        all of them is what makes the dead-declaration assertion below mean what it says."""
+        for relative in (
             "apps/web/src/lib/api/client.ts",
-            "process.env.NEXT_PUBLIC_API_BASE_URL",
-            "process.env.NEXT_PUBLIC_API_BASEURL",
-        )
+            "apps/web/src/lib/security/csp.ts",
+        ):
+            _edit(
+                tree,
+                relative,
+                "process.env.NEXT_PUBLIC_API_BASE_URL",
+                "process.env.NEXT_PUBLIC_API_BASEURL",
+            )
         code, output = _run(tree, capsys)
         assert code == 1
         assert "NEXT_PUBLIC_API_BASEURL is read at" in output
