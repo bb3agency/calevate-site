@@ -346,13 +346,30 @@ async def _at_the_ceiling(tenant_id: UUID, monkeypatch: pytest.MonkeyPatch) -> N
     """Past the included allowance with NO usage rows. The tier constant goes to zero
     rather than the tenant being charged into the ceiling: writing hundreds of rupees of
     usage would move `platform_ai_spend`, the one counter this file shares with every other
-    suite."""
+    suite.
+
+    **AND THE CLOCK IS PINNED, BECAUSE THIS TEST FAILED FOR ONE HOUR A MONTH AND NOBODY
+    WOULD HAVE BELIEVED WHY.** `require_ai_assist` asks `month_is_ending` before it raises
+    `ai_quota_exceeded`, and inside the last `LAST_SALEABLE_MINUTES` of an IST month it
+    correctly raises `ai_extra_month_ending` instead — a different code, a different
+    sentence, and a red suite for anyone who ran it after 23:00 IST on the last day
+    (observed 31 Aug 2026, 17:38 UTC). That is right behaviour and the wrong dependency for
+    a test about a ceiling: the assertion here is which refusal a tenant at its ceiling
+    gets, not what time it is.
+
+    Pinned FALSE, and pinned in the fixture rather than per test, so every ceiling test in
+    this file asserts the same state whatever hour it runs in. The month-ending refusal has
+    its own coverage in `tests/ai_quota_test.py`, which pins the boundary from both sides
+    with an explicit `now=` — this is the same `patch.setattr(ai_quota, "month_is_ending",
+    ...)` that file already uses, pointed the other way.
+    """
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :i"),
             {"i": tenant_id},
         )
     monkeypatch.setitem(ai_quota.AI_QUOTA_INR, "self_serve", Decimal("0.00"))
+    monkeypatch.setattr(ai_quota, "month_is_ending", lambda month, **kwargs: False)
 
 
 async def test_a_tenant_at_its_ceiling_is_refused_before_the_provider_is_reached(
