@@ -55,6 +55,7 @@ import { InlineName } from "./InlineName";
 import { RowFailure } from "./RowFailure";
 import { SavedViewBar } from "./SavedViewBar";
 import { STATUSES, StatusSelect } from "./StatusSelect";
+import { Pagination } from "@/components/interior/pagination";
 
 /**
  * The CRM table — every lead an agent captured, and the one place a client works them.
@@ -207,11 +208,20 @@ export default function LeadsPage() {
     columns: chosenColumns,
   };
 
+  // WHICH page of the lens. Row 101 used to be unreachable through the UI — the footer
+  // printed an honest "Showing 100 of 1,240" and then stopped, leaving the majority of
+  // an established account's CRM permanently invisible (ux-audit L1, its top blocker).
+  // The server side always took {limit, offset}; this is the missing control.
+  const [offset, setOffset] = useState(0);
+
   // Every filter on this screen is a SERVER-side filter — the chips, the search box, the
   // owner and the facets. The page is capped at 100 rows, so a filter applied here would
   // be a filter over whatever happened to load (BUILD-LOG §52 counts four defects of
   // exactly that shape, including the stage tally on this very screen).
-  const leads = useLeadsUnderLens(session, lens, { limit: PAGE_SIZE });
+  const leads = useLeadsUnderLens(session, lens, {
+    limit: PAGE_SIZE,
+    offset: offset || undefined,
+  });
   const facets = useLeadFacets(session, lens);
   const savedViews = useSavedViews(session);
   const exportLeads = useExportLeads(session);
@@ -289,7 +299,18 @@ export default function LeadsPage() {
    * under — so it does not. `lensKey` is the same string the query is keyed by, which
    * means "the lens moved" here and "refetch" there are the same event by construction.
    */
-  const currentLens = lensKey(lens, { limit: PAGE_SIZE });
+  // A changed FILTER returns to page one: page 4 of "hot" is not page 4 of "won", and
+  // an offset kept across the switch would show a short page and read as missing leads.
+  // Keyed WITHOUT the offset, or this effect would undo every page turn.
+  const filterKey = lensKey(lens, { limit: PAGE_SIZE });
+  useEffect(() => {
+    setOffset(0);
+  }, [filterKey]);
+
+  // Keyed WITH the offset: turning the page moves the ticked rows out from under an
+  // `ids` selection, so a page change clears it exactly like a filter change does — the
+  // page-scoped select-all checkbox must never carry across pages (L1's constraint).
+  const currentLens = lensKey(lens, { limit: PAGE_SIZE, offset: offset || undefined });
   useEffect(() => {
     setSelection(EMPTY_SELECTION);
     setBulkResult(null);
@@ -1035,7 +1056,11 @@ export default function LeadsPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-line bg-surface px-4 py-3 text-xs text-ink-muted">
           <span>
             Showing{" "}
-            <span className="font-semibold tabular-nums text-ink">{formatCount(items.length)}</span>{" "}
+            <span className="font-semibold tabular-nums text-ink">
+              {leads.data.total > PAGE_SIZE && items.length > 0
+                ? `${formatCount(offset + 1)}–${formatCount(offset + items.length)}`
+                : formatCount(items.length)}
+            </span>{" "}
             of {formatCount(leads.data.total)}
             {status ? ` ${status}` : ""} {leads.data.total === 1 ? "lead" : "leads"}.
           </span>
@@ -1048,6 +1073,21 @@ export default function LeadsPage() {
               </span>
             </span>
           ))}
+        </div>
+      )}
+
+      {/* The way past row 100 (ux-audit L1). Rendered only off the SERVER's total — a
+          failed read draws no pager, and one page draws none either. Numbered pages
+          rather than load-more because a CRM table is revisited by position ("they were
+          on page 3") and both views share the one offset. */}
+      {leads.data && leads.data.total > PAGE_SIZE && (
+        <div className="flex justify-center">
+          <Pagination
+            count={Math.ceil(leads.data.total / PAGE_SIZE)}
+            page={Math.floor(offset / PAGE_SIZE) + 1}
+            onPageChange={(page) => setOffset((page - 1) * PAGE_SIZE)}
+            label="Lead pages"
+          />
         </div>
       )}
     </div>

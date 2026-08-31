@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import LeadsPage from "@/app/c/[slug]/leads/page";
@@ -652,6 +652,54 @@ describe("the counts come from the server or are not shown", () => {
  * the filter is a REQUEST and not a slice, the unassignment is an explicit `null` in the
  * body, and a dead `/v1/members` refuses rather than rendering an empty team.
  */
+describe("the way past row 100 (ux-audit L1)", () => {
+  const PAGE_ONE = leadList(
+    Array.from({ length: 100 }, (_, i) =>
+      lead({ id: `lead-${i}`, name: `Lead ${i}`, phone_e164: `+9198765${String(43000 + i)}` }),
+    ),
+    { total: 150 },
+  );
+  const PAGE_TWO = leadList(
+    Array.from({ length: 50 }, (_, i) =>
+      lead({ id: `lead-${100 + i}`, name: `Lead ${100 + i}` }),
+    ),
+    { total: 150, offset: 100 },
+  );
+
+  it("turns the page server-side: page 2 asks for offset 100 and shows the range it holds", async () => {
+    const { calls, container } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "POST /v1/leads/search": (call: ApiCall) =>
+          lensOf(call).offset === 100 ? PAGE_TWO : PAGE_ONE,
+      }),
+    );
+
+    await screen.findByText("Lead 0");
+    // The footer names the RANGE, and the pager exists — row 101 used to be unreachable.
+    expect(container.textContent).toContain("Showing 1–100 of 150");
+    const pager = await screen.findByRole("navigation", { name: "Lead pages" });
+    fireEvent.click(within(pager).getByRole("button", { name: /page 2/i }));
+
+    await screen.findByText("Lead 149");
+    expect(container.textContent).toContain("Showing 101–150 of 150");
+    await vi.waitFor(() => {
+      expect(
+        calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).offset === 100),
+      ).toBe(true);
+    });
+  });
+
+  it("does not offer a pager it cannot honour — one page draws none", async () => {
+    await renderClientPage(
+      <LeadsPage />,
+      routes({ "POST /v1/leads/search": leadList([lead()]) }),
+    );
+    await screen.findByText("Ramesh Kumar");
+    expect(screen.queryByRole("navigation", { name: "Lead pages" })).toBeNull();
+  });
+});
+
 describe("who owns a lead", () => {
   const ASSIGNED = leadList([lead({ assigned_to: "u2", assigned_to_name: "Kiran Babu" })], {
     total: 1,
