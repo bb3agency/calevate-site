@@ -236,6 +236,60 @@ async def test_the_loop_is_capped_and_says_so_rather_than_spinning(
     assert events[-1].spend is not None
 
 
+async def test_the_azure_turn_requests_the_output_ceiling(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every streamed turn carries `MAX_ANSWER_TOKENS` — the spend valve.
+
+    FAILS IF: the cap stops reaching `chat.stream`. Without it the only brake on a model
+    that keeps talking is `TOTAL_BUDGET_S` — 90 seconds of PAID output tokens, per turn.
+    """
+    kwargs_seen: list[dict[str, Any]] = []
+
+    def _stream(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> AsyncIterator[chat.StreamEvent]:
+        kwargs_seen.append(kwargs)
+
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            for event in _turn(content="Nine."):
+                yield event
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _stream)
+    await _drain()
+    assert kwargs_seen and kwargs_seen[0]["max_tokens"] == service.MAX_ANSWER_TOKENS
+
+
+async def test_a_turn_cut_off_at_the_ceiling_is_logged_and_the_answer_still_lands(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`finish_reason == "length"` is the valve FIRING — a runaway generation, cut off.
+
+    The person still gets what was said (truncated prose has already reached the screen)
+    and the run is still metered; what must not happen is silence, because a turn that HIT
+    the ceiling spent the ceiling. FAILS IF: the warning stops being emitted, or a
+    truncated turn starts being treated as an error that loses the answer.
+    """
+    truncated = [
+        chat.StreamEvent(text="Nine in the mor"),
+        chat.StreamEvent(
+            outcome=chat.ChatOutcome(
+                content="Nine in the mor",
+                finish_reason="length",
+                usage=chat.TokenUsage(prompt_tokens=100, output_tokens=service.MAX_ANSWER_TOKENS),
+            )
+        ),
+    ]
+    _scripted(monkeypatch, [truncated])
+    with caplog.at_level("WARNING"):
+        events = await _drain()
+    assert [e.text for e in events if e.text] == ["Nine in the mor"]
+    assert events[-1].spend is not None
+    assert any(record.message == "copilot_answer_truncated" for record in caplog.records)
+
+
 # --- the money -----------------------------------------------------------------------
 
 
@@ -338,6 +392,9 @@ async def test_azure_failing_before_a_single_fragment_falls_back_and_discloses(
     assert sent_messages and sent_messages[-1][-1]["role"] == "system"
     assert "NOT available to you" in str(sent_messages[-1][-1]["content"])
     assert sent_kwargs and "tools" not in sent_kwargs[-1]
+    # The spend valve travels on this leg too — `max_tokens` IS on Sarvam's own client's
+    # request body (VERIFIED-VENDOR-SDK, `workers/chat.py`), unlike `tools`.
+    assert sent_kwargs[-1]["max_tokens"] == service.MAX_ANSWER_TOKENS
     spend = events[-1].spend
     assert spend is not None
     assert spend.capability.provider == extraction_module.SARVAM_PROVIDER
@@ -458,6 +515,10 @@ async def test_the_gemini_leg_fills_a_field_non_streamed_on_the_accounts_own_mod
     assert leg.url == f"{google_openai_compat_base_url()}/chat/completions"
     # Tools were sent (field-filling works), and no `stream` — this is `chat.complete`.
     assert "tools" in calls[0]["kwargs"]
+    # NO `max_tokens` on this leg, deliberately: whether Gemini's OpenAI-compat surface
+    # accepts the key is UNVERIFIED from this container (`service.MAX_ANSWER_TOKENS`'s
+    # note), and an unsupported key is a 400 that kills a working leg.
+    assert "max_tokens" not in calls[0]["kwargs"]
     assert [e.fill for e in events if e.fill] == [
         (CopilotFillItem(field_id="open", value="09:00"),)
     ]

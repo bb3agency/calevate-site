@@ -176,6 +176,37 @@ async def test_a_streamed_sarvam_request_omits_the_stream_options_key_sarvam_has
     assert "stream_options" not in seen["body"]
 
 
+async def test_a_streamed_request_carries_the_output_ceiling_when_asked_and_omits_it_when_not() -> (
+    None
+):
+    """`stream(max_tokens=N)` puts the ceiling on the wire; the default omits the key.
+
+    THE MONEY SHAPE THIS PINS: a stream's read timeout only bounds SILENCE, so before
+    `stream()` grew this parameter the only brake on a model that kept talking was the
+    caller's wall clock — 90 seconds of paid output tokens on the copilot. FAILS IF: the
+    parameter stops reaching `_request_body`, or starts being sent unconditionally (an
+    always-spelled optional key is the `temperature` trap, `LlmModelSpec.traps`).
+    """
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, content=b"data: [DONE]\n\n")
+
+    async with _client(handler) as client:
+        async for _ in chat.stream(
+            LEG, [{"role": "user", "content": "q"}], timeout_s=1, max_tokens=64, client=client
+        ):
+            pass
+        async for _ in chat.stream(
+            LEG, [{"role": "user", "content": "q"}], timeout_s=1, client=client
+        ):
+            pass
+
+    assert bodies[0]["max_tokens"] == 64
+    assert "max_tokens" not in bodies[1]
+
+
 async def test_the_google_leg_sends_the_openai_body_and_a_bearer_key() -> None:
     """Gemini's OpenAI-compat surface takes the SAME envelope as OpenAI (D-478).
 
