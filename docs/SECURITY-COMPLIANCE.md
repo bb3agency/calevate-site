@@ -741,6 +741,19 @@ Identity & access
     for tenant Y at T from IP I"), and `admin.impersonation_read` is at most one per
     (admin, tenant) per minute ("data was actually reached"). They carry the same
     `grant_id` so a session's two halves join exactly.
+  - **DIRECT admin reads are in the same ledger since D-483 (D-482 L-1).** The console's
+    per-tenant screens — directory record, invitations, intake, margin, spend, invoice,
+    credits, commercial terms, feature flags, erasure records — read a client's
+    tenant-scoped rows WITHOUT impersonation, and until D-483 left no row.
+    `admin.tenant_read` (`core/auth.py::record_admin_tenant_read`) now records them,
+    coalesced per (admin, tenant) per minute under the same volume rule and the same
+    fail-towards-recording dedupe as `admin.impersonation_read`; the route template
+    rides in the log stream, never in the hashed row (hard rule 6). Roster boards that
+    walk EVERY tenant identically (`/v1/admin/tenants`, `/v1/admin/spend`,
+    `/v1/admin/client-health`, unfinished onboardings) are deliberately not per-tenant
+    audited: a row per client per board view is volume without a targeting signal, and
+    the boards return counters and money aggregates, not member or caller data.
+    Driven in `tests/admin_read_audit_test.py`.
   - `X-Impersonate-Org` is either ABSENT or a slug. A present-but-blank value is a
     request defect and is refused `422 impersonate_org_blank`, because the third state
     it used to produce was worse than either: `impersonating=True` with no

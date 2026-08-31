@@ -201,7 +201,7 @@ from apps.api.billing.service import (
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import credits_exhausted
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -1132,7 +1132,8 @@ async def record_restatement(
 )
 async def read_credits(
     tenant_id: UUID,
-    _: CreditsRead,
+    principal: CreditsRead,
+    request: Request,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
 ) -> CreditsOut:
     async with tenant_session(tenant_id) as scoped:
@@ -1173,6 +1174,10 @@ async def read_credits(
             scoped,
             tenant_id=tenant_id,
             payment_refs=sorted({str(row[6]) for row in rows if row[6] is not None}),
+        )
+        # D-482 L-1: a direct-admin read of one client's wallet joins the audit trail.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
         )
 
     return CreditsOut(

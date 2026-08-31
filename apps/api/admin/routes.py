@@ -40,7 +40,7 @@ from apps.api.billing.plans import IST, ist_billing_month, parse_billing_month
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import record_kyc
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import IMPERSONATE_HEADER, IMPERSONATION_GRANT_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
@@ -273,11 +273,17 @@ async def list_tenants(
 async def get_tenant(
     tenant_id: UUID,
     session: AdminSession,
-    _: Principal = Depends(requires("admin:tenants", realm="admin")),
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> TenantSummary:
     rows = await service.tenant_overview(session, tenant_id=tenant_id)
     if not rows:
         raise ProblemError.not_found("Client")
+    # D-482 L-1: a direct read of one client's record is in the ledger, like every other
+    # per-tenant admin read (coalesced — see `record_admin_tenant_read`).
+    await record_admin_tenant_read(
+        session, request=request, principal=principal, tenant_id=tenant_id
+    )
     return TenantSummary.model_validate(rows[0])
 
 
@@ -428,6 +434,7 @@ class PendingInviteOut(BaseModel):
 )
 async def list_tenant_invitations(
     tenant_id: UUID,
+    request: Request,
     # The same ceiling as the client-realm twin, `GET /v1/invitations` (D-302): one
     # question, one bound, so an operator and the client are reading the same list.
     limit: int = Query(200, ge=1, le=200),
@@ -453,7 +460,6 @@ async def list_tenant_invitations(
     nobody, next to a mint control that answers 404 for the same id
     (`assert_account_open`). One screen, two verdicts on whether the client exists.
     """
-    del principal
     from apps.api.db.session import tenant_session
     from apps.api.tenancy import members as members_service
 
@@ -461,6 +467,10 @@ async def list_tenant_invitations(
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
         rows = await members_service.list_pending_invitations(scoped, limit=limit)
+        # D-482 L-1: the addresses holding keys to this account are the client's data.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return [
         PendingInviteOut(
             id=row.id,
@@ -743,12 +753,20 @@ async def save_intake_draft(
 async def read_intake(
     tenant_id: UUID,
     agent_id: UUID,
-    _: Principal = Depends(requires("agents:read", realm="admin")),
+    request: Request,
+    principal: Principal = Depends(requires("agents:read", realm="admin")),
 ) -> IntakeStateOut:
     """No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
-    scope directly rather than opening the cross-tenant directory it does not need."""
+    scope directly rather than opening the cross-tenant directory it does not need.
+
+    Audited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry
+    incidental staff PII, which is exactly the class of read the DPDP trail must hold.
+    """
     async with tenant_session(tenant_id) as scoped:
         state = await intake.read_intake(scoped, agent_id=agent_id)
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return IntakeStateOut.model_validate(state)
 
 
@@ -1253,8 +1271,9 @@ class MarginOut(BaseModel):
 async def tenant_margin(
     tenant_id: UUID,
     session: AdminSession,
+    request: Request,
     month: str | None = None,
-    _: Principal = Depends(requires("billing:read", realm="admin")),
+    principal: Principal = Depends(requires("billing:read", realm="admin")),
 ) -> MarginOut:
     """Admin realm only. `unit_cost_paid` is our supplier pricing — it is the reason
     this lives here and not beside the client's usage panel.
@@ -1278,6 +1297,10 @@ async def tenant_margin(
         # land either side of a month boundary, publishing a cost total and a rung split
         # for different months on one card.
         tiers = await billing.tier_usage(scoped, tenant_id=tenant_id, month=str(margin["month"]))
+        # D-482 L-1, last in the transaction (the chain lock is held until COMMIT).
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     del session
     flat = {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
     # Projected through the response model's OWN field list rather than a prefix filter:
@@ -2199,7 +2222,8 @@ def _amount(value: Decimal | None) -> str | None:
 )
 async def read_commercial_terms(
     tenant_id: UUID,
-    _: Principal = Depends(requires("billing:read", realm="admin")),
+    request: Request,
+    principal: Principal = Depends(requires("billing:read", realm="admin")),
 ) -> CommercialTermsOut:
     """`billing:read`, matching the margin route — commercial terms are the same class
     of fact and an operator who may see one may see the other. It is not
@@ -2239,6 +2263,10 @@ async def read_commercial_terms(
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
+        # D-482 L-1: what a client pays is their data; the read joins the ledger.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return CommercialTermsOut(
         tenant_id=tenant_id,
         state=view.state,

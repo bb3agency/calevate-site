@@ -34,7 +34,7 @@ from time import perf_counter
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +49,7 @@ from apps.api.billing.attribution import (
     period_attribution,
 )
 from apps.api.billing.service import to_paise
-from apps.api.core.auth import requires
+from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
@@ -472,7 +472,8 @@ async def my_spend(
 async def tenant_spend(
     tenant_id: UUID,
     session: AdminSession,
-    _: AdminSpendReader,
+    principal: AdminSpendReader,
+    request: Request,
     month: str | None = None,
     limit: int = Query(DEFAULT_CALLS, ge=1, le=MAX_CALLS),
 ) -> TenantSpendOut:
@@ -501,6 +502,11 @@ async def tenant_spend(
         # design — see `AbsorbedAiSpendOut` — so this is where the copilot spend a client
         # generated becomes visible on the money board an operator opens.
         ai = await read_ai_quota(scoped, tenant_id=tenant_id, month=period.month)
+        # D-482 L-1: a direct-admin read of one client's money board joins the audit
+        # trail, coalesced per (admin, tenant) per minute.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     margin = _margin_of(period)
     ranked = _by_cost(period)
     return TenantSpendOut(

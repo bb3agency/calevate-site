@@ -40,12 +40,12 @@ from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.invoice import build_invoice
-from apps.api.core.auth import requires
+from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -242,11 +242,17 @@ def _out(invoice: dict[str, Any]) -> InvoiceOut:
 )
 async def tenant_invoice(
     tenant_id: UUID,
+    request: Request,
     month: str | None = None,
-    _: Principal = Depends(requires("billing:read", realm="admin")),
+    principal: Principal = Depends(requires("billing:read", realm="admin")),
 ) -> InvoiceOut:
     async with tenant_session(tenant_id) as scoped:
         invoice = await build_invoice(scoped, tenant_id=tenant_id, month=month)
+        # D-482 L-1: a direct-admin read of one client's bill joins the audit trail,
+        # coalesced per (admin, tenant) per minute like every other such read.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return _out(invoice)
 
 
