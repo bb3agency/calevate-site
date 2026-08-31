@@ -22,6 +22,7 @@ Four claims, in the order a reviewer would want them proved:
 from __future__ import annotations
 
 import ast
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -218,9 +219,18 @@ async def test_proposing_writes_nothing_and_confirming_lands_in_the_review_queue
     assert chunks == created["chunks"] >= 1
 
 
-async def test_a_confirmed_proposal_writes_an_audit_row_of_ids_only() -> None:
-    """Hard rule 4: the execution is recorded. Hard rule 6: the record holds no text —
-    a body written into an append-only ledger is a body erasure cannot reach."""
+async def test_a_confirmed_proposal_writes_an_audit_row_of_ids_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Hard rule 4: the execution is recorded, in the same transaction as the row it
+    describes. Hard rule 6: neither half carries the drafted text.
+
+    THE SUMMARY IS NOT A COLUMN. `write_audit` hashes actor/tenant/action/object/ip into
+    the chain and sends `summary` to the LOG STREAM instead, keyed by the entry id
+    (`compliance/audit.py`: hashing a field the row does not carry would make the chain
+    unverifiable). So this asserts the ROW through SQL and the SUMMARY through the log
+    record — which is also the half where a leaked body would actually end up.
+    """
     tenant, agent = await _tenant()
     principal = _principal(tenant)
     async with tenant_session(tenant) as session:
@@ -232,25 +242,35 @@ async def test_a_confirmed_proposal_writes_an_audit_row_of_ids_only() -> None:
             body=BODY,
             origin="copilot",
         )
-    async with tenant_session(tenant) as session:
-        created = await proposals.confirm_proposal(session, token=token, principal=principal)
+    with caplog.at_level(logging.INFO, logger="apps.api.compliance.audit"):
+        async with tenant_session(tenant) as session:
+            created = await proposals.confirm_proposal(session, token=token, principal=principal)
 
     async with tenant_session(tenant) as session:
         entry = (
             await session.execute(
                 text(
-                    "SELECT action, object_type, object_id, summary FROM audit_log "
-                    "WHERE object_id = :oid AND action = 'kb.proposal.confirm'"
+                    "SELECT action, object_type, object_id, actor_id, tenant_id, "
+                    "entry_hash FROM audit_log WHERE object_id = :oid "
+                    "AND action = 'kb.proposal.confirm'"
                 ),
                 {"oid": str(created["id"])},
             )
         ).one()
     assert entry.object_type == "kb_source"
-    assert entry.summary["origin"] == "copilot"
-    assert entry.summary["actor_realm"] == "client"
-    serialized = str(entry.summary)
-    assert "Saturday" not in serialized
-    assert "9pm" not in serialized
+    assert entry.actor_id == principal.user_id
+    assert entry.tenant_id == tenant
+    assert entry.entry_hash, "the row must be linked into the tamper-evident chain"
+
+    record = next(r for r in caplog.records if r.getMessage() == "audit")
+    assert record.origin == "copilot"
+    assert record.actor_realm == "client"
+    assert record.agent_id == str(agent)
+    # The drafted words are in `kb_sources`, where deletion reaches them — never in a
+    # ledger row and never in a log line.
+    emitted = " ".join(f"{k}={v}" for k, v in vars(record).items())
+    assert "Saturday" not in emitted
+    assert "9pm" not in emitted
 
 
 async def test_a_token_can_be_spent_only_once() -> None:
@@ -430,12 +450,20 @@ FORBIDDEN_SOURCES = (
     "answer_redacted",
     "transcript_turns",
     "text_redacted",
-    "summary",
     "from_e164",
     "to_e164",
     "moments",
     "erased_subject_ref",
 )
+
+#: `summary` is on the same list in `tests/kb_aggregate_guard_test.py` and cannot be
+#: forbidden outright here: `calls.summary` is the per-call AI summary this lane must
+#: never read, and `write_audit(..., summary=...)` is the audit record it must always
+#: write. Same spelling, opposite obligations. So it is allowed in EXACTLY one form — the
+#: keyword argument — and every other occurrence fails, which still catches
+#: `SELECT c.summary`, `summary FROM calls` and `c.summary AS ...`.
+EXCLUSION_ONLY_SOURCE = "summary"
+EXCLUSION_ONLY_SPELLING = "summary="
 
 
 def _executable_source(path: Path) -> str:
@@ -471,6 +499,12 @@ def test_the_proposal_lane_never_names_a_caller_derived_column() -> None:
                 "If this is a deliberate widening, the argument in "
                 "apps/api/kb/proposals.py has to be answered first."
             )
+        assert source.count(EXCLUSION_ONLY_SOURCE) == source.count(EXCLUSION_ONLY_SPELLING), (
+            f"{module.name} names {EXCLUSION_ONLY_SOURCE!r} outside "
+            f"{EXCLUSION_ONLY_SPELLING!r}. The only legitimate use in this lane is the "
+            "audit record's keyword argument; `calls.summary` is the per-call AI summary "
+            "this lane must never read."
+        )
 
 
 def test_the_confirm_path_has_exactly_one_door_into_kb_sources() -> None:

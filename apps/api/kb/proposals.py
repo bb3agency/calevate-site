@@ -128,6 +128,7 @@ CITABLE_TOPIC_KEYS: Final[frozenset[str]] = frozenset(
         "offers",
         "payment",
         "documents",
+        "warranty",
         "general",
     }
 )
