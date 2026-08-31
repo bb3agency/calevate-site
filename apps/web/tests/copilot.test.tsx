@@ -694,7 +694,9 @@ describe("a proposal", () => {
       expect(screen.getAllByText("Suggestion — nothing has happened yet").length).toBe(1);
       // …and nothing anywhere claims the change was made.
       expect(screen.queryAllByText("Done").length).toBe(0);
-      expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(
+      // The action button, under either of its two words: it reads "Try again" once the
+      // refusal is one that left the token spendable.
+      expect(screen.queryAllByRole("button", { name: /^(Confirm|Try again) — / }).length).toBe(
         refusal.clickable ? 1 : 0,
       );
     });
@@ -713,7 +715,11 @@ describe("a proposal", () => {
     expect(
       await screen.findByText("We could not reach Calevate. Check your connection and try again."),
     ).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /^Confirm — / }).length).toBe(1);
+    // Offered again, and its accessible name follows its visible word rather than being
+    // frozen at "Confirm" — WCAG 2.5.3 wants the name to contain what is on the button.
+    const again = screen.getAllByRole("button", { name: /^Try again — Pause this campaign$/ });
+    expect(again.length).toBe(1);
+    expect(again[0].textContent).toBe("Try again");
     expect(screen.queryAllByText("Done").length).toBe(0);
   });
 

@@ -102,6 +102,7 @@ export function ProposalCard({
 
   const consequential = lookup(CONSEQUENTIAL, proposal.tool) ?? false;
   const retryable = confirm.isError && canRetry(confirm.error);
+  const confirmLabel = confirm.isPending ? "Confirming…" : retryable ? "Try again" : "Confirm";
 
   return (
     <div
@@ -151,14 +152,17 @@ export function ProposalCard({
                   type="button"
                   disabled={confirm.isPending}
                   onClick={() => confirm.mutate(proposal.token)}
-                  // The visible word is "Confirm" and the accessible name CONTAINS it
-                  // (WCAG 2.5.3 Label in Name), with the server's own title after it — so
-                  // a person arriving on this button by keyboard hears WHICH change they
-                  // are about to make rather than a bare verb.
-                  aria-label={`Confirm — ${proposal.title}`}
+                  // The accessible name is the VISIBLE WORD plus the server's own title,
+                  // and it is built from the same variable rather than typed out — WCAG
+                  // 2.5.3 Label in Name requires the name to CONTAIN the visible text, so
+                  // a hard-coded "Confirm — …" would quietly break the moment the button
+                  // reads "Try again". What the pairing buys is that somebody arriving
+                  // here by keyboard hears WHICH change they are about to make rather
+                  // than a bare verb.
+                  aria-label={`${confirmLabel} — ${proposal.title}`}
                   className={consequential ? DANGER_BUTTON : PRIMARY_BUTTON}
                 >
-                  {confirm.isPending ? "Confirming…" : retryable ? "Try again" : "Confirm"}
+                  {confirmLabel}
                 </button>
                 <button
                   type="button"
