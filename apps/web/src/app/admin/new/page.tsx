@@ -811,11 +811,50 @@ function CreatedPanel({
 
   return (
     <div className="space-y-4">
-      <Card title="Still manual for this client">
-        {/* Saying so beats a disabled button that implies the feature exists. The intake
-            line is GONE from this list because the step above now does it — a checklist
-            that still called it manual would be the screen contradicting the screen. */}
-        <ul className="space-y-1.5 text-sm text-ink-muted">
+      <Card title="What happens next">
+        {/* The account this wizard just created is immediately HELD on three gates that
+            each have a working screen — KYC, commercial terms, first-campaign release —
+            and this card used to name neither, so the account dropped silently into
+            /admin/holds to be discovered later from a queue instead of continued now
+            from the flow that created it (ux-audit F-7). The three links, in the order
+            the holds bite; then the two genuinely-manual items. */}
+        <ol className="space-y-1.5 text-sm text-ink-muted">
+          <li className="flex gap-2">
+            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <span>
+              <Link
+                href={`/admin/tenants/${created.id}/kyc`}
+                className="font-medium text-brand-strong hover:underline"
+              >
+                Record their identity verification
+              </Link>{" "}
+              — number provisioning and outbound stay held until it is on file
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <span>
+              <Link
+                href={`/admin/tenants/${created.id}/commercials`}
+                className="font-medium text-brand-strong hover:underline"
+              >
+                Set their commercial terms
+              </Link>{" "}
+              — nothing can be billed until the agreement is recorded
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            <span>
+              <Link
+                href={`/admin/tenants/${created.id}/first-campaign-review`}
+                className="font-medium text-brand-strong hover:underline"
+              >
+                Release their first campaign
+              </Link>{" "}
+              — every new account&apos;s first launch waits on this review
+            </span>
+          </li>
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <span>
@@ -829,7 +868,7 @@ function CreatedPanel({
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             A test call signed off before the agent goes live — still done by hand
           </li>
-        </ul>
+        </ol>
       </Card>
 
       <Card title="Invite the owner">
