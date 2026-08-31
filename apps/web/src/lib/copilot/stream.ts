@@ -3,7 +3,7 @@
 import { API_BASE, ApiProblem, TimeoutProblem, problemFrom, type Session } from "@/lib/api/client";
 
 import { createSseParser } from "./sse";
-import type { CopilotFillItem } from "./types";
+import type { CopilotFillItem, CopilotProposal } from "./types";
 import type { WireFact, WireField } from "./redaction";
 
 /**
@@ -48,6 +48,17 @@ export interface CopilotStreamHandlers {
   onText: (delta: string) => void;
   /** A batch the model wants written into the screen. May arrive more than once. */
   onFill: (items: CopilotFillItem[]) => void;
+  /**
+   * A described change the assistant is OFFERING to make. NOTHING HAS HAPPENED.
+   *
+   * At most one per response, and it is applied to nothing: the panel shows it beside a
+   * Confirm button, and only that button's own request to `POST /v1/copilot/confirm`
+   * changes anything. Deliberately a SEPARATE handler from `onFill` — a fill is form
+   * state in this browser that the person still has to save, a proposal is an offer to
+   * touch the database, and one callback taking both is the seam where that distinction
+   * would be lost.
+   */
+  onProposal: (proposal: CopilotProposal) => void;
   /** The stream finished properly. `disclosure` is rendered VERBATIM when present. */
   onDone: (done: { disclosure: string | null; metered: boolean }) => void;
 }
@@ -174,6 +185,17 @@ export async function askCopilot(
           const payload = JSON.parse(event.data) as { items?: CopilotFillItem[] };
           if (Array.isArray(payload.items) && payload.items.length > 0) {
             handlers.onFill(payload.items);
+          }
+        } else if (event.event === "proposal") {
+          // Guarded like `fill`, and on the field that MATTERS. A frame with no usable
+          // `token` cannot be confirmed, so a card rendered from it would offer a person
+          // a button that can only ever refuse. Nothing else is checked here: the rest is
+          // the server's own prose, and the arguments a Confirm would actually run are
+          // inside the token's signature rather than in anything this browser could
+          // validate — re-deriving them would be a second, editable account of the change.
+          const payload = JSON.parse(event.data) as CopilotProposal;
+          if (typeof payload.token === "string" && payload.token !== "") {
+            handlers.onProposal(payload);
           }
         } else if (event.event === "done") {
           const payload = JSON.parse(event.data) as {

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiProblem } from "@/lib/api/client";
 import { createSseParser } from "@/lib/copilot/sse";
 import { StreamDroppedProblem, askCopilot, type CopilotAskBody } from "@/lib/copilot/stream";
-import type { CopilotFillItem } from "@/lib/copilot/types";
+import type { CopilotFillItem, CopilotProposal } from "@/lib/copilot/types";
 
 /**
  * The transport half of the screen assistant.
@@ -44,12 +44,15 @@ function handlers() {
   const text: string[] = [];
   const fills: CopilotFillItem[][] = [];
   const done: { disclosure: string | null; metered: boolean }[] = [];
+  const proposals: CopilotProposal[] = [];
   return {
     text,
     fills,
     done,
+    proposals,
     onText: (delta: string) => text.push(delta),
     onFill: (items: CopilotFillItem[]) => fills.push(items),
+    onProposal: (proposal: CopilotProposal) => proposals.push(proposal),
     onDone: (payload: { disclosure: string | null; metered: boolean }) => done.push(payload),
   };
 }
@@ -167,5 +170,58 @@ describe("askCopilot", () => {
     expect(headers["Accept"]).toBe("text/event-stream");
     // The deployed credential is the HttpOnly cookie; the API is a different origin.
     expect(init.credentials).toBe("include");
+  });
+});
+
+describe("the proposal frame", () => {
+  const FRAME = {
+    token: "eyJ.signed.zzz",
+    tool: "dnc_add",
+    title: "Stop calling this lead",
+    summary:
+      "Add this lead's number to your do-not-call list. Not suppressed right now. " +
+      "Calls already queued to it are pulled back as well. Nothing changes until you confirm.",
+    object_type: "lead",
+    object_id: "0192f0aa-0000-7000-8000-00000000l001",
+    current: "Not suppressed",
+    proposed: "On your do-not-call list",
+    expires_at: "2099-01-01T00:00:05Z",
+  };
+
+  it("arrives whole, unedited, even when the chunk boundary falls inside it", async () => {
+    // Split mid-JSON, which is the ordinary case on a real `ReadableStream` and the
+    // reason the parser buffers across pushes.
+    const frame = `event: proposal\ndata: ${JSON.stringify(FRAME)}\n\n`;
+    const cut = frame.indexOf('"summary"') + 12;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamOf([
+          frame.slice(0, cut),
+          frame.slice(cut),
+          'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+        ]),
+      ),
+    );
+    const sink = handlers();
+    await askCopilot(SESSION, BODY, sink);
+    // Every field, verbatim: the browser edits none of them, because the token's
+    // signature binds what the sentences describe.
+    expect(sink.proposals).toEqual([FRAME]);
+  });
+
+  it("IGNORES a frame with no usable token rather than offering a dead button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamOf([
+          `event: proposal\ndata: ${JSON.stringify({ ...FRAME, token: "" })}\n\n`,
+          'event: done\ndata: {"metered":false}\n\n',
+        ]),
+      ),
+    );
+    const sink = handlers();
+    await askCopilot(SESSION, BODY, sink);
+    expect(sink.proposals).toEqual([]);
   });
 });

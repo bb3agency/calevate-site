@@ -15,6 +15,8 @@ import {
   type SurfaceHolder,
 } from "@/lib/copilot/registry";
 
+import { expectNoA11yViolations } from "./a11y";
+
 /**
  * The screen assistant: the registry contract, both apply paths, the undo contract, and
  * the two rules that are compliance rather than UX — a personal value never leaving the
@@ -112,18 +114,40 @@ function sse(chunks: string[]): Response {
   );
 }
 
-/** Stub `fetch`: the ask route answers with `chunks`, `/v1/billing/ai-quota` with `quota`. */
+/**
+ * Stub `fetch`: the ask route answers with `chunks`, `/v1/billing/ai-quota` with `quota`,
+ * and `/v1/copilot/confirm` with `confirm` — or, when `confirmThrows` is set, by failing
+ * the way a severed connection does (which never becomes an `ApiProblem`).
+ *
+ * Returns both request logs, so a test can assert what was sent AND — for Dismiss — that
+ * nothing was.
+ */
 function stubCopilot(options: {
   chunks?: string[];
   askStatus?: number;
   askBody?: Record<string, unknown>;
   quota?: Record<string, unknown>;
+  confirm?: { status: number; body: Record<string, unknown> };
+  confirmThrows?: boolean;
 }) {
   const bodies: string[] = [];
+  const confirms: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
+      if (path.startsWith("/v1/copilot/confirm")) {
+        confirms.push(typeof init?.body === "string" ? init.body : "");
+        if (options.confirmThrows) throw new TypeError("Failed to fetch");
+        const answer = options.confirm ?? { status: 200, body: {} };
+        return new Response(JSON.stringify(answer.body), {
+          status: answer.status,
+          headers: {
+            "content-type":
+              answer.status === 200 ? "application/json" : "application/problem+json",
+          },
+        });
+      }
       if (path.startsWith("/v1/copilot/ask")) {
         bodies.push(typeof init?.body === "string" ? init.body : "");
         if (options.askStatus !== undefined) {
@@ -143,7 +167,7 @@ function stubCopilot(options: {
       throw new Error(`unexpected request: ${path}`);
     }),
   );
-  return bodies;
+  return { bodies, confirms };
 }
 
 async function ask(question: string) {
@@ -291,7 +315,7 @@ describe("the panel", () => {
   });
 
   it("SENDS A PLACEHOLDER FOR A PERSONAL FIELD AND RESTORES THE REAL VALUE LOCALLY", async () => {
-    const bodies = stubCopilot({
+    const { bodies } = stubCopilot({
       chunks: [
         'event: text\ndata: {"delta":"«PHONE_1» is already the escalation number."}\n\n',
         'event: fill\ndata: {"items":[{"field_id":"t-name","value":"Ring «PHONE_1»"}]}\n\n',
@@ -418,5 +442,367 @@ describe("redactForWire", () => {
     );
     // Idempotent over text carrying no token — it runs over every streamed delta.
     expect(pass.restore("nothing here")).toBe("nothing here");
+  });
+});
+
+/**
+ * The write half: a proposal is rendered, confirmed exactly once, and every refusal the
+ * server can make lands as a sentence the person can act on.
+ *
+ * These drive the REAL `CopilotPanel`, the REAL stream reader and the REAL confirm
+ * mutation; only `fetch` is replaced. The frames below are the wire's own — the fields are
+ * `apps/api/copilot/schemas.py::CopilotProposalEvent`'s, and the prose is what
+ * `write_tools._plan_campaign_pause` composes.
+ */
+const PROPOSAL = {
+  token: "eyJ.a-signed-proposal.zzz",
+  tool: "campaign_pause",
+  title: "Pause this campaign",
+  summary:
+    "Stop dialling on “Kondapur launch”. It is running right now. Contacts already " +
+    "dialled are unaffected; the rest stop. Nothing changes until you confirm.",
+  object_type: "campaign",
+  object_id: "0192f0aa-0000-7000-8000-00000000c001",
+  current: "running",
+  proposed: "paused",
+  expires_at: "2099-01-01T00:00:00Z",
+};
+
+/** The stream a write tool produces: some prose, then the offer, then `done`. */
+function proposalChunks(proposal: Record<string, unknown> = PROPOSAL): string[] {
+  return [
+    'event: text\ndata: {"delta":"I can pause it for you."}\n\n',
+    `event: proposal\ndata: ${JSON.stringify(proposal)}\n\n`,
+    'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+  ];
+}
+
+function renderPanel() {
+  return render(
+    withQuery(
+      <>
+        <DraftScreen />
+        <PanelMount />
+      </>,
+    ),
+  );
+}
+
+async function clickConfirm() {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm — / }));
+  });
+}
+
+describe("a proposal", () => {
+  it("RENDERS AS A SUGGESTION — the server's sentence, the pair, and no success state", async () => {
+    stubCopilot({ chunks: proposalChunks() });
+    renderPanel();
+    await ask("stop the kondapur campaign");
+
+    // It says, before anything else, that nothing has happened.
+    expect(await screen.findByText("Suggestion — nothing has happened yet")).toBeTruthy();
+    expect(screen.getAllByText("Pause this campaign").length).toBe(1);
+    // The server's own summary, verbatim — never re-composed in the browser.
+    expect(screen.getAllByText(PROPOSAL.summary).length).toBe(1);
+    // BOTH halves of the decision: what it is now, and what it would become.
+    expect(screen.getAllByText("running").length).toBe(1);
+    expect(screen.getAllByText("paused").length).toBe(1);
+    // Nothing claims the change happened.
+    expect(screen.queryAllByText("Done").length).toBe(0);
+  });
+
+  it("CONFIRMS ONCE, sending the token and NOTHING ELSE, then says what was done", async () => {
+    const { confirms } = stubCopilot({
+      chunks: proposalChunks(),
+      confirm: {
+        status: 200,
+        body: {
+          tool: "campaign_pause",
+          object_type: "campaign",
+          object_id: PROPOSAL.object_id,
+          applied: true,
+          detail: "Dialling has stopped on that campaign.",
+        },
+      },
+    });
+    renderPanel();
+    await ask("stop the kondapur campaign");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    await clickConfirm();
+
+    // ONE request, carrying the token UNCHANGED and no parameter of its own: every
+    // argument of the change is inside the signature.
+    expect(confirms.length).toBe(1);
+    expect(JSON.parse(confirms[0])).toEqual({ token: PROPOSAL.token });
+
+    // The server's own outcome sentence, and only now a completed state.
+    expect(await screen.findByText("Dialling has stopped on that campaign.")).toBeTruthy();
+    expect(screen.getAllByText("Done").length).toBe(1);
+    expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0);
+  });
+
+  it("says NOTHING TO CHANGE when the world was already in that state", async () => {
+    stubCopilot({
+      chunks: proposalChunks(),
+      confirm: {
+        status: 200,
+        body: {
+          tool: "campaign_pause",
+          object_type: "campaign",
+          object_id: PROPOSAL.object_id,
+          applied: false,
+          detail: "That campaign was already paused, so nothing changed.",
+        },
+      },
+    });
+    renderPanel();
+    await ask("stop it");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    await clickConfirm();
+
+    // `applied: false` is a real answer (D-65), not a failure and not a success.
+    expect(
+      await screen.findByText("That campaign was already paused, so nothing changed."),
+    ).toBeTruthy();
+    expect(screen.getAllByText("Nothing to change").length).toBe(1);
+    expect(screen.queryAllByText("Done").length).toBe(0);
+  });
+
+  it("DISMISS SENDS NOTHING — a proposal is refused by doing nothing", async () => {
+    const { confirms } = stubCopilot({ chunks: proposalChunks() });
+    renderPanel();
+    await ask("stop the campaign");
+    await screen.findByRole("button", { name: /^Confirm — / });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Dismiss — / }));
+    });
+    expect(confirms.length).toBe(0);
+    expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0);
+  });
+
+  it("REFUSES TO OFFER A CONFIRM on a proposal that has already expired", async () => {
+    stubCopilot({ chunks: proposalChunks({ ...PROPOSAL, expires_at: "2020-01-01T00:00:00Z" }) });
+    renderPanel();
+    await ask("stop the campaign");
+
+    expect(
+      await screen.findByText(
+        "This suggestion has expired. Ask the assistant again — nothing was changed.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(0);
+  });
+
+  /**
+   * Every refusal shape the confirm door can produce, each with the sentence the person is
+   * left holding and whether the card may be clicked again.
+   *
+   * The retry rule is the load-bearing column: the server BURNS the proposal immediately
+   * before executing, so a refusal that got past the burn has spent the token and a second
+   * click could only ever be told "already confirmed". Only the replay guard being
+   * unreachable — it fails CLOSED, so nothing ran — leaves it spendable.
+   */
+  const REFUSALS: {
+    what: string;
+    status: number;
+    body: Record<string, unknown>;
+    reads: string;
+    clickable: boolean;
+  }[] = [
+    {
+      what: "an expired, replayed or tampered token",
+      status: 403,
+      body: {
+        type: "urn:calevate:permission/copilot_proposal_invalid",
+        title: "That change could not be confirmed",
+        detail: "This suggestion is no longer valid.",
+        remediation: "Ask the assistant again — nothing has been changed.",
+        kind: "permission",
+      },
+      reads: "Ask the assistant again — nothing has been changed.",
+      clickable: false,
+    },
+    {
+      what: "a proposal somebody already confirmed",
+      status: 403,
+      body: {
+        type: "urn:calevate:permission/copilot_proposal_already_used",
+        title: "That change could not be confirmed",
+        detail: "This suggestion has already been confirmed.",
+        remediation: "Check the record — the change was made the first time.",
+        kind: "permission",
+      },
+      reads: "Check the record — the change was made the first time.",
+      clickable: false,
+    },
+    {
+      what: "a role that may not do it",
+      status: 403,
+      body: {
+        type: "urn:calevate:permission/forbidden",
+        title: "Forbidden",
+        detail: "You do not have permission to make this change.",
+        remediation: "Ask an owner or manager on this account to confirm it instead.",
+        kind: "permission",
+      },
+      reads: "Ask an owner or manager on this account to confirm it instead.",
+      clickable: false,
+    },
+    {
+      what: "a campaign that is no longer running",
+      status: 409,
+      body: {
+        type: "urn:calevate:conflict/campaign_not_running",
+        title: "Conflict",
+        detail: "That campaign is not running.",
+        remediation: "Reload the campaign and check its state.",
+        kind: "conflict",
+      },
+      reads: "Reload the campaign and check its state.",
+      clickable: false,
+    },
+    {
+      what: "the replay guard being unreachable",
+      status: 503,
+      body: {
+        type: "urn:calevate:dependency/copilot_confirm_unavailable",
+        title: "That change could not be confirmed",
+        detail: "The assistant could not check that this suggestion is still unused.",
+        remediation: "Try again in a moment — nothing has been changed.",
+        kind: "dependency",
+      },
+      reads: "Try again in a moment — nothing has been changed.",
+      clickable: true,
+    },
+  ];
+
+  for (const refusal of REFUSALS) {
+    it(`SHOWS ITS OWN ACTIONABLE SENTENCE for ${refusal.what}`, async () => {
+      stubCopilot({
+        chunks: proposalChunks(),
+        confirm: { status: refusal.status, body: refusal.body },
+      });
+      renderPanel();
+      await ask("stop the campaign");
+      await screen.findByRole("button", { name: /^Confirm — / });
+      await clickConfirm();
+
+      // The refusal is on screen, in the SERVER's words, and the card did not vanish.
+      expect(await screen.findByText(refusal.reads)).toBeTruthy();
+      expect(screen.getAllByText("Suggestion — nothing has happened yet").length).toBe(1);
+      // …and nothing anywhere claims the change was made.
+      expect(screen.queryAllByText("Done").length).toBe(0);
+      expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(
+        refusal.clickable ? 1 : 0,
+      );
+    });
+  }
+
+  it("keeps the card and offers a RETRY when the connection dropped", async () => {
+    // A failure that never became an `ApiProblem`: the request may have landed or may not
+    // have, and retrying is safe only because the server's `jti` burn refuses a second
+    // execution rather than doubling it.
+    stubCopilot({ chunks: proposalChunks(), confirmThrows: true });
+    renderPanel();
+    await ask("stop the campaign");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    await clickConfirm();
+
+    expect(
+      await screen.findByText("We could not reach Calevate. Check your connection and try again."),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Confirm — / }).length).toBe(1);
+    expect(screen.queryAllByText("Done").length).toBe(0);
+  });
+
+  it("STYLES A CONSEQUENTIAL CHANGE AS ONE, and an ordinary edit as ordinary", async () => {
+    stubCopilot({ chunks: proposalChunks() });
+    const view = renderPanel();
+    await ask("stop the campaign");
+    // Pausing a campaign stops live dialling — UX-DOCTRINE §4's rose, never the brand
+    // green, so an eye scanning the panel cannot mistake it for an ordinary save.
+    const stop = await screen.findByRole("button", { name: /^Confirm — / });
+    expect(stop.className).toContain("bg-rose-600");
+    view.unmount();
+
+    stubCopilot({
+      chunks: proposalChunks({
+        ...PROPOSAL,
+        token: "eyJ.another.zzz",
+        tool: "lead_set_status",
+        title: "Change this lead's status",
+        summary:
+          "Mark this lead as Hot. It is currently Contacted. Nothing changes until you confirm.",
+        object_type: "lead",
+        current: "Contacted",
+        proposed: "Hot",
+      }),
+    });
+    renderPanel();
+    await ask("mark it hot");
+    const edit = await screen.findByRole("button", { name: /^Confirm — / });
+    expect(edit.className).toContain("bg-brand-strong");
+  });
+
+  it("is KEYBOARD REACHABLE, ANNOUNCED, and axe-clean", async () => {
+    stubCopilot({ chunks: proposalChunks() });
+    const view = renderPanel();
+    await ask("stop the campaign");
+    const confirmButton = await screen.findByRole("button", { name: /^Confirm — / });
+
+    // A real `<button>`, so it is in the tab order with no `tabindex` arithmetic; and its
+    // accessible name CONTAINS its visible word (WCAG 2.5.3 Label in Name) while naming
+    // WHICH change, so a keyboard user does not land on a bare verb.
+    expect(confirmButton.tagName).toBe("BUTTON");
+    expect(confirmButton.textContent).toBe("Confirm");
+    expect(confirmButton.getAttribute("aria-label")).toBe("Confirm — Pause this campaign");
+
+    // Announced when it arrives, WITHOUT stealing the caret from the ask box.
+    const card = confirmButton.closest('[role="group"]')!;
+    expect(card.getAttribute("aria-label")).toBe("Suggestion: Pause this campaign");
+    expect(card.parentElement?.getAttribute("aria-live")).toBe("polite");
+    expect(document.activeElement?.tagName).toBe("TEXTAREA");
+
+    await expectNoA11yViolations(view.container, "the copilot proposal card");
+  });
+
+  it("MOVES FOCUS TO THE CARD once the confirm resolves, because the button is gone", async () => {
+    stubCopilot({
+      chunks: proposalChunks(),
+      confirm: {
+        status: 200,
+        body: {
+          tool: "campaign_pause",
+          object_type: "campaign",
+          object_id: PROPOSAL.object_id,
+          applied: true,
+          detail: "Dialling has stopped on that campaign.",
+        },
+      },
+    });
+    renderPanel();
+    await ask("stop the campaign");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    await clickConfirm();
+    await screen.findByText("Dialling has stopped on that campaign.");
+
+    // Without this the keyboard would fall to `<body>`: the control the person was
+    // standing on has been replaced by the outcome.
+    expect(document.activeElement?.getAttribute("role")).toBe("group");
+  });
+
+  it("REPLACES a previous card rather than stacking, and a new question clears it", async () => {
+    stubCopilot({ chunks: proposalChunks() });
+    renderPanel();
+    await ask("stop the campaign");
+    expect(await screen.findByText("Suggestion — nothing has happened yet")).toBeTruthy();
+
+    stubCopilot({ chunks: ['event: done\ndata: {"disclosure":null,"metered":true}\n\n'] });
+    await ask("what about the other one?");
+    await waitFor(() =>
+      expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0),
+    );
   });
 });

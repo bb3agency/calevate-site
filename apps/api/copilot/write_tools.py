@@ -970,7 +970,19 @@ async def confirm(
         )
     proposal = _verify(token, actor=actor)
     if not _may(actor, proposal.tool.permission):
-        raise ProblemError.forbidden("You do not have permission to do this.")
+        # `ProblemError.forbidden` carries NO `remediation`, and every failure a person can
+        # reach owes them one (BACKEND-PATTERNS §3). This one is reachable by two ordinary
+        # routes — a member demoted while the assistant was talking, and a D-22 view-as
+        # session — and "you do not have permission" with no next step leaves somebody
+        # staring at a card they cannot act on. Same kind, same code, same 403: only the
+        # sentence is added.
+        raise ProblemError(
+            kind="permission",
+            code="forbidden",
+            title="Forbidden",
+            detail="You do not have permission to make this change.",
+            remediation="Ask an owner or manager on this account to confirm it instead.",
+        )
     # THE BURN SITS IMMEDIATELY BEFORE THE EXECUTION and nothing may be inserted between
     # them: everything that can refuse has refused by here, so a burnt proposal is one
     # that was really about to run. The permission check is above it for that reason —

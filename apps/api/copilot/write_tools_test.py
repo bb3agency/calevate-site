@@ -352,6 +352,13 @@ async def test_a_person_demoted_between_proposing_and_confirming_is_refused() ->
     with pytest.raises(ProblemError) as refused:
         await _confirm(tenant_id, user_id, proposal.token, role="staff")
     assert refused.value.status == 403
+    # AND IT SAYS WHAT TO DO NEXT. This refusal reaches a person looking at a confirmation
+    # card, so a bare "you do not have permission" would leave them with a dead button and
+    # no next step — BACKEND-PATTERNS §3's ladder, which `ProblemError.forbidden`'s default
+    # cannot satisfy because it carries no remediation at all.
+    assert refused.value.remediation == (
+        "Ask an owner or manager on this account to confirm it instead."
+    )
     assert await _campaign_status(tenant_id, campaign_id) == "running"
 
 
