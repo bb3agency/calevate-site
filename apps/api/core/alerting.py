@@ -589,6 +589,21 @@ def record_tool_ack_ms(ms: float, *, provider: str) -> None:
     _record("tool_ack_ms", ms, provider=provider)
 
 
+def record_retrieval_ms(ms: float, *, provider: str, tier: str, cached: bool) -> None:
+    """How long one knowledge retrieval took, in the port's own series (TRD §6).
+
+    `cached` is a LABEL and not a second series, which is the opposite of the choice
+    `record_tool_ack_ms` argues for above — and for the same reason, read the other way.
+    There the two populations had different BUDGETS, so a pooled percentile could hide a
+    regression in one of them. Here the hit and the miss are two paths to the same
+    answer under one budget, and the number an operator wants is exactly the blend: what
+    a question costs, given the hit rate this account actually has. The unblended halves
+    are still readable by filtering the label; the blend would not be recoverable if
+    these were split.
+    """
+    _record("retrieval_ms", ms, provider=provider, tier=tier, cached=str(cached).lower())
+
+
 def record_webhook_replay_divergence(*, provider: str) -> None:
     """A settled transition re-delivered with DIFFERENT body bytes.
 

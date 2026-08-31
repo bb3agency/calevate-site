@@ -48,7 +48,8 @@ person presses Save.
 
 ⚠ **`set_fields` IS NO LONGER THE ONLY TOOL, AND THIS PARAGRAPH USED TO SAY IT WAS.** The
 model is also offered the READ tools in `copilot/tools.py` — business snapshot, leads,
-calls, campaigns, agents — and the PROPOSING write tools in `copilot/write_tools.py`.
+calls, campaigns, agents, and a search of the account's own published knowledge — and
+the PROPOSING write tools in `copilot/write_tools.py`.
 
 Neither weakens the sentence above, for two different reasons, and the difference is worth
 holding on to. A read tool is a SELECT inside the caller's own RLS session behind the
@@ -152,8 +153,9 @@ SYSTEM_PROMPT: Final = (
     "1. Answer questions about the screen the person is on — what a field means, what "
     "they still have to do, why something is refused.\n"
     "2. Answer questions about their business — their calls, leads, campaigns, voice "
-    "agents and how they are performing — by CALLING A READ TOOL to look it up. Those "
-    "tools read this account's own data and nothing else, and they change nothing.\n"
+    "agents, and what those agents tell callers — by CALLING A READ TOOL to look it up. "
+    "Those tools read this account's own data and nothing else, and they change "
+    "nothing.\n"
     f"3. Fill in form fields for them, by calling the {SET_FIELDS_TOOL_NAME} tool ONCE "
     "with every field you want to set.\n"
     "\n"
@@ -165,6 +167,10 @@ SYSTEM_PROMPT: Final = (
     "result. When you have what you need, answer in words.\n"
     "- A tool may refuse — the person may not have permission, or there may be nothing "
     "there yet. Say what it told you. Do not fill the gap with a plausible number.\n"
+    "- What this account's voice agents TELL CALLERS is a lookup like any other: use "
+    "search_knowledge, and never answer that kind of question from memory. What an agent "
+    "says on the phone is the client's own published knowledge, and a guess about it is a "
+    "commitment made on their behalf.\n"
     "\n"
     "HOW TO FILL FIELDS:\n"
     f"- Call {SET_FIELDS_TOOL_NAME} exactly once, with an array carrying every field. "

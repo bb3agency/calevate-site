@@ -296,12 +296,18 @@ async def ask_copilot(
             # ever learns to answer instead of raise.
             tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
-            # WHO IS ASKING, for the read tools. The tenant id is what scopes the RLS
-            # session each tool opens for itself; the role is what `tools.run_read_tool`
-            # judges against the tool's own permission, BEFORE it opens one. Built from
-            # the verified principal and never from the body — `payload.screen` is a
+            # WHO IS ASKING, for the read tools — the RETRIEVAL PORT INCLUDED. The tenant
+            # id is what scopes the RLS session each tool opens for itself AND what scopes
+            # the retrieval cache's keyspace; the role is what `tools.run_read_tool` judges
+            # against the tool's own permission, BEFORE it opens one. Built from the
+            # verified principal and never from the body — `payload.screen` is a
             # caller-composed description and is used for the prompt and the audit row,
             # never for authorization (`schemas.CopilotScreen`).
+            #
+            # THIS IS THE ONLY THING `search_knowledge` IS SCOPED BY, which is why it takes
+            # no tenant, agent or source argument: the model can put a question in a tool
+            # call and nothing else, so there is no argument it can send that reaches
+            # another account's knowledge.
             tool_context=service.ToolContext(tenant_id=tenant_id, role=principal.role),
             live=live,
             # WHO THE WRITE TOOLS MAY PROPOSE FOR, narrowed from the principal the
