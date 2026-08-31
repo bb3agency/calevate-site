@@ -185,8 +185,10 @@ list, a clinic with per-procedure pages) in the low thousands. Measured, therefo
 * **1 × 1 × 500** — median SMB, one agent.
 * **1 × 1 × 2,000** — large SMB.
 * **50 × 2 × 1,000 = 100,000 rows** — the shared multi-tenant table at 50 clients with two
-  agents each. This is the shape that matters, because it is the one where a filtered index
-  scan can misbehave.
+  agents each. This is the shape that matters: it is the one where a scope-filtered index
+  scan could misbehave, and the one where the corpus stops fitting in cache. (It did not
+  misbehave — §2.3b — but that was the reason for measuring it, and the reason stands for
+  whoever re-measures at a larger size.)
 
 ### 2.3 Results
 
