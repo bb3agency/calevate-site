@@ -926,7 +926,16 @@ export default function CampaignsPage() {
         value: numberId,
         options: (numbers.data ?? []).map((number) => ({
           value: number.id,
-          label: `${number.e164} (${number.series} series)`,
+          // NO E.164 HERE, and the on-screen <option> at line ~1359 deliberately still
+          // shows one. This list is the COPILOT's copy of the screen, and it goes to a US
+          // model provider — D-127 G-2 says the console never volunteers a personal value
+          // on the user's behalf, and a phone number is the first thing that rule names.
+          // `copilot/routes.py` now refuses the whole request when anything in the
+          // rendered screen still looks personal, so this label was breaking the
+          // assistant on this screen as well as leaking; the last two digits are the same
+          // discriminator `workers/redaction.py` keeps for staff, and the series is what
+          // the person actually asks by ("use the 140 number").
+          label: `…${number.e164.slice(-2)} (${number.series} series)`,
         })),
       },
       {

@@ -3822,6 +3822,7 @@
           },
           "route": {
             "maxLength": 200,
+            "pattern": "^/[^\\x00-\\x1f\\x7f]*$",
             "title": "Route",
             "type": "string"
           },
@@ -20299,7 +20300,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
       "get": {
-        "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.",
+        "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.\n\nAudited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry\nincidental staff PII, which is exactly the class of read the DPDP trail must hold.",
         "operationId": "read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get",
         "parameters": [
           {

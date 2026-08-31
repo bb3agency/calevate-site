@@ -41,6 +41,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
+from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import service
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
@@ -160,13 +161,26 @@ async def ask_copilot(
         # on; a browser that forgot to substitute a placeholder is a defect and deserves
         # one an operator can. The rule refusing both is exactly the same.
         assert_redacted(payload.question, authored=True)
-        assert_redacted(
-            *(turn.content for turn in payload.history),
-            *(fact.value for fact in payload.facts),
-            *(str(field.value) for field in payload.fields if field.value is not None),
-            *(field.label for field in payload.fields),
-            *(field.help or "" for field in payload.fields),
-        )
+        # THE GUARD IS RUN OVER THE RENDERED SCREEN, NOT OVER A HAND-LISTED SUBSET OF THE
+        # PAYLOAD, and that change closed a live leak rather than tidying one up.
+        #
+        # It used to enumerate: history, fact VALUES, field values, field labels, field
+        # help. `render_screen` also emits the screen title and route, fact KEYS and
+        # LABELS, field IDS, and — the one that mattered — every `<option>` value and
+        # label. `campaigns/page.tsx` declares its "Calling from" select with
+        # `label: number.e164`, so a phone number in E.164 was reaching Azure on every
+        # question asked from the campaigns screen, past a guard whose entire job is that
+        # it cannot. An enumeration that has to be kept in step with a renderer is the
+        # defect class this repo treats as a defect; the renderer's own output cannot
+        # drift from itself.
+        #
+        # Rendered ONCE here and rendered again inside `service.run_copilot`. That is a
+        # deliberate cost: threading the block through the streaming path would put a
+        # prompt fragment in the route's vocabulary, and the alternative — guarding a
+        # subset — is the bug above.
+        screen = prompt_module.render_screen(payload)
+        prompt_module.assert_screen_fits(screen)
+        assert_redacted(screen, *(turn.content for turn in payload.history))
 
         # 2. THE GATE. It RAISES — `ai_quota_exceeded` is what opens the wallet dialog
         #    (G-5), `ai_paused_platform_wide` is the brake — so a refusal reaches the

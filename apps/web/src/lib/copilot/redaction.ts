@@ -127,7 +127,6 @@ export function redactForWire(fields: CopilotField[], facts: CopilotFact[]): Red
       // either — a token is a string a model wrote. `String(value)` here would turn
       // `false` into `"false"` and hand a checkbox a truthy string.
       if (typeof text !== "string") return text;
-      if (typeof text !== "string") return text;
       let out: string = text;
       for (const [token, real] of mapping) out = out.split(token).join(real);
       return out as unknown as T;
