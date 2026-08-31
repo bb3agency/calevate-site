@@ -493,6 +493,76 @@ async def test_an_unapproved_or_mismatched_dlt_template_blocks_launch() -> None:
     assert [b.rule for b in mismatch_blockers] == ["dlt_template_mismatch"]
 
 
+async def test_an_unapproved_and_mismatched_template_reports_both_blockers_at_once() -> None:
+    """Approval and classification are independent properties of the attached template,
+    so a template failing both is reported as a LIST (SEC-COMP §3's "deliberately
+    exhaustive rather than fail-fast"). This used to be an `elif`, and a client who
+    chased the registrar's approval on a wrongly-classified template learnt about the
+    second blocker only after clearing the first."""
+    tenant_id, _, campaign_id = await _ready_campaign(
+        classification="promotional",
+        template_status="submitted",
+        template_classification="service",
+    )
+    async with tenant_session(tenant_id) as session:
+        blockers = await service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    rules = [b.rule for b in blockers]
+    assert rules == ["dlt_template_not_approved", "dlt_template_mismatch"], rules
+
+
+async def test_template_and_number_refusals_name_the_next_action_per_state() -> None:
+    """The error ladder: every failure a client can reach says what to do next, so a
+    reason may never be just a status ("The DLT template is submitted." was one). Each
+    non-approved state ends differently, so the sentences must differ — and each must
+    carry its own next action, pinned by the words that name it."""
+    draft = service._template_not_approved_reason("draft")
+    submitted = service._template_not_approved_reason("submitted")
+    rejected = service._template_not_approved_reason("rejected")
+    assert len({draft, submitted, rejected}) == 3, "three states, three next actions"
+    assert "File it" in draft
+    assert "approval is recorded" in submitted
+    assert "Revise" in rejected
+    # A state the map has never met still fails closed with an instruction, not a status.
+    assert "Attach an approved one" in service._template_not_approved_reason("suspended")
+
+    pending = service._number_not_registered_reason("pending")
+    blocked = service._number_not_registered_reason("blocked")
+    assert pending != blocked
+    assert "registrar approves" in pending
+    assert "Pick a different" in blocked
+    assert "Pick a registered number" in service._number_not_registered_reason("withdrawn")
+
+
+async def test_a_template_status_outside_the_enum_is_refused_by_name() -> None:
+    """A status the enum does not hold is a validation refusal naming the members, not
+    an IntegrityError 500 off the DB CHECK — the same guard `record_dlt_registration`
+    keeps for the PE statuses."""
+    tenant_id, _ = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        template_id = await _template(session, tenant_id, "promotional", "submitted")
+        with pytest.raises(ProblemError) as excinfo:
+            await service.set_template_status(session, template_id=template_id, status="suspended")
+    assert excinfo.value.code == "template_status_invalid"
+    assert "approved" in (excinfo.value.detail or "")
+
+
+async def test_launch_check_on_a_running_campaign_names_the_status_blocker() -> None:
+    """`/launch-check` is also asked of campaigns that are past launching, and the
+    answer has to name the state rather than list paperwork a running campaign cannot
+    act on being told about."""
+    tenant_id, _, campaign_id = await _ready_campaign(classification="service", series="160")
+    async with tenant_session(tenant_id) as session:
+        await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        blockers = await service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    status_blockers = [b for b in blockers if b.rule == "status"]
+    assert status_blockers, [b.rule for b in blockers]
+    assert "running" in status_blockers[0].reason
+
+
 async def test_launch_is_refused_with_the_same_named_reasons_the_check_returned() -> None:
     """The check endpoint is a PREVIEW of the gate, never a substitute — so launching
     past a red check must fail with the identical rule names."""
