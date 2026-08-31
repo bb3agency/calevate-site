@@ -111,16 +111,41 @@ says why.
 
 ### 2.1 Method, so it can be rerun
 
+**It did NOT run on the shared dev Postgres, and that is deliberate.** The shared server on
+5433 was occupied by back-to-back sibling coverage runs for the whole session — one held it
+for 44 minutes at 90% CPU, and a second started 21 seconds after that one ended. Adding a
+bulk load and an HNSW build to a server being scored would have risked turning somebody
+else's CI red for a reason invisible in their diff, and would have corrupted our own
+numbers. So the measurement ran on a **private PostgreSQL cluster built for it**, on port
+55432, touching the shared server and the `calevate` database not at all:
+
 ```
-make up      # only if 5433 is not already listening
-/home/user/calevate-site/.venv/bin/python -m scripts.spike.kb_pgvector_latency
+mkdir -p /var/tmp/kbspike && chown postgres:postgres /var/tmp/kbspike
+su postgres -c "/usr/lib/postgresql/16/bin/initdb -D /var/tmp/kbspike/data \
+    -U calevate --auth=trust"
+su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/tmp/kbspike/data \
+    -o '-p 55432 -k /var/tmp/kbspike' -l /var/tmp/kbspike/log start"
+/home/user/calevate-site/.venv/bin/python -m scripts.spike.kb_pgvector_latency \
+    --dsn postgresql://calevate@127.0.0.1:55432/postgres
+su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/tmp/kbspike/data stop"
+rm -rf /var/tmp/kbspike
 ```
 
-The harness (`scripts/spike/kb_pgvector_latency.py`) builds a **throwaway database**, never
-touching `calevate`, and refuses to run at all while `pgrep -f "coverage run -m pytest"`
-matches — this measurement was in fact deferred until a coverage run that held the shared
-server for over half an hour at 90% CPU had finished, because its load would have
-contaminated both its numbers and ours.
+On the shared server the same harness still refuses to run while
+`pgrep -f "coverage run -m pytest"` matches; the guard is scoped to port 5433 so that a
+private cluster remains available as the escape hatch. Either way it builds a **throwaway
+database** and refuses by name to touch `calevate`.
+
+**⚠ THE SERVER WAS STOCK AND THE MACHINE WAS BUSY, WHICH MAKES EVERY FIGURE BELOW AN UPPER
+BOUND.** A fresh `initdb` gives `shared_buffers` **128MB** and `maintenance_work_mem`
+**64MB** — captured in the run's own JSON rather than assumed. The 100,000-row corpus is
+roughly 400MB of vectors alone, so at that size the table does not fit in cache and the
+HNSW graph does not fit in the build memory. The host is a **4-core** machine that sibling
+suites kept oversubscribed (load average was above 5 throughout, and the harness records
+`/proc/loadavg` beside every shape). Both effects push the measured numbers **up**. A tuned
+server on an idle machine does better, never worse — so if these figures fit the budget,
+the tuned ones do too. That direction is why the measurement is still worth reporting
+rather than being withheld until the machine is quiet.
 
 * **Schema:** the contingency table this repo already specified (`docs/DATA-MODEL.md:348-352`)
   — `kb_chunks(id, tenant_id, agent_id, document_id, content, tsv, embedding vector(1024),
