@@ -286,6 +286,18 @@ context into the prompt rather than a score to us, so "below threshold → say I
 has nothing to threshold. It would become prompt instruction rather than enforced
 behaviour, which is a weaker guarantee than the one TRD §6 describes.
 
+**Two Telugu facts, and the second is now proven rather than assumed.** No page in the
+mirror names **Telugu** anywhere in the knowledgebase documentation (grepped case-insensitively
+across all five API pages and `getting-started/knowledge-base.md`: zero hits); the multilingual
+mode is described only as "cross-lingual retrieval across 100+ languages"
+(`create.md:71-80`). And the mode really is **immutable after creation** — which TRD §6.2
+carries as a claim and which the route list settles: the complete surface is create, get,
+list, delete (`overview.md:11-16`), with **no update endpoint**, so `language_support` can
+only ever be set at create. For a Telugu-first product, that means the retrieval-quality
+question has to be answered *before* the first upload and cannot be corrected afterwards
+except by re-creating and re-attaching every knowledge base. That is pilot gate 8's
+question and no page in the mirror answers it.
+
 **What it does to `kb_sources`.** Today it stores approved prose and its chunks. It would
 have to store, per version, a **retrievable artefact** (a stored PDF, or a URL) plus the
 vendor's `rag_id` and its `vector_id` — two ids, not one, and `kb_documents.meta.engine_kb_ref`
