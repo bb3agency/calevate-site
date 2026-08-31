@@ -75,13 +75,13 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
         <EmptyState
           title="No agents yet"
           hint="An agent is a phone line that answers for you — it picks up, has the conversation, and writes down what was said. Build your first one and it will show up here before it takes a single call."
+          action={
+            <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
+              <Plus aria-hidden className="h-4 w-4" />
+              Build your first agent
+            </Link>
+          }
         />
-        <div className="mt-4 flex justify-center">
-          <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
-            <Plus aria-hidden className="h-4 w-4" />
-            Build your first agent
-          </Link>
-        </div>
       </Card>
     );
   }

@@ -18,6 +18,7 @@ import {
   FilterChip,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
   StatusBadge,
@@ -955,6 +956,23 @@ export default function LeadsPage() {
                 status || searchTerm
                   ? "Clear the filter to see everything."
                   : "Every answered call becomes a lead within two minutes."
+              }
+              /* The sentence used to NAME the action without offering it — the dead-end
+                 shape ux-audit F-18 flags. Only the filtered case gets a button: an
+                 account with genuinely no leads has nothing to clear. */
+              action={
+                (status || searchTerm) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatus(undefined);
+                      setSearch("");
+                    }}
+                    className={SECONDARY_BUTTON_SM}
+                  >
+                    Clear the filters
+                  </button>
+                )
               }
             />
           )}

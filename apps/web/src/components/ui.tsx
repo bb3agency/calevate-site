@@ -955,11 +955,27 @@ export function SkipLink() {
   );
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+export function EmptyState({
+  title,
+  hint,
+  action,
+}: {
+  title: string;
+  hint?: string;
+  /**
+   * The next meaningful action, when one exists — a Link or button that creates the
+   * first item or opens the screen that does. Without this slot every empty state in
+   * the product was structurally a dead end: the sentence could name an action and the
+   * screen could not offer it (ux-audit entry-auth F-18). Optional on purpose — an
+   * empty state that is the GOOD state (an empty holds queue) rightly offers nothing.
+   */
+  action?: ReactNode;
+}) {
   return (
     <div className="py-10 text-center">
       <p className="text-sm font-medium text-ink">{title}</p>
       {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
+      {action && <div className="mt-4 flex justify-center">{action}</div>}
     </div>
   );
 }
