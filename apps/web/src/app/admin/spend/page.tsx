@@ -60,6 +60,8 @@ export default function FleetSpendPage() {
         <input
           type="month"
           value={month}
+          // No future months: an empty 2027 board reads like a failure (ux-audit F-9a).
+          max={currentISTMonth()}
           onChange={(event) => setMonth(event.target.value)}
           className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
           aria-label="Billing month"

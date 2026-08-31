@@ -7,6 +7,7 @@ import { ArrowLeft, Printer } from "lucide-react";
 import { InvoiceDocument } from "@/components/invoiceDocument";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { currentISTMonth, useInvoice } from "@/lib/api/invoice";
+import { useTenant } from "@/lib/api/admin";
 
 /**
  * Ops's copy of one tenant's statement for a billing month.
@@ -27,22 +28,32 @@ export default function TenantInvoicePage({
   // picker and the statement agree on which month "now" is.
   const [month, setMonth] = useState(currentISTMonth);
   const invoice = useInvoice(tenantId, month);
+  // WHOSE statement the chrome is driving. The sheet names the organization once it has
+  // loaded, but the month picker and Print sit in chrome that never did — and that chrome
+  // is where the operator acts (ux-audit F-1). The document render does not wait on this.
+  const tenantQuery = useTenant(tenantId);
+  const tenantName = tenantQuery.data?.name;
   const data = invoice.data;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <Link
-          href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to client
-        </Link>
+        <div>
+          <Link
+            href={`/admin/tenants/${tenantId}`}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {tenantName ?? "Back to client"}
+          </Link>
+          <h1 className="mt-1 text-xl font-semibold text-ink">Invoice</h1>
+        </div>
         <div className="flex items-center gap-2">
           <input
             type="month"
             value={month}
+            // No future months: a blank 2027 statement reads like a failure (F-9a).
+            max={currentISTMonth()}
             onChange={(e) => setMonth(e.target.value)}
             className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
             aria-label="Billing month"
