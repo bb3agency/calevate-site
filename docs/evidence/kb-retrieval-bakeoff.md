@@ -49,12 +49,18 @@ servers regardless of other configuration settings"
 all three legs is what this product IS**, so the hop cannot be bought away without giving
 up the architecture. It is a fixed cost of the current design, not a procurement item.
 
-**2. The store component is not the problem, and now there is a number instead of an
-argument.** On the contingency schema this repository already specified, a hybrid RRF
-top_k=3 query over a realistic SMB corpus runs in **single-digit milliseconds** (§2). At
-the size one SMB client actually has, Postgres does not even use the vector index — it
-does an **exact** scan, which is both fast and perfectly accurate. The 100ms budget is not
-threatened by the database. It is threatened by the network and by the embedding call.
+**2. The store component fits the budget, and now there is a number instead of an
+argument.** On the contingency schema this repository already specified, hybrid RRF
+top_k=3 measures **p95 12.09ms at 500 rows, 41.77ms at 2,000, and 29.67ms on a
+100,000-row multi-tenant table** — against a 100ms budget, on an untuned server, on a busy
+4-core box, with a synthetic corpus that makes the sparse arm a pathological worst case
+(§2.3a). The **dense** arm alone is 1.75–7.15ms p95. Two results matter more than the
+headline: Postgres serves the multi-tenant case by **exact** search behind the tenancy
+btree — so recall is perfect and the pre-0.8.0 approximate-index hazard this document
+predicted **did not occur** (§2.3b) — and the real costs of option 2 are not query latency
+at all but an **11.3-minute index build** and **1.6GB per 100k chunks** (§2.3c). The 100ms
+budget is not threatened by the database. It is threatened by the network and by the
+embedding call.
 
 **3. Option 3 is closed on Bolna and only HALF open on Cartesia, and the half that is open
 is the wrong half.** Bolna's `POST /knowledgebase` takes a PDF or a URL and has no text
@@ -184,7 +190,83 @@ list, a clinic with per-procedure pages) in the low thousands. Measured, therefo
 
 ### 2.3 Results
 
-MEASURED_TABLE_PLACEHOLDER
+**MEASURED-HERE, 31 August 2026.** PostgreSQL 16.15, pgvector **0.6.0**,
+`hnsw.ef_search` 40, 1024-d vectors, private cluster on 4 cores (`shared_buffers` 128MB,
+`maintenance_work_mem` 64MB, `work_mem` 4MB, `max_parallel_maintenance_workers` 2 — read
+from the running cluster with `SHOW`). 500 timed iterations per cell after 50 warmups.
+Percentiles are nearest-rank. All figures in **milliseconds**.
+
+| corpus | query | p50 | p95 | p99 | max |
+|---|---|---|---|---|---|
+| **500 rows** (median SMB, 1 agent) | dense-only | **1.98** | **2.46** | 2.98 | 11.88 |
+| | sparse-only | 8.32 | 9.44 | 11.96 | 14.13 |
+| | **hybrid RRF top_k=3** | **10.51** | **12.09** | 13.74 | 15.39 |
+| | semantic-cache hit | 0.96 | 1.42 | 1.64 | 2.59 |
+| **2,000 rows** (large SMB, 1 agent) | dense-only | **1.45** | **1.75** | 1.89 | 2.55 |
+| | sparse-only | 33.63 | 37.43 | 39.64 | 44.62 |
+| | **hybrid RRF top_k=3** | **36.74** | **41.77** | 47.93 | 51.36 |
+| | semantic-cache hit | 0.86 | 1.05 | 1.26 | 1.38 |
+| **100,000 rows** (50 tenants x 2 agents x 1,000) | dense-only | **6.41** | **7.15** | 8.67 | 12.94 |
+| | sparse-only | 21.49 | 23.76 | 27.41 | 54.79 |
+| | **hybrid RRF top_k=3** | **26.41** | **29.67** | 36.32 | 72.96 |
+| | semantic-cache hit | 1.11 | 1.49 | 1.66 | 1.84 |
+
+Load average during each shape: 1.80 / 1.65 / 3.72 respectively (4 cores).
+
+**Against the budget.** TRD §6's in-call retrieval budget is **100ms**. The worst hybrid
+p95 measured is **41.77ms** (2,000 rows) and the multi-tenant 100,000-row table gives
+**29.67ms**. So the store component fits, with the whole rest of the budget — the
+US↔India hop and the embedding call, both unmeasured — still to be paid out of the
+remaining ~58ms. The T0 alternative is **0ms** and remains the only option that trivially
+fits.
+
+**Three results here are worth more than the headline number, and two of them went
+against what this document predicted before the run.**
+
+**(a) The DENSE arm is cheap; the HYBRID's cost is almost entirely the SPARSE arm — and
+that arm's cost here is an artefact of the synthetic corpus, not a property of Postgres.**
+Dense-only is 1.45–6.41ms p50 across a 200x range of corpus size. Sparse-only is 8–34ms.
+The reason is in how the corpus was built: every chunk is 300 words drawn from a 90-word
+vocabulary, so an 8-word query matches essentially **every document in scope**, and
+`ts_rank_cd` is then computed over all of them. Real prose has selective terms and matches
+a small fraction. **So the sparse and hybrid rows are a pathological worst case and should
+be read as a ceiling, not as an expectation** — the honest summary is that the dense arm is
+comfortably affordable and the sparse arm needs re-measuring on real text before anyone
+sizes anything on it. It is reported rather than quietly dropped because a ceiling that
+still fits the budget is a useful thing to know.
+
+**(b) ⚠ THE PRE-0.8.0 FILTERED-SCAN HAZARD THIS DOCUMENT PREDICTED DID NOT MATERIALISE.**
+§2.5 reasoned that a scope-filtered HNSW scan on pgvector 0.6.0 could silently return
+fewer rows than asked for. **It did not happen in any shape: the filtered dense arm
+returned exactly 20 of 20 requested in 500/500 trials at every size, with zero results
+short of depth.** The plans explain why, and the explanation is the useful part:
+
+| corpus | access path the planner chose | consequence |
+|---|---|---|
+| 500 rows | `Sort` — **exact** brute-force scan | perfect recall, no index involved |
+| 2,000 rows | `Index Scan using kb_chunks_embedding_idx` — the **HNSW** index | approximate, but scope is one agent so nothing is filtered away after the walk |
+| 100,000 rows | `Sort`, after the `(tenant_id, agent_id, is_active)` btree — **exact** on the ~1,000 rows in scope | perfect recall, and the HNSW index is not used at all |
+
+The scope predicate is selective (one agent holds ~1% of the multi-tenant table), so
+Postgres prefers the btree and then sorts exactly. **The tenancy filter that hard rule 1
+requires is the very thing that makes the approximate-index hazard irrelevant.** That is a
+genuinely good result for option 2 and it is the opposite of what was expected.
+
+⚠ **It is conditional and the condition must be stated**: it holds because a single
+agent's corpus is small. If one agent's knowledge base grew to a size where exact scan over
+its own scope stops being the cheapest plan, the planner would switch to HNSW and the
+0.6.0 behaviour would become live again. **Re-run the harness before assuming it holds at a
+new size** — which is exactly why the harness reports the plan and the row yield rather
+than only the time.
+
+**(c) Index build time and disk are the real operational costs of option 2, not query
+latency.** The 100,000-row HNSW build took **676.97 seconds (11.3 minutes)** and the table
+plus its three indexes reached **1,597 MB** — about 16KB per chunk, dominated by the
+1024-d vector and the HNSW graph. Both scale with the corpus and both are ours to operate.
+The build time is under a stock 64MB `maintenance_work_mem` and would improve substantially
+with tuning, but "improve" is not "disappear": an index rebuild is a maintenance window,
+and 1.6GB per 100k chunks is a capacity-planning number for the VPS. **Neither cost appears
+anywhere in a latency table, and both are more likely to bite than the query time is.**
 
 ### 2.4 What these numbers do NOT say
 
@@ -204,19 +286,30 @@ MEASURED_TABLE_PLACEHOLDER
   measurement found that the cost on that surface is CONCURRENCY, not the handler
   (`latency ≈ in-flight ÷ 1,750`). The same caveat applies here and is not re-measured.
 
-### 2.5 The multi-tenancy finding, which is a correctness result and not a speed one
+### 2.5 The multi-tenancy question, and why it turned out not to bite
 
 pgvector gained **iterative index scans** — re-entering the HNSW graph until the `LIMIT` is
 satisfied — only in **0.8.0 (2024-10-30)** (VERIFIED-VENDOR-DOCS: pgvector `CHANGELOG.md`,
-read from `raw.githubusercontent.com/pgvector/pgvector/master/CHANGELOG.md`, 31 Aug 2026).
-The server here has **0.6.0**. Before 0.8.0 an HNSW scan walks the graph over the whole
-index and the scope predicate is applied to whatever the walk produced, so a filtered query
-can return **fewer rows than asked for** — silently, as a short result rather than an error.
-That is a recall failure wearing the costume of a working query, which is precisely the
-defect class this repository writes gates for. The harness therefore measures the returned
-row count and the chosen plan, not just the time; see the table.
+read from `raw.githubusercontent.com/pgvector/pgvector/master/CHANGELOG.md`, 31 Aug 2026);
+the server measured here has **0.6.0**. Before 0.8.0 an HNSW scan walks the graph over the
+whole index and a scope predicate is applied to whatever the walk produced, so a filtered
+query *can* return fewer rows than asked for — silently, as a short result rather than an
+error. That is a recall failure wearing the costume of a working query, and this document
+predicted it would be the decisive problem with option 2 at multi-tenant scale.
 
----
+**It was measured, and the prediction was wrong** — see §2.3(b). Across 500 trials at each
+of three corpus sizes the filtered dense arm returned exactly the depth requested every
+time, because the `(tenant_id, agent_id, is_active)` predicate is selective enough that the
+planner uses the btree and then sorts **exactly**, never entering the HNSW graph at the size
+where it would matter. The tenancy filter and the recall hazard turn out to be the same
+mechanism pointed in opposite directions.
+
+**What survives the correction** is the conditional: this is a property of the *ratio*
+between one agent's corpus and the table, not a property of pgvector 0.6.0. It should be
+re-measured whenever that ratio changes materially — a single agent with a very large
+corpus, or the resolved-call transcript indexing TRD §6 contemplates, would both move it.
+Upgrading past 0.8.0 removes the hazard by construction and is the durable answer if option
+2 is chosen; on this evidence it is not a blocker for adopting it.
 
 ## 3. Option 3 — engine-side KB, verified rather than recalled
 
@@ -436,7 +529,7 @@ are separated deliberately: **the answer differs between them, and that is the f
 
 | | **1. Managed retrieval API** | **2. pgvector contingency** | **3. Engine-side KB** |
 |---|---|---|---|
-| **In-call store latency** | **UNKNOWN — not measurable here.** No credential, and the candidate vendors' hosts are egress-blocked from this container. No figure is invented | **MEASURED-HERE, §2.3** — single-digit ms for the store component at every size measured | zero hops from the orchestrator (in-pipeline). Bolna: **N/A, route closed.** Cartesia: 3s default timeout, VERIFIED-SDK |
+| **In-call store latency** | **UNKNOWN — not measurable here.** No credential, and the candidate vendors' hosts are egress-blocked from this container. No figure is invented | **MEASURED-HERE, §2.3** — hybrid p95 12.1 / 41.8 / 29.7ms at 500 / 2,000 / 100,000 rows; dense arm alone 1.8-7.2ms p95. Fits 100ms with room, on an untuned server and a worst-case sparse arm | zero hops from the orchestrator (in-pipeline). Bolna: **N/A, route closed.** Cartesia: 3s default timeout, VERIFIED-SDK |
 | **In-call FIRST HOP** (the term that dominates) | India↔us-east-1, **UNMEASURED** | India↔us-east-1, **UNMEASURED** — *identical to option 1* | none — this is option 3's one real advantage |
 | **Can it serve in-call today?** | **No** — budget already overdrawn by 100ms (§0.4) before the unmeasured hop and the unmeasured embedding call | **No**, for the same two reasons, which are not the store's | **No** — Bolna closed on ingestion; Cartesia needs an engine swap it was eliminated from on telephony |
 | **Can it serve the dashboard copilot?** | **Yes** — seconds are fine | **Yes**, and it is already in the request path's own database | **No, and this is disqualifying on its own.** The vendor's KB has no search route at all (§3.1d), so option 3 must be paired with option 1 or 2. Its true cost is "one of the others, PLUS this" |
@@ -445,7 +538,7 @@ are separated deliberately: **the answer differs between them, and that is the f
 | **What if app code forgets the filter?** | cross-tenant leak, silent | **impossible** — hard rule 1's existing pattern | vendor-dependent; Cartesia's path-scoped token makes it hard |
 | **Write-back (agent proposes knowledge)** | upsert/delete per namespace, vendor-dependent; the approval gate stays ours but now spans a network boundary, so an approved write can succeed locally and fail remotely | **upsert/delete in the same transaction as the approval** — the gate and the store commit or fail together | Bolna: no. Cartesia: **no write path exists in the SDK at all** (§3.2) |
 | **New sub-processor / DPA** | **YES** — a new vendor, new credential, `/legal/subprocessors` + DPA + SEC-COMP §4 entry, and a cross-border position to state. SEC-COMP §4's cross-border row is REPORTED and already unsettled; adding a vendor adds a question, not an answer | **No new store vendor.** ⚠ **But not "no new sub-processor" unconditionally** — see §4.1 | **YES** (Cartesia) — a new engine, not just a new store |
-| **Cost shape** | per-vector-stored + per-query, ongoing, scales with clients. **Actual prices UNKNOWN — vendor hosts egress-blocked; route to founder** | RAM and disk on a Postgres we already run and already pay for. No new line item. Embedding cost is separate and common to options 1 and 2 | Bolna: no KB line on their pricing page → **inferred included**, unconfirmed (gates 8+12) — a REPORTED inference, not a price |
+| **Cost shape** | per-vector-stored + per-query, ongoing, scales with clients. **Actual prices UNKNOWN — vendor hosts egress-blocked; route to founder** | No vendor line item, but not free: **MEASURED-HERE 1,597 MB and an 11.3-minute HNSW build per 100k chunks** (§2.3c) — disk, RAM and a maintenance window on our own VPS. Embedding cost is separate and common to options 1 and 2 | Bolna: no KB line on their pricing page → **inferred included**, unconfirmed (gates 8+12) — a REPORTED inference, not a price |
 | **What it does to D-28** | **honours it** — this is the D-28 posture | **reverses it** on the store, and D-08 was already superseded once in the other direction | orthogonal to D-28; it is D-33's arm, and D-354 closed it |
 | **What it does to CLAUDE.md "Do NOT self-host vector infrastructure"** | nothing | **contradicts it as written.** The rule's own gloss says it "now means: don't run one", and pgvector is an extension in a Postgres we already run rather than a new deployable — but that is a *reading*, and the founder decides, not this document | nothing |
 | **Engineering effort** | embedding path + client + namespace lifecycle + deletion-with-proof + sub-processor paperwork + a bake-off across candidates | embedding path + one migration + query module. Everything else (RLS, backup, restore drill, retention, erasure) is machinery we already run and already test | Bolna: reopen `KBSourceRef` to carry a PDF/URL and rewrite `attach_kb` as create→GET→PATCH (D-354/D-424). Cartesia: an engine migration |
@@ -473,7 +566,7 @@ repeating it without that clause is repeating something this document did not sa
 
 | Mitigation | Verdict here |
 |---|---|
-| **Semantic cache** | **MEASURED-HERE (§2.3).** A cache hit is a top-1 lookup against a table two orders of magnitude smaller, returning a pre-composed answer — the fastest query in the whole experiment. Crucially it can be **colocated with voice-runtime**, so a hit pays no store hop. It still pays the engine→endpoint hop and still needs the question embedded, so it does not by itself rescue in-call retrieval. **Only options 1 and 2 can host it; option 3 cannot** (we do not run the engine's pipeline) |
+| **Semantic cache** | **MEASURED-HERE (§2.3): p95 1.05-1.49ms, and — the part that matters — essentially FLAT across a 200x change in corpus size**, because a hit is a top-1 lookup against a small per-agent table returning a pre-composed answer. The fastest query in the whole experiment and the only one that does not grow. Crucially it can be **colocated with voice-runtime**, so a hit pays no store hop. It still pays the engine→endpoint hop and still needs the question embedded, so it does not by itself rescue in-call retrieval. **Only options 1 and 2 can host it; option 3 cannot** (we do not run the engine's pipeline) |
 | **Async prefetch during caller think-time** | not measurable here. Sound in principle and it attacks the right term (it hides the hop rather than shrinking it). Needs the hop measured first, or it is optimisation against an unknown |
 | **Predictive follow-up prefetch** | same, and weaker — it spends embedding and retrieval cost on questions that may not be asked. Not worth designing before the hop is a number |
 
@@ -564,10 +657,17 @@ repository best is option 2, pgvector.** The reasoning, in the order it actually
    owner approves. With pgvector the approval and the vector write are one transaction.
    Across a network boundary they are two, and D-41 is the record of what a divergence
    between "our tables say published" and "the store says otherwise" costs.
-3. **It is measured and the alternative is not.** §2.3 is a number. Option 1's latency,
-   price and residency are all UNKNOWN from here and will stay UNKNOWN until someone with a
-   credential closes them.
-4. **The store is not on the call path**, so D-08's latency physics — the reason a managed
+3. **It is measured and the alternative is not.** §2.3 is a number, taken under conditions
+   chosen to be pessimistic. Option 1's latency, price and residency are all UNKNOWN from
+   here and will stay UNKNOWN until someone with a credential closes them. The measurement
+   also removed the objection this lane expected to be decisive against pgvector — the
+   pre-0.8.0 filtered-scan recall hazard, which did not occur (§2.3b) — so the arm is
+   stronger on evidence than it was on argument.
+4. **Its real costs are known and boring.** An 11.3-minute index build and 1.6GB per 100k
+   chunks (§2.3c) are capacity and maintenance-window problems on a VPS we already operate,
+   back up and drill. They are the kind of cost this team can see coming, as against a
+   per-query price on a vendor nobody has quoted yet.
+5. **The store is not on the call path**, so D-08's latency physics — the reason a managed
    region ever mattered — does not bind this choice.
 
 **5.3 On the founder's stated direction — "the in-call KB will be handled by Bolna only".**
@@ -603,11 +703,15 @@ this is exactly the sentence someone writes when they are about to run a vector 
   is the load-bearing one.
 * **An embedding path lands that is not Azure.** Then option 2's DPA advantage largely
   evaporates (§4.1) and the comparison is much closer.
-* **Corpus growth by two orders of magnitude.** These numbers are for SMB corpora. If
-  resolved-call transcripts are indexed as the per-client corpus (TRD §6 contemplates
-  exactly that) the table grows without bound, and the 0.6.0 filtered-scan behaviour of
-  §2.5 becomes a live problem rather than a noted one. Re-run the harness at the new size
-  before assuming it holds.
+* **Corpus growth by two orders of magnitude, and specifically growth in ONE AGENT's
+  corpus.** The good result in §2.3b holds because a single agent's scope is small enough
+  that Postgres prefers an exact sort behind the tenancy btree. If resolved-call
+  transcripts are indexed as the per-client corpus (TRD §6 contemplates exactly that), one
+  agent's scope stops being small, the planner switches to HNSW, and the 0.6.0 filtered-scan
+  behaviour becomes live. **Re-run the harness at the new size** — it reports the chosen
+  plan and the row yield precisely so this is checkable rather than assumed — or upgrade
+  past pgvector 0.8.0, which removes the hazard by construction. The 11.3-minute build at
+  100k also grows, and an hour-long rebuild is a different operational proposition.
 * **The founder simply does not want to operate it.** That is a legitimate and sufficient
   answer, and it is the one D-28 already gave for a two-person team. Nothing measured here
   overrides it; the measurement only removes *latency* from the list of reasons.
@@ -619,7 +723,7 @@ this is exactly the sentence someone writes when they are about to run a vector 
 The decision is the founder's, so no row was written. Proposed text, to be added only if
 and when the founder decides:
 
-> | D-XXX | **The D-28 bake-off was finally run, and it found that the store was never the binding constraint on in-call retrieval** | **In-call retrieval stays T0 and nothing else**; `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` stays as written. The retrieval store is chosen for the **dashboard copilot, CRM semantic search and H3 caller memory only**, where the budget is seconds. On those paths, `kb_chunks` + pgvector in the Postgres we already run is [ADOPTED / REFUSED]; embeddings come from [an Azure OpenAI deployment on the existing resource / TBD], which adds no new sub-processor. The preview-and-approve gate is unchanged and binds the agent write-back path: proposed knowledge lands as an unapproved `kb_source` and reaches the store only through `publish_source`. | **MEASURED-HERE** (`docs/evidence/kb-retrieval-bakeoff.md` §2, `scripts/spike/kb_pgvector_latency.py`, 31 Aug 2026): hybrid RRF top_k=3 on the DATA-MODEL contingency schema costs single-digit milliseconds at SMB corpus sizes, and at those sizes Postgres chooses an exact scan over the index. The 100ms in-call budget is not threatened by the store: it is threatened by (a) a voice pipeline that already misses its 500ms target by 100ms with zero retrieval in it (`latency_budget_composes()` is `False`, `voice_to_voice_gap_ms()` is `+100.0`, evaluated 31 Aug 2026), (b) an engine→endpoint hop that is India↔us-east-1 and **has never been measured** (gate 8's `custom_function_tool_call_budget`, still `not_run`), and (c) a question-embedding call that does not exist yet. Both (b) and (c) are IDENTICAL for a managed vendor, so they do not discriminate. Option 3 stays closed: Bolna's `POST /knowledgebase` takes a PDF or URL with no text field (`create.md:33,40-52`) and its `Knowledgebase` object carries no agent id (`get_knowledgebases.md:63-126`), while Cartesia Line's `knowledge_base` built-in — re-verified at source at `c79c1c4`, newer than the commit the TRD cites — is a **query client with no document write path anywhere in the SDK**, so it solves the retrieval half and leaves ingestion exactly as unproven. Three further facts bear on the engine arm if it is ever reopened, all VERIFIED-VENDOR-DOCS: `POST /knowledgebase` returns `rag_id` and **not** `vector_id` (`create.md:86-124`) while the agent attaches by `vector_ids` (`update.md:1220-1237`), so create → GET → PATCH is imposed by the vendor's spec; the vendor **re-chunks server-side** (`chunk_size`/`overlapping`, `create.md:53-70`), which drops our approval granularity from the CHUNK to the DOCUMENT and, on a URL source, to the ADDRESS alone — a deliberate weakening of what `kb/__init__.py` calls a product property; and the KB exposes **no search route**, so it cannot serve the dashboard copilot and is a complement to this decision rather than a substitute for it. **Giving Bolna our LLM key does not give Bolna a knowledge base**: BYOK is shipped (`bolna.py:363-365`) and `BOLNA_CAPABILITIES.knowledge_base` is `False` (`:2484`). Isolation is what decides between the two live options: RLS makes forgetting the tenant filter return zero rows, whereas the only managed configuration that avoids the hop puts the namespace in a parameter the model fills in. ⚠ **This entry reverses D-28 on the store and contradicts CLAUDE.md's "Do NOT self-host vector infrastructure" as written** — taken deliberately, on the reading that an extension in an existing database is not a deployable; if that reading is rejected, the whole entry falls and option 1 is the answer. |
+> | D-XXX | **The D-28 bake-off was finally run, and it found that the store was never the binding constraint on in-call retrieval** | **In-call retrieval stays T0 and nothing else**; `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` stays as written. The retrieval store is chosen for the **dashboard copilot, CRM semantic search and H3 caller memory only**, where the budget is seconds. On those paths, `kb_chunks` + pgvector in the Postgres we already run is [ADOPTED / REFUSED]; embeddings come from [an Azure OpenAI deployment on the existing resource / TBD], which adds no new sub-processor. The preview-and-approve gate is unchanged and binds the agent write-back path: proposed knowledge lands as an unapproved `kb_source` and reaches the store only through `publish_source`. | **MEASURED-HERE** (`docs/evidence/kb-retrieval-bakeoff.md` §2, `scripts/spike/kb_pgvector_latency.py`, 31 Aug 2026): hybrid RRF top_k=3 on the DATA-MODEL contingency schema measures p95 12.1ms at 500 rows, 41.8ms at 2,000 and 29.7ms on a 100,000-row multi-tenant table, against a 100ms budget — on an untuned server, on a contended 4-core host, with a synthetic corpus that makes the sparse arm a worst case. The dense arm alone is 1.8-7.2ms p95. Two secondary results outrank the headline: on the multi-tenant table the planner serves the query by EXACT search behind the (tenant_id, agent_id, is_active) btree, never entering the HNSW graph, so recall is perfect and the pre-0.8.0 filtered-scan hazard did not occur in 500 trials at any size — a prediction this lane made and its own measurement disproved; and the real operating costs are an 11.3-minute index build and 1,597 MB per 100k chunks, neither of which appears in a latency table. The 100ms in-call budget is not threatened by the store: it is threatened by (a) a voice pipeline that already misses its 500ms target by 100ms with zero retrieval in it (`latency_budget_composes()` is `False`, `voice_to_voice_gap_ms()` is `+100.0`, evaluated 31 Aug 2026), (b) an engine→endpoint hop that is India↔us-east-1 and **has never been measured** (gate 8's `custom_function_tool_call_budget`, still `not_run`), and (c) a question-embedding call that does not exist yet. Both (b) and (c) are IDENTICAL for a managed vendor, so they do not discriminate. Option 3 stays closed: Bolna's `POST /knowledgebase` takes a PDF or URL with no text field (`create.md:33,40-52`) and its `Knowledgebase` object carries no agent id (`get_knowledgebases.md:63-126`), while Cartesia Line's `knowledge_base` built-in — re-verified at source at `c79c1c4`, newer than the commit the TRD cites — is a **query client with no document write path anywhere in the SDK**, so it solves the retrieval half and leaves ingestion exactly as unproven. Three further facts bear on the engine arm if it is ever reopened, all VERIFIED-VENDOR-DOCS: `POST /knowledgebase` returns `rag_id` and **not** `vector_id` (`create.md:86-124`) while the agent attaches by `vector_ids` (`update.md:1220-1237`), so create → GET → PATCH is imposed by the vendor's spec; the vendor **re-chunks server-side** (`chunk_size`/`overlapping`, `create.md:53-70`), which drops our approval granularity from the CHUNK to the DOCUMENT and, on a URL source, to the ADDRESS alone — a deliberate weakening of what `kb/__init__.py` calls a product property; and the KB exposes **no search route**, so it cannot serve the dashboard copilot and is a complement to this decision rather than a substitute for it. **Giving Bolna our LLM key does not give Bolna a knowledge base**: BYOK is shipped (`bolna.py:363-365`) and `BOLNA_CAPABILITIES.knowledge_base` is `False` (`:2484`). Isolation is what decides between the two live options: RLS makes forgetting the tenant filter return zero rows, whereas the only managed configuration that avoids the hop puts the namespace in a parameter the model fills in. ⚠ **This entry reverses D-28 on the store and contradicts CLAUDE.md's "Do NOT self-host vector infrastructure" as written** — taken deliberately, on the reading that an extension in an existing database is not a deployable; if that reading is rejected, the whole entry falls and option 1 is the answer. |
 
 ---
 

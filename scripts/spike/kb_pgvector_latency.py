@@ -106,6 +106,10 @@ CANDIDATE_DEPTH = 20
 
 TOP_K = 3
 
+#: The HNSW index is named so EXPLAIN can be attributed to an access method. See
+#: `_build_corpus` for the misreading that made this necessary.
+HNSW_INDEX = "kb_chunks_hnsw"
+
 # A small vocabulary produces documents that actually share terms, which is what makes the
 # sparse arm do work rather than match nothing. Word salad with no overlap would measure an
 # empty tsquery and flatter the result.
@@ -378,8 +382,12 @@ def _build_corpus(
     # also has no build-time minimum row count, which an SMB corpus of a few hundred chunks
     # would otherwise trip. DATA-MODEL.md:351 had already chosen HNSW; this spike measures
     # that choice rather than reopening it.
+    # Named rather than auto-named, so the plan can be attributed. Postgres would call it
+    # `kb_chunks_embedding_idx`, which reads in EXPLAIN as an ordinary "Index Scan using
+    # kb_chunks_embedding_idx" and says nothing about the access method — the first run of
+    # this harness reported "HNSW: False" for a plan that was in fact using it.
     started = time.perf_counter()
-    conn.execute("CREATE INDEX ON kb_chunks USING hnsw (embedding vector_cosine_ops)")
+    conn.execute(f"CREATE INDEX {HNSW_INDEX} ON kb_chunks USING hnsw (embedding vector_cosine_ops)")
     build_seconds = time.perf_counter() - started
 
     conn.execute("VACUUM ANALYZE kb_chunks")
@@ -569,7 +577,13 @@ def _measure_filter_yield(
         yields.append(len(rows))
     return {
         "dense_plan": plan,
-        "used_hnsw": "hnsw" in plan.lower(),
+        # Attribution by INDEX NAME, not by the word "hnsw": an ordinary
+        # `Index Scan using <name>` names the index and never the access method, so a
+        # substring search for "hnsw" reports a false negative on the one plan that
+        # matters. A `Sort` node here means Postgres chose EXACT nearest-neighbour over
+        # the approximate index, which is a better answer rather than a worse one.
+        "used_hnsw": HNSW_INDEX in plan,
+        "exact_scan": "Sort" in plan,
         "requested_depth": CANDIDATE_DEPTH,
         "trials": trials,
         "min_returned": min(yields),
