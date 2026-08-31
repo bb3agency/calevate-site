@@ -95,19 +95,26 @@ function navigation(slug: string): NavGroup[] {
       heading: null,
       items: [
         { href: `/c/${slug}`, label: "Dashboard", icon: LayoutDashboard },
+        // Directly under Dashboard because it is the daily triage queue — the one list
+        // with a time cost attached to ignoring it. It used to sit in a secondary
+        // "Operations" group beside Campaign review, a screen most accounts see once,
+        // while the header bell promoted it — the sidebar now agrees with the bell
+        // (ux-audit client-daily-work C2).
+        { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
         { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
-        { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
       ],
     },
     {
-      heading: "Operations",
+      // Weekly-or-rarer reads, grouped by cadence rather than left at daily weight:
+      // Quality is a weekly review and Campaign review is a once-per-campaign gate.
+      heading: "Reports & reviews",
       items: [
-        { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
+        { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
         { href: `/c/${slug}/campaign-review`, label: "Campaign review", icon: FileText },
       ],
     },

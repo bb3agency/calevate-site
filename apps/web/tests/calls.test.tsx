@@ -94,6 +94,18 @@ describe("the call log", () => {
     expect(container.textContent).toContain("calls");
   });
 
+  it("stops claiming a total once the page is full — 100 rows is our query, not their business", async () => {
+    // A full page means the account may have any number of calls past it; "100 calls"
+    // read forever on a busy account is the statement-about-our-query defect the leads
+    // screen's docstring names (ux-audit CL1).
+    const fullPage = Array.from({ length: 100 }, (_, i) => call({ id: `c-${i}` }));
+    const { container } = await renderClientPage(page, routes(fullPage));
+    await screen.findByText(/Showing the/);
+    expect(container.textContent).toContain("Showing the");
+    expect(container.textContent).toContain("most recent");
+    expect(container.textContent).not.toContain("100 calls");
+  });
+
   it("can filter by every status the system records, not a subset of them", async () => {
     // The four the old chip row omitted. A client who cannot ASK for their voicemails
     // has no way to find them: the list is capped at 100 rows.

@@ -52,6 +52,9 @@ import { lookup } from "@/lib/lookup";
  * happened, the dial reached the network but not a person, the dial itself broke, or
  * it is still running.
  */
+/** One page of the log — and the honesty threshold for the header count (CL1). */
+const CALLS_PAGE_SIZE = 100;
+
 const STATUS_FILTERS = [
   { value: "completed", label: "Completed" },
   { value: "no_answer", label: "No answer" },
@@ -86,7 +89,7 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
   const { session, href } = useClientRealm();
   const [status, setStatus] = useState<string | undefined>(undefined);
-  const calls = useCalls(session, { status, limit: 100 });
+  const calls = useCalls(session, { status, limit: CALLS_PAGE_SIZE });
 
   return (
     <div className="space-y-4 pb-12">
@@ -98,14 +101,27 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
             filter" rather than possibly "nothing loaded". Only once the query has
             answered — a count rendered from `data ?? []` while loading says 0 and
             then jumps, which reads as calls disappearing. */}
-        {calls.data && (
-          <p className="text-sm text-ink-muted">
-            <span className="font-semibold tabular-nums text-ink">
-              {formatCount(calls.data.length)}
-            </span>{" "}
-            {status ? `matching “${status.replace(/_/g, " ")}”` : "calls"}
-          </p>
-        )}
+        {calls.data &&
+          /* A full page is a statement about OUR QUERY, not their business: an account
+             past 100 calls would read "100 calls" forever — the exact defect the leads
+             screen's docstring names as the thing it fixed. Below the cap the length IS
+             the total, so the plain count is honest there (ux-audit CL1). */
+          (calls.data.length >= CALLS_PAGE_SIZE ? (
+            <p className="text-sm text-ink-muted">
+              Showing the{" "}
+              <span className="font-semibold tabular-nums text-ink">
+                {formatCount(calls.data.length)}
+              </span>{" "}
+              most recent{status ? ` matching “${status.replace(/_/g, " ")}”` : ""}
+            </p>
+          ) : (
+            <p className="text-sm text-ink-muted">
+              <span className="font-semibold tabular-nums text-ink">
+                {formatCount(calls.data.length)}
+              </span>{" "}
+              {status ? `matching “${status.replace(/_/g, " ")}”` : "calls"}
+            </p>
+          ))}
       </div>
 
       <div className="flex flex-wrap gap-1.5">
