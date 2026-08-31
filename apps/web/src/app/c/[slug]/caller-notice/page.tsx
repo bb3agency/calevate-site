@@ -71,7 +71,8 @@ export default function CallerNoticePage() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-ink">Your privacy notice</h1>
+        {/* No <h1>: the app shell prints the page title from the nav list (layout.tsx);
+            a second heading here argues with it after a rename (ux-audit INT-3/CN-1). */}
         <p className="max-w-3xl text-sm text-ink-muted">
           Indian data-protection law requires you to tell your callers, item by
           item, what you collect from them and how long you keep it. This is a
