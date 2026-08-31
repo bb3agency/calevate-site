@@ -146,8 +146,20 @@ _NO_TOOL_NOTE: Final = (
 
 
 #: The longest a model-supplied field id may be when it is quoted into a refusal reason.
-#: `schemas._MAX_ID` is 200, so a real id is never cut; see `validate_fill`.
-_MAX_REASON_ID: Final = 200
+#: DERIVED from the wire contract rather than retyped, so it moves if `CopilotField.id`'s
+#: ceiling ever does and a real id is never cut whatever that ceiling becomes. See
+#: `validate_fill` for why the bound exists at all.
+#:
+#: READ BY `getattr` RATHER THAN BY IMPORTING `annotated_types.MaxLen`, which is the
+#: precedent `scripts/check_list_bounds.py::_bounding_parameter` already set for reading
+#: Pydantic v2's constraint metadata: `annotated_types` is pydantic's own dependency and
+#: not one this project declares, so duck-typing it keeps an undeclared package out of an
+#: import line.
+_MAX_REASON_ID: Final[int] = max(
+    length
+    for constraint in CopilotField.model_fields["id"].metadata
+    if (length := getattr(constraint, "max_length", None)) is not None
+)
 
 
 class FillRefusedError(Exception):
