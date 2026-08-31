@@ -1,6 +1,7 @@
 # The copilot as an agent — architecture and staged plan
 
-**Status:** adopted 31 Aug 2026 (D-484). Phase 1 in build; phases 2-5 are named, not built.
+**Status:** adopted 31 Aug 2026 (D-484). Phases 1-4 BUILT and merged the same day; phase 5
+(the loop/streaming decision) remains open — see §6.
 **Scope:** the in-app assistant (`apps/api/copilot/`, both realms). It does NOT change the
 in-call agent, which already has this shape and is the model being copied.
 
@@ -166,14 +167,26 @@ more, and the ledger will show it. No new billing path — hard rule 7 stands.
 
 | Phase | What | State |
 |---|---|---|
-| **1** | **Read-tool registry** — `business_snapshot`, `leads_search`, `calls_recent`, `campaigns_list`, `agents_list`, each wrapping an existing tested service fn; loop feeds results back and continues | **in build** |
-| 2 | Live ambient context block (screen + business state) replacing the screen-only block | named |
-| 3 | Write tools behind code-enforced confirmation (lead status, DNC add, campaign pause) | named |
-| 4 | Memory: episodic rows first, then background semantic distillation | named |
-| 5 | Loop + the streaming decision (Azure-streamed vs Gemini-non-streamed) | named |
+| **1** | **Read-tool registry** — `business_snapshot`, `leads_search`, `calls_recent`, `campaigns_list`, each wrapping an existing tested service fn; the loop feeds results back and CONTINUES. `MAX_TURNS` 4→6, derived: six is where `MAX_TURNS * STREAM_IDLE_S <= TOTAL_BUDGET_S` stops holding, so the wall clock caps the loop rather than a round number. | **built** |
+| **2** | **Live business state block** — calls today/7d, leads waiting by status, campaign counts, outbound blocker RULE NAMES, IST clock. Carries no tenant-authored string at all (integers and closed-set rule names only), so there is nothing to sanitize; ceiling proven under 800 bytes by construction, not estimated. Degrades to `<unavailable part=…/>`, never to zeros. | **built** |
+| **3** | **Write tools that PROPOSE** — `lead_set_status`, `dnc_add`, `campaign_pause`. A proposal is a signed 5-minute JWT and no table; forgery, replay, cross-tenant and cross-actor each refused. Confirm executes through the SAME gated service function a click uses and writes an `audit_log` row. | **built** |
+| **4** | **Memory** — `copilot_memories` (RLS in the same migration), hybrid recall with recency STRUCTURALLY guaranteed a seat, semantic distillation in an hourly ARQ job on a cheap model, wired into retention AND every erasure path. | **built** |
+| 5 | Loop + the streaming decision (Azure-streamed vs Gemini-non-streamed) | **open** |
 
-Phase 1 alone changes what the product feels like — "ask anything about my business" — and
-is the lowest-risk slice, because read-only cannot break a tenant's data.
+Phases 1-4 were built in parallel by four agents against this document as the shared
+specification, then reconciled into one loop by hand. Two corrections the build made to
+THIS document, recorded because the document was wrong and the code is right:
+
+- **§2.3 said to reuse the existing embedding path. There isn't one.** Verified at build
+  time: no `CREATE EXTENSION vector`, no vector column in any migration, no embedding call
+  anywhere in `apps/`; `kb/models.py` says "No embedding column, by decision (D-28)".
+  Recall is therefore Postgres `tsvector` (config `simple`, not `english` — English
+  stemming drops Telugu tokens), with `_RECALL_SQL` shaped so a similarity retriever is one
+  more CTE the day a provider exists. Standing one up would have meant a new vendor leg, a
+  new credential and a reversal of D-28 — none of which a memory feature gets to decide.
+- **Recency is not a weight, it is a seat.** §2.3 said "recency able to win"; the built
+  design is stronger — two retrievers with separate budgets, unioned, so similarity can
+  never starve recency. The blend only ORDERS what both channels already found.
 
 ## 6. Open questions
 
