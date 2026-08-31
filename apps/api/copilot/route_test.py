@@ -346,7 +346,23 @@ async def _at_the_ceiling(tenant_id: UUID, monkeypatch: pytest.MonkeyPatch) -> N
     """Past the included allowance with NO usage rows. The tier constant goes to zero
     rather than the tenant being charged into the ceiling: writing hundreds of rupees of
     usage would move `platform_ai_spend`, the one counter this file shares with every other
-    suite."""
+    suite.
+
+    **AND THE CLOCK IS PINNED, BECAUSE THIS TEST FAILED FOR ONE HOUR A MONTH AND NOBODY
+    WOULD HAVE BELIEVED WHY.** `require_ai_assist` asks `month_is_ending` before it raises
+    `ai_quota_exceeded`, and inside the last `LAST_SALEABLE_MINUTES` of an IST month it
+    correctly raises `ai_extra_month_ending` instead — a different code, a different
+    sentence, and a red suite for anyone who ran it after 23:00 IST on the last day
+    (observed 31 Aug 2026, 17:38 UTC). That is right behaviour and the wrong dependency for
+    a test about a ceiling: the assertion here is which refusal a tenant at its ceiling
+    gets, not what time it is.
+
+    Pinned FALSE, and pinned in the fixture rather than per test, so every ceiling test in
+    this file asserts the same state whatever hour it runs in. The month-ending refusal has
+    its own coverage in `tests/ai_quota_test.py`, which pins the boundary from both sides
+    with an explicit `now=` — this is the same `patch.setattr(ai_quota, "month_is_ending",
+    ...)` that file already uses, pointed the other way.
+    """
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :i"),
@@ -360,9 +376,13 @@ async def _at_the_ceiling(tenant_id: UUID, monkeypatch: pytest.MonkeyPatch) -> N
     # `ai_quota_exceeded`. Both are correct product behaviour and the specific one is the
     # better sentence — but a test about the CEILING must not be answered by the calendar.
     # Without this the file goes red for one hour every month, which reads to the next
-    # person like a regression in whatever they happened to be holding. Found the hard
-    # way: it failed a full ratchet run at 23:10 IST on 31 Aug 2026.
-    monkeypatch.setattr(ai_quota, "month_is_ending", lambda *_a, **_k: False)
+    # person like a regression in whatever they happened to be holding. Found twice
+    # independently on 31 Aug 2026 — once 51 minutes before the IST roll and once 50
+    # minutes after — which is the whole argument for pinning it rather than re-running.
+    # The lambda mirrors the real signature (`month_is_ending(month, *, now=None)`) so a
+    # signature drift surfaces here instead of being swallowed by a permissive `*args`;
+    # `tests/ai_quota_test.py` still covers the boundary itself with an explicit `now=`.
+    monkeypatch.setattr(ai_quota, "month_is_ending", lambda month, **kwargs: False)
 
 
 async def test_a_tenant_at_its_ceiling_is_refused_before_the_provider_is_reached(

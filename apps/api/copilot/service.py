@@ -156,15 +156,15 @@ EXHAUSTED_MESSAGE: Final = "I couldn't finish within the turn limit — please n
 #: answer; this says what that costs them, which is the part they can act on.
 FALLBACK_NO_TOOLS_NOTE: Final = (
     " It can answer questions about this screen, but it cannot fill in fields or look up "
-    "your calls, leads or campaigns."
+    "your calls, leads, campaigns or agents."
 )
 
 
 #: Appended, last, on the fallback leg only. See `_answer_via_sarvam`.
 _NO_TOOL_NOTE: Final = (
     "CORRECTION for this turn only: the set_fields tool, every lookup tool (this "
-    "account's calls, leads, campaigns and performance) and every tool that proposes a "
-    "change are NOT available to you right now. Do not call any of them, do not say you "
+    "account's calls, leads, campaigns, agents and performance) and every tool that "
+    "proposes a change are NOT available to you right now. Do not call any of them, do not say you "
     "have filled anything in, do not say you have looked anything up, and do not say you "
     "have suggested a change. Answer the question in words from what you can already see. "
     "If the person asked you to fill a field or change something, tell them the value they "

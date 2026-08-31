@@ -99,6 +99,15 @@ class CopilotMemory(PKMixin, TimestampMixin, Base):
     screen_route: Mapped[str | None] = mapped_column(String(200))
     #: Counts, ids and flags only. Never prose — that is `content`, the one column the
     #: redaction pass covers and the one the sweep and the erasure both name.
+    #:
+    #: WRITTEN BY BOTH WRITERS AND READ BY NO CODE, deliberately and said out loud so the
+    #: next reader does not go looking for the consumer. It is the forensic half of a
+    #: memory row — which realm and provider answered, how many fields were filled, and
+    #: (on a semantic row) how many episodes it was distilled from — for an operator
+    #: reading rows directly when a memory looks wrong. Nothing branches on it, no screen
+    #: renders it, and recall does not select it: a column code read would have to be in
+    #: `_RECALL_SQL`, and putting it there would spend prompt tokens on provenance the
+    #: model cannot use.
     meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: Stamped by `apps/workers/copilot_memory.py` in the same transaction as the semantic
     #: rows it produced. That stamp IS the job's idempotency.

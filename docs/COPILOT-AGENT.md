@@ -90,7 +90,9 @@ Three stores, deliberately not one:
 
 - **Working memory** — the open conversation. Bounded; already exists.
 - **Episodic** — what happened: past conversations, and *actions taken* ("12 Sep, owner
-  paused the Kondapur campaign"). Postgres rows, tenant-scoped, with embeddings for recall.
+  paused the Kondapur campaign"). Postgres rows, tenant-scoped. ⚠ This said "with
+  embeddings for recall" and the build corrected it — see §5: there is no embedding path in
+  this repository to reuse, and the relevance channel is a Postgres `tsvector`.
 - **Semantic** — durable distilled facts about this business ("the clinic shuts Sunday",
   "Dr. Rao is the senior doctor", "the owner writes in Telugu").
 
@@ -101,8 +103,8 @@ Two implementation rules carry most of the value:
   twice; the ARQ post-call pipeline is the pattern to copy.
 - **Do not go vector-only.** Vector stores are weak on exact sequence and time, and in
   production "irrelevant past state keeps outranking fresh context" (REPORTED). Retrieval
-  is **hybrid**: recent-by-time *and* semantic, always tenant-scoped, with recency able to
-  win.
+  is **hybrid**: recent-by-time *and* relevance, always tenant-scoped, with recency able to
+  win. (Built stronger than "able to win" — see §5's second correction.)
 
 ### 2.4 The loop
 
@@ -167,14 +169,14 @@ more, and the ledger will show it. No new billing path — hard rule 7 stands.
 
 | Phase | What | State |
 |---|---|---|
-| **1** | **Read-tool registry** — `business_snapshot`, `leads_search`, `calls_recent`, `campaigns_list`, each wrapping an existing tested service fn; the loop feeds results back and CONTINUES. `MAX_TURNS` 4→6, derived: six is where `MAX_TURNS * STREAM_IDLE_S <= TOTAL_BUDGET_S` stops holding, so the wall clock caps the loop rather than a round number. | **built** |
+| **1** | **Read-tool registry** — `business_snapshot`, `leads_search`, `calls_recent`, `campaigns_list`, `agents_list`, each wrapping an existing tested service fn; the loop feeds results back and CONTINUES. `MAX_TURNS` 4→6, derived: six is where `MAX_TURNS * STREAM_IDLE_S <= TOTAL_BUDGET_S` stops holding, so the wall clock caps the loop rather than a round number. | **built** |
 | **2** | **Live business state block** — calls today/7d, leads waiting by status, campaign counts, outbound blocker RULE NAMES, IST clock. Carries no tenant-authored string at all (integers and closed-set rule names only), so there is nothing to sanitize; ceiling proven under 800 bytes by construction, not estimated. Degrades to `<unavailable part=…/>`, never to zeros. | **built** |
 | **3** | **Write tools that PROPOSE** — `lead_set_status`, `dnc_add`, `campaign_pause`. A proposal is a signed 5-minute JWT and no table; forgery, replay, cross-tenant and cross-actor each refused. Confirm executes through the SAME gated service function a click uses and writes an `audit_log` row. | **built** |
 | **4** | **Memory** — `copilot_memories` (RLS in the same migration), hybrid recall with recency STRUCTURALLY guaranteed a seat, semantic distillation in an hourly ARQ job on a cheap model, wired into retention AND every erasure path. | **built** |
 | 5 | Loop + the streaming decision (Azure-streamed vs Gemini-non-streamed) | **open** |
 
 Phases 1-4 were built in parallel by four agents against this document as the shared
-specification, then reconciled into one loop by hand. Two corrections the build made to
+specification, then reconciled into one loop by hand. Three corrections the build made to
 THIS document, recorded because the document was wrong and the code is right:
 
 - **§2.3 said to reuse the existing embedding path. There isn't one.** Verified at build
@@ -184,11 +186,40 @@ THIS document, recorded because the document was wrong and the code is right:
   stemming drops Telugu tokens), with `_RECALL_SQL` shaped so a similarity retriever is one
   more CTE the day a provider exists. Standing one up would have meant a new vendor leg, a
   new credential and a reversal of D-28 — none of which a memory feature gets to decide.
+- **`agents_list` shipped a day late, and the delay is the point.** Phase 1 dropped it
+  rather than build it on either of the two available routes: there was no
+  `agents/service.py::list_agents` — the roster query, its row mapper and the `AgentOut`
+  model all lived inside `agents/routes.py` — so the tool could only have called a route
+  handler from a service (a layering inversion) or kept a second copy of the SQL (D-103).
+  It was closed by extracting the roster instead: `agents/schemas.py` (the wire model,
+  `crm/schemas.py`'s shape) and `agents/roster.py` (the query, the mapper, `list_agents`,
+  `agent_by_id`), with `agents/routes.py` left thin and the OpenAPI contract unchanged.
+  `agents/service.py` was the obvious home and does not work — `AgentOut` reaches
+  `compliance/disclosure.py` for `truthful_answer_rule`, which imports `compliance/optout`
+  → `compliance/service` → `agents/service`, and the app failed to import. **The lesson
+  the plan should carry: a "thin wrapper over an existing tested service fn" is only thin
+  when the service fn exists**, and phase 1's refusal to fake one is why there is one
+  spelling of that query today rather than two.
+
 - **Recency is not a weight, it is a seat.** §2.3 said "recency able to win"; the built
   design is stronger — two retrievers with separate budgets, unioned, so similarity can
   never starve recency. The blend only ORDERS what both channels already found.
 
 ## 6. Open questions
+
+- **⚠ PHASE 3 IS HALF-WIRED AT THE BROWSER, AND THE SERVER HALF IS COMPLETE.** The
+  `event: proposal` frame is emitted, documented in the route description and in the
+  OpenAPI, and `POST /v1/copilot/confirm` is mounted, permissioned and tested — but
+  `apps/web/src/lib/copilot/stream.ts` handles `text`, `fill`, `done` and `error` and
+  **drops every other event on the floor**, and nothing in `apps/web/src` posts a token
+  back. So today a model that calls a write tool tells the person "I've suggested pausing
+  that campaign", the proposal is emitted, and the person sees nothing — which is the exact
+  failure the system prompt's "say you have suggested it, never that you have done it" was
+  written to avoid, arriving by the other door. Nothing is unsafe: a proposal changes
+  nothing and expires in five minutes. **What closes it** is one branch in `stream.ts`, a
+  proposal card in `CopilotPanel.tsx` showing `title`, `summary` and `current → proposed`,
+  and one mutation posting `token` to `/v1/copilot/confirm` — a frontend change, deliberately
+  not made by the backend lane that found it (31 Aug 2026).
 
 - **Streaming vs the client's own model** (§3①). Azure streams with tools; the client's own
   Gemini key does not. Whether the assistant streams is therefore currently a function of

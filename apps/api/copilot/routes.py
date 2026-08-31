@@ -1,4 +1,5 @@
-"""`POST /v1/copilot/ask` — the in-app assistant, streamed.
+"""`POST /v1/copilot/ask` — the in-app assistant, streamed — and `POST /v1/copilot/confirm`,
+which is where a change the assistant proposed actually happens.
 
 **THE FIRST STREAMING RESPONSE IN THIS API, and D-24 chose polling.** That decision is
 about DATA FRESHNESS — the dashboard's `apps/web/src/lib/api/hooks.ts:4-16` polls a lead
@@ -10,7 +11,11 @@ a time by a model, and the alternatives were measured against the same three tes
 * **A 202-and-poll shape needs somewhere to PUT the answer**, which is a table of
   model-written prose about a person's screen. `crm/assist.py:10-31` declines to build
   exactly that store so DPDP erasure and retention gain no new surface, and this feature
-  does not get to re-open it.
+  does not get to re-open it. ⚠ `copilot_memories` (D-484 phase 4) is NOT that store and
+  does not soften this bullet — it holds a redacted, truncated MEMORY of an exchange for
+  the model's benefit, addressable by nobody, and it PAYS the price this paragraph is
+  about (a retention category, an erasure arm, an RLS policy). See `ask_copilot`'s
+  `Idempotency-Key` paragraph, which is where the difference decides something.
 * **One blocking response** works and is worse for the one thing this feature is: a person
   waiting. It also puts the whole answer behind a single edge read, which is what makes
   `proxy_read_timeout` a total deadline (see `service.TOTAL_BUDGET_S`).
@@ -69,9 +74,9 @@ router = APIRouter(prefix="/v1", tags=["copilot"])
 
 _DESCRIPTION = """\
 Answers a question about the screen the caller is on, answers questions about the
-account's own business by reading it (calls, leads, campaigns, performance — read-only,
-under the caller's own permissions and RLS scope), and can fill that screen's form
-fields. Streams `text/event-stream`:
+account's own business by reading it (calls, leads, campaigns, agents, performance —
+read-only, under the caller's own permissions and RLS scope), and can fill that screen's
+form fields. Streams `text/event-stream`:
 
 * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
 * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one

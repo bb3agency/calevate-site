@@ -57,7 +57,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
-from apps.api.copilot.memory import redacted_content
+from apps.api.copilot.memory import KIND_EPISODIC, KIND_SEMANTIC, redacted_content
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
@@ -140,13 +140,22 @@ _SYSTEM_PROMPT: Final = (
     "answer most of the time and is better than inventing one."
 )
 
+#: THE TWO KINDS ARE INTERPOLATED FROM `copilot/memory.py`'S CONSTANTS, not retyped. They
+#: were four string literals across the three statements below while `KIND_EPISODIC` /
+#: `KIND_SEMANTIC` already existed and are what the writer and the recall use — a second
+#: spelling of a closed vocabulary, which is the shape D-103/D-105 exist for. Interpolated
+#: rather than bound because a `kind = :k` parameter would be a bind in a statement whose
+#: partial index (`ix_copilot_memories_pending_distillation`) is defined over the literal;
+#: `copilot/memory._RECALL_SQL` interpolates `SEARCH_CONFIG` the same way, and
+#: `scripts/check_raw_sql.py` requires exactly this — a constant, never caller text.
+#:
 #: ONE ROW PER (person, screen) WHOSE CONVERSATION HAS GONE QUIET. `HAVING max(...)` is the
 #: idle test, `count(*)` is `MIN_EPISODES`, and the partial index
 #: `ix_copilot_memories_pending_distillation` is exactly this predicate's shape.
-_GROUPS_SQL = """
+_GROUPS_SQL = f"""
 SELECT user_id, screen_route, count(*) AS episodes
 FROM copilot_memories
-WHERE kind = 'episodic' AND distilled_at IS NULL
+WHERE kind = '{KIND_EPISODIC}' AND distilled_at IS NULL
 GROUP BY user_id, screen_route
 HAVING count(*) >= :min_episodes
    AND max(created_at) < now() - make_interval(mins => :idle_minutes)
@@ -157,9 +166,9 @@ LIMIT :limit
 #: OLDEST FIRST, so the bound is a WINDOW rather than a sample: the rows outside it stay
 #: undistilled and are the head of the next tick's group, instead of being silently
 #: dropped from a conversation that was then marked done.
-_EPISODES_SQL = """
+_EPISODES_SQL = f"""
 SELECT id, content FROM copilot_memories
-WHERE kind = 'episodic' AND distilled_at IS NULL
+WHERE kind = '{KIND_EPISODIC}' AND distilled_at IS NULL
   AND user_id = :uid AND screen_route IS NOT DISTINCT FROM :route
 ORDER BY created_at
 LIMIT :limit
@@ -169,13 +178,13 @@ LIMIT :limit
 #: against. A UNIQUE (tenant_id, user_id, content) would make the second learning of a fact
 #: an ERROR that aborts a transaction which has already inserted others; this makes it a
 #: no-op. The set converges either way, and only one of the two leaves the tick running.
-_INSERT_SEMANTIC_SQL = """
+_INSERT_SEMANTIC_SQL = f"""
 INSERT INTO copilot_memories
   (id, tenant_id, user_id, kind, content, screen_route, meta, created_at, updated_at)
-SELECT :id, :tid, :uid, 'semantic', :content, NULL, CAST(:meta AS jsonb), now(), now()
+SELECT :id, :tid, :uid, '{KIND_SEMANTIC}', :content, NULL, CAST(:meta AS jsonb), now(), now()
 WHERE NOT EXISTS (
   SELECT 1 FROM copilot_memories
-  WHERE kind = 'semantic' AND user_id = :uid AND content = :content)
+  WHERE kind = '{KIND_SEMANTIC}' AND user_id = :uid AND content = :content)
 """
 
 _MARK_SQL = """
