@@ -90,7 +90,9 @@ Three stores, deliberately not one:
 
 - **Working memory** — the open conversation. Bounded; already exists.
 - **Episodic** — what happened: past conversations, and *actions taken* ("12 Sep, owner
-  paused the Kondapur campaign"). Postgres rows, tenant-scoped, with embeddings for recall.
+  paused the Kondapur campaign"). Postgres rows, tenant-scoped. ⚠ This said "with
+  embeddings for recall" and the build corrected it — see §5: there is no embedding path in
+  this repository to reuse, and the relevance channel is a Postgres `tsvector`.
 - **Semantic** — durable distilled facts about this business ("the clinic shuts Sunday",
   "Dr. Rao is the senior doctor", "the owner writes in Telugu").
 
@@ -101,8 +103,8 @@ Two implementation rules carry most of the value:
   twice; the ARQ post-call pipeline is the pattern to copy.
 - **Do not go vector-only.** Vector stores are weak on exact sequence and time, and in
   production "irrelevant past state keeps outranking fresh context" (REPORTED). Retrieval
-  is **hybrid**: recent-by-time *and* semantic, always tenant-scoped, with recency able to
-  win.
+  is **hybrid**: recent-by-time *and* relevance, always tenant-scoped, with recency able to
+  win. (Built stronger than "able to win" — see §5's second correction.)
 
 ### 2.4 The loop
 
@@ -204,6 +206,20 @@ THIS document, recorded because the document was wrong and the code is right:
   never starve recency. The blend only ORDERS what both channels already found.
 
 ## 6. Open questions
+
+- **⚠ PHASE 3 IS HALF-WIRED AT THE BROWSER, AND THE SERVER HALF IS COMPLETE.** The
+  `event: proposal` frame is emitted, documented in the route description and in the
+  OpenAPI, and `POST /v1/copilot/confirm` is mounted, permissioned and tested — but
+  `apps/web/src/lib/copilot/stream.ts` handles `text`, `fill`, `done` and `error` and
+  **drops every other event on the floor**, and nothing in `apps/web/src` posts a token
+  back. So today a model that calls a write tool tells the person "I've suggested pausing
+  that campaign", the proposal is emitted, and the person sees nothing — which is the exact
+  failure the system prompt's "say you have suggested it, never that you have done it" was
+  written to avoid, arriving by the other door. Nothing is unsafe: a proposal changes
+  nothing and expires in five minutes. **What closes it** is one branch in `stream.ts`, a
+  proposal card in `CopilotPanel.tsx` showing `title`, `summary` and `current → proposed`,
+  and one mutation posting `token` to `/v1/copilot/confirm` — a frontend change, deliberately
+  not made by the backend lane that found it (31 Aug 2026).
 
 - **Streaming vs the client's own model** (§3①). Azure streams with tools; the client's own
   Gemini key does not. Whether the assistant streams is therefore currently a function of
