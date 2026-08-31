@@ -3890,6 +3890,7 @@
           },
           "route": {
             "maxLength": 200,
+            "pattern": "^/[^\\x00-\\x1f\\x7f]*$",
             "title": "Route",
             "type": "string"
           },

@@ -6,6 +6,7 @@ OWASP GenAI LLM Top 10 2026 LLM01 #5 (invisible characters) and D-127 G-2 (redac
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import service
@@ -125,3 +126,147 @@ def test_redacted_placeholder_text_passes() -> None:
     """What the browser is supposed to send. No exception, no return value — the guard's
     whole contract is "it did not raise"."""
     assert_redacted("call them back on [REDACTED]", "Monday opens", "")
+
+
+# --- the redaction guard covers the WHOLE rendered screen, not a hand-listed subset ---
+#
+# The guard used to enumerate: history, fact values, field values, field labels, field
+# help. Every string below reaches the model through `render_screen` and NONE of them was
+# on that list, so each of these cases passes against the enumeration and is refused
+# against the rendered block. The option-label case is not hypothetical: the campaigns
+# screen declared its "Calling from" select with the number's E.164 as the label.
+
+
+def _guard(payload: CopilotAskIn) -> None:
+    """What `routes.py` runs before the money: the guard over the rendered screen."""
+    assert_redacted(prompt_module.render_screen(payload))
+
+
+@pytest.mark.parametrize(
+    ("what", "overrides"),
+    [
+        (
+            "an option label",
+            {
+                "fields": [
+                    {
+                        "id": "campaign-number",
+                        "label": "Calling from",
+                        "type": "select",
+                        "value": None,
+                        "writable": True,
+                        "options": [{"value": "u-1", "label": "+919876543210 (140 series)"}],
+                    }
+                ]
+            },
+        ),
+        (
+            "an option value",
+            {
+                "fields": [
+                    {
+                        "id": "campaign-number",
+                        "label": "Calling from",
+                        "type": "select",
+                        "value": None,
+                        "writable": True,
+                        "options": [{"value": "+919876543210", "label": "The clinic line"}],
+                    }
+                ]
+            },
+        ),
+        (
+            "a field id",
+            {
+                "fields": [
+                    {"id": "lead-+919876543210", "label": "Lead", "type": "text", "value": None}
+                ]
+            },
+        ),
+        (
+            "the screen title",
+            {
+                "screen": {
+                    "route": "/c/x/leads",
+                    "title": "Lead +919876543210",
+                    "realm": "client",
+                }
+            },
+        ),
+        (
+            "the screen route",
+            {"screen": {"route": "/c/x/leads/+919876543210", "title": "Lead", "realm": "client"}},
+        ),
+        (
+            "a fact label",
+            {"facts": [{"key": "line", "label": "+919876543210", "value": "primary"}]},
+        ),
+        (
+            "a fact key",
+            {"facts": [{"key": "+919876543210", "label": "Line", "value": "primary"}]},
+        ),
+    ],
+)
+def test_a_personal_value_anywhere_in_the_screen_is_refused(
+    what: str, overrides: dict[str, object]
+) -> None:
+    with pytest.raises(ProblemError) as refusal:
+        _guard(_screen(**overrides))
+    assert refusal.value.code == "copilot_input_not_redacted", what
+
+
+def test_an_ordinary_screen_still_passes_the_whole_block_guard() -> None:
+    """The negative control: guarding MORE must not start refusing real screens. The
+    shapes here are the ones the console actually declares — a masked number, a series,
+    a uuid option value."""
+    _guard(
+        _screen(
+            fields=[
+                {
+                    "id": "campaign-number",
+                    "label": "Calling from",
+                    "type": "select",
+                    "value": None,
+                    "writable": True,
+                    "options": [
+                        {
+                            "value": "0198f0d0-0000-7000-8000-000000000000",
+                            "label": "\u202610 (140 series)",
+                        }
+                    ],
+                }
+            ],
+            facts=[{"key": "vertical", "label": "Vertical template", "value": "clinic"}],
+        )
+    )
+
+
+# --- the one field on this wire that reaches a durable column -------------------------
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/c/x/agents/new",
+        "/admin/tenants/{id}/kyc",
+        "/admin/new (step 2 \u2014 business intake)",
+    ],
+)
+def test_the_routes_this_console_declares_are_accepted(route: str) -> None:
+    """The negative control for the shape below. These are the literal values
+    `useCopilotSurface` callers pass, braces, spaces and em dash included — a tighter
+    charset guess would have broken every one of them."""
+    _screen(screen={"route": route, "title": "t", "realm": "client"})
+
+
+@pytest.mark.parametrize("route", ["c/x/agents/new", "", "/c/x\nfake: line", "/c/x\x7f"])
+def test_a_route_that_is_not_a_route_is_refused_at_the_wire(route: str) -> None:
+    """`routes.py` writes `screen.route` to `audit_log.object_id`, and `audit_log` is
+    append-only and hash-chained — nothing can edit or delete what lands there. So the
+    field is shaped: a leading `/`, and no control character that could forge a line
+    break inside a log record.
+
+    FAILS IF: the pattern is dropped and the column goes back to accepting arbitrary
+    caller text."""
+    with pytest.raises(ValidationError):
+        _screen(screen={"route": route, "title": "t", "realm": "client"})

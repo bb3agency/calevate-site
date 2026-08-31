@@ -174,6 +174,23 @@ _NO_TOOL_NOTE: Final = (
 )
 
 
+#: The longest a model-supplied field id may be when it is quoted into a refusal reason.
+#: DERIVED from the wire contract rather than retyped, so it moves if `CopilotField.id`'s
+#: ceiling ever does and a real id is never cut whatever that ceiling becomes. See
+#: `validate_fill` for why the bound exists at all.
+#:
+#: READ BY `getattr` RATHER THAN BY IMPORTING `annotated_types.MaxLen`, which is the
+#: precedent `scripts/check_list_bounds.py::_bounding_parameter` already set for reading
+#: Pydantic v2's constraint metadata: `annotated_types` is pydantic's own dependency and
+#: not one this project declares, so duck-typing it keeps an undeclared package out of an
+#: import line.
+_MAX_REASON_ID: Final[int] = max(
+    length
+    for constraint in CopilotField.model_fields["id"].metadata
+    if (length := getattr(constraint, "max_length", None)) is not None
+)
+
+
 class FillRefusedError(Exception):
     """The model asked for a write this request does not permit.
 
@@ -317,10 +334,17 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
         if not isinstance(raw, dict):
             reasons.append("one item was not an object")
             continue
-        field_id = raw.get("field_id")
-        if not isinstance(field_id, str) or not field_id:
+        raw_field_id = raw.get("field_id")
+        if not isinstance(raw_field_id, str) or not raw_field_id:
             reasons.append("one item named no field")
             continue
+        # THE ID IS THE MODEL'S TEXT, so it is bounded before it is quoted into a reason.
+        # A reason goes back into the NEXT turn's prompt and, when the loop runs out,
+        # onto the person's screen: an unbounded id is a model that can grow its own
+        # context and paste a wall of text into somebody's panel. A real field id is
+        # `_MAX_ID` long by `schemas.CopilotField`, so nothing legitimate is truncated —
+        # and a truncated id still fails the lookup below, which is the right answer.
+        field_id = raw_field_id[:_MAX_REASON_ID]
         if field_id in seen:
             # Two writes to one field in one call: the second silently wins, and which one
             # that is depends on iteration order. Refused rather than resolved, because
@@ -867,7 +891,11 @@ async def _run_tool_loop(
     # that happened was a refused tool call — the reason, because "narrow the request" is
     # unhelpful advice to somebody whose real problem is that the field is read-only.
     detail = f" ({'; '.join(refusal_reasons)})" if refusal_reasons else ""
-    yield CopilotEvent(text=f"{EXHAUSTED_MESSAGE}{detail}")
+    # STRIPPED LIKE EVERY OTHER TEXT EVENT. This one is assembled here rather than
+    # forwarded from `turn`, so it missed the strip in the loop above — and it is not
+    # purely our own words: the reasons quote field ids and tool names the MODEL wrote,
+    # which is exactly the untrusted string the egress half of the rule exists for.
+    yield CopilotEvent(text=strip_invisible(f"{EXHAUSTED_MESSAGE}{detail}"))
     yield CopilotEvent(
         spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
     )

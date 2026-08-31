@@ -126,7 +126,17 @@ class CopilotScreen(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    route: Annotated[str, Field(max_length=_MAX_ID)]
+    #: `route` IS THE ONE FIELD ON THIS WIRE THAT REACHES A DURABLE COLUMN. `routes.py`
+    #: writes it to `audit_log.object_id`, and `audit_log` is in `APPEND_ONLY_TABLES` and
+    #: hash-chained — nothing in this product can edit or delete what lands there, DPDP
+    #: erasure included. So it is shaped rather than free: it must look like a route (a
+    #: leading `/`) and it may not carry a control character, which is what would let a
+    #: caller forge a line break inside a log record. It is NOT restricted further,
+    #: because the values screens actually declare carry spaces, braces and em dashes
+    #: ("/admin/new (step 2 — business intake)") and a charset guess would break them.
+    #: What keeps a PERSONAL value out of that column is the redaction guard: `route` is
+    #: inside `render_screen`'s output, which `routes.py` refuses if `redact()` changes it.
+    route: Annotated[str, Field(max_length=_MAX_ID, pattern=r"^/[^\x00-\x1f\x7f]*$")]
     title: Annotated[str, Field(max_length=_MAX_LABEL)]
     realm: Literal["client", "admin"]
 

@@ -19,6 +19,7 @@ from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_ba
 
 from apps.api.copilot import service, write_tools
 from apps.api.copilot import tools as tools_module
+from apps.api.copilot.sanitize import has_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -793,3 +794,33 @@ async def test_a_model_that_only_ever_looks_things_up_still_ends_with_a_sentence
     said = [e.text for e in events if e.text]
     assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
     assert events[-1].spend is not None
+
+
+async def test_the_exhaustion_message_is_stripped_and_the_model_cannot_pad_it(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one text event this module ASSEMBLES rather than forwards.
+
+    Every other fragment is stripped as it leaves `turn`; this one is built after the loop
+    and quotes `field_id`s the MODEL wrote, so it needs both halves of the egress rule.
+
+    FAILS IF: the strip is dropped (a tag-block character reaches the panel, where the
+    preview a person approves and the string behind it can differ), or if the model's own
+    id stops being bounded (it is quoted into the next turn's prompt AND onto the screen,
+    so an unbounded one is a model that can paste a wall of text into somebody's panel).
+    """
+    padded = "z" * 5_000
+    refusal = _turn(
+        arguments=json.dumps(
+            {"items": [{"field_id": f"status\U000e0041{padded}", "value": "live"}]}
+        )
+    )
+    _scripted(monkeypatch, [refusal for _ in range(service.MAX_TURNS + 2)])
+    events = await _drain()
+
+    said = [e.text for e in events if e.text]
+    assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
+    assert not has_invisible(said[-1])
+    # Bounded, and bounded well under what the model sent — a real field id is 200 long
+    # (`schemas._MAX_ID`), so nothing legitimate is being cut here.
+    assert len(said[-1]) < len(padded)
