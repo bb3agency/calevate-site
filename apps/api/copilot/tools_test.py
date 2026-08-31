@@ -260,6 +260,14 @@ async def test_the_row_cap_is_the_servers_and_the_truncation_is_declared() -> No
 # --- hard rule 1: RLS, proved with two real tenants -------------------------------------
 
 
+# NAMED RATHER THAN DRIVEN OFF `READ_TOOLS`, because each tool here is proved with a row
+# this fixture can plant and then look for by name. `business_snapshot` returns counts with
+# no name in them and is covered by `test_the_snapshot_counts_only_this_tenants_calls`;
+# `search_knowledge` needs an APPROVED, PUBLISHED knowledge source rather than a row, so its
+# cross-tenant proof lives beside that fixture, in
+# `tests/retrieval_copilot_tool_test.py::test_the_tool_is_bound_to_one_tenant_and_cannot_be_
+# talked_out_of_it` and `tests/retrieval_tenancy_test.py`. A tool absent from this list is
+# not a tool without a cross-tenant test.
 @pytest.mark.parametrize(
     "tool_name", ["leads_search", "calls_recent", "campaigns_list", "agents_list"]
 )
