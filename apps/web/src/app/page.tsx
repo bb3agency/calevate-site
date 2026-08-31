@@ -138,8 +138,15 @@ const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[
   {
     icon: Megaphone,
     title: "It calls your list back",
+    /*
+     * "Paste in", not "upload": there is no file input anywhere in this console
+     * (`grep 'type="file"' apps/web/src` returns nothing) — a campaign's contacts go in
+     * through a textarea that takes CSV or one number per line
+     * (`app/c/[slug]/campaigns/page.tsx`). Naming the control the buyer will actually
+     * meet costs the sentence nothing.
+     */
     body:
-      "Upload a list. It works through it, retries the no-answers, and stops when you say.",
+      "Paste in a list. It works through it, retries the no-answers, and stops when you say.",
   },
   {
     icon: Table2,
@@ -161,9 +168,27 @@ const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[
   },
   {
     icon: Database,
+    /*
+     * WHAT THIS CARD MAY CLAIM, and why it no longer says "upload your price list".
+     *
+     * In-call retrieval is T0 and nothing else (`docs/TRD.md:948`): the facts a person
+     * approves are compiled into the agent's own prompt at publish time. There is no
+     * document-backed retrieval to promise — the engine's built-in KB is off
+     * (`apps/api/engine/bolna.py:2484`, `knowledge_base=False`) and `attach_kb` refuses
+     * with "the voice platform's knowledge base accepts documents, not text"
+     * (`bolna.py:3536`) — and the submit endpoint takes TEXT only: `kind="url"` and
+     * `kind="file"` are declared on the wire and REFUSED by the service
+     * (`apps/api/kb/routes.py:44`). So a buyer who read "upload your price list" would
+     * arrive at a console with no upload control at all.
+     *
+     * What is true is better than what was claimed, and is what the card says instead:
+     * the facts are built INTO the agent, so the answer is immediate, and a person
+     * approves every word first.
+     */
     title: "Your knowledge, under your control",
     body:
-      "Upload your price list. Nothing goes live until a person approves it.",
+      "Your prices, timings and answers are built into the agent. Nothing reaches a " +
+      "caller until a person approves it.",
   },
 ];
 
@@ -361,7 +386,7 @@ const STEPS: { icon: typeof PhoneCall; step: string; title: string; body: string
     // true), so this describes what a new agent does rather than a guarantee. The
     // guarantee is in the compliance band below and is about the ANSWER, not the opening.
     body:
-      "Someone rings, or the agent works through a list you uploaded. It opens by saying " +
+      "Someone rings, or the agent works through a list you gave it. It opens by saying " +
       "it is an AI by default, and answers from what you approved.",
   },
   {
@@ -847,7 +872,10 @@ export default function Home() {
                     Where it runs, and who can see what
                   </h2>
                 </Reveal>
-                {/* The layered T0–T4 knowledge base. Decorative; `sm`+ only. */}
+                {/* Decorative only, `sm`+ and `aria-hidden`. It is a stack of slabs and
+                    carries no label — deliberately, since TRD §6's T0–T4 tiers are not a
+                    shipped stack: in-call retrieval is T0 alone (docs/TRD.md:948). A
+                    diagram that named the tiers would be a claim. */}
                 <IsoKnowledge className="hidden w-36 shrink-0 sm:block lg:w-48" />
               </div>
               <div className="mt-12 grid gap-4 lg:grid-cols-3">

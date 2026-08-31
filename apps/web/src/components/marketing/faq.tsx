@@ -57,7 +57,7 @@ const QUESTIONS: { q: string; a: string }[] = [
     q: "How do we get started?",
     a:
       "You talk to us. We set the workspace up with you, build the agent from what you " +
-      "tell us about the business, and load the material it answers from. Nothing dials " +
+      "tell us about the business, and write in the facts it answers from. Nothing dials " +
       "anybody until you launch it.",
   },
   {
@@ -70,9 +70,25 @@ const QUESTIONS: { q: string; a: string }[] = [
   },
   {
     q: "Where does the agent get its answers from?",
+    /*
+     * THIS ANSWER USED TO SAY "from the material you upload", AND IT WAS UNBACKED.
+     *
+     * In-call retrieval is T0 and nothing else — the approved facts are compiled into
+     * the agent's own prompt at publish time (`docs/TRD.md:948`, `apps/api/agents/t0.py`).
+     * There is no document-backed retrieval and no upload: the engine's built-in KB is
+     * off (`apps/api/engine/bolna.py:2484`), `attach_kb` refuses outright
+     * (`bolna.py:3536`), `POST /v1/kb/sources` takes TEXT and refuses `url`/`file`
+     * (`apps/api/kb/routes.py:44`), and there is no file input anywhere in the console.
+     * A buyer who read "the material you upload" would look for a control that does not
+     * exist, which is a broken promise in the UI as well as a false sentence here.
+     *
+     * The replacement is not an apology. Built-in facts answer FASTER than a lookup, and
+     * that is the sentence a buyer should get.
+     */
     a:
-      "From the material you upload — your price list, your timings, your FAQs — and " +
-      "only after somebody has approved that version. It is not answering from the open " +
+      "From facts somebody has approved — your timings, your prices, the questions you " +
+      "get asked every day. They are written into the agent before it takes a call, so " +
+      "the answer comes back straight away. It is not answering from the open " +
       "internet, and a change you have not approved does not reach a caller.",
   },
   {

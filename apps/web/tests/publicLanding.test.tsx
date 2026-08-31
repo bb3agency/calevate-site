@@ -365,6 +365,83 @@ describe("the qualification-layer section", () => {
   });
 });
 
+/**
+ * THE KNOWLEDGE CLAIM — banned by SHAPE, because it is the claim this market's buyers
+ * assume without being told.
+ *
+ * **The fact.** In-call retrieval is T0 and nothing else (`docs/TRD.md:948`): the facts a
+ * person approves are compiled into the agent's own system prompt at publish time
+ * (`apps/api/agents/t0.py`). The engine's built-in knowledge base is OFF
+ * (`apps/api/engine/bolna.py:2484`, `knowledge_base=False`) and `attach_kb` refuses in as
+ * many words — "The voice platform's knowledge base accepts documents, not text"
+ * (`bolna.py:3536`). `POST /v1/kb/sources` takes TEXT: `kind="url"` and `kind="file"` are
+ * declared on the wire and REFUSED by the service (`apps/api/kb/routes.py:44`). There is
+ * no embedding path in `apps/`, and there is no file input anywhere in this console
+ * (`grep 'type="file"' apps/web/src` returns nothing).
+ *
+ * So a page that says "upload your price list" — which this one did, in the capability
+ * card and in the FAQ — sends a buyer looking for a control that does not exist, and lets
+ * them infer an agent that reads a 40-page PDF and looks things up mid-call. That is the
+ * F-1 shape from `docs/LEGAL-SURFACE.md`: a promise to a prospect, on the surface where it
+ * is a CPA 2019 representation rather than an internal note.
+ *
+ * **The correction is pinned, not merely the ban.** Deleting the sentence would leave the
+ * omission — a buyer assuming document retrieval because nothing said otherwise — so the
+ * page has to keep saying what DOES happen, and what happens is better: the facts are in
+ * the agent before the call, so there is nothing to wait for mid-call.
+ *
+ * ## Why the bans are shaped the way they are
+ *
+ * They are deliberately NOT a bare `/upload/i` over the page. "Upload" is legitimate about
+ * a client's own systems and about anything a human reads and approves; what is banned is
+ * the verb aimed at the agent's KNOWLEDGE, and the retrieval verbs aimed at a live call.
+ * Each pattern is bounded by `[^.]{0,60}` so it stays inside one sentence — a ban wide
+ * enough to fire on an honest sentence gets deleted by the next person who trips over it,
+ * and then nothing guards the real claim.
+ */
+describe("what the page promises the agent knows", () => {
+  it("never offers a document upload, because nothing in the product accepts one", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(
+      /\bupload(ing|ed|s)?\b[^.]{0,60}\b(price list|rate card|brochure|document|documents|pdf|file|files|catalogue|menu|material)\b/i,
+    );
+    expect(text).not.toMatch(
+      /\b(document|documents|pdf|pdfs|brochure|file|files)\b[^.]{0,60}\byou\b[^.]{0,20}\bupload/i,
+    );
+    // No file words in the knowledge register at all: the page has no reason to name a
+    // format nothing in the product can read.
+    expect(text).not.toMatch(/\bpdfs?\b|\bword docs?\b|\bdocx\b/i);
+  });
+
+  it("never implies the agent looks something up while the caller waits", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    // Retrieval verbs pointed at the client's own material — "searches your documents",
+    // "reads your price list", "looks it up in your knowledge base". Every one of them
+    // describes a system this repository does not contain.
+    expect(text).not.toMatch(
+      /\b(search(es|ing)?|looks? (it |them )?up|reads?|scans?|consults?)\b[^.]{0,40}\byour\b[^.]{0,30}\b(document|documents|files?|pdfs?|knowledge base|material)\b/i,
+    );
+    // The open-genre promises. None is backed, and the last one is unbackable by anything.
+    expect(text).not.toMatch(/\btrained on your\b|\blearns your\b|\bknows everything\b/i);
+    expect(text).not.toMatch(/\banswers? any question\b/i);
+  });
+
+  it("says instead what the agent really carries, so the omission cannot come back", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    // The capability card: "built into the agent" is the T0 mechanism in the owner's own
+    // words, and the approval half is the product property FLOWS §7 exists for.
+    expect(text).toContain("built into the agent");
+    expect(text).toContain("until a person approves it");
+    // The FAQ answer. Both halves are load-bearing: WHERE the answers come from (facts a
+    // person approved, not a document) and WHEN they get there (before the call).
+    expect(text).toContain("From facts somebody has approved");
+    expect(text).toContain("written into the agent before it takes a call");
+  });
+});
+
 describe("the questions section", () => {
   it("answers every question it asks", () => {
     const { container } = render(<Home />);

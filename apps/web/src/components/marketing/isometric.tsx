@@ -275,8 +275,13 @@ export function IsoCallStack({ className, ...props }: SVGProps<SVGSVGElement>) {
 }
 
 /**
- * A five-tier isometric stack for the RAG knowledge base (T0–T4): white slabs with a
- * green "spine" that deepens toward the base, gently floating as one.
+ * A five-tier isometric stack: white slabs with a green "spine" that deepens toward the
+ * base, gently floating as one.
+ *
+ * Ornament, not a diagram. TRD §6 names five retrieval tiers and the product ships ONE of
+ * them — T0, facts compiled into the prompt at publish time (`docs/TRD.md:948`) — so the
+ * slabs are unlabelled and the whole thing is `aria-hidden`. Do not annotate them: a
+ * labelled tier stack on a marketing page is a claim about a system we do not run.
  */
 export function IsoKnowledge({ className, ...props }: SVGProps<SVGSVGElement>) {
   // i = 0 is the base tier (drawn first, lowest on screen); i = 4 is the apex.

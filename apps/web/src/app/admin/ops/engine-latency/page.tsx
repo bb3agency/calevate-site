@@ -386,7 +386,12 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
         <BudgetItem
           label="Looking something up"
           value={budget.retrieval_ms}
-          note="When the AI has to check the knowledge base mid-reply. Nothing measures this stage yet, so it has no row below."
+          /* NOT "nothing measures it YET" — nothing PERFORMS it. In-call retrieval is T0
+             and nothing else (`docs/TRD.md:948`): approved facts are compiled into the
+             prompt at publish time, the engine's built-in KB is off
+             (`apps/api/engine/bolna.py:2484`) and no tool does a mid-reply lookup. The
+             engine's budget is still shown, because the sum below is cut from it. */
+          note="The engine's own budget for a mid-reply lookup. Our agents never do one — the approved facts are already in the prompt — so there is nothing to measure and no row below."
         />
         <BudgetItem
           label={LEG_COPY.turn.label}

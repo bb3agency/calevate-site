@@ -368,7 +368,13 @@ export default function TenantDetailPage({
                         disabled={!kbWrite.allowed}
                         onChange={(event) => setRejectReason(event.target.value)}
                         className="mt-1 w-full min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11"
-                        placeholder="e.g. Prices in this PDF are last year's — upload the current rate card"
+                        /* The example must name an action the client can actually take. It used to say
+                           "upload the current rate card", and there is no upload: knowledge is
+                           submitted as TEXT (`POST /v1/kb/sources` refuses `kind="file"` and
+                           `kind="url"`, `apps/api/kb/routes.py:44`) and the console has no file
+                           input at all. An operator copying the example would send a client
+                           looking for a control that does not exist. */
+                        placeholder="e.g. These prices are last year's — send us the current ones and we will put them in"
                       />
                     </label>
                     <div className="flex flex-wrap items-center gap-2">
