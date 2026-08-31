@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DashboardPage from "@/app/c/[slug]/page";
@@ -170,30 +170,45 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
   it("links to Needs attention when something is waiting, with the server's count", async () => {
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/attention": { counts: { lead_blocked: 3 }, items: [], total: 3 } }),
+      routes({
+        "/v1/attention": { counts: { lead_blocked: 3 }, items: [], total: 3 },
+      }),
     );
-    const link = await screen.findByRole("link", { name: /things need your attention/ });
+    const link = await screen.findByRole("link", {
+      name: /things need your attention/,
+    });
     expect(link.getAttribute("href")).toContain("/c/acme/attention");
     expect(container.textContent).toContain("3");
   });
 
-  it("says nothing about the queue when the read failed or answered zero", async () => {
+  it("says nothing about the queue on zero, and says it could not check on a failure", async () => {
     // Zero: a banner about nothing is noise.
     const { container } = await renderClientPage(
       page,
       routes({ "/v1/attention": { counts: {}, items: [], total: 0 } }),
     );
     await screen.findByText("Calls today");
-    expect(container.textContent).not.toContain("your attention");
+    expect(container.textContent).not.toContain("needs your attention");
+    expect(container.textContent).not.toContain("could not check");
 
-    // Failed: an unanswered read is not evidence of an all-clear, and equally not
-    // evidence anything is waiting — the banner simply does not render.
+    // Failed: NOT an all-clear. Dropping the banner silently would offer the client
+    // neither the action nor a reason for its absence, which is the defect BUILD-LOG
+    // §52 exists for (and `surfaceStatesGuard` enforces): failure is a refusal, never
+    // an empty state. It names what could not be read and offers the retry.
     const failed = await renderClientPage(
       page,
-      routes({ "/v1/attention": problem(503, { title: "Service unavailable" }) }),
+      routes({
+        "/v1/attention": problem(503, { title: "Service unavailable" }),
+      }),
     );
     await screen.findByText("Calls today");
-    expect(failed.container.textContent).not.toContain("your attention");
+    expect(failed.container.textContent).toContain(
+      "We could not check whether anything needs your attention",
+    );
+    // Scoped to THIS render: the zero-case render above is still mounted, so a
+    // document-wide query would match both. findByRole throws if it is absent,
+    // so this IS the assertion.
+    await within(failed.container).findByRole("button", { name: "Try again" });
   });
 });
 

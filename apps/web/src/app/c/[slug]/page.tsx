@@ -49,7 +49,11 @@ import { KnowledgeGaps } from "./KnowledgeGaps";
  * rate, and the "+18.4% vs last week" deltas under every figure. Each is a real
  * question and each needs an endpoint; `docs/BUILD-LOG.md` records which.
  */
-export default function DashboardPage({ params }: { params: Promise<{ slug: string }> }) {
+export default function DashboardPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = use(params);
   const { session, href } = useClientRealm();
   const dashboard = useDashboard(session);
@@ -99,20 +103,41 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Only when something IS waiting: a zero here is noise, an unanswered read is
-          not evidence of an all-clear, and both render nothing (the HoldsBanner rule). */}
-      {attention.data && attention.data.total > 0 && (
-        <Link
-          href={href(`/c/${slug}/attention`)}
-          className="flex items-center justify-between gap-3 rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
-        >
-          <span>
-            <span className="font-semibold tabular-nums">{formatCount(attention.data.total)}</span>{" "}
-            {attention.data.total === 1 ? "thing needs" : "things need"} your attention —
-            things we stopped on purpose, each with the reason and the fix.
-          </span>
-          <span className="shrink-0 font-medium underline">Open the list</span>
-        </Link>
+      {/* Only when something IS waiting: a zero here is noise and renders nothing. A
+          FAILED read is NOT an all-clear, though — dropping the banner silently would
+          offer the client neither the action nor a reason for its absence (BUILD-LOG
+          §52), so the failure says what it could not read and offers the retry. */}
+      {attention.isError ? (
+        <p className="rounded-card border border-line bg-surface-muted px-4 py-3 text-sm text-ink-muted">
+          We could not check whether anything needs your attention.{" "}
+          <button
+            type="button"
+            onClick={() => void attention.refetch()}
+            className="font-medium text-brand-strong underline"
+          >
+            Try again
+          </button>
+        </p>
+      ) : (
+        attention.data &&
+        attention.data.total > 0 && (
+          <Link
+            href={href(`/c/${slug}/attention`)}
+            className="flex items-center justify-between gap-3 rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+          >
+            <span>
+              <span className="font-semibold tabular-nums">
+                {formatCount(attention.data.total)}
+              </span>{" "}
+              {attention.data.total === 1 ? "thing needs" : "things need"} your
+              attention — things we stopped on purpose, each with the reason and
+              the fix.
+            </span>
+            <span className="shrink-0 font-medium underline">
+              Open the list
+            </span>
+          </Link>
+        )
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -138,7 +163,10 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
           value={formatCount(data.leads_new_7d)}
           icon={<Users className="h-5 w-5" />}
           hint={
-            <Link href={href(`/c/${slug}/leads`)} className="underline hover:text-ink">
+            <Link
+              href={href(`/c/${slug}/leads`)}
+              className="underline hover:text-ink"
+            >
               Open leads
             </Link>
           }
@@ -218,7 +246,10 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
               value={formatINR(usage.data.month_charges_inr)}
               icon={<Sparkles className="h-5 w-5" />}
               hint={
-                <Link href={href(`/c/${slug}/usage`)} className="underline hover:text-ink">
+                <Link
+                  href={href(`/c/${slug}/usage`)}
+                  className="underline hover:text-ink"
+                >
                   {usage.data.minutes_used} min used of{" "}
                   {formatCount(usage.data.included_minutes)} included
                 </Link>
@@ -332,12 +363,21 @@ const DAY_CLASSES = [
   { key: "completed", label: "Completed", fill: "bg-brand" },
   { key: "no_answer", label: "No answer", fill: "bg-amber-400" },
   { key: "failed", label: "Failed", fill: "bg-rose-500" },
-  { key: "in_flight", label: "Still running", fill: "bg-slate-300 dark:bg-slate-600" },
+  {
+    key: "in_flight",
+    label: "Still running",
+    fill: "bg-slate-300 dark:bg-slate-600",
+  },
 ] as const;
 
 function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
   if (!days.length) {
-    return <EmptyState title="No call history yet" hint="Each day appears here as it happens." />;
+    return (
+      <EmptyState
+        title="No call history yet"
+        hint="Each day appears here as it happens."
+      />
+    );
   }
   const busiest = Math.max(...days.map((day) => day.total));
   return (
@@ -373,40 +413,45 @@ function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
       </table>
 
       <div aria-hidden="true">
-      <div className="mb-6 flex flex-wrap items-center gap-4 text-xs font-medium text-ink-muted">
-        {DAY_CLASSES.map((cls) => (
-          <span key={cls.key} className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${cls.fill}`} />
-            {cls.label}
-          </span>
-        ))}
-      </div>
-
-      <div className="flex h-[240px] items-end justify-between gap-2">
-        {days.map((day) => (
-          <div key={day.ist_date} className="flex h-full min-w-0 flex-1 flex-col items-center gap-2">
-            <span className="text-[11px] font-semibold tabular-nums text-ink">{day.total}</span>
-            <div
-              className="flex w-full max-w-[44px] flex-col-reverse overflow-hidden rounded-t-md bg-black/[0.03] dark:bg-white/5"
-              style={{
-                height: `${busiest > 0 ? Math.max(2, Math.round((day.total / busiest) * 100)) : 2}%`,
-              }}
-              title={`${day.ist_date}: ${day.total} calls`}
-            >
-              {DAY_CLASSES.map((cls) => (
-                <span
-                  key={cls.key}
-                  className={`w-full ${cls.fill}`}
-                  style={{ flexGrow: day[cls.key], flexBasis: 0 }}
-                />
-              ))}
-            </div>
-            <span className="w-full truncate text-center text-[11px] font-medium text-ink-muted">
-              {formatDayLabel(day.ist_date)}
+        <div className="mb-6 flex flex-wrap items-center gap-4 text-xs font-medium text-ink-muted">
+          {DAY_CLASSES.map((cls) => (
+            <span key={cls.key} className="flex items-center gap-1.5">
+              <span className={`h-2 w-2 rounded-full ${cls.fill}`} />
+              {cls.label}
             </span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+
+        <div className="flex h-[240px] items-end justify-between gap-2">
+          {days.map((day) => (
+            <div
+              key={day.ist_date}
+              className="flex h-full min-w-0 flex-1 flex-col items-center gap-2"
+            >
+              <span className="text-[11px] font-semibold tabular-nums text-ink">
+                {day.total}
+              </span>
+              <div
+                className="flex w-full max-w-[44px] flex-col-reverse overflow-hidden rounded-t-md bg-black/[0.03] dark:bg-white/5"
+                style={{
+                  height: `${busiest > 0 ? Math.max(2, Math.round((day.total / busiest) * 100)) : 2}%`,
+                }}
+                title={`${day.ist_date}: ${day.total} calls`}
+              >
+                {DAY_CLASSES.map((cls) => (
+                  <span
+                    key={cls.key}
+                    className={`w-full ${cls.fill}`}
+                    style={{ flexGrow: day[cls.key], flexBasis: 0 }}
+                  />
+                ))}
+              </div>
+              <span className="w-full truncate text-center text-[11px] font-medium text-ink-muted">
+                {formatDayLabel(day.ist_date)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -420,7 +465,20 @@ function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
  * The string is already an IST calendar date — the server did that work — so the only
  * correct thing to do with it is read it.
  */
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 function formatDayLabel(istDate: string): string {
   const [, month, day] = istDate.split("-");
@@ -440,7 +498,9 @@ function SentimentSplit({ split }: { split: Record<string, number> }) {
   return (
     <Card title="How callers sounded" bodyClassName="p-4 sm:p-5">
       {total === 0 ? (
-        <p className="text-[13px] text-ink-muted">We haven&apos;t rated any calls in the last 7 days yet.</p>
+        <p className="text-[13px] text-ink-muted">
+          We haven&apos;t rated any calls in the last 7 days yet.
+        </p>
       ) : (
         <div className="space-y-2">
           {rows.map(([mood, count]) => (
@@ -452,7 +512,9 @@ function SentimentSplit({ split }: { split: Record<string, number> }) {
               <span
                 className={`h-2 w-2 shrink-0 rounded-full ${lookup(SENTIMENT_TONES, mood) ?? "bg-slate-300"}`}
               />
-              <span className="flex-1 text-[13px] capitalize text-ink-muted">{mood}</span>
+              <span className="flex-1 text-[13px] capitalize text-ink-muted">
+                {mood}
+              </span>
               <span className="text-[13px] font-semibold tabular-nums text-ink">
                 {formatCount(count)}
               </span>
