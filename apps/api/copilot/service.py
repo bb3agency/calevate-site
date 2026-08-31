@@ -145,6 +145,11 @@ _NO_TOOL_NOTE: Final = (
 )
 
 
+#: The longest a model-supplied field id may be when it is quoted into a refusal reason.
+#: `schemas._MAX_ID` is 200, so a real id is never cut; see `validate_fill`.
+_MAX_REASON_ID: Final = 200
+
+
 class FillRefusedError(Exception):
     """The model asked for a write this request does not permit.
 
@@ -281,10 +286,17 @@ def validate_fill(payload: CopilotAskIn, arguments: str) -> tuple[CopilotFillIte
         if not isinstance(raw, dict):
             reasons.append("one item was not an object")
             continue
-        field_id = raw.get("field_id")
-        if not isinstance(field_id, str) or not field_id:
+        raw_field_id = raw.get("field_id")
+        if not isinstance(raw_field_id, str) or not raw_field_id:
             reasons.append("one item named no field")
             continue
+        # THE ID IS THE MODEL'S TEXT, so it is bounded before it is quoted into a reason.
+        # A reason goes back into the NEXT turn's prompt and, when the loop runs out,
+        # onto the person's screen: an unbounded id is a model that can grow its own
+        # context and paste a wall of text into somebody's panel. A real field id is
+        # `_MAX_ID` long by `schemas.CopilotField`, so nothing legitimate is truncated —
+        # and a truncated id still fails the lookup below, which is the right answer.
+        field_id = raw_field_id[:_MAX_REASON_ID]
         if field_id in seen:
             # Two writes to one field in one call: the second silently wins, and which one
             # that is depends on iteration order. Refused rather than resolved, because
@@ -604,7 +616,11 @@ async def _run_tool_loop(
     # that happened was a refused fill — the reason, because "narrow the request" is
     # unhelpful advice to somebody whose real problem is that the field is read-only.
     detail = f" ({'; '.join(refusal.reasons)})" if refusal is not None else ""
-    yield CopilotEvent(text=f"{EXHAUSTED_MESSAGE}{detail}")
+    # STRIPPED LIKE EVERY OTHER TEXT EVENT. This one is assembled here rather than
+    # forwarded from `turn`, so it missed the strip in the loop above — and it is not
+    # purely our own words: `refusal.reasons` quote field ids the MODEL wrote, which is
+    # exactly the untrusted string the egress half of the rule exists for.
+    yield CopilotEvent(text=strip_invisible(f"{EXHAUSTED_MESSAGE}{detail}"))
     yield CopilotEvent(
         spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
     )
