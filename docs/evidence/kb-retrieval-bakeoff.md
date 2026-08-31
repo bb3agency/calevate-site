@@ -251,12 +251,20 @@ is what that costs.
   `vector_ids` (`update.md:1220-1237`), and `vector_id` appears **only** on the read
   endpoints (`get_knowledgebases.md:89`). So the id you are given at create is not the id
   you need to attach, and the sequence create → GET → PATCH is imposed by the vendor.
-* ⚠ **Their own spec disagrees with itself about the shape of `rag_id`**, which is an
-  integration trap worth knowing before writing the client: `create.md:92` gives
-  `format: ^[0-9a-fA-F]{32}$` with the undashed example `3c90c3xs0d444b5088228dd25736052a`
-  (itself containing `x` and `s`, which are not hex), while `get_knowledgebases.md:65-70`
-  gives a **dashed UUID** pattern with example `f265b06a-7fa7-4fbf-8923-55d5ae9c4ba2`. Do
-  not build id handling on either until a live call settles it.
+* ⚠ **Their own spec disagrees with itself about the shape of `rag_id`, in three places**,
+  which is an integration trap worth knowing before writing the client: `create.md:92`
+  gives `format: ^[0-9a-fA-F]{32}$` with the undashed example
+  `3c90c3xs0d444b5088228dd25736052a` — which contains `x` and `s` and so does not match its
+  own pattern; `get_knowledgebases.md:65-70` gives a **dashed UUID** pattern with example
+  `f265b06a-7fa7-4fbf-8923-55d5ae9c4ba2`; and `delete.md:37-39` declares the same path
+  parameter as `format: uuid`. Do not build id handling on any of the three until a live
+  call settles it.
+* **The erasure question stays open, and the silence is now located precisely.**
+  `DELETE /knowledgebase/{rag_id}` returns `{message: success, state: deleted}`
+  (`delete.md:40-47`) and says **nothing** about whether the agent's `vector_ids` is
+  cleared. A dangling id surviving an erasure is a DPDP finding, and it is unanswerable
+  from the mirror — pilot gate 8, and a reason any reopen needs `detach_kb` to do the
+  agent PATCH itself rather than trust a cascade.
 * **Nothing accepts text.** Across all five knowledgebase pages the only content-bearing
   request properties anywhere are `file` and `url`.
 
