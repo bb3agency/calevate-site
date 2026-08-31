@@ -2154,6 +2154,7 @@ export default function CampaignsPage() {
                 }
               >
                 {progress.data?.total ? (
+                  <>
                   <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                     {Object.entries(counts).map(([key, value]) => (
                       <div key={key}>
@@ -2168,11 +2169,15 @@ export default function CampaignsPage() {
                         </dd>
                       </div>
                     ))}
-                    <div className="col-span-2 text-xs text-ink-faint sm:col-span-4">
-                      Launched {formatIST(progress.data.launched_at)} · up to{" "}
-                      {formatCount(progress.data.concurrency)} calls at a time
-                    </div>
                   </dl>
+                  {/* Prose, so OUTSIDE the <dl>: a bare <div> of text as a direct child
+                      of a definition list is the axe violation f944a67 fixed on the
+                      call-detail screen — this was its sibling. */}
+                  <p className="mt-4 text-xs text-ink-faint">
+                    Launched {formatIST(progress.data.launched_at)} · up to{" "}
+                    {formatCount(progress.data.concurrency)} calls at a time
+                  </p>
+                  </>
                 ) : (
                   <EmptyState title="No contacts yet" />
                 )}
