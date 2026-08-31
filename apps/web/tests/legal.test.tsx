@@ -544,6 +544,44 @@ describe("what each document must contain", () => {
     expect(dpa).toMatch(/as at \d{1,2} \w+ 202\d/);
   });
 
+  it("gives the DPDP commencement as a period, not a printed day, outside the one derivation", () => {
+    /*
+     * The gazette publication date of the DPDP Rules 2025 is unverified in this tree
+     * (13 or 14 November 2025 — docs/LEGAL-SURFACE.md §9 item 9), and the
+     * substantive-commencement date is DERIVED from it by rule 1's eighteen months, so
+     * the documents give it as "the middle of May 2027" rather than a day nobody has
+     * checked against the gazette. The DPA's clause 9 is the one place specific days may
+     * appear, because it SHOWS the derivation ("Published on 13 November 2025, that is
+     * 13 May 2027; published on 14 November, it is a day later") — a worked example, not
+     * a claim. Privacy §8 printed "13 May 2027" as a bare fact until this audit; this
+     * pins the correction so it cannot regress in any document but the derivation.
+     */
+    for (const doc of LEGAL_DOCUMENTS) {
+      if (doc.slug === "dpa") continue;
+      expect(
+        textOf(doc),
+        `/legal/${doc.slug} prints a commencement day the set deliberately gives as a period`,
+      ).not.toMatch(/\b1[0-9] May 2027\b/);
+    }
+    for (const slug of ["privacy", "grievance", "dpa"]) {
+      expect(textOf(bySlug(slug)), `/legal/${slug}`).toMatch(/middle of May 2027/);
+    }
+  });
+
+  it("does not claim every grievance commitment sits inside every statutory limit", () => {
+    /*
+     * Found by this audit: the grievance page's §2 callout said the middle-column
+     * commitments were "shorter than every limit in the right-hand column", and row 1
+     * falsifies it — the acknowledgement commitment is 2 BUSINESS days, which across a
+     * weekend passes the E-Commerce Rules' 48 CALENDAR hours (if those Rules reach us,
+     * which is itself with the advocate). The false comparative must not return, and
+     * the honest arithmetic that replaced it is pinned so a trim cannot drop it.
+     */
+    const grievance = textOf(bySlug("grievance"));
+    expect(grievance).not.toMatch(/shorter than every\s+limit/i);
+    expect(grievance).toMatch(/can pass the 48-hour mark/);
+  });
+
   it("puts the voice-recording question to the advocate rather than answering it", () => {
     /*
      * The 2011 rules define biometric information to include VOICE PATTERNS, and

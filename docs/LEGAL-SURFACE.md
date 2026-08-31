@@ -191,7 +191,7 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 | # | Obligation | Status | Notes |
 |---|---|---|---|
 | C-1 | Display legal name, office address, website and customer-care + grievance-officer contact | **PARTIAL** | Now on `/legal/*` as placeholders. **The site footer carries none of it** — see FOLLOW-UP-1. |
-| C-2 | Acknowledge a complaint in 48h, redress in one month | **MET as published, UNMET as process** | See DP-8. |
+| C-2 | Acknowledge a complaint in 48h, redress in one month | **PARTIAL as published, UNMET as process — this row said "MET as published" and the published figure does not meet the 48h leg** | See DP-8. What `/legal/grievance` §2 publishes is **2 business days** to acknowledge — which across a weekend can exceed 48 CALENDAR hours — and 15 business days / 30 days to resolve (inside the one-month leg). Whether the E-Commerce Rules even reach a B2B SaaS is unanalysed and is printed with an "if" on the page itself, routed to the advocate; since 31 Aug 2026 the page states the business-days/48-hours arithmetic instead of claiming every commitment sits inside every limit, and `tests/legal.test.tsx` pins that. Closing the 48h leg for real is a founder decision (commit to 48 calendar hours) or the advocate's finding that the Rules do not apply. |
 | C-3 | No misleading claims about the service | **CLOSED** | See F-1 — the claim was removed and `publicLanding.test.tsx` bans its return. |
 | C-4 | Applicability | Calevate sells B2B, and CPA excludes purchases for a "commercial purpose" — but a sole proprietor buying to earn a livelihood by self-employment is a consumer. Given the target market (Indian SMBs, many proprietorships) **assume the Act applies** and do not draft as if it does not. `/legal/terms` §16 carries an express carve-out. |
 
@@ -761,7 +761,7 @@ DPAs — Microsoft, Google (for Sheets lead delivery, D-23), Resend, Sentry, Clo
 hosting provider all publish one — and record the Bolna residency term in the contract before
 flipping `ENGINE=bolna`.
 
-### F-11 — ~~The published sub-processor list and cookie table named vendors we do not use, and repeated a residency claim §4 had withdrawn.~~ **CLOSED on the copy, 20 Aug 2026. The MECHANISM that let it happen is still open.**
+### F-11 — ~~The published sub-processor list and cookie table named vendors we do not use, and repeated a residency claim §4 had withdrawn.~~ **CLOSED on the copy, 20 Aug 2026, AND on the mechanism, 27 Aug 2026** *(this heading said the mechanism was still open after its own closing paragraph below said it was not — reconciled 31 Aug 2026).*
 
 **The finding as recorded.** Everything else in this document described the sub-processors
 correctly; the documents a client would actually be handed did not, and those are the ones
@@ -792,7 +792,7 @@ us, and states the real lifetimes (`authn/sessions.REALM_TIMEOUTS`: client 12 h 
 in evidence, not proved by a build check"*. **If that change is abandoned before it lands,
 this finding returns exactly as written above.**
 
-**⚠ AND THE ONE TEST OVER THIS SURFACE CURRENTLY REQUIRES THE FALSE DISCLOSURE.**
+**~~⚠ AND THE ONE TEST OVER THIS SURFACE CURRENTLY REQUIRES THE FALSE DISCLOSURE.~~ RESOLVED — kept as found (20 Aug 2026); verified fixed 31 Aug 2026: the test now derives its vendor list from `SUBPROCESSOR_NAMES`, asserts Microsoft by name, and bans Clerk both as an identity and as a table row (see the mechanism paragraph below).**
 `apps/web/tests/legal.test.tsx` ("keeps the sub-processor register as the only copy of the
 vendor list") loops over `["Bolna", "Sarvam", "Clerk", "Cloudflare", "Resend", "Razorpay"]`
 and asserts the register **contains** each one. With Clerk correctly removed from
@@ -1014,9 +1014,16 @@ Recorded so a later edit cannot quietly reinstate them, and each is asserted by
   recording is a switch anyone holds. Every call an agent handles is recorded; the
   toggles are about what is ANNOUNCED. (`claims no recording control the product does
   not have`)
-- **No claim that choosing a model changes what a client pays** (F-15). The figure the
-  picker shows is our own cost of the language leg; the charge is the plan's rate.
-  (`does not price the model choice as a client charge`)
+- **No claim that the model choice is priced anywhere but the plan** (F-15). ⚠ This
+  bullet used to say "no claim that choosing a model changes what a client pays", and
+  D-455 (`plans.llm_model_surcharge`) made that sentence a countdown: a plan MAY now
+  quote a per-minute surcharge, so `/legal/terms` §6.1 says the choice changes what you
+  pay ONLY if the plan says so, that no model list, setting or screen can introduce or
+  raise it, and that a model we choose for a client is never surcharged
+  (`CLIENT_CHOSEN_LLM_SOURCES` excludes `platform`). The figure the picker shows remains
+  our own cost, marked as such. (`prices the model choice as a plan term, and only as a
+  plan term` — this test replaced `does not price the model choice as a client charge`,
+  whose pinned sentence went false the moment a surcharge column existed.)
 
 ---
 
@@ -1026,16 +1033,24 @@ Declared in `apps/web/src/lib/legal/placeholders.ts`, each with what it is and w
 value comes from. `tests/legal.test.tsx` fails if a document uses an undeclared token or if a
 declared token stops being used — so this list cannot silently drift.
 
-`LEGAL_ENTITY_NAME` · `ENTITY_REGISTRATION_NUMBER` · `GSTIN` · `REGISTERED_ADDRESS` ·
-`CONTACT_PHONE` · `SUPPORT_EMAIL` · `GRIEVANCE_OFFICER_NAME` ·
+The declared set, re-read from `placeholders.ts` on 31 Aug 2026 (this list had drifted —
+it still carried `GSTIN`, which the 26 Aug 2026 entity work REPLACED with `GST_STATUS`
+because a blank GSTIN asserted "we have one and have not typed it in", and it omitted
+`ENTITY_FORM` and `GST_STATUS`, both added in that work and both already carrying values):
+
+`LEGAL_ENTITY_NAME`* · `ENTITY_FORM`* · `ENTITY_REGISTRATION_NUMBER` · `GST_STATUS`* ·
+`REGISTERED_ADDRESS` · `CONTACT_PHONE` · `SUPPORT_EMAIL` · `GRIEVANCE_OFFICER_NAME` ·
 `GRIEVANCE_OFFICER_DESIGNATION` · `GRIEVANCE_OFFICER_EMAIL` ·
 `DATA_PROTECTION_CONTACT_NAME` · `DATA_PROTECTION_CONTACT_EMAIL` · `SECURITY_CONTACT_EMAIL` ·
-`JURISDICTION_CITY` · `EFFECTIVE_DATE` · `DLT_TELEMARKETER_ID` · `PRIMARY_HOSTING_LOCATION` ·
+`JURISDICTION_CITY` · `EFFECTIVE_DATE` · `DLT_TELEMARKETER_ID` · `PRIMARY_HOSTING_LOCATION`* ·
 `REFUND_PROCESSING_DAYS` · `TERMINATION_NOTICE_DAYS` · `DATA_RETURN_WINDOW_DAYS`
+
+*(the four starred tokens carry a `value` and render substituted; the other sixteen are
+the blanks the founder must still fill)*
 
 `{{PRIMARY_HOSTING_LOCATION}}` was not an administrative blank: filling it in **was** the F-1
 decision, and D-180 took it. **It is filled as of 22 Aug 2026** — it carries a `value` in
-`placeholders.ts` and the renderer substitutes it, so it is no longer one of the eighteen blanks
+`placeholders.ts` and the renderer substitutes it, so it is no longer one of the blanks
 above; the entry stays because the data centre is named in the change that provisions one.
 The mechanism is the durable part: a decided fact now reaches every document from one place, and
 `assertLegalSetPublishable` refuses to render the set if `PENDING_LEGAL_REVIEW` is ever removed
@@ -1199,7 +1214,7 @@ now traces to one of them.
 | FOLLOW-UP-3 | Add the 35-day backup clause to `ERASURE_LIMITATIONS` / `ERASURE_EXCEPTIONS` in `apps/api/compliance/deletion.py`, so the certificate and `/legal/privacy` §9 agree. | `apps/api` is outside this session's edit scope. |
 | ~~FOLLOW-UP-4~~ | ~~F-2 and F-3: retention categories for the engine-payload archive and for KB content~~ — **DONE (D-179)**: migration `c4d1f7b83e26`, two sweep arms, and the erasure's knowledge-base search. | Was outside the audit session's edit scope; closed in the next one. |
 | ~~FOLLOW-UP-7~~ | ~~F-11: correct `apps/web/src/lib/legal/{subprocessors,cookies}.ts` for D-410 and D-177.~~ — **DONE 20 Aug 2026** by the parallel `apps/web` session, verified by reading the files. What remains is F-11's other half. |
-| FOLLOW-UP-8 | **Bind the published sub-processor list to a constant.** One exported inventory of sub-processor identities that `apps/web/src/lib/legal/subprocessors.ts` renders and `tests/legal.test.tsx` asserts against, so a vendor added to or removed from this tree fails a test naming the legal document it did not reach. F-11's mechanism half: two vendor changes three days apart both survived in a client-facing document because nothing could see the divergence. | `apps/web/**` and `tests/legal.test.tsx` are outside this session's edit scope. **OURS, no external dependency.** |
+| ~~FOLLOW-UP-8~~ | ~~Bind the published sub-processor list to a constant.~~ — **DONE 27 Aug 2026** (verified by reading the files 31 Aug 2026): `SUBPROCESSOR_NAMES` is derived from `SUBPROCESSOR_ROWS` in `apps/web/src/lib/legal/subprocessors.ts`, and `tests/legal.test.tsx` imports it, asserts every identity reaches the rendered register, asserts Microsoft by name, bans Clerk/Vertex/Gemini as identities, and bans the DPA from restating any of them. F-11's mechanism half is closed. | Was outside the audit session's edit scope; closed by the `apps/web` lane. |
 | ~~FOLLOW-UP-6~~ **DONE 22 Aug 2026** — both callouts rewritten to say what the mechanisms do, and the two retention categories added to the `/legal/privacy` §9 table with the periods `scripts/seed.py` actually installs (90 / 365). The deliberate limit that remains — an erasure SEARCHES knowledge content and reports the count but never edits a client's own writing — is now stated as a reasoned limit rather than as a gap. | ~~**Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate.~~ |
 | FOLLOW-UP-9 | **F-15's screen half: the model picker must stop calling our cost "what you pay".** `apps/web/src/components/llmModelPicker.tsx:205` labels the model in force *"what you pay now"*; `apps/web/src/app/c/[slug]/settings/models/page.tsx:69` says *"a decision about your bill as much as about your agents"* and `:210` *"It costs ₹X a minute"*; `apps/web/src/app/c/[slug]/agents/AgentModel.tsx:157` repeats the last one. (Line numbers read 22 Aug 2026, while a parallel lane was editing the same files for availability.) `billing/rates.py` is unambiguous that nothing bills the in-call leg and that the figure is our own list-price cost; a client is charged their plan's overage rate or `self_serve_inr_per_min`, neither of which moves with the model. The figure should be labelled as what it is (our cost of the language leg, published so the choice is informed) or the sentence about the client's bill removed. | The agents/billing UI is another lane's. `/legal/terms` §6.1 now states the true position, which is the contract catching up with the screen and not a fix for it. **OURS, no external dependency.** |
 | FOLLOW-UP-10 | **F-13's mechanism half: make a change to `azure_openai_resource` invalidate the region attestation.** The console write path for that one field should refuse unless `docs/evidence/azure-deployment-attestation.json` names the new resource — the shape `scripts/check_model_lifecycle.py` already uses to consume that file. Today an operator can point the language leg at a resource in another region, and every guard, gate record and client document stays green while gate 20's reading silently describes a resource we no longer use. **And `docs/ROADMAP.md:673` (D-444) still repeats the withdrawn sentence internally** — *"no setting, console control or environment variable able to move it"* — which is where the next writer would copy it back from into client copy; correcting it is one clause and belongs to whoever owns that row. | `apps/api/core/platform_config.py` and `scripts/**` are the guards/config lane's. The client-facing copy no longer over-claims (F-13), so this is the mechanism and not a live misstatement. **OURS, no external dependency.** |
