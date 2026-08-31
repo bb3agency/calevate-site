@@ -9,6 +9,7 @@ the model said", which is the one thing no test can obtain honestly.
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
@@ -17,6 +18,7 @@ import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 
 from apps.api.copilot import service
+from apps.api.copilot import tools as tools_module
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -550,3 +552,240 @@ async def test_the_gemini_leg_answers_in_prose_when_the_model_calls_no_tool(
     assert spend.capability.provider == extraction_module.GOOGLE_PROVIDER
     # No usage block: unknown cost, never zero — `meter_assist` records it unmetered, loudly.
     assert spend.usage is None
+
+
+# --- the read tools: results feed back, and the loop CONTINUES (phase 1) -----------------
+#
+# The seam here is `tools.run_read_tool`, one layer below the loop — the same choice this
+# file makes for the provider. What the tools actually return, whose rows they can see and
+# who may run them is `copilot/tools_test.py`'s subject, against a real database; what is
+# faked here is only "the lookup answered", which is the one thing this file is about.
+
+TOOL_CONTEXT = tools_module.ToolContext(
+    tenant_id=uuid.UUID("00000000-0000-7000-8000-000000000001"), role="owner"
+)
+
+
+def _tool_turn(*calls: tuple[str, str], content: str = "") -> list[chat.StreamEvent]:
+    """One faked model turn that calls N tools, by (name, arguments)."""
+    tool_calls = tuple(
+        chat.ToolCall(id=f"call-{index}", name=name, arguments=arguments)
+        for index, (name, arguments) in enumerate(calls)
+    )
+    return [
+        *([chat.StreamEvent(text=content)] if content else []),
+        chat.StreamEvent(
+            outcome=chat.ChatOutcome(
+                content=content, tool_calls=tool_calls, finish_reason="tool_calls"
+            )
+        ),
+    ]
+
+
+def _fake_tools(monkeypatch: pytest.MonkeyPatch, answers: dict[str, str]) -> list[dict[str, Any]]:
+    """Replace the tool runner with a lookup table, recording every invocation."""
+    seen: list[dict[str, Any]] = []
+
+    async def _run(name: str, arguments: str, *, context: Any) -> str:
+        seen.append({"name": name, "arguments": arguments, "context": context})
+        return answers.get(name, f"no answer scripted for {name}")
+
+    monkeypatch.setattr(tools_module, "run_read_tool", _run)
+    return seen
+
+
+async def _drain_with_tools(payload: CopilotAskIn = PAYLOAD) -> list[service.CopilotEvent]:
+    return [event async for event in service.run_copilot(payload, tool_context=TOOL_CONTEXT)]
+
+
+async def test_every_request_offers_the_write_tool_and_every_read_tool(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The array is composed once and does not vary — not by screen, not by tenant, not by
+    role (`service.tool_array`, and `tools_test` pins the byte-identity). Here we only prove
+    the loop actually SENDS it: a registry nothing offers is a registry the model cannot
+    use."""
+    kwargs_seen: list[dict[str, Any]] = []
+
+    def _stream(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> AsyncIterator[chat.StreamEvent]:
+        kwargs_seen.append(kwargs)
+
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            for event in _turn(content="Nine."):
+                yield event
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _stream)
+    await _drain_with_tools()
+    names = [tool["function"]["name"] for tool in kwargs_seen[0]["tools"]]
+    assert names[0] == "set_fields"
+    assert set(names[1:]) == tools_module.READ_TOOL_NAMES
+
+
+async def test_a_read_tool_result_is_fed_back_and_the_model_then_answers_in_prose(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE BEHAVIOURAL CHANGE OF PHASE 1. Before this, a turn that produced no `set_fields`
+    call ENDED the loop — so a lookup would have been a tool call nobody answered and an
+    answer nobody wrote. Now the result goes back as a `role: "tool"` message and the model
+    gets another turn to use it.
+
+    FAILS IF: the loop goes back to ending on "no set_fields call", which turns every
+    business question into silence."""
+    _fake_tools(monkeypatch, {"business_snapshot": "Last 30 days: 12 calls, 8 connected."})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("business_snapshot", '{"days": 30}')),
+            _turn(content="You've had 12 calls and 8 connected."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 2
+    # The second turn carries the assistant's own tool call AND our result — an orphan
+    # tool message (or an orphan tool CALL) is rejected by the provider.
+    roles = [message["role"] for message in sent[1]]
+    assert roles[-2:] == ["assistant", "tool"]
+    assert sent[1][-2]["tool_calls"][0]["function"]["name"] == "business_snapshot"
+    assert "12 calls, 8 connected" in str(sent[1][-1]["content"])
+    assert [e.text for e in events if e.text] == ["You've had 12 calls and 8 connected."]
+    assert events[-1].spend is not None
+
+
+async def test_two_read_tools_chain_inside_one_answer(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SEARCH → READ → ANSWER, which is the shape `MAX_TURNS` was raised for. The second
+    lookup is chosen AFTER the first result is in the message list, which a single round of
+    parallel calls cannot express."""
+    seen = _fake_tools(
+        monkeypatch,
+        {"leads_search": "1 leads with status hot:\n- Ramesh", "calls_recent": "1 calls:\n- 90s"},
+    )
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("leads_search", '{"status": "hot", "limit": null}')),
+            _tool_turn(("calls_recent", '{"limit": 5}')),
+            _turn(content="Ramesh is your only hot lead; his last call ran 90s."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 3
+    assert [call["name"] for call in seen] == ["leads_search", "calls_recent"]
+    # The chain is visible in the message list the LAST turn was sent: both results are
+    # there, in order.
+    contents = [str(message.get("content")) for message in sent[2]]
+    assert any("Ramesh" in content for content in contents)
+    assert any("90s" in content for content in contents)
+    assert [e.text for e in events if e.text] == [
+        "Ramesh is your only hot lead; his last call ran 90s."
+    ]
+
+
+async def test_independent_calls_in_one_turn_are_all_run_and_all_answered(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two lookups with no ordering between them are one turn, not two. Each gets its own
+    `role: "tool"` message keyed by the id the model issued — a provider rejects the next
+    request if an issued call has no result."""
+    _fake_tools(monkeypatch, {"leads_search": "leads here", "calls_recent": "calls here"})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("leads_search", "{}"), ("calls_recent", "{}")),
+            _turn(content="Both look fine."),
+        ],
+    )
+    await _drain_with_tools()
+
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert [message["tool_call_id"] for message in tool_messages] == ["call-0", "call-1"]
+    assert [message["content"] for message in tool_messages] == ["leads here", "calls here"]
+
+
+async def test_more_lookups_than_the_per_turn_cap_are_refused_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A turn asking for a dozen lookups has stopped answering a question, and each one is a
+    database round trip against a shared pool. The extras are REFUSED rather than dropped:
+    a dropped call is an issued `tool_call_id` with no result, which the provider rejects."""
+    seen = _fake_tools(monkeypatch, {"calls_recent": "calls here"})
+    over = tools_module.MAX_CALLS_PER_TURN + 2
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(*(("calls_recent", "{}") for _ in range(over))), _turn(content="Done.")],
+    )
+    await _drain_with_tools()
+
+    assert len(seen) == tools_module.MAX_CALLS_PER_TURN
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert len(tool_messages) == over, "every issued call is answered, including the refused"
+    assert "Not run" in str(tool_messages[-1]["content"])
+
+
+async def test_the_tool_context_the_route_built_is_what_the_tool_is_run_under(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WHO IS ASKING reaches the tool, because that is what scopes the RLS session and what
+    the permission check judges. A loop that dropped it would run every lookup unscoped —
+    which `tools.run_read_tool` refuses, so the symptom would be a copilot that can never
+    look anything up rather than a leak; both are defects and this is the one that catches
+    them."""
+    seen = _fake_tools(monkeypatch, {"leads_search": "leads here"})
+    _scripted(monkeypatch, [_tool_turn(("leads_search", "{}")), _turn(content="Done.")])
+    await _drain_with_tools()
+
+    assert seen[0]["context"] == TOOL_CONTEXT
+
+
+async def test_a_turn_that_asks_for_a_write_and_a_lookup_is_still_the_write(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`set_fields` KEEPS ITS SEMANTICS EXACTLY: one call honoured, one fill, one Undo, loop
+    over. It is checked first, so a mixed turn resolves the way it did before the read tools
+    existed — the read results would have nowhere to go once the fill has been emitted, and
+    a second round after the person has been shown a change is the very thing
+    `test_a_valid_set_fields_stops_the_loop_immediately` forbids."""
+    seen = _fake_tools(monkeypatch, {"leads_search": "leads here"})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(
+                ("leads_search", "{}"),
+                ("set_fields", json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+            ),
+            _turn(content="should never run"),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 1
+    assert seen == [], "no lookup runs once the fill has been decided"
+    assert [e.fill for e in events if e.fill] == [
+        (CopilotFillItem(field_id="open", value="09:00"),)
+    ]
+
+
+async def test_a_model_that_only_ever_looks_things_up_still_ends_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cap is what stops a lookup loop being a spinner that never stops. FAILS IF:
+    `MAX_TURNS` stops bounding the read path — the script here looks things up forever, so
+    an unbounded loop hangs rather than fails, which is why the CALL COUNT is asserted."""
+    _fake_tools(monkeypatch, {"calls_recent": "calls here"})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("calls_recent", "{}")) for _ in range(service.MAX_TURNS + 2)],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == service.MAX_TURNS
+    said = [e.text for e in events if e.text]
+    assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
+    assert events[-1].spend is not None

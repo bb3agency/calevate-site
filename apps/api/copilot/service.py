@@ -30,7 +30,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 import httpx
 from calevate_shared.engine import (
@@ -40,8 +40,10 @@ from calevate_shared.engine import (
 )
 
 from apps.api.copilot import prompt as prompt_module
+from apps.api.copilot import tools as tools_module
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotField, CopilotFillItem
+from apps.api.copilot.tools import ToolContext
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -59,11 +61,24 @@ from apps.workers.extraction import (
 
 log = get_logger(__name__)
 
-#: How many model turns one question may take. Four = ask, correct a refused fill, ask
-#: again, answer — which is the longest useful shape observed in this design and one more
-#: than the shortest failing one. Each turn is a paid round trip, so the cap is a spend
-#: bound as much as a latency one.
-MAX_TURNS: Final = 4
+#: How many model turns one question may take.
+#:
+#: **SIX, RAISED FROM FOUR WHEN THE READ TOOLS LANDED, AND THE NUMBER IS THE LONGEST
+#: USEFUL SHAPE RATHER THAN A ROUND ONE.** Four was "ask, correct a refused fill, ask
+#: again, answer", which is still the longest FILL-only shape and is untouched. What four
+#: cannot express is the shape this feature exists for: look something up, look something
+#: up that depended on the first answer, then answer in prose — three turns before a word
+#: is written, and a refused fill on top of that would have had nowhere to go. Six is that
+#: chain (2 lookups + answer) with a refused fill and its correction still fitting behind
+#: it, and one turn of slack; it is NOT sized to let a model browse.
+#:
+#: Each turn is a paid round trip AND — now that a turn can call a tool — up to
+#: `tools.MAX_CALLS_PER_TURN` database round trips, so the cap is a spend bound and a load
+#: bound as well as a latency one. It is deliberately the WEAKEST of the three brakes:
+#: `TOTAL_BUDGET_S` bounds the wall clock whatever the turns do, and `MAX_ANSWER_TOKENS`
+#: bounds each turn's output. Those two are the real safety valves; this one exists so a
+#: model that loops on a tool it keeps mis-calling still ends with a sentence.
+MAX_TURNS: Final = 6
 
 #: The longest gap between two frames of a streamed answer before we give up on it.
 #:
@@ -133,15 +148,21 @@ EXHAUSTED_MESSAGE: Final = "I couldn't finish within the turn limit — please n
 #: The fallback CANNOT FILL FIELDS (see `_answer_via_sarvam`), and a person who asked it to
 #: and got prose back is owed the reason. D-127 G-6's disclosure says which model wrote the
 #: answer; this says what that costs them, which is the part they can act on.
-FALLBACK_NO_TOOLS_NOTE: Final = " It can answer questions, but it cannot fill in fields."
+FALLBACK_NO_TOOLS_NOTE: Final = (
+    " It can answer questions about this screen, but it cannot fill in fields or look up "
+    "your calls, leads or campaigns."
+)
 
 
 #: Appended, last, on the fallback leg only. See `_answer_via_sarvam`.
 _NO_TOOL_NOTE: Final = (
-    "CORRECTION for this turn only: the set_fields tool is NOT available to you right now. "
-    "Do not call it and do not say you have filled anything in. Answer the question in "
-    "words, and if the person asked you to fill a field, tell them the value they should "
-    "type and that you cannot enter it for them this time."
+    "CORRECTION for this turn only: the set_fields tool AND every lookup tool (this "
+    "account's calls, leads, campaigns and performance) are NOT available to you right "
+    "now. Do not call any of them, do not say you have filled anything in, and do not say "
+    "you have looked anything up. Answer the question in words from what you can already "
+    "see. If the person asked you to fill a field, tell them the value they should type "
+    "and that you cannot enter it for them this time. If they asked for a number about "
+    "their business, say you cannot look it up right now — do not estimate one."
 )
 
 
@@ -438,6 +459,90 @@ async def _answer_via_sarvam(
 # --- the loop -------------------------------------------------------------------------
 
 
+def tool_array() -> list[dict[str, Any]]:
+    """Every tool the model is offered, in a FIXED order, IDENTICAL ON EVERY REQUEST.
+
+    ONE COMPOSER, so there is one answer to "what tools exist" and the cacheable prefix has
+    one definition. The write tool comes first because it was first and because moving it
+    would change the prefix for no gain; the read tools follow in `READ_TOOLS` order.
+
+    NOTHING IS GATED OUT OF THIS ARRAY — not by screen, not by tenant, not by role. Azure's
+    prompt caching keys on a leading run of byte-identical tokens (`prompt.py`, point 1),
+    and an array that dropped the tools a caller may not use would differ per role, giving
+    every non-`owner` caller a cache miss on every request. A caller who may not use a read
+    tool is refused INSIDE it by `tools.run_read_tool`, which is where the check has to
+    exist anyway: a schema the model was never shown is obscurity, not an access control.
+    `copilot/tools_test.py` pins the byte-identity across two differing requests.
+    """
+    return [prompt_module.set_fields_tool(), *tools_module.read_tool_schemas()]
+
+
+async def _run_read_tools(
+    calls: Sequence[chat.ToolCall], *, context: ToolContext | None
+) -> list[dict[str, object]]:
+    """Every read call of ONE turn, executed, as the `role: "tool"` messages that answer them.
+
+    CONCURRENTLY, because independent calls in one turn are independent: "how are calls
+    going and which leads are hot" is two lookups with no ordering between them, and running
+    them in series doubles the person's wait for nothing. Each opens and closes its OWN
+    `tenant_session` (`tools.run_read_tool`), so concurrency here costs a bounded handful of
+    pooled connections for the length of a SELECT rather than one held across the stream.
+
+    ONE MESSAGE PER CALL, INCLUDING THE ONES WE REFUSED, and that is not politeness: a
+    provider rejects a tool result whose `tool_call_id` it never issued, and — worse —
+    rejects the NEXT request if an issued call has no result at all. So an unknown tool
+    name, a permission refusal and an over-the-cap call each get an answer rather than
+    silence. `run_read_tool` never raises, so `gather` needs no `return_exceptions`.
+    """
+    permitted = calls[: tools_module.MAX_CALLS_PER_TURN]
+    refused = calls[tools_module.MAX_CALLS_PER_TURN :]
+    results = await asyncio.gather(
+        *(
+            tools_module.run_read_tool(call.name, call.arguments, context=context)
+            for call in permitted
+        )
+    )
+    messages: list[dict[str, object]] = [
+        {"role": "tool", "tool_call_id": call.id, "content": result}
+        for call, result in zip(permitted, results, strict=True)
+    ]
+    messages += [
+        {
+            "role": "tool",
+            "tool_call_id": call.id,
+            "content": (
+                f"Not run: you asked for more than {tools_module.MAX_CALLS_PER_TURN} "
+                "lookups in one turn. Ask for the ones you still need."
+            ),
+        }
+        for call in refused
+    ]
+    return messages
+
+
+def _assistant_tool_message(
+    outcome: chat.ChatOutcome, calls: Sequence[chat.ToolCall]
+) -> dict[str, object]:
+    """The assistant turn that ISSUED these tool calls, replayed back into the message list.
+
+    Required, not decorative: a `role: "tool"` message whose matching assistant `tool_calls`
+    entry is missing is an orphan the provider refuses. The refusal-feedback path below
+    builds the same shape for the single `set_fields` call, and this is that shape for N.
+    """
+    return {
+        "role": "assistant",
+        "content": outcome.content or None,
+        "tool_calls": [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in calls
+        ],
+    }
+
+
 #: One model turn, as the events `chat.stream` yields — text fragments, then ONE terminal
 #: `StreamEvent` carrying the `ChatOutcome`. The two legs differ ONLY in this: Azure STREAMS
 #: (fragments live), the Gemini leg is NON-STREAMED (`chat.complete`, one text event at the
@@ -496,6 +601,7 @@ async def _run_tool_loop(
     leg: chat.ChatLeg,
     turn: _TurnRunner,
     model: str | None,
+    tool_context: ToolContext | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
@@ -504,9 +610,25 @@ async def _run_tool_loop(
     turn or Gemini's non-streamed one — so the tool-calling, re-validation, refusal-feedback
     and metering are byte-for-byte the same on both, which is what keeps the field-filling
     identical. `model` is threaded into `CopilotSpend` so the ledger names the Gemini model
-    on the Gemini leg (`None` = Azure's live-switched setting)."""
+    on the Gemini leg (`None` = Azure's live-switched setting).
+
+    **THE LOOP NOW CONTINUES ON A READ TOOL, AND THAT IS THE BEHAVIOURAL CHANGE.** It used
+    to continue on exactly one thing — a REFUSED fill — and end on everything else, because
+    the only tool was `set_fields` and a successful fill is the end of the interaction. A
+    read tool is the opposite shape: its result is not the answer, it is what the model
+    needed in order to write one. So a turn that calls read tools appends the assistant's
+    own `tool_calls` message plus one `role: "tool"` result per call and goes round again,
+    which is what lets search → read → answer happen inside one question.
+
+    `set_fields` KEEPS ITS SEMANTICS EXACTLY: one call honoured, one `fill` event, one
+    Undo, loop over. It is checked FIRST, so a turn that somehow asks for both a write and
+    a lookup is resolved the way it was before this change — the write wins and the turn
+    ends. That is deliberate: the read results would have nowhere to go once the fill has
+    been emitted, and inventing a second round after a person has already been shown a
+    change is the "second chance to change what they were shown" that
+    `test_a_valid_set_fields_stops_the_loop_immediately` exists to forbid."""
     messages = prompt_module.build_messages(payload)
-    tools = [prompt_module.set_fields_tool()]
+    tools = tool_array()
     turns: list[chat.ChatOutcome] = []
     refusal: FillRefusedError | None = None
 
@@ -543,11 +665,28 @@ async def _run_tool_loop(
             call for call in outcome.tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
         ]
         if not calls:
-            # The model answered in prose. Done — this is the ordinary end of a question.
-            yield CopilotEvent(
-                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
-            )
-            return
+            read_calls = [
+                call
+                for call in outcome.tool_calls
+                if call.name != prompt_module.SET_FIELDS_TOOL_NAME
+            ]
+            if not read_calls:
+                # The model answered in prose. Done — the ordinary end of a question.
+                yield CopilotEvent(
+                    spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+                )
+                return
+            # A LOOKUP, NOT AN ANSWER. Feed the results back and go round again — this is
+            # the one path that makes "answer about the business" possible, and it is why
+            # `MAX_TURNS` had to grow. Anything the model said alongside the call has
+            # already been streamed above; only the tool plumbing is added here.
+            messages = [
+                *messages,
+                _assistant_tool_message(outcome, read_calls),
+                *await _run_read_tools(read_calls, context=tool_context),
+            ]
+            log.info("copilot_read_tools", extra={"turn": turn_index, "calls": len(read_calls)})
+            continue
 
         # ONE CALL, EVEN IF THE MODEL SENT SEVERAL. The tool takes an array precisely so
         # that a turn has one outcome and one Undo; a second call in the same turn is the
@@ -615,6 +754,7 @@ async def run_copilot(
     *,
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
+    tool_context: ToolContext | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -636,6 +776,14 @@ async def run_copilot(
     no session and no tenant, and a literal `False` would be a promise about
     `require_ai_assist`'s control flow made in the wrong file. `tenant_leg` arrives the same
     way and for the same reason: it is a row, and this module has no session to read one.
+
+    `tool_context` arrives the same way for a THIRD instance of the same reason: it is who
+    is asking, and this module has no request. It is what every read tool is executed
+    under — the tenant whose RLS session the query runs in, and the role whose permission
+    is checked before it does. `None` means "nobody was named", and every read tool then
+    refuses; the tools are still OFFERED, because the tool array must not vary by caller
+    (`tool_array`). In production it is never None: `routes.py` builds it from a principal
+    whose `tenant_id` it has already asserted.
     """
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
@@ -661,7 +809,12 @@ async def run_copilot(
         try:
             async with asyncio.timeout(TOTAL_BUDGET_S):
                 async for event in _run_tool_loop(
-                    payload, capability, leg=leg, turn=turn, model=model
+                    payload,
+                    capability,
+                    leg=leg,
+                    turn=turn,
+                    model=model,
+                    tool_context=tool_context,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
@@ -713,7 +866,9 @@ __all__ = [
     "CopilotEvent",
     "CopilotSpend",
     "FillRefusedError",
+    "ToolContext",
     "disclosure_for",
     "run_copilot",
+    "tool_array",
     "validate_fill",
 ]

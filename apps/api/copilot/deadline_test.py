@@ -102,10 +102,19 @@ def test_the_whole_loop_cannot_outlast_the_total_budget() -> None:
     assert service.MAX_TURNS * service.STREAM_IDLE_S <= service.TOTAL_BUDGET_S
 
 
-def test_the_turn_cap_is_in_the_three_to_five_range_the_design_argues_for() -> None:
-    """Fewer than three and a refused fill can never be corrected; more than five and one
-    click can buy six paid round trips."""
-    assert 3 <= service.MAX_TURNS <= 5
+def test_the_turn_cap_is_in_the_three_to_six_range_the_design_argues_for() -> None:
+    """Fewer than three and a refused fill can never be corrected; more than six and one
+    click can buy seven paid round trips.
+
+    ⚠ **THE UPPER BOUND WAS FIVE AND WAS RAISED DELIBERATELY WITH THE READ TOOLS.** The
+    shape that did not fit under five is the one those tools exist for: look something up,
+    look something up that depended on the first answer, answer in prose — three turns
+    before a word is written, with a refused fill and its correction still to come. Six is
+    also where the arithmetic above stops giving: `MAX_TURNS * STREAM_IDLE_S <=
+    TOTAL_BUDGET_S` is 90 <= 90 at six and is violated at seven, so the wall clock — the
+    brake that actually bounds a wedged provider — is what caps this, not a taste for round
+    numbers."""
+    assert 3 <= service.MAX_TURNS <= 6
 
 
 def test_every_budget_is_a_positive_number_of_seconds() -> None:
