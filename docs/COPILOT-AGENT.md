@@ -167,14 +167,14 @@ more, and the ledger will show it. No new billing path — hard rule 7 stands.
 
 | Phase | What | State |
 |---|---|---|
-| **1** | **Read-tool registry** — `business_snapshot`, `leads_search`, `calls_recent`, `campaigns_list`, each wrapping an existing tested service fn; the loop feeds results back and CONTINUES. `MAX_TURNS` 4→6, derived: six is where `MAX_TURNS * STREAM_IDLE_S <= TOTAL_BUDGET_S` stops holding, so the wall clock caps the loop rather than a round number. | **built** |
+| **1** | **Read-tool registry** — `business_snapshot`, `leads_search`, `calls_recent`, `campaigns_list`, `agents_list`, each wrapping an existing tested service fn; the loop feeds results back and CONTINUES. `MAX_TURNS` 4→6, derived: six is where `MAX_TURNS * STREAM_IDLE_S <= TOTAL_BUDGET_S` stops holding, so the wall clock caps the loop rather than a round number. | **built** |
 | **2** | **Live business state block** — calls today/7d, leads waiting by status, campaign counts, outbound blocker RULE NAMES, IST clock. Carries no tenant-authored string at all (integers and closed-set rule names only), so there is nothing to sanitize; ceiling proven under 800 bytes by construction, not estimated. Degrades to `<unavailable part=…/>`, never to zeros. | **built** |
 | **3** | **Write tools that PROPOSE** — `lead_set_status`, `dnc_add`, `campaign_pause`. A proposal is a signed 5-minute JWT and no table; forgery, replay, cross-tenant and cross-actor each refused. Confirm executes through the SAME gated service function a click uses and writes an `audit_log` row. | **built** |
 | **4** | **Memory** — `copilot_memories` (RLS in the same migration), hybrid recall with recency STRUCTURALLY guaranteed a seat, semantic distillation in an hourly ARQ job on a cheap model, wired into retention AND every erasure path. | **built** |
 | 5 | Loop + the streaming decision (Azure-streamed vs Gemini-non-streamed) | **open** |
 
 Phases 1-4 were built in parallel by four agents against this document as the shared
-specification, then reconciled into one loop by hand. Two corrections the build made to
+specification, then reconciled into one loop by hand. Three corrections the build made to
 THIS document, recorded because the document was wrong and the code is right:
 
 - **§2.3 said to reuse the existing embedding path. There isn't one.** Verified at build
@@ -184,6 +184,21 @@ THIS document, recorded because the document was wrong and the code is right:
   stemming drops Telugu tokens), with `_RECALL_SQL` shaped so a similarity retriever is one
   more CTE the day a provider exists. Standing one up would have meant a new vendor leg, a
   new credential and a reversal of D-28 — none of which a memory feature gets to decide.
+- **`agents_list` shipped a day late, and the delay is the point.** Phase 1 dropped it
+  rather than build it on either of the two available routes: there was no
+  `agents/service.py::list_agents` — the roster query, its row mapper and the `AgentOut`
+  model all lived inside `agents/routes.py` — so the tool could only have called a route
+  handler from a service (a layering inversion) or kept a second copy of the SQL (D-103).
+  It was closed by extracting the roster instead: `agents/schemas.py` (the wire model,
+  `crm/schemas.py`'s shape) and `agents/roster.py` (the query, the mapper, `list_agents`,
+  `agent_by_id`), with `agents/routes.py` left thin and the OpenAPI contract unchanged.
+  `agents/service.py` was the obvious home and does not work — `AgentOut` reaches
+  `compliance/disclosure.py` for `truthful_answer_rule`, which imports `compliance/optout`
+  → `compliance/service` → `agents/service`, and the app failed to import. **The lesson
+  the plan should carry: a "thin wrapper over an existing tested service fn" is only thin
+  when the service fn exists**, and phase 1's refusal to fake one is why there is one
+  spelling of that query today rather than two.
+
 - **Recency is not a weight, it is a seat.** §2.3 said "recency able to win"; the built
   design is stronger — two retrievers with separate budgets, unioned, so similarity can
   never starve recency. The blend only ORDERS what both channels already found.

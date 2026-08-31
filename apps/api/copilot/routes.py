@@ -69,9 +69,9 @@ router = APIRouter(prefix="/v1", tags=["copilot"])
 
 _DESCRIPTION = """\
 Answers a question about the screen the caller is on, answers questions about the
-account's own business by reading it (calls, leads, campaigns, performance — read-only,
-under the caller's own permissions and RLS scope), and can fill that screen's form
-fields. Streams `text/event-stream`:
+account's own business by reading it (calls, leads, campaigns, agents, performance —
+read-only, under the caller's own permissions and RLS scope), and can fill that screen's
+form fields. Streams `text/event-stream`:
 
 * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
 * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one

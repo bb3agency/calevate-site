@@ -67,6 +67,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot.models import MAX_CONTENT_CHARS, SEARCH_CONFIG
+from apps.api.copilot.prompt import xml_attr, xml_text
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.workers.redaction import redact
@@ -330,14 +331,26 @@ def render_for_prompt(memories: tuple[RecalledMemory, ...]) -> str:
 
     `recent` vs `remembered` is the distinction the model needs and the one a single list
     destroys — see `RecalledMemory.from_recent`.
+
+    **ESCAPED THROUGH `prompt.xml_text`/`xml_attr`, AND THIS FUNCTION USED TO INTERPOLATE
+    THE STRINGS RAW.** `content` is a person's own question and a model's own answer put
+    back in front of a model, so it is exactly the untrusted-text case those two helpers
+    are public for (`prompt.xml_text`: "the first one to forget `strip_invisible` is an
+    injection carrier"). Raw, a question containing `</memory>` closed the fence a turn
+    later and everything after it read as prompt — the one thing a fence exists to stop —
+    and a `<` in a business name produced a block no parser and no model reads as intended.
+    `redact()` on the way in does not help here: it recognises identifiers, not markup.
     """
     if not memories:
         return ""
     lines = ["<memory>"]
     for item in memories:
         origin = "recent" if item.from_recent else "remembered"
-        where = f' screen="{item.screen_route}"' if item.screen_route else ""
-        lines.append(f'  <item origin="{origin}" kind="{item.kind}"{where}>{item.content}</item>')
+        where = f" screen={xml_attr(item.screen_route)}" if item.screen_route else ""
+        lines.append(
+            f"  <item origin={xml_attr(origin)} kind={xml_attr(item.kind)}{where}>"
+            f"{xml_text(item.content)}</item>"
+        )
     lines.append("</memory>")
     return "\n".join(lines)
 

@@ -17,11 +17,18 @@ no-mutation property by reading three short functions, without having to trace a
 
 ═══ WHAT A PROPOSAL IS ═══
 
-A signed JWT, and nothing else. There is NO proposals table, and that is deliberate rather
-than lazy: `copilot/__init__.py` records that nothing in this package persists anything, so
-that DPDP erasure and retention gain no new surface to enumerate — and a table of pending
-intents about a person's leads would re-open exactly that. Everything the confirm step
-needs is inside the token, and the token is worthless without the confirmer's own session.
+A signed JWT, and nothing else. There is NO proposals table, and the reason has to be
+stated properly now that `memory.py` exists: this package DOES persist something, so
+"nothing here persists" is no longer the argument and citing it would be citing a sentence
+`copilot/__init__.py` has since corrected. The argument is the one that survived that
+change — a durable store is a PRICE (a retention category, an erasure arm, a redaction
+guard, an RLS policy), and it is paid where it buys something. One redacted memory row per
+answered question buys recall across conversations. A table of PENDING INTENTS about a
+person's leads buys nothing a five-minute token does not already give: it would exist to
+hold state for a decision that is either made in the next few minutes or abandoned, and
+every row of it would be a new thing for DPDP erasure and retention to enumerate.
+Everything the confirm step needs is inside the token, and the token is worthless without
+the confirmer's own session.
 
 The token binds FOUR things, and each one closes a specific attack:
 
@@ -91,6 +98,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
+from apps.api.copilot.prompt import function_tool
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import CopilotConfirmOut, CopilotProposalEvent
 from apps.api.core.context import Principal
@@ -607,21 +615,23 @@ def _tool_schema(name: str, description: str, properties: dict[str, Any]) -> dic
     keys is insertion order and is pinned by `write_tools_test.py`, because the tool block
     is part of the cacheable prompt prefix and a reordering is a cache miss on every
     request.
+
+    WHAT IS THIS MODULE'S AND WHAT IS THE PACKAGE'S: the ENVELOPE is
+    `prompt.function_tool`, spelled once for `set_fields`, for the read tools and for
+    these. What stays here is the PARAMETERS object, because "every property is required"
+    is a fact about the write tools specifically — none of them has an optional argument,
+    and a read tool expresses an optional one as `anyOf: [T, null]` instead.
     """
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "strict": True,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": list(properties),
-                "additionalProperties": False,
-            },
+    return function_tool(
+        name=name,
+        description=description,
+        parameters={
+            "type": "object",
+            "properties": properties,
+            "required": list(properties),
+            "additionalProperties": False,
         },
-    }
+    )
 
 
 #: Said at the end of every write tool's description. The confirmation trigger is in code

@@ -46,12 +46,22 @@ changes nothing until a person presses Save.
 
 ⚠ **`set_fields` IS NO LONGER THE ONLY TOOL, AND THIS PARAGRAPH USED TO SAY IT WAS.** The
 model is also offered the READ tools in `copilot/tools.py` — business snapshot, leads,
-calls, campaigns — so it can answer a question about the account instead of guessing at
-one. They do not weaken the sentence above: every one of them is a SELECT inside the
-caller's own RLS session behind the caller's own permission, so the set of things the
-model can CHANGE is unchanged and is still exactly `set_fields`. The tool array those add
-to is composed once in `service.tool_array()` and is byte-identical on every request,
-which is what keeps point 1's cacheable prefix true now that there are five tools in it.
+calls, campaigns, agents — and the PROPOSING write tools in `copilot/write_tools.py`.
+
+Neither weakens the sentence above, for two different reasons, and the difference is worth
+holding on to. A read tool is a SELECT inside the caller's own RLS session behind the
+caller's own permission, so it adds nothing the model can change. A write tool changes
+nothing EITHER: it reads, describes and signs a proposal, and the change happens only when
+a person posts that token back to `POST /v1/copilot/confirm`, which is a second
+authenticated request with its own permission check. So the set of things this prompt can
+change without a human act is still exactly `set_fields`, and `set_fields` still writes
+into local form state that nothing saves until the person presses Save.
+
+The array those add to is composed once in `service.tool_array()` and is byte-identical on
+every request, which is what keeps point 1's cacheable prefix true. The COUNT is
+deliberately not stated here: it was, it said five, and it was wrong within the day — the
+registries are the enumeration (`tools.READ_TOOLS`, `write_tools.WRITE_TOOLS`) and
+`copilot/tools_test.py` pins the composed array.
 """
 
 from __future__ import annotations
@@ -101,9 +111,9 @@ SYSTEM_PROMPT: Final = (
     "YOUR JOB IS THREE THINGS AND NOTHING ELSE:\n"
     "1. Answer questions about the screen the person is on — what a field means, what "
     "they still have to do, why something is refused.\n"
-    "2. Answer questions about their business — their calls, leads, campaigns and how "
-    "they are performing — by CALLING A READ TOOL to look it up. Those tools read this "
-    "account's own data and nothing else, and they change nothing.\n"
+    "2. Answer questions about their business — their calls, leads, campaigns, voice "
+    "agents and how they are performing — by CALLING A READ TOOL to look it up. Those "
+    "tools read this account's own data and nothing else, and they change nothing.\n"
     f"3. Fill in form fields for them, by calling the {SET_FIELDS_TOOL_NAME} tool ONCE "
     "with every field you want to set.\n"
     "\n"
@@ -187,11 +197,46 @@ CLOSING_RULES: Final = (
     'marked writable="true", and a select only takes a value from its own <options>. When '
     "the person asks you to fill fields, draft sensible values from what they told you and "
     "call the tool in the same turn — do not hand the question back; they review and edit "
-    "before Save. For anything about this account's own calls, leads or campaigns, CALL A "
-    "READ TOOL rather than guessing a number. Do not fabricate a real-world fact (a real "
+    "before Save. For anything about this account's own calls, leads, campaigns or agents, "
+    "CALL A READ TOOL rather than guessing a number. Do not fabricate a real-world fact (a real "
     "number, price or policy) and present it as true; if you do not know an answer to a "
     "question, say so — do NOT guess or make up an answer."
 )
+
+
+def function_tool(*, name: str, description: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    """One tool definition's ENVELOPE — the shape every tool this package offers is wrapped
+    in, spelled once.
+
+    THREE MODULES WERE SPELLING IT SEPARATELY AFTER THE D-484 MERGE: this file's
+    `set_fields_tool` as a literal, `tools.read_tool_schemas` inline in a comprehension,
+    and `write_tools._tool_schema`. All three agreed, which is exactly the state in which a
+    fourth one quietly does not — and the envelope is not cosmetic here: its KEY ORDER is
+    part of the cacheable prompt prefix (module docstring, point 1), so a reordering in one
+    of three copies is a cache miss on every request that nothing would have caught.
+
+    `strict` is requested on every tool and NOTHING DEPENDS ON IT — see `set_fields_tool`
+    for the argument, and `tools.py` / `write_tools.py` for the re-validation that actually
+    holds. It is requested here rather than per caller so the answer is the same for every
+    tool: a registry where one tool asks for `strict` and another does not is a difference
+    a reader has to explain.
+
+    `parameters` is the COMPLETE JSON Schema object and not a property map: the read tools
+    carry `anyOf` + an explicit `required` (a nullable argument is how a strict schema says
+    "optional") and `set_fields` carries a nested array, neither of which a helper that
+    built the object from properties could express. `write_tools._tool_schema` still builds
+    its object from a property map, because every one of its arguments is required — that
+    is a caller's convenience on top of this, not a second envelope.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "strict": True,
+            "parameters": parameters,
+        },
+    }
 
 
 def set_fields_tool() -> dict[str, Any]:
@@ -229,56 +274,52 @@ def set_fields_tool() -> dict[str, Any]:
     from Python 3.7 dict insertion order, and `copilot/prompt_test.py` pins the serialized
     bytes so that a reordering (which would break the cache prefix) fails the build.
     """
-    return {
-        "type": "function",
-        "function": {
-            "name": SET_FIELDS_TOOL_NAME,
-            "description": (
-                "Write values into form fields on the screen the user is looking at. Call "
-                "this ONCE per turn with every field you want to set. The values go into "
-                "the form only — nothing is saved until the user presses Save."
-            ),
-            "strict": True,
-            "parameters": {
-                "type": "object",
-                "properties": {
+    return function_tool(
+        name=SET_FIELDS_TOOL_NAME,
+        description=(
+            "Write values into form fields on the screen the user is looking at. Call "
+            "this ONCE per turn with every field you want to set. The values go into "
+            "the form only — nothing is saved until the user presses Save."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "Every field to set, in one array.",
                     "items": {
-                        "type": "array",
-                        "description": "Every field to set, in one array.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "field_id": {
-                                    "type": "string",
-                                    "description": (
-                                        "The id attribute of a <field> in SCREEN STATE "
-                                        'that is marked writable="true".'
-                                    ),
-                                },
-                                "value": {
-                                    "anyOf": [
-                                        {"type": "string"},
-                                        {"type": "number"},
-                                        {"type": "boolean"},
-                                        {"type": "null"},
-                                    ],
-                                    "description": (
-                                        "The value to write. For a select, one of the "
-                                        "values inside that field's <options>. For a "
-                                        "bool, true or false. Null clears the field."
-                                    ),
-                                },
+                        "type": "object",
+                        "properties": {
+                            "field_id": {
+                                "type": "string",
+                                "description": (
+                                    "The id attribute of a <field> in SCREEN STATE "
+                                    'that is marked writable="true".'
+                                ),
                             },
-                            "required": ["field_id", "value"],
-                            "additionalProperties": False,
+                            "value": {
+                                "anyOf": [
+                                    {"type": "string"},
+                                    {"type": "number"},
+                                    {"type": "boolean"},
+                                    {"type": "null"},
+                                ],
+                                "description": (
+                                    "The value to write. For a select, one of the "
+                                    "values inside that field's <options>. For a "
+                                    "bool, true or false. Null clears the field."
+                                ),
+                            },
                         },
-                    }
-                },
-                "required": ["items"],
-                "additionalProperties": False,
+                        "required": ["field_id", "value"],
+                        "additionalProperties": False,
+                    },
+                }
             },
+            "required": ["items"],
+            "additionalProperties": False,
         },
-    }
+    )
 
 
 def xml_text(value: object) -> str:
@@ -422,6 +463,7 @@ __all__ = [
     "SET_FIELDS_TOOL_NAME",
     "SYSTEM_PROMPT",
     "build_messages",
+    "function_tool",
     "render_screen",
     "set_fields_tool",
     "xml_attr",

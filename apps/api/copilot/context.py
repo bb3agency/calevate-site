@@ -159,7 +159,21 @@ class LiveState:
 
     @property
     def partial(self) -> bool:
-        """Did either half fail? The route logs it; the render already shows it."""
+        """Did either half fail?
+
+        ⚠ **THIS SAID "THE ROUTE LOGS IT" AND THE ROUTE DOES NOT** — `copilot/routes.py`
+        calls `live_state_block`, which hands back a rendered string and never a
+        `LiveState`, so no caller was in a position to. The sentence was a description of a
+        seam that was never wired.
+
+        Nothing was added to wire it, because the operator signal it promised already
+        exists and is better: `read_live_state` logs `copilot_live_counts_unavailable` /
+        `copilot_live_blockers_unavailable` with the failing half NAMED, where a
+        `partial: true` would only have said that one of two things went wrong. What this
+        property is for is the render and the tests — `render_live` shows the failure to
+        the model as `<unavailable part=…/>`, and this is how a test asks "did that
+        happen?" without re-deriving the condition from two nullable fields.
+        """
         return self.counts is None or self.blocker_rules is None
 
 
