@@ -342,6 +342,11 @@ export default function DoNotCallPage() {
                 id="dnc-source"
                 value={source}
                 onChange={(e) => setSource(e.target.value as DncSource)}
+                // The note changes the MEANING of this control (three of the four
+                // reasons are permanent), so it must be programmatically associated —
+                // a span merely sitting beside a select is one a screen reader never
+                // reads with it (WCAG 3.3.2 — ux-audit DNC-2).
+                aria-describedby="dnc-source-note"
                 className={FIELD}
               >
                 {SOURCE_OPTIONS.map((option) => (
@@ -350,7 +355,7 @@ export default function DoNotCallPage() {
                   </option>
                 ))}
               </select>
-              <span className="text-xs text-ink-faint">
+              <span id="dnc-source-note" className="text-xs text-ink-faint">
                 {SOURCE_OPTIONS.find((o) => o.value === source)?.note}
               </span>
             </div>

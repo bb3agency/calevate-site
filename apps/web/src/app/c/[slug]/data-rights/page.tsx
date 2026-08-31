@@ -304,6 +304,14 @@ function ErasureCard({ session }: { session: Session }) {
   // is the feature rather than the obstacle (deletion_routes.py says so).
   const access = useWriteAccess(session, "org:manage", "file an erasure request");
   const file = useFileErasure(session);
+  // The TARGET check (ux-audit DR-1 🔒): the typed ERASE confirms intent, but a
+  // transposed digit in a ten-digit mobile passes every check on this form and erases a
+  // different real customer, irreversibly. This reuses the subject-export read — the
+  // same POST the card above makes — and renders ONLY its counts, so the owner sees
+  // whose record is about to be destroyed before arming it. Gated on the export
+  // permission; a session without it keeps the typed confirmation alone.
+  const previewAccess = useSubjectExportAccess(session);
+  const preview = useSubjectExport(session);
 
   const [phone, setPhone] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -346,6 +354,7 @@ function ErasureCard({ session }: { session: Session }) {
                 // invalidates — nothing is remembered here.
                 setPhone("");
                 setConfirmation("");
+                preview.reset();
               },
             });
           }}
@@ -364,7 +373,12 @@ function ErasureCard({ session }: { session: Session }) {
               id="erasure-phone"
               aria-describedby="erasure-phone-hint"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                // A count fetched for the previous number, standing beside a changed
+                // one, is the wrong person's record vouching for this one.
+                preview.reset();
+              }}
               minLength={8}
               maxLength={20}
               inputMode="tel"
@@ -373,6 +387,57 @@ function ErasureCard({ session }: { session: Session }) {
               className={`${FIELD} font-mono`}
             />
           </Field>
+
+          {previewAccess.allowed && phone.trim().length >= 8 && (
+            <div>
+              {preview.data === undefined && (
+                <button
+                  type="button"
+                  onClick={() => preview.mutate(phone.trim())}
+                  disabled={preview.isPending}
+                  className={SECONDARY_BUTTON_SM}
+                >
+                  {preview.isPending ? "Checking…" : "Check whose record this is first"}
+                </button>
+              )}
+              {preview.error != null && <ProblemNotice error={preview.error} />}
+              {preview.data !== undefined && preview.error == null && (
+                <p className="text-sm text-ink" aria-live="polite">
+                  {preview.data.counts.calls +
+                    preview.data.counts.leads +
+                    preview.data.counts.transcript_turns +
+                    preview.data.counts.consent_records ===
+                  0 ? (
+                    <>
+                      We hold <span className="font-semibold">nothing</span> for this
+                      number. If you expected a record, check the digits — this is the
+                      strongest sign they are wrong.
+                    </>
+                  ) : (
+                    <>
+                      We hold{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.calls)}
+                      </span>{" "}
+                      call(s),{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.transcript_turns)}
+                      </span>{" "}
+                      transcript turn(s),{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.leads)}
+                      </span>{" "}
+                      CRM record(s) and{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.consent_records)}
+                      </span>{" "}
+                      consent record(s) for this number. All of it will be erased.
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
 
           <Field id="erasure-confirmation" label={`Type ${ERASE_CONFIRMATION} to confirm`}>
             <input
