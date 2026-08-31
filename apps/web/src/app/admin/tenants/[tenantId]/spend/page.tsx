@@ -131,6 +131,8 @@ function TenantSpendBoard({ data }: { data: TenantSpend }) {
                 : "mt-1 text-2xl font-bold tracking-tight tabular-nums text-brand-strong dark:text-brand-bright"
             }
           >
+            {/* Colour is never the only signal that a month is losing money (F-18). */}
+            {negative && <span className="sr-only">Losing money: </span>}
             {formatINR(data.margin_inr)}
           </p>
         </div>

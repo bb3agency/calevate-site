@@ -89,6 +89,11 @@ export default function FleetSpendPage() {
                     : "mt-1 text-2xl font-bold tracking-tight tabular-nums text-brand-strong dark:text-brand-bright"
                 }
               >
+                {/* Same sr-only prefix as the table rows below: colour is never the only
+                    signal that a month is losing money (ux-audit F-18). */}
+                {data.margin_inr.trim().startsWith("-") && (
+                  <span className="sr-only">Losing money: </span>
+                )}
                 {formatINR(data.margin_inr)}
               </p>
             </div>
