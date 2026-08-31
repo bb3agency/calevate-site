@@ -40,6 +40,7 @@ from calevate_shared.engine import (
 )
 
 from apps.api.copilot import prompt as prompt_module
+from apps.api.copilot import read_tools
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotField, CopilotFillItem
 from apps.api.core.logging import get_logger
@@ -496,6 +497,7 @@ async def _run_tool_loop(
     leg: chat.ChatLeg,
     turn: _TurnRunner,
     model: str | None,
+    knowledge: read_tools.KnowledgeLookup | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
@@ -506,9 +508,16 @@ async def _run_tool_loop(
     identical. `model` is threaded into `CopilotSpend` so the ledger names the Gemini model
     on the Gemini leg (`None` = Azure's live-switched setting)."""
     messages = prompt_module.build_messages(payload)
+    # THE READ TOOL IS OFFERED ONLY WHEN A LOOKUP WAS BOUND. Same shape as every other
+    # capability on this surface: a capability the caller could not supply is one the model
+    # is never told about, rather than one it calls and is refused. The route binds it to
+    # the authenticated tenant; a leg with no tenant runs the loop exactly as it did before.
     tools = [prompt_module.set_fields_tool()]
+    if knowledge is not None:
+        tools.append(read_tools.search_knowledge_tool())
     turns: list[chat.ChatOutcome] = []
     refusal: FillRefusedError | None = None
+    searches_left = read_tools.MAX_SEARCHES
 
     for turn_index in range(MAX_TURNS):
         outcome: chat.ChatOutcome | None = None
@@ -543,6 +552,44 @@ async def _run_tool_loop(
             call for call in outcome.tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
         ]
         if not calls:
+            # A SEARCH IS ANSWERED AND THE LOOP CONTINUES; anything else ends it.
+            #
+            # Checked only when the turn asked for NO fill, which keeps every existing path
+            # byte-for-byte: a fill still ends the loop on the turn it arrives. A model that
+            # sent both in one turn gets the fill applied and the search unanswered, which
+            # is safe precisely because the conversation ends there — no provider ever sees
+            # a tool_call whose reply is missing.
+            served = (
+                await read_tools.serve_searches(
+                    list(outcome.tool_calls), lookup=knowledge, remaining=searches_left
+                )
+                if knowledge is not None
+                else []
+            )
+            if served:
+                searches_left = max(0, searches_left - len(served))
+                log.info(
+                    "copilot_knowledge_searched",
+                    # Counts, never the question and never a passage (hard rule 6).
+                    extra={"turn": turn_index, "searches": len(served)},
+                )
+                messages = [
+                    *messages,
+                    {
+                        "role": "assistant",
+                        "content": outcome.content or None,
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {"name": call.name, "arguments": call.arguments},
+                            }
+                            for call in outcome.tool_calls
+                        ],
+                    },
+                    *served,
+                ]
+                continue
             # The model answered in prose. Done — this is the ordinary end of a question.
             yield CopilotEvent(
                 spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
@@ -615,6 +662,7 @@ async def run_copilot(
     *,
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
+    knowledge: read_tools.KnowledgeLookup | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -631,6 +679,12 @@ async def run_copilot(
     the first. So the fallback is available only before the first fragment, and after it
     the failure is reported as itself. `_streamed_anything` is the flag that says which
     side of that line we are on.
+
+    `knowledge` is the retrieval port bound to ONE tenant, passed in for the reason
+    everything else here is passed in: this module has no session and no tenant, so the
+    route builds the closure (`copilot/read_tools.knowledge_lookup`) and this module only
+    decides whether the leg it picked can carry a tool at all. `None` means the model is
+    never told the tool exists, which is the honest shape for the Sarvam leg — it has none.
 
     `quota_exhausted` is the GATE's verdict passed IN, never re-read here — this module has
     no session and no tenant, and a literal `False` would be a promise about
@@ -661,7 +715,7 @@ async def run_copilot(
         try:
             async with asyncio.timeout(TOTAL_BUDGET_S):
                 async for event in _run_tool_loop(
-                    payload, capability, leg=leg, turn=turn, model=model
+                    payload, capability, leg=leg, turn=turn, model=model, knowledge=knowledge
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event

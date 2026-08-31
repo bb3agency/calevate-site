@@ -41,7 +41,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import service
+from apps.api.copilot import read_tools, service
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     CopilotAskIn,
@@ -198,6 +198,13 @@ async def ask_copilot(
             # ever learns to answer instead of raise.
             tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
+            # THE RETRIEVAL PORT, BOUND TO THIS TENANT AND NOTHING ELSE. The closure is the
+            # tenancy control at this seam: the model can put a question in a tool call and
+            # nothing else, so there is no argument it can send that reaches another
+            # account's knowledge. It opens and closes its own `tenant_session` inside the
+            # tool call, which is why it does not violate this route's "no `Depends(db)`"
+            # rule — no pooled connection is held across a provider round trip.
+            knowledge=read_tools.knowledge_lookup(tenant_id),
         ):
             if event.text is not None:
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=event.text))

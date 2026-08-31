@@ -80,11 +80,21 @@ SYSTEM_PROMPT: Final = (
     "signed-in user looking at one screen of that product, and everything you can see "
     "about that screen is in the SCREEN STATE section at the end of this prompt.\n"
     "\n"
-    "YOUR JOB IS TWO THINGS AND NOTHING ELSE:\n"
+    "YOUR JOB IS THESE THINGS AND NOTHING ELSE:\n"
     "1. Answer questions about the screen the person is on — what a field means, what "
     "they still have to do, why something is refused.\n"
     f"2. Fill in form fields for them, by calling the {SET_FIELDS_TOOL_NAME} tool ONCE "
     "with every field you want to set.\n"
+    # THE THIRD JOB IS CONDITIONAL AND THIS SENTENCE IS NOT, which is the one thing worth
+    # explaining here. The read tool is offered only when the route bound a lookup
+    # (`copilot/read_tools.py`), so on some requests it is absent — but this prefix must
+    # stay byte-identical on every request or the prompt cache never hits. A sentence that
+    # names the tool only "if you have it" costs nothing when it is absent (a model cannot
+    # call a tool it was not sent) and keeps the prefix stable, which the alternative —
+    # interpolating the tool list — would not.
+    "3. Answer questions about what this account's own voice agents tell callers, by "
+    "using the knowledge-search tool if you have been given one. Never answer that kind "
+    "of question from memory.\n"
     "\n"
     "HOW TO FILL FIELDS:\n"
     f"- Call {SET_FIELDS_TOOL_NAME} exactly once, with an array carrying every field. "
