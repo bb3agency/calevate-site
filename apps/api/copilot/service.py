@@ -74,6 +74,29 @@ MAX_TURNS: Final = 4
 #: does not sit in front of a dead stream.
 STREAM_IDLE_S: Final = 15.0
 
+#: The ceiling on ONE model turn's OUTPUT, in tokens — a safety valve, never a target
+#: (`EXTRACTION_MAX_TOKENS`'s shape, on the surface that had no cap at all).
+#:
+#: WHY A STREAMED TURN NEEDS ONE: `STREAM_IDLE_S` bounds SILENCE and `TOTAL_BUDGET_S`
+#: bounds the wall clock, so before this cap the only brake on a model that kept talking
+#: was 90 seconds of paid output tokens — per turn, up to `MAX_TURNS` times. The prompt
+#: asks for "a couple of sentences", so a well-formed answer never approaches this; the
+#: number is sized to the LARGEST legitimate output, a `set_fields` call drafting several
+#: full-length textarea values in Telugu (each field value is bounded at 2,000 chars by
+#: `schemas._MAX_TEXT`, and Telugu runs ~2.1-2.3 tokens/word), with headroom, so the valve
+#: can only fire on a runaway. A hit surfaces as `finish_reason == "length"`: prose simply
+#: ends, and a truncated tool call fails `validate_fill`'s JSON parse and re-enters the
+#: loop as an ordinary refusal — both visible, neither silent.
+#:
+#: ⚠ NOT SENT ON THE GEMINI TURN. Whether Google's OpenAI-compat surface accepts
+#: `max_tokens` is UNVERIFIED here — `ai.google.dev` and `developers.googleblog.com` are
+#: egress-blocked from this container (403 on CONNECT, re-measured 31 Aug 2026), and a
+#: live probe cannot settle it without a key (the endpoint answers an invalid key with
+#: 400 `INVALID_ARGUMENT` before validating the body — probed 31 Aug 2026). Sending an
+#: unsupported key risks a 400 that turns a working leg into a refusal, the exact trade
+#: `_answer_via_sarvam` declines for `tools`. A credentialed probe closes it.
+MAX_ANSWER_TOKENS: Final = 4096
+
 #: The wall clock for the WHOLE loop, enforced with `asyncio.timeout` around it.
 #:
 #: WHY THIS DOES NOT HAVE TO FIT UNDER NGINX'S `proxy_read_timeout` — AND `crm/assist.py`'s
@@ -400,6 +423,12 @@ async def _answer_via_sarvam(
         [*prompt_module.build_messages(payload), {"role": "system", "content": _NO_TOOL_NOTE}],
         timeout_s=STREAM_IDLE_S,
         temperature=0.2,
+        # The same safety valve as the Azure turn. `max_tokens` is on Sarvam's own
+        # client's fourteen-key request body (VERIFIED-VENDOR-SDK, `workers/chat.py::
+        # _request_body`), so unlike `tools` it is safe to send here — and this leg is
+        # PRICED (`billing/rates.SARVAM_LLM_INR_PER_MTOK`, ₹73.20/Mtok out) even though
+        # nothing meters it yet, so a runaway would be real unrecorded spend.
+        max_tokens=MAX_ANSWER_TOKENS,
     )
     if outcome.content:
         yield CopilotEvent(text=strip_invisible(outcome.content))
@@ -428,7 +457,13 @@ def _azure_turn(
 ) -> AsyncIterator[chat.StreamEvent]:
     """The streamed turn: `chat.stream` verbatim. `timeout_s` is a READ timeout here."""
     return chat.stream(
-        leg, messages, timeout_s=STREAM_IDLE_S, temperature=0.2, tools=tools, tool_choice="auto"
+        leg,
+        messages,
+        timeout_s=STREAM_IDLE_S,
+        temperature=0.2,
+        tools=tools,
+        tool_choice="auto",
+        max_tokens=MAX_ANSWER_TOKENS,
     )
 
 
@@ -440,7 +475,12 @@ async def _google_turn(
     """The NON-STREAMED turn, re-shaped as the loop's events: one blocking `chat.complete`
     with tools (which returns a clean full `tool_calls` array — the reason the leg is not
     streamed, D-478), emitted as one text event and then the terminal outcome. `timeout_s` is
-    a WHOLE-request timeout here, which is correct for a blocking call."""
+    a WHOLE-request timeout here, which is correct for a blocking call.
+
+    NO `max_tokens` on this leg — see `MAX_ANSWER_TOKENS`: whether Gemini's OpenAI-compat
+    surface accepts the key is unverified from this container, and an unsupported key is a
+    400 that kills a working leg. The blocking `timeout_s` bounds this turn's wall clock
+    (a whole-request bound the streamed turn does not have), so the exposure is smaller."""
     outcome = await chat.complete(
         leg, messages, timeout_s=STREAM_IDLE_S, temperature=0.2, tools=tools, tool_choice="auto"
     )
@@ -483,6 +523,13 @@ async def _run_tool_loop(
         if outcome is None:  # pragma: no cover - `chat.stream` always ends with one
             break
         turns.append(outcome)
+        if outcome.finish_reason == "length":
+            # The `MAX_ANSWER_TOKENS` valve fired: a runaway generation was cut off, not
+            # a normal answer. The loop carries on — truncated prose has already reached
+            # the screen and a truncated tool call fails `validate_fill` as ordinary
+            # invalid JSON — but the event is an operator's to notice, because a turn
+            # that HIT the ceiling spent the ceiling.
+            log.warning("copilot_answer_truncated", extra={"turn": turn_index})
         if outcome.usage is None:
             # Not an error, and not silence either. `_sum_usage` will make the whole run
             # unmeterable off the back of this; the log line is what lets an operator tell
@@ -659,6 +706,7 @@ def disclosure_for(capability: AssistCapability) -> str | None:
 __all__ = [
     "EXHAUSTED_MESSAGE",
     "FALLBACK_NO_TOOLS_NOTE",
+    "MAX_ANSWER_TOKENS",
     "MAX_TURNS",
     "STREAM_IDLE_S",
     "TOTAL_BUDGET_S",

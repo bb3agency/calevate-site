@@ -79,6 +79,19 @@ _SYSTEM_INSTRUCTION = (
     '{"opening_line": str, "steps": [str], "faqs": [{"question": str, "answer": str}]}.'
 )
 
+#: The ceiling on ONE draft answer, in tokens — `EXTRACTION_MAX_TOKENS`'s safety valve,
+#: on the one assist surface that had none. A draft is an opening line, a handful of steps
+#: and "a few" FAQ pairs, all bounded by `_script_from_model_json`'s truncation lengths;
+#: even a verbose Telugu draft (~2.1-2.3 tokens/word) sits far under this, so the valve can
+#: only fire on a runaway generation — which, uncapped, was bounded by nothing but the leg
+#: timeout, i.e. paid output tokens for as long as the model kept talking. A hit surfaces
+#: as `finish_reason == "length"` and the leg reports "no draft" rather than parsing JSON
+#: cut off mid-string (the `ExtractionTruncatedError` argument: a truncation must not read
+#: as a small answer). `max_tokens` is a verified body key on BOTH dialects used here
+#: (`workers/chat.py::_request_body` — standard OpenAI/Azure, and on Sarvam's own client's
+#: fourteen-key list).
+_DRAFT_MAX_TOKENS = 4096
+
 #: The strict JSON Schema for the draft, so Azure's Structured Outputs guarantees the shape
 #: (`build_azure_response_schema`'s argument, applied to this task). Sarvam gets
 #: `json_object` and `_first_json_object` as the belt, like every non-Azure JSON path here.
@@ -194,7 +207,12 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
     }
     try:
         outcome = await chat.complete(
-            leg, messages, timeout_s=ASSIST_TIMEOUT_S, temperature=0.4, response_format=strict
+            leg,
+            messages,
+            timeout_s=ASSIST_TIMEOUT_S,
+            temperature=0.4,
+            response_format=strict,
+            max_tokens=_DRAFT_MAX_TOKENS,
         )
     except httpx.HTTPStatusError as refusal:
         if refusal.response.status_code != 400:
@@ -213,6 +231,7 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
                 timeout_s=ASSIST_TIMEOUT_S,
                 temperature=0.4,
                 response_format={"type": "json_object"},
+                max_tokens=_DRAFT_MAX_TOKENS,
             )
         except httpx.HTTPStatusError as retry_refusal:
             log.warning(
@@ -226,6 +245,15 @@ async def _draft_via_azure(description: str) -> _RawDraft | None:
         # this function entirely, because the old hand-rolled `post` only ever looked at a
         # status code it had already received.
         log.warning("script_assist_azure_unreachable")
+        return None
+    if outcome.finish_reason == "length":
+        # The `_DRAFT_MAX_TOKENS` valve fired. The JSON was cut off mid-generation, so
+        # parsing it would either fail (→ an inexplicable empty editor) or, worse, yield
+        # a balanced PREFIX that reads as a short draft. "No draft" is the honest answer;
+        # the caller falls back exactly as it does for any other non-answer. (The paid
+        # tokens go unmetered on this arm, as on every `None` return here — a
+        # pre-existing failure-path gap, not widened by this check.)
+        log.warning("script_assist_draft_truncated", extra={"provider": "azure"})
         return None
     raw = _first_json_object(outcome.content)
     if not raw:
@@ -257,12 +285,18 @@ async def _draft_via_sarvam(description: str) -> _RawDraft | None:
             timeout_s=ASSIST_TIMEOUT_S,
             temperature=0.4,
             response_format={"type": "json_object"},
+            max_tokens=_DRAFT_MAX_TOKENS,
         )
     except httpx.HTTPStatusError as refusal:
         log.warning("script_assist_sarvam_failed", extra={"status": refusal.response.status_code})
         return None
     except httpx.HTTPError:
         log.warning("script_assist_sarvam_unreachable")
+        return None
+    if outcome.finish_reason == "length":
+        # Same valve, same honesty as the Azure leg: truncated JSON must not read as a
+        # short draft.
+        log.warning("script_assist_draft_truncated", extra={"provider": "sarvam"})
         return None
     raw = _first_json_object(outcome.content)
     if not raw:

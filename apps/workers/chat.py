@@ -563,9 +563,15 @@ async def stream(
     temperature: float | None = None,
     tools: Sequence[Mapping[str, Any]] | None = None,
     tool_choice: str | Mapping[str, Any] | None = None,
+    max_tokens: int | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> AsyncIterator[StreamEvent]:
     """One streamed chat completion: text fragments as they arrive, then ONE outcome.
+
+    `max_tokens` is `complete`'s same ceiling-not-target (see `_request_body`), and it
+    matters MORE on a stream: the read timeout only bounds SILENCE, so a model that keeps
+    talking is bounded by nothing but the caller's wall clock — every second of which is
+    paid output tokens. A hit surfaces as `finish_reason == "length"` on the outcome.
 
     `timeout_s` IS A READ TIMEOUT, NOT A TOTAL ONE, and the difference is the whole reason
     this signature is not `complete`'s. A generation that takes ninety seconds is not a
@@ -616,6 +622,7 @@ async def stream(
                 tools=tools,
                 tool_choice=tool_choice,
                 stream=True,
+                max_tokens=max_tokens,
             ),
         ) as response:
             if response.is_error:

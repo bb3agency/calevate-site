@@ -1024,12 +1024,24 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         field_count=len(spec.fields),
         input_bytes=len(transcript_text.encode("utf-8", "replace")),
     ) as stage:
-        extraction = await extract_call(spec, transcript_text) if needs_extraction else None
+        # A re-run reuses the extraction a previous run already paid for (see
+        # `_settled_extraction` for the three conditions that refuse the reuse) — the
+        # same guard-before-the-third-party shape as `_copy_recording_once`, on the
+        # other stage that pays one.
+        extraction = (
+            await _settled_extraction(tenant_id, call_id, schema_version=schema_version)
+            if needs_extraction
+            else None
+        )
+        reused = extraction is not None
+        if needs_extraction and extraction is None:
+            extraction = await extract_call(spec, transcript_text)
         set_span_attributes(
             stage,
             extract_status=(
                 "skipped" if extraction is None else ("valid" if extraction.valid else "invalid")
             ),
+            extract_reused=reused,
         )
 
     if extraction is not None:
@@ -1422,6 +1434,82 @@ async def _maybe_record_opt_out(
             signal=signal,
         )
     return "recorded" if record.evidence_written else "already"
+
+
+async def _settled_extraction(
+    tenant_id: UUID, call_id: UUID, *, schema_version: int
+) -> ExtractionOutput | None:
+    """The extraction a PREVIOUS run of this pipeline already paid for, or None.
+
+    **`_copy_recording_once`'s guard, on the other stage that pays a third party.** A
+    re-entry is normal here — a webhook that arrives after the poller resolved the call
+    (D-31), an ARQ retry after a transient failure in a LATER stage, a `_pipeline_settled`
+    re-drive for a different missing artefact (`_expected_artifacts` names the cost in as
+    many words: "re-driving a whole pipeline (including a billed extraction)") — and every
+    one of them re-ran `extract_call`: a paid model round trip (the Sarvam chat leg is
+    priced per token, `billing/rates.SARVAM_LLM_INR_PER_MTOK`) whose answer the first run
+    already persisted. Reusing the stored row makes a re-drive for a missing CRM fan-out
+    cost a SELECT instead of a model call — and, the half that is not about money, makes
+    the extraction STABLE across re-drives: a model is not deterministic, so a re-run
+    could silently rewrite `data` and `calls.summary` under a lead the client had already
+    read, which is drift nobody asked for.
+
+    RECONSTRUCTED FAITHFULLY, and the field list is why that is possible: everything the
+    pipeline consumes downstream of `extract_call` — `data` (moments, the lead upsert,
+    the hot-lead alert), `valid`/`errors`/`needs_review` (the re-persist), `summary`/
+    `sentiment`/`outcome_tag` (the CRM fan-out, via `calls`) — is durable in
+    `call_extractions` and `calls`. The two fields that are NOT stored (`out_of_scope`,
+    `callback_requested`) are read by nothing in this pipeline; their defaults are what a
+    reader of the reconstructed object gets, exactly as a reader of the stored row gets
+    nothing.
+
+    THREE CONDITIONS REFUSE THE REUSE, each because a re-run is then the repair:
+
+    - **no row** — the first run never got that far, which is the re-drive's whole reason;
+    - **a different `schema_version`** — the agent's schema changed between runs, and the
+      stored answer is an answer to a different question;
+    - **`errors` carries `_model`** — the provider never answered at all (`extract_call`'s
+      ladder), so the stored row is a placeholder for the retry this run IS.
+
+    A row that is merely `valid=False` on schema grounds IS reused: the model answered,
+    the answer stood and was shown, and re-paying for a non-deterministic second opinion
+    is exactly the spend this guard exists to stop.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT ce.data, ce.valid, ce.errors, ce.needs_review, "
+                    "       c.summary, c.sentiment, c.outcome_tag "
+                    "FROM call_extractions ce "
+                    "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
+                    "WHERE ce.call_id = :cid AND ce.tenant_id = :tid "
+                    "  AND ce.schema_version = :ver"
+                ),
+                {"cid": call_id, "tid": tenant_id, "ver": schema_version},
+            )
+        ).first()
+    if row is None:
+        return None
+    data, valid, errors, needs_review, summary, sentiment, outcome_tag = row
+    errors = errors if isinstance(errors, dict) else {}
+    if "_model" in errors:
+        return None
+    # The same coercions `extract_call` applies to a fresh answer, so a reconstructed
+    # object and a fresh one cannot be judged by two different rules.
+    return ExtractionOutput(
+        data=data if isinstance(data, dict) else {},
+        summary=str(summary or ""),
+        sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
+        outcome_tag=(
+            outcome_tag
+            if outcome_tag in ("resolved", "needs_follow_up", "transferred", "dropped")
+            else "resolved"
+        ),
+        valid=bool(valid),
+        errors=errors,
+        needs_review=needs_review if isinstance(needs_review, dict) else {},
+    )
 
 
 async def _persist_extraction(

@@ -214,6 +214,81 @@ async def test_a_re_run_does_not_duplicate_the_extraction_row() -> None:
     assert count == 1, "one call has one extraction, however many times the pipeline runs"
 
 
+async def test_a_re_run_reuses_the_extraction_it_already_paid_for() -> None:
+    """`_copy_recording_once`'s guard, on the other stage that pays a third party.
+
+    A re-entry (late webhook, ARQ retry after a later stage, a re-drive for a missing CRM
+    fan-out) used to re-run `extract_call` — a PAID model round trip whose answer the
+    first run already persisted, and a non-deterministic one, so the stored `data` and
+    `calls.summary` could silently change under a lead the client had read. FAILS IF: the
+    second run reaches the model at all, or rewrites the row with a different answer.
+    """
+    tenant_id, execution_id, call_id = await _completed_call("reusex")
+    await _run_pipeline(tenant_id, call_id, execution_id)
+    data_before = await _scalar(
+        tenant_id, "SELECT data::text FROM call_extractions WHERE call_id = :c", c=call_id
+    )
+    assert data_before is not None
+
+    model_calls = 0
+
+    async def _counting_extract(*args: Any, **kwargs: Any) -> ExtractionOutput:
+        nonlocal model_calls
+        model_calls += 1
+        return ExtractionOutput(data={"drifted": "answer"})
+
+    original = pipeline.extract_call
+    pipeline.extract_call = _counting_extract  # type: ignore[assignment]
+    try:
+        await _run_pipeline(tenant_id, call_id, execution_id)
+    finally:
+        pipeline.extract_call = original  # type: ignore[assignment]
+
+    assert model_calls == 0, "a re-run must reuse the extraction, not re-pay the model"
+    data_after = await _scalar(
+        tenant_id, "SELECT data::text FROM call_extractions WHERE call_id = :c", c=call_id
+    )
+    assert data_after == data_before, "a re-run must not rewrite the answer the client saw"
+
+
+async def test_a_model_failure_row_is_retried_rather_than_reused() -> None:
+    """The one stored row a re-run must NOT reuse: `errors["_model"]` means the provider
+    never answered (`extract_call`'s ladder), so the row is a placeholder for exactly the
+    retry the re-run is. FAILS IF: the reuse guard treats a model failure as settled and
+    the call's extraction is never repaired."""
+    tenant_id, execution_id, call_id = await _completed_call("modelfail")
+
+    async def _failing_extract(*args: Any, **kwargs: Any) -> ExtractionOutput:
+        return ExtractionOutput(valid=False, errors={"_model": "HTTPStatusError"})
+
+    original = pipeline.extract_call
+    pipeline.extract_call = _failing_extract  # type: ignore[assignment]
+    try:
+        await _run_pipeline(tenant_id, call_id, execution_id)
+    finally:
+        pipeline.extract_call = original  # type: ignore[assignment]
+    assert (
+        await _scalar(
+            tenant_id,
+            "SELECT errors->>'_model' FROM call_extractions WHERE call_id = :c",
+            c=call_id,
+        )
+        is not None
+    )
+
+    # The re-drive, with the provider healthy again: the model IS re-asked and the row
+    # is repaired in place.
+    await _run_pipeline(tenant_id, call_id, execution_id)
+    assert (
+        await _scalar(
+            tenant_id,
+            "SELECT errors->>'_model' FROM call_extractions WHERE call_id = :c",
+            c=call_id,
+        )
+        is None
+    ), "a healthy re-run must repair a model-failure row, not reuse it"
+
+
 async def test_a_re_run_does_not_inflate_the_lead_or_its_history() -> None:
     """`call_count` drives the repeat-caller context injection (FLOWS §3). A re-run of
     the SAME call must not make a first-time caller look like a returning one, and must
