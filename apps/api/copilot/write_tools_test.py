@@ -184,7 +184,7 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
     second = json.dumps(write_tools.write_tool_schemas(), sort_keys=False)
     assert first == second
     names = [schema["function"]["name"] for schema in write_tools.write_tool_schemas()]
-    assert names == ["lead_set_status", "dnc_add", "campaign_pause"]
+    assert names == ["lead_set_status", "dnc_add", "campaign_pause", "propose_knowledge"]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
         assert function["strict"] is True

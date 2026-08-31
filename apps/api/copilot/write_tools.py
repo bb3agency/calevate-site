@@ -1,4 +1,4 @@
-"""The copilot's WRITE surface: three tools that change nothing, and the one door that does.
+"""The copilot's WRITE surface: four tools that change nothing, and the one door that does.
 
 ═══ THE PRINCIPLE, BECAUSE EVERY LINE BELOW IS A CONSEQUENCE OF IT ═══
 
@@ -11,9 +11,9 @@ anything. It reads, it describes, and it returns a PROPOSAL. The mutation is in
 `confirm()`, which is reached only by a second, separately authenticated HTTP request that
 a person's click produces.
 
-That is why the three tools are `plan` functions and not `do` functions, and why the
-registry below carries the executor as a SEPARATE callable: a reviewer can check the
-no-mutation property by reading three short functions, without having to trace a flag.
+That is why the tools are `plan` functions and not `do` functions, and why the registry
+below carries the executor as a SEPARATE callable: a reviewer can check the no-mutation
+property by reading four short functions, without having to trace a flag.
 
 ═══ WHAT A PROPOSAL IS ═══
 
@@ -48,8 +48,9 @@ until it expires, so the same one would confirm twice. `jti` is consumed ONCE in
 (`SET NX`), and — unlike `core/auth._first_read_in_window`, which fails towards RECORDING
 because it guards an audit trail — this one FAILS CLOSED. A Redis outage refuses the
 confirm; it does not permit a double execution. Suppressing a number twice is harmless,
-but "pause, then resume, then a replayed pause" is not, and the direction has to be chosen
-once for all three tools rather than per tool.
+but "pause, then resume, then a replayed pause" is not, and a replayed `propose_knowledge`
+is a duplicate source in somebody's review queue. The direction is chosen once for every
+tool rather than per tool.
 
 ═══ THE KEY ═══
 
@@ -71,12 +72,13 @@ D-22's read-only refusal for a mutating permission) written once rather than app
 
 Every executor calls the SAME service function the human's button calls —
 `crm.service.update_lead`, `compliance.dnc.add_numbers`, `campaigns.service.
-set_campaign_status`. Not a copy of its body, not a "fast path", not a variant with a flag.
-So every refusal those functions make — the CAS 409 on a campaign that is not running, the
-404 that is also RLS's answer for a neighbour's row, the DNC recall that D-428(b) requires
-before a suppression counts as honoured — happens on this path exactly as it happens on
-that one, because it IS that path. Hard rule 5's "never add a bypass" is satisfied
-structurally: there is no second implementation to keep in step.
+set_campaign_status`, `kb.service.submit_source`. Not a copy of its body, not a "fast
+path", not a variant with a flag. So every refusal those functions make — the CAS 409 on a
+campaign that is not running, the 404 that is also RLS's answer for a neighbour's row, the
+DNC recall that D-428(b) requires before a suppression counts as honoured, the
+preview-and-approve queue a knowledge submission joins — happens on this path exactly as it
+happens on that one, because it IS that path. Hard rule 5's "never add a bypass" is
+satisfied structurally: there is no second implementation to keep in step.
 """
 
 from __future__ import annotations
@@ -110,7 +112,9 @@ from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.crm import service as crm_service
 from apps.api.crm.schemas import LeadStatus
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
+from apps.api.kb import proposals as kb_proposals
 
 log = get_logger(__name__)
 
@@ -602,6 +606,157 @@ async def _execute_campaign_pause(
     )
 
 
+# --- tool 4: propose_knowledge ----------------------------------------------------------
+#
+# THE ONE TOOL WHOSE ACT IS ITSELF A PROPOSAL, AND IT STILL RIDES THIS MACHINE. Confirming
+# it does not teach an agent anything: it creates a `pending_approval` source that a human
+# approves and publishes on the ADMIN surface afterwards. So the person clicking Confirm is
+# agreeing to put words into a review queue, and the review is unchanged and untouched.
+#
+# That is why it is here rather than in a lane of its own. It shipped once as a second
+# propose→confirm system — its own token format, its own `POST /v1/kb/proposals/confirm`,
+# its own audit write, its own `WriteTool` type — and both were correct; two of them was
+# the defect. `kb/proposals.py` keeps what is the knowledge base's (what may be drafted,
+# which gaps may be cited, the one door into `kb_sources`) exactly as `crm`, `compliance`
+# and `campaigns` keep theirs above.
+
+
+class _ProposeKnowledgeArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    name: str
+    body: str
+    #: Provenance shown to whoever approves it, and the founder shipped BOTH: `gap_digest`
+    #: is "your agent noticed callers keep asking this", `copilot` is "you and the
+    #: assistant were talking and this came up". They carry different trust and they vary
+    #: no gate. It is signed into the token as part of `args`, so the browser cannot
+    #: relabel a conversation as a detection between the proposal and the confirm.
+    origin: kb_proposals.ProposalOrigin
+    #: The canonical knowledge-gap topic this answers, or null. REQUIRED when `origin` is
+    #: `gap_digest`: a provenance claim with nothing to point at is one the system cannot
+    #: support.
+    topic_key: str | None
+
+
+async def _plan_propose_knowledge(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Plan:
+    """READ ONLY, and the reads are authorization reads: the agent must be visible to this
+    tenant's session, and a cited gap must be open on it.
+
+    Every refusal here is a `WriteRefusedError` rather than a `ProblemError`, EXCEPT the
+    404 `assert_visible` raises — and that split is the one this module already draws. A
+    body carrying a phone number, a title too long for a card, a `q_*` topic slugged out of
+    a caller's question, a gap that is not open: all of those the model can fix inside the
+    turn by asking the person a better question. An agent id that names nothing this tenant
+    can see is a fact about the world, and it is `crm_service.get_lead`'s 404 by another
+    name.
+
+    THE SUMMARY QUOTES THE DRAFTED TITLE AND NOT THE BODY. The title is a handful of words
+    the person is about to own; the body is up to 4,000 characters and belongs in the card
+    the browser renders from `proposed`, not in a sentence that is also logged.
+    """
+    parsed = _parse(_ProposeKnowledgeArgs, args)
+    if parsed.origin == "gap_digest" and parsed.topic_key is None:
+        raise WriteRefusedError(
+            "a suggestion presented as something the agent noticed must name the topic "
+            "it noticed, so pass `topic_key` or use the `copilot` origin"
+        )
+    refusal = kb_proposals.proposable_refusal(parsed.name, parsed.body)
+    if refusal is not None:
+        raise WriteRefusedError(refusal)
+    await assert_visible(session, "agent", parsed.agent_id)
+    if parsed.topic_key is not None:
+        gap = await kb_proposals.gap_refusal(
+            session, agent_id=parsed.agent_id, topic_key=parsed.topic_key
+        )
+        if gap is not None:
+            raise WriteRefusedError(gap)
+    name = strip_invisible(parsed.name.strip())
+    return Plan(
+        object_id=str(parsed.agent_id),
+        title="Add this to your agent's knowledge",
+        summary=(
+            f"Save “{name}” to this agent's knowledge. It goes to review first and the "
+            "agent cannot use it until it is approved. Nothing changes until you confirm."
+        ),
+        # Nothing is being replaced — a submission is a new VERSION of a named source, and
+        # `None` is the honest answer to "what is it now" rather than a sentence invented
+        # to fill the field.
+        current=None,
+        proposed=name,
+        args={
+            "agent_id": str(parsed.agent_id),
+            "name": name,
+            "body": strip_invisible(parsed.body.strip()),
+            "origin": parsed.origin,
+            "topic_key": parsed.topic_key,
+        },
+    )
+
+
+async def _execute_propose_knowledge(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    """`kb.service.submit_source`, through `kb_proposals.submit_proposed_source` — the
+    function `POST /v1/kb/sources` calls, with the same arguments.
+
+    `applied` is unconditionally True, and it is the one executor where that is right
+    rather than lazy: the other three ask the world to reach a state it may already be in,
+    while this one appends a new source VERSION. Submitting the same wording twice is two
+    versions, both of which a reviewer sees; there is no "it was already like that".
+
+    The content guard runs again on what the signature carried back — see
+    `proposable_refusal` on why twice — and a failure here is a `ProblemError`, not a
+    `WriteRefusedError`: no model is listening at confirm time, and the person needs a
+    sentence rather than the loop needing a retry.
+    """
+    parsed = _parse(_ProposeKnowledgeArgs, args)
+    refusal = kb_proposals.proposable_refusal(parsed.name, parsed.body)
+    if refusal is not None:  # pragma: no cover - the signature proves this ran at propose
+        raise ProblemError(
+            kind="validation",
+            code="kb_proposal_not_proposable",
+            title="That suggestion cannot be saved",
+            detail="The assistant's suggestion is no longer something it may write.",
+            remediation="Add it yourself under Knowledge in your dashboard.",
+        )
+    await assert_visible(session, "agent", parsed.agent_id)
+    created = await kb_proposals.submit_proposed_source(
+        session,
+        tenant_id=actor.tenant_id,
+        actor_id=actor.user_id,
+        agent_id=parsed.agent_id,
+        name=parsed.name,
+        body=parsed.body,
+    )
+    return Executed(
+        applied=True,
+        detail=(
+            "That knowledge is saved and waiting for review. The agent starts using it "
+            "once it is approved."
+        ),
+        # IDS, COUNTS AND CLOSED-SET STRINGS (hard rules 4 and 6). Not the title, not the
+        # body: `audit_log` is append-only, so text written into it is text a DPDP erasure
+        # cannot reach, and the `kb_sources` row is where the words live and where deletion
+        # already gets to them. `origin` is here because an owner reviewing the queue has to
+        # tell "your agent noticed this" from "this came up in conversation"; the realm is
+        # NOT, because `write_audit` derives `actor_type` from the principal and hashes it
+        # into the chain, and a second spelling of the same fact is a second thing to keep
+        # in step.
+        audit_summary={
+            "source_id": str(created["id"]),
+            "agent_id": str(parsed.agent_id),
+            "version": created["version"],
+            "chunks": created["chunks"],
+            "status": created["status"],
+            "origin": parsed.origin,
+            "topic_key": parsed.topic_key,
+        },
+    )
+
+
 # --- the registry -----------------------------------------------------------------------
 
 
@@ -618,9 +773,12 @@ def _tool_schema(name: str, description: str, properties: dict[str, Any]) -> dic
 
     WHAT IS THIS MODULE'S AND WHAT IS THE PACKAGE'S: the ENVELOPE is
     `prompt.function_tool`, spelled once for `set_fields`, for the read tools and for
-    these. What stays here is the PARAMETERS object, because "every property is required"
-    is a fact about the write tools specifically — none of them has an optional argument,
-    and a read tool expresses an optional one as `anyOf: [T, null]` instead.
+    these. What stays here is the PARAMETERS object, because "every property is REQUIRED"
+    is a fact about the write tools specifically — and it is a statement about the
+    `required` array, not about optionality. `propose_knowledge.topic_key` is genuinely
+    optional and is spelled `anyOf: [string, null]` AND listed in `required`, which is the
+    same shape a read tool uses and the only one `to_strict_json_schema` accepts: strict
+    mode has no way to say "may be absent", so an absent argument is a null one.
     """
     return function_tool(
         name=name,
@@ -721,9 +879,75 @@ CAMPAIGN_PAUSE: Final = WriteTool(
     execute=_execute_campaign_pause,
 )
 
+PROPOSE_KNOWLEDGE: Final = WriteTool(
+    name="propose_knowledge",
+    # `kb:write` — what the "Add knowledge" form already declares. Deciding what the agent
+    # knows is ONE permission (D-21), and the gate is the PERMISSION rather than a role
+    # name, so widening who may curate is one line in `rbac.py` and never a line here.
+    permission="kb:write",
+    # The AGENT, not the source: the source does not exist when the proposal is minted, and
+    # `obj` is signed at plan time. The created `kb_sources` id rides in the audit summary
+    # instead, so the row still answers "which source did this produce".
+    object_type="agent",
+    audit_action="kb.source_proposed",
+    schema=_tool_schema(
+        "propose_knowledge",
+        "Propose adding a fact to one agent's knowledge, so it can answer that question in "
+        "future. Only for something the person has just told you about their own business "
+        "— never invent a price, a policy or an opening time, and never repeat something a "
+        "caller said. Confirming puts it in the review queue; it is NOT live until "
+        "somebody approves it." + _PROPOSES_ONLY,
+        {
+            "agent_id": {
+                "type": "string",
+                "description": "The agent's id, taken from the SCREEN STATE. Never invented.",
+            },
+            "name": {
+                "type": "string",
+                "description": (
+                    "A short title for this knowledge, e.g. 'Saturday opening hours'. At "
+                    f"most {kb_proposals.MAX_NAME_CHARS} characters."
+                ),
+            },
+            "body": {
+                "type": "string",
+                "description": (
+                    "What the agent should know, in the words the person used. Write it "
+                    "the way you would tell a new receptionist. Do not include phone "
+                    "numbers, email addresses or identity numbers."
+                ),
+            },
+            "origin": {
+                "type": "string",
+                "enum": list(kb_proposals.PROPOSAL_ORIGINS),
+                "description": (
+                    "`gap_digest` when you are answering a knowledge gap the agent "
+                    "reported; `copilot` when the person simply volunteered the fact."
+                ),
+            },
+            "topic_key": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": (
+                    "The recognised knowledge-gap topic this answers: "
+                    + ", ".join(sorted(kb_proposals.CITABLE_TOPIC_KEYS))
+                    + ". REQUIRED with the `gap_digest` origin. Null otherwise — never a "
+                    "topic made out of what one caller asked."
+                ),
+            },
+        },
+    ),
+    plan=_plan_propose_knowledge,
+    execute=_execute_propose_knowledge,
+)
+
 #: Registration order is wire order and is therefore part of the cacheable prefix. New
 #: tools APPEND; they never insert.
-WRITE_TOOLS: Final[tuple[WriteTool, ...]] = (LEAD_SET_STATUS, DNC_ADD, CAMPAIGN_PAUSE)
+WRITE_TOOLS: Final[tuple[WriteTool, ...]] = (
+    LEAD_SET_STATUS,
+    DNC_ADD,
+    CAMPAIGN_PAUSE,
+    PROPOSE_KNOWLEDGE,
+)
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
 
@@ -1033,6 +1257,7 @@ __all__ = [
     "PROPOSAL_AUDIENCE",
     "PROPOSAL_CLOCK_SKEW_S",
     "PROPOSAL_TTL",
+    "PROPOSE_KNOWLEDGE",
     "WRITE_TOOLS",
     "Executed",
     "Plan",

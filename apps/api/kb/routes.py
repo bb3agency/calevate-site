@@ -1,4 +1,4 @@
-"""Client-realm knowledge-base endpoints (FLOWS §7): submit, preview, list, propose.
+"""Client-realm knowledge-base endpoints (FLOWS §7): submit, preview, list.
 
 The split of permissions IS the workflow: a client owner (`kb:write`) SUBMITS and
 previews here; approval and publish live on the ADMIN router instead. That is not
@@ -18,15 +18,15 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
-from apps.api.kb import proposals, service
+from apps.api.kb import service
 
 router = APIRouter(prefix="/v1/kb", tags=["knowledge-base"])
 
@@ -142,108 +142,6 @@ async def preview_source(
     source_id: UUID, session: Session, _: Principal = Depends(requires("agents:read"))
 ) -> list[ChunkOut]:
     return [ChunkOut.model_validate(c) for c in await service.preview(session, source_id)]
-
-
-# --- agent-proposed knowledge -------------------------------------------------
-#
-# TWO ROUTES, AND THE SPLIT IS THE PRODUCT PROPERTY. `POST /proposals` READS — it
-# validates a draft and hands back a signed, expiring, single-use token, and a client that
-# never calls the second route has changed nothing anywhere. `POST /proposals/confirm` is
-# the mutation, and everything it mutates it mutates through `service.submit_source`, the
-# same function `submit` above calls: the row it creates is `pending_approval` and reaches
-# a live agent only through the SAME admin approve → publish path as a pasted one.
-#
-# Both carry `kb:write`, checked at both ends, because both are the same decision — what
-# the agent knows (D-21). Proposing is gated as well as confirming even though it writes
-# nothing: it reads an agent and this tenant's open knowledge gaps to build the draft, and
-# "it is only a read" is how an unauthenticated drafting oracle gets shipped.
-#
-# `kb:write` is MUTATING, so `requires` refuses it to an impersonating admin (D-22) — an
-# operator cannot reach either end of this lane through a view-as session, which is
-# correct and is why neither route carries an impersonation check of its own.
-
-
-class ProposeIn(Strict):
-    agent_id: UUID
-    name: str = Field(min_length=1, max_length=proposals.MAX_NAME_CHARS)
-    body: str = Field(min_length=proposals.MIN_BODY_CHARS, max_length=proposals.MAX_BODY_CHARS)
-    #: Who raised the subject — `gap_digest` (the agent noticed) or `copilot` (it came up
-    #: in conversation). Shown to whoever approves it, because the two carry different
-    #: trust; it changes no gate.
-    origin: proposals.ProposalOrigin
-    #: The canonical knowledge-gap topic this answers. Required for `gap_digest`.
-    topic_key: str | None = None
-
-
-class ProposeOut(Strict):
-    """The draft and the token that could execute it. `token` is NOT a credential for
-    anything else: it is bound to this tenant, this person and this one draft, it expires,
-    and it can be spent once."""
-
-    token: str
-    agent_id: UUID
-    name: str
-    body: str
-    origin: proposals.ProposalOrigin
-    topic_key: str | None
-    expires_at: datetime
-
-
-class ConfirmIn(Strict):
-    token: str = Field(min_length=1, max_length=16_000)
-
-
-@router.post(
-    "/proposals",
-    response_model=ProposeOut,
-    openapi_extra=permission_meta("kb:write"),
-    summary="Draft a knowledge entry for review — writes nothing, returns a signed token",
-)
-async def propose_knowledge(
-    payload: ProposeIn,
-    session: Session,
-    principal: Principal = Depends(requires("kb:write")),
-) -> ProposeOut:
-    proposal, token = await proposals.build_proposal(
-        session,
-        principal=principal,
-        agent_id=payload.agent_id,
-        name=payload.name,
-        body=payload.body,
-        origin=payload.origin,
-        topic_key=payload.topic_key,
-    )
-    return ProposeOut(
-        token=token,
-        agent_id=proposal.agent_id,
-        name=proposal.name,
-        body=proposal.body,
-        origin=proposal.origin,
-        topic_key=proposal.topic_key,
-        expires_at=proposal.expires_at,
-    )
-
-
-@router.post(
-    "/proposals/confirm",
-    response_model=SubmitOut,
-    status_code=201,
-    openapi_extra=permission_meta("kb:write"),
-    summary="Confirm a suggestion — enters the SAME review queue, still NOT live",
-)
-async def confirm_knowledge_proposal(
-    payload: ConfirmIn,
-    session: Session,
-    request: Request,
-    principal: Principal = Depends(requires("kb:write")),
-) -> SubmitOut:
-    result = await proposals.confirm_proposal(
-        session,
-        token=payload.token,
-        principal=principal,
-        ip=client_request_ip(request),
-    )
-    return SubmitOut.model_validate(result)
 
 
 __all__ = ["router"]
