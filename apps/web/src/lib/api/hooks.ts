@@ -16,9 +16,12 @@
  */
 
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
 import { useRef } from "react";
@@ -153,6 +156,42 @@ export function useCalls(
     queryKey: queryKeys.calls(session.orgSlug, filters),
     queryFn: () =>
       apiRequest<CallSummary[]>(session, `/v1/calls${query({ ...filters, limit: filters.limit ?? 50 })}`),
+    refetchInterval: LIVE_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * The call LOG — infinite, paged by offset, distinct from `useCalls` on purpose.
+ *
+ * `useCalls` serves the dashboard's six-row peek, where one bounded page is the whole
+ * point. The log screen used to share it, which is how "yesterday's call" became
+ * unreachable: a busy day pushes yesterday past row 100 and there was no control that
+ * reached it (ux-audit CL2, a blocker). `/v1/calls` has taken `offset` since M1; this
+ * hook is the missing client half. The endpoint returns a bare list (no total
+ * envelope), so the end of the log is detected the only honest way available: a page
+ * shorter than the page size.
+ */
+export function useCallsLog(
+  session: Session,
+  filters: { status?: string; pageSize: number },
+): UseInfiniteQueryResult<InfiniteData<CallSummary[]>> {
+  const { status, pageSize } = filters;
+  return useInfiniteQuery({
+    queryKey: ["calls-log", session.orgSlug, { status, pageSize }],
+    queryFn: ({ pageParam }) =>
+      apiRequest<CallSummary[]>(
+        session,
+        `/v1/calls${query({ status, limit: pageSize, offset: pageParam || undefined })}`,
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === pageSize
+        ? allPages.reduce((n, page) => n + page.length, 0)
+        : undefined,
+    // Polling refetches every loaded page (TanStack refetches an infinite query whole),
+    // so the live cadence is kept but the reader's place is too — rows are deduped by id
+    // at the render because a new call landing shifts rows across page boundaries.
     refetchInterval: LIVE_INTERVAL_MS,
     refetchOnWindowFocus: true,
   });

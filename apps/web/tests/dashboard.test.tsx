@@ -166,6 +166,37 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
+describe("the home screen ranks the day's work (ux-audit D2)", () => {
+  it("links to Needs attention when something is waiting, with the server's count", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/attention": { counts: { lead_blocked: 3 }, items: [], total: 3 } }),
+    );
+    const link = await screen.findByRole("link", { name: /things need your attention/ });
+    expect(link.getAttribute("href")).toContain("/c/acme/attention");
+    expect(container.textContent).toContain("3");
+  });
+
+  it("says nothing about the queue when the read failed or answered zero", async () => {
+    // Zero: a banner about nothing is noise.
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/attention": { counts: {}, items: [], total: 0 } }),
+    );
+    await screen.findByText("Calls today");
+    expect(container.textContent).not.toContain("your attention");
+
+    // Failed: an unanswered read is not evidence of an all-clear, and equally not
+    // evidence anything is waiting — the banner simply does not render.
+    const failed = await renderClientPage(
+      page,
+      routes({ "/v1/attention": problem(503, { title: "Service unavailable" }) }),
+    );
+    await screen.findByText("Calls today");
+    expect(failed.container.textContent).not.toContain("your attention");
+  });
+});
+
 describe("the dashboard renders what the server said, or says it could not", () => {
   it("shows a refusal instead of figures when the dashboard request fails", async () => {
     const { container } = await renderClientPage(

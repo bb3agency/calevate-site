@@ -169,7 +169,9 @@ export default function IntegrationsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-ink">Integrations</h1>
+        {/* No <h1>: the app shell prints the page title from the nav list (layout.tsx),
+            and a second "Integrations" beside it is a visible duplicate that keeps the
+            old name when the nav entry is renamed (ux-audit INT-3). */}
         {/* `text-ink-muted`, not `text-ink-faint`: this is the screen's opening
             paragraph at `text-sm`, the same slot every other route in this lane writes in
             muted (`settings/team`, `settings/alerts`). Faint is for a 12px hint beside a

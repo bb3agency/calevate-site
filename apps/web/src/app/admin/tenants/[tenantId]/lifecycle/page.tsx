@@ -6,18 +6,19 @@ import { AlertTriangle, ArrowLeft, CheckCircle2 } from "lucide-react";
 
 import {
   Card,
+  DANGER_BUTTON,
   EmptyState,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
-  PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
   Skeleton,
   formatIST,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
+import { TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import { erasureConfirmation, useEraseTenant, useTenantErasures } from "@/lib/api/erasure";
@@ -141,10 +142,18 @@ function MoveForm({
     currentStatus === "active" ? "suspended" : "active",
   );
   const [reason, setReason] = useState("");
+  const [typed, setTyped] = useState("");
   const copy = LIFECYCLE_COPY[status];
   // The API refuses a reasonless suspension with a 422. Previewed here so an operator is
   // told before the click rather than after — and the server still enforces it.
-  const blocked = copy.needsReason && reason.trim().length < 3;
+  const reasonMissing = copy.needsReason && reason.trim().length < 3;
+  // Closing an account is the one move here that cannot be undone from this screen, so it
+  // alone takes a typed confirmation — the same TypeToConfirm every other irreversible
+  // lever uses. Suspend stays one click: it is reversible and adding ceremony to the
+  // reversible act teaches operators to type past the ceremony (ux-audit F-3).
+  const needsTypedWord = copy.tone === "stop";
+  const wordMissing = needsTypedWord && !confirmMatches(typed.trim(), "CLOSE");
+  const blocked = reasonMissing || wordMissing;
 
   return (
     <Card title={`Move ${tenantName}`}>
@@ -168,6 +177,8 @@ function MoveForm({
               disabled={!write.allowed}
               onChange={(event) => {
                 setStatus(event.target.value as LifecycleStatus);
+                // The typed word arms ONE specific move; switching moves disarms it.
+                setTyped("");
                 move.reset();
               }}
               className={FIELD}
@@ -208,17 +219,49 @@ function MoveForm({
           </div>
         )}
 
+        {needsTypedWord && (
+          <TypeToConfirm
+            id="lifecycle-close-confirm"
+            word="CLOSE"
+            value={typed}
+            onChange={(value) => {
+              setTyped(value);
+              move.reset();
+            }}
+            disabled={!write.allowed}
+            hint="Closing cannot be undone from this screen — reopening a closed account is a new agreement."
+          />
+        )}
+
         <div className="flex flex-wrap items-center gap-3">
-          {/* Shared primary CTA: the action label (copy.action) stays mounted so the
-              button's accessible name never flickers to "Applying…" mid-request; the
-              spinner rides `loading`, and the two non-pending disable reasons are
-              unchanged. The erase control below keeps its own typed-confirm button. */}
-          <ActionButton type="submit" loading={move.isPending} disabled={blocked || !write.allowed}>
-            {copy.action}
-          </ActionButton>
+          {/* Shared primary CTA for the reversible moves: the action label (copy.action)
+              stays mounted so the button's accessible name never flickers to "Applying…"
+              mid-request. The irreversible move ("Close the account", tone `stop`) takes
+              DANGER_BUTTON instead — LIFECYCLE_COPY.tone was authored for exactly this
+              and was previously read by nothing, so the account-killer rendered in the
+              same green as Reactivate (ux-audit F-3). */}
+          {copy.tone === "stop" ? (
+            <button
+              type="submit"
+              disabled={move.isPending || blocked || !write.allowed}
+              className={DANGER_BUTTON}
+            >
+              {move.isPending ? "Closing…" : copy.action}
+            </button>
+          ) : (
+            <ActionButton
+              type="submit"
+              loading={move.isPending}
+              disabled={blocked || !write.allowed}
+            >
+              {copy.action}
+            </ActionButton>
+          )}
           {blocked && (
             <span className="text-xs text-amber-700 dark:text-amber-400">
-              A reason is required before this can be applied.
+              {reasonMissing
+                ? "A reason is required before this can be applied."
+                : "Type CLOSE above to confirm before this can be applied."}
             </span>
           )}
         </div>
@@ -407,10 +450,14 @@ function ErasurePanel({
           </span>
         </div>
 
+        {/* DANGER_BUTTON, not PRIMARY_BUTTON: this is the most irreversible control in
+            the product, and ui.tsx's own rule is that the rose fill is reserved for
+            exactly this — "an operator's eye should refuse to find it" beside the
+            green Approve/Publish family (ux-audit F-2). */}
         <button
           type="submit"
           disabled={erase.isPending || blocked || !access.allowed}
-          className={PRIMARY_BUTTON}
+          className={DANGER_BUTTON}
         >
           {erase.isPending ? "Erasing…" : "Erase this client's data"}
         </button>

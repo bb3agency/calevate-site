@@ -14,6 +14,8 @@ import {
 
 import {
   Card,
+  FIELD_INLINE,
+  FIELD_INLINE_ICON,
   MonoValue,
   NOTICE_TONES,
   ProblemNotice,
@@ -112,19 +114,8 @@ const STATUS_COPY: Record<ConsentStatus, { label: string; hint: string }> = {
 
 const NO_STATUSES: ConsentStatus[] = ["declined", "withdrawn"];
 
-/** Form controls, once — see the same constants, and the reason they split, on the
- *  do-not-call screen. */
-/* `min-w-0 max-w-full`: an <input> with no width utility sizes to its `size`
-   attribute (~20 characters), which at the 16px this repo now gives touch devices
-   is ~256px — 2px wider than the 254px card it sits in at 320px, so it painted
-   across the border. A CAP rather than `w-full`: these sit in flex rows where a
-   forced full width would restyle the desktop console, and on desktop there is
-   room so the cap never binds. `min-w-0` because a flex item will not otherwise
-   shrink below its own min-content. */
-const FIELD_BASE =
-  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
-const FIELD = `${FIELD_BASE} px-3`;
-const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
+// Form controls come from ui.tsx's FIELD_INLINE / FIELD_INLINE_ICON (see the note on
+// the do-not-call screen — the local trio both screens carried is hoisted, MC-2).
 
 export default function MessagingConsentPage() {
   const session = useClientSession();
@@ -253,7 +244,7 @@ export default function MessagingConsentPage() {
               autoComplete="off"
               placeholder="9876543210 or +919876543210"
               aria-label="Phone number to check"
-              className={`${FIELD_ICON} w-64 font-mono`}
+              className={`${FIELD_INLINE_ICON} w-64 font-mono`}
             />
           </div>
           <button
@@ -309,7 +300,7 @@ export default function MessagingConsentPage() {
                 inputMode="tel"
                 autoComplete="off"
                 placeholder="9876543210 or +919876543210"
-                className={`${FIELD} w-64 font-mono`}
+                className={`${FIELD_INLINE} w-64 font-mono`}
               />
             </Field>
 
@@ -343,7 +334,7 @@ export default function MessagingConsentPage() {
                   id="consent-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value as ConsentStatus)}
-                  className={FIELD}
+                  className={FIELD_INLINE}
                 >
                   {NO_STATUSES.map((value) => (
                     <option key={value} value={value}>
@@ -360,7 +351,7 @@ export default function MessagingConsentPage() {
                 id="consent-source"
                 value={source}
                 onChange={(e) => chooseSource(e.target.value as ConsentSource)}
-                className={`${FIELD} w-full max-w-md`}
+                className={`${FIELD_INLINE} w-full max-w-md`}
               >
                 {sourceOptions.map((value) => (
                   <option key={value} value={value}>
@@ -386,7 +377,7 @@ export default function MessagingConsentPage() {
                   value={callId}
                   onChange={(e) => setCallId(e.target.value)}
                   placeholder="Call ID from the Calls page"
-                  className={`${FIELD} w-full max-w-md font-mono`}
+                  className={`${FIELD_INLINE} w-full max-w-md font-mono`}
                 />
                 <p className="mt-1 text-xs text-ink-muted">
                   {answer === "yes"
@@ -405,7 +396,7 @@ export default function MessagingConsentPage() {
                     setEvidence((prev) => ({ ...prev, [field.key]: e.target.value }))
                   }
                   placeholder={field.placeholder}
-                  className={`${FIELD} w-full max-w-md`}
+                  className={`${FIELD_INLINE} w-full max-w-md`}
                 />
                 <p className="mt-1 text-xs text-ink-muted">
                   {field.hint}

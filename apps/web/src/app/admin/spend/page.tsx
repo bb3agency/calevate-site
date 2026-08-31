@@ -60,6 +60,8 @@ export default function FleetSpendPage() {
         <input
           type="month"
           value={month}
+          // No future months: an empty 2027 board reads like a failure (ux-audit F-9a).
+          max={currentISTMonth()}
           onChange={(event) => setMonth(event.target.value)}
           className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
           aria-label="Billing month"
@@ -87,6 +89,11 @@ export default function FleetSpendPage() {
                     : "mt-1 text-2xl font-bold tracking-tight tabular-nums text-brand-strong dark:text-brand-bright"
                 }
               >
+                {/* Same sr-only prefix as the table rows below: colour is never the only
+                    signal that a month is losing money (ux-audit F-18). */}
+                {data.margin_inr.trim().startsWith("-") && (
+                  <span className="sr-only">Losing money: </span>
+                )}
                 {formatINR(data.margin_inr)}
               </p>
             </div>

@@ -1,5 +1,5 @@
-import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import LeadDetailPage from "@/app/c/[slug]/leads/[leadId]/page";
 import type { Me } from "@/lib/api/client";
@@ -144,6 +144,44 @@ describe("the history a client can finally read", () => {
     // `total` is the SET, `items` is the PAGE — the distinction §52 records four defects
     // for. A screen that printed `items.length` here would say "1 entry" of 64.
     expect(container.textContent).toContain("The 1 most recent of 64");
+  });
+
+  it("reaches past the first page — Show earlier history appends the next offset (LD4)", async () => {
+    const firstPage = Array.from({ length: 50 }, (_, i) =>
+      event({ id: `ev-${i}`, title: `Recent event ${i}` }),
+    );
+    const { container } = await renderClientPage(
+      page(),
+      routes({
+        "/v1/leads/lead-a/timeline?limit=50": timeline(firstPage, { total: 51 }),
+        "/v1/leads/lead-a/timeline?limit=50&offset=50": timeline(
+          [event({ id: "ev-oldest", title: "The very first call" })],
+          { total: 51, offset: 50 },
+        ),
+      }),
+    );
+    await screen.findByText("Recent event 0");
+    // The remainder used to be an honest sentence about an unreachable 92% of the
+    // record; now the sentence has a control under it.
+    expect(container.textContent).toContain("The 50 most recent of 51");
+    fireEvent.click(screen.getByRole("button", { name: "Show earlier history" }));
+    await screen.findByText("The very first call");
+    // Appended, not replaced.
+    expect(container.textContent).toContain("Recent event 0");
+    expect(container.textContent).toContain("51 entries");
+  });
+
+  it("changes the stage from the lead's own page with the shared control (LD1)", async () => {
+    const { calls } = await renderClientPage(page(), routes({ "PATCH /v1/leads/lead-a": LEAD }));
+    const select = await screen.findByLabelText("Stage for Ramesh Kumar");
+    fireEvent.change(select, { target: { value: "won" } });
+    await vi.waitFor(() =>
+      expect(
+        calls.some((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a"),
+      ).toBe(true),
+    );
+    const patch = calls.find((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a");
+    expect(JSON.parse(patch?.body ?? "{}")).toEqual({ status: "won" });
   });
 
   it("links an event that names a call, and never puts a number in the href", async () => {

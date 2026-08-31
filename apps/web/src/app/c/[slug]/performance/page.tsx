@@ -332,8 +332,28 @@ function HourHistogram({ hours, calls }: { hours: number[]; calls: number }) {
   const started = hours.reduce((sum, count) => sum + count, 0);
   return (
     <div>
+      {/* Text alternative (ux-audit D1): the visual chart associates each count with its
+          hour by position alone, which a screen reader cannot follow. Same
+          `busiest_hours_ist` numbers, no second computation. */}
+      <table className="sr-only">
+        <caption>Calls by hour of day (IST)</caption>
+        <thead>
+          <tr>
+            <th scope="col">Hour</th>
+            <th scope="col">Calls</th>
+          </tr>
+        </thead>
+        <tbody>
+          {hours.map((count, hour) => (
+            <tr key={hour}>
+              <th scope="row">{hourLabel(hour)}</th>
+              <td>{count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <ScrollRegion label="Calls by hour of day">
-        <div className="flex min-w-[620px] items-end gap-1">
+        <div aria-hidden="true" className="flex min-w-[620px] items-end gap-1">
           {hours.map((count, hour) => (
             <div
               key={hour}

@@ -20,7 +20,7 @@ import {
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
 import { SuccessRipple } from "@/components/successRipple";
-import { useTenant } from "@/lib/api/admin";
+import { useTenant, useTenantAgents } from "@/lib/api/admin";
 import {
   usePromptHistory,
   useRollbackPrompt,
@@ -84,6 +84,10 @@ export default function AgentPromptPage({
   const slug = tenant.data?.slug ?? "";
 
   const history = usePromptHistory(tenantId, agentId);
+  // Which agent this is, by name — same cached roster read the client-detail screen
+  // makes, keyed identically, so arriving from there costs nothing extra.
+  const roster = useTenantAgents(slug);
+  const agentName = roster.data?.find((a) => a.id === agentId)?.name;
   const pending = useTenantPending(slug, agentId);
   const newVersion = useWritePrompt(tenantId, agentId);
   const rollback = useRollbackPrompt(tenantId, agentId);
@@ -109,11 +113,19 @@ export default function AgentPromptPage({
           className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Client
+          {/* The CLIENT'S NAME, never the literal "Client": this is a WRITE surface whose
+              output is read aloud on a live phone line, and the operator arrives from a
+              list of every client's rows. `useTenant` was already called for the slug;
+              rendering its name too is what closes ux-audit F-1. */}
+          {tenant.data?.name ?? "Client"}
         </Link>
         {/* Kept: `admin/layout.tsx` prints no page title, so this is the screen's only
-            name. Delete it if one lands in the shell. */}
-        <h1 className="mt-1 text-xl font-semibold text-ink">Agent prompt</h1>
+            name. Delete it if one lands in the shell. The agent's NAME joins it because
+            a tenant with four agents makes "Agent prompt" ambiguous within the right
+            tenant; it renders only once the roster read has answered. */}
+        <h1 className="mt-1 text-xl font-semibold text-ink">
+          Agent prompt{agentName ? ` — ${agentName}` : ""}
+        </h1>
         <p className="text-sm text-ink-muted">
           Every save is a new immutable version, staged rather than published; the live
           one is a separate pointer that only Apply moves.

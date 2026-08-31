@@ -95,19 +95,26 @@ function navigation(slug: string): NavGroup[] {
       heading: null,
       items: [
         { href: `/c/${slug}`, label: "Dashboard", icon: LayoutDashboard },
+        // Directly under Dashboard because it is the daily triage queue — the one list
+        // with a time cost attached to ignoring it. It used to sit in a secondary
+        // "Operations" group beside Campaign review, a screen most accounts see once,
+        // while the header bell promoted it — the sidebar now agrees with the bell
+        // (ux-audit client-daily-work C2).
+        { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
         { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
-        { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
       ],
     },
     {
-      heading: "Operations",
+      // Weekly-or-rarer reads, grouped by cadence rather than left at daily weight:
+      // Quality is a weekly review and Campaign review is a once-per-campaign gate.
+      heading: "Reports & reviews",
       items: [
-        { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
+        { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
         { href: `/c/${slug}/campaign-review`, label: "Campaign review", icon: FileText },
       ],
     },
@@ -121,6 +128,11 @@ function navigation(slug: string): NavGroup[] {
         // blockers (KYC, PE registration, DND scrub, first-campaign hold) somewhere other
         // than a failed campaign launch.
         { href: `/c/${slug}/agreements`, label: "Agreements", icon: FileSignature },
+        // Second because it is the other DOOR: the identity check that legally gates
+        // outbound dialling. It sat under "Settings & account" — the group of things set
+        // once and forgotten — which is exactly where a client whose calling is blocked
+        // would not look (ux-audit C-3 🔒).
+        { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
         { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
         { href: `/c/${slug}/lead-sources`, label: "Lead sources", icon: GitMerge },
@@ -159,7 +171,6 @@ function navigation(slug: string): NavGroup[] {
         // absorbs until a ceiling.
         { href: `/c/${slug}/ai-assist`, label: "AI help", icon: Sparkles },
         { href: `/c/${slug}/invoice`, label: "Invoice", icon: ReceiptIndianRupee },
-        { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
       ],
     },
   ];

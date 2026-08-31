@@ -8,6 +8,7 @@ import {
   Card,
   EmptyState,
   FilterChip,
+  NOTICE_TONES,
   NoticeBox,
   ProblemNotice,
   ScrollRegion,
@@ -73,7 +74,12 @@ export default function QaSamplingPage() {
             {pending ? " waiting for review" : " sampled"}
           </span>
           {!pending && defects.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+            <span
+              /* NOTICE_TONES.stop, not a hand-rolled red: health and holds render the
+                 structurally identical badge in the shared rose — three screens, one
+                 badge, one palette (ux-audit F-10). */
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${NOTICE_TONES.stop}`}
+            >
               <TriangleAlert className="h-3.5 w-3.5" />
               {defects.length} marked as a defect
             </span>
@@ -186,7 +192,13 @@ function SampleRow({ row }: { row: QaSample }) {
         {/* The rank IN the draw, and the size OF the draw. This is the pair that makes
             the sample checkable rather than merely plausible. */}
         #{row.selection_rank} of {row.target}
-        <div className="text-xs text-ink-faint">{Math.round((row.target / row.population) * 100)}% sampled</div>
+        {/* Guarded: a `population` of 0 would print Infinity% — the only derived
+            statistic in the realm, kept only where its denominator is real (F-11). */}
+        {row.population > 0 && (
+          <div className="text-xs text-ink-faint">
+            {Math.round((row.target / row.population) * 100)}% sampled
+          </div>
+        )}
       </td>
       <td className="px-6 py-3">
         {verdict ? (

@@ -17,6 +17,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { currentISTMonth } from "@/lib/api/invoice";
+import { useTenant } from "@/lib/api/admin";
 import {
   CHARGE_BASIS_COPY,
   useTenantSpend,
@@ -61,21 +62,34 @@ export default function TenantSpendPage({ params }: { params: Promise<{ tenantId
   const { tenantId } = use(params);
   const [month, setMonth] = useState(currentISTMonth);
   const spend = useTenantSpend(tenantId, month);
+  // WHICH client's rupees these are. The operator arrives from /admin/spend having just
+  // scanned every client's rows, and this page used to never print a name — the
+  // cross-tenant ambiguity ux-audit F-1 flagged as its top blocker. Same query key as
+  // every sibling screen, so this costs no extra request. The spend board deliberately
+  // does NOT wait on this read: a failed name lookup must not blank a money screen.
+  const tenantQuery = useTenant(tenantId);
+  const tenantName = tenantQuery.data?.name;
   const data = spend.data;
 
   return (
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={`/admin/tenants/${tenantId}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to client
-        </Link>
+        <div>
+          <Link
+            href={`/admin/tenants/${tenantId}`}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong hover:underline"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {tenantName ?? "Back to client"}
+          </Link>
+          <h1 className="mt-1 text-xl font-semibold text-ink">Spend &amp; margin</h1>
+        </div>
         <input
           type="month"
           value={month}
+          // No future months: an empty 2027 board reads like a failure, not a question
+          // nobody has asked yet (ux-audit F-9a).
+          max={currentISTMonth()}
           onChange={(event) => setMonth(event.target.value)}
           className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
           aria-label="Billing month"
@@ -117,6 +131,8 @@ function TenantSpendBoard({ data }: { data: TenantSpend }) {
                 : "mt-1 text-2xl font-bold tracking-tight tabular-nums text-brand-strong dark:text-brand-bright"
             }
           >
+            {/* Colour is never the only signal that a month is losing money (F-18). */}
+            {negative && <span className="sr-only">Losing money: </span>}
             {formatINR(data.margin_inr)}
           </p>
         </div>

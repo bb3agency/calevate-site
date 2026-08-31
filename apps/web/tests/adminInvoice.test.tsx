@@ -118,6 +118,21 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
 async function render(answer: unknown) {
   return await renderAdminRoute(<TenantInvoicePage params={routeParams({ tenantId: TENANT })} />, {
     [ROUTE]: answer,
+    // The chrome names WHOSE statement the operator is driving (ux-audit F-1) — one
+    // tenant-scoped read on the same query key every sibling screen uses.
+    [`/v1/admin/tenants/${TENANT}`]: {
+      id: TENANT,
+      name: "Sri Traders",
+      slug: "sri-traders",
+      status: "active",
+      vertical_template: "clinic",
+      live_agents: 1,
+      calls_7d: 0,
+      leads: 0,
+      last_call_at: null,
+      holds: [],
+      capped: false,
+    },
   });
 }
 
@@ -216,9 +231,15 @@ describe("the tenant invoice", () => {
 
     await screen.findByText("TAX INVOICE");
 
-    // One request, tenant in the path, month in the query — a cross-tenant screen that
-    // fetched the directory to find one row is how a detail page costs the whole console.
-    expect(calls.map((c) => c.path)).toEqual([ROUTE]);
-    expect(calls[0]?.method).toBe("GET");
+    // Tenant in the path, month in the query, and NOTHING wider: every request this
+    // screen makes is scoped to this one tenant — a cross-tenant screen that fetched the
+    // directory to find one row is how a detail page costs the whole console. (The
+    // second scoped read is the tenant's own name for the chrome — ux-audit F-1.)
+    const invoiceCalls = calls.filter((c) => c.path === ROUTE);
+    expect(invoiceCalls).toHaveLength(1);
+    expect(invoiceCalls[0]?.method).toBe("GET");
+    for (const c of calls) {
+      expect(c.path.startsWith(`/v1/admin/tenants/${TENANT}`)).toBe(true);
+    }
   });
 });

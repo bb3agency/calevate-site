@@ -28,6 +28,7 @@ import {
 
 import {
   Card,
+  DANGER_BUTTON,
   EmptyState,
   FIELD_LABEL,
   MonoValue,
@@ -117,6 +118,12 @@ export default function TenantDetailPage({
   // stay in this list — filter them out rather than offer a second Publish button.
   const awaitingPublish = (publishQueue.data ?? []).filter((source) => !source.is_active);
   const [selected, setSelected] = useState<string | null>(null);
+  // Two-stage reject (ux-audit F-4): the quiet Reject reveals a confirmation bound to
+  // ONE source, carrying a reason the OPERATOR writes — the old one-click reject sent a
+  // hardcoded "Not suitable for the agent" the operator never saw, into the permanent
+  // `rejection_reason` on the client's document.
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const preview = useKbPreview(slug, selected);
   const decide = useKbDecision(tenantId);
   const kbWrite = useAdminAccess("admin:tenants", "decide on this client's knowledge");
@@ -316,20 +323,72 @@ export default function TenantDetailPage({
                     >
                       Approve
                     </PrimaryButton>
+    {/* Reject is a two-stage act (the ops/dnc pattern): this quiet outline
+                        button only OPENS the confirmation below — nothing is sent until
+                        the operator has written why and pressed the rose submit there. */}
                     <DangerButton
                       disabled={decide.isPending || !kbWrite.allowed}
-                      onClick={() =>
-                        decide.mutate({
-                          sourceId: source.id,
-                          decision: "reject",
-                          reason: "Not suitable for the agent",
-                        })
-                      }
+                      onClick={() => {
+                        setRejecting(rejecting === source.id ? null : source.id);
+                        setRejectReason("");
+                      }}
                     >
-                      Reject
+                      {rejecting === source.id ? "Cancel reject" : "Reject…"}
                     </DangerButton>
                   </div>
                 </div>
+                {rejecting === source.id && (
+                  <form
+                    className="mt-3 space-y-2 rounded-card border border-rose-200 bg-rose-50/40 p-3 dark:border-rose-900 dark:bg-rose-950/20"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      decide.mutate(
+                        { sourceId: source.id, decision: "reject", reason: rejectReason.trim() },
+                        {
+                          onSuccess: () => {
+                            setRejecting(null);
+                            setRejectReason("");
+                          },
+                        },
+                      );
+                    }}
+                  >
+                    <p className="text-xs text-rose-900 dark:text-rose-200">
+                      Rejecting <span className="font-semibold">{source.name}</span> v
+                      {source.version}. It stays out of the agent&apos;s answers, and the
+                      reason below is recorded on the document permanently — a repeat
+                      rejection does not rewrite it.
+                    </p>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Why it can&apos;t be used</span>
+                      <textarea
+                        rows={2}
+                        maxLength={500}
+                        value={rejectReason}
+                        disabled={!kbWrite.allowed}
+                        onChange={(event) => setRejectReason(event.target.value)}
+                        className="mt-1 w-full min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11"
+                        placeholder="e.g. Prices in this PDF are last year's — upload the current rate card"
+                      />
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="submit"
+                        disabled={
+                          decide.isPending || !kbWrite.allowed || rejectReason.trim().length < 3
+                        }
+                        className={DANGER_BUTTON}
+                      >
+                        {decide.isPending ? "Rejecting…" : "Reject this document"}
+                      </button>
+                      {rejectReason.trim().length < 3 && (
+                        <span className="text-xs text-rose-800 dark:text-rose-300">
+                          Write the reason in your own words first — it goes on the record.
+                        </span>
+                      )}
+                    </div>
+                  </form>
+                )}
                 {selected === source.id && (
                   <div className="mt-3 space-y-2">
                     {preview.error ? (

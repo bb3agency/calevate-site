@@ -170,6 +170,59 @@ describe("the account state screen", () => {
     expect(container.textContent).toContain("no audit row was written");
   });
 
+  it("arms Close the account only after a reason AND a typed CLOSE — and styles it as danger", async () => {
+    const { calls } = await render({
+      [`POST ${STATUS_PATH}`]: { tenant_id: TENANT, status: "churned", changed: true },
+    });
+
+    // Switch the move to the irreversible one.
+    fireEvent.change(await screen.findByLabelText("New state"), {
+      target: { value: "churned" },
+    });
+
+    const button = (await screen.findByRole("button", {
+      name: /Close the account/,
+    })) as HTMLButtonElement;
+    // LIFECYCLE_COPY.tone === "stop" must reach the pixels: rose, never the brand green
+    // that Reactivate wears. A refactor back to ActionButton goes red here.
+    expect(button.className).toContain("bg-rose-600");
+    expect(button.disabled).toBe(true);
+
+    // A reason alone is not enough for the one move this screen cannot undo.
+    fireEvent.change(screen.getByLabelText("Why"), { target: { value: "contract ended" } });
+    expect(
+      (screen.getByRole("button", { name: /Close the account/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/Type CLOSE above to confirm/)).toBeDefined();
+
+    // A near-miss does not arm it.
+    const confirm = screen.getByLabelText(/to confirm/);
+    fireEvent.change(confirm, { target: { value: "close" } });
+    expect(
+      (screen.getByRole("button", { name: /Close the account/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    fireEvent.change(confirm, { target: { value: "CLOSE" } });
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: /Close the account/ }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Close the account/ }));
+    await waitFor(() => {
+      expect(calls.some((call) => call.method === "POST" && call.path === STATUS_PATH)).toBe(true);
+    });
+    expect(
+      JSON.parse(calls.find((call) => call.method === "POST")?.body ?? "{}").status,
+    ).toBe("churned");
+  });
+
+  it("keeps Suspend one click — the reversible move takes no typed word", async () => {
+    await render();
+    await screen.findByRole("button", { name: /Suspend/ });
+    expect(screen.queryByLabelText(/to confirm/)).toBeNull();
+  });
+
   it("disables the control, with its reason, for a session that may not use it", async () => {
     await render({ [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read"] } });
 
@@ -236,6 +289,8 @@ describe("the erasure panel", () => {
 
     const button = (await screen.findByRole("button", ERASE_BUTTON)) as HTMLButtonElement;
     expect(button.disabled).toBe(true); // no reason typed yet
+    // The most irreversible submit in the product is rose, never brand green (F-2).
+    expect(button.className).toContain("bg-rose-600");
     expect(screen.getByText("Type the confirmation")).toBeDefined();
   });
 
