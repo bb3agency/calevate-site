@@ -508,3 +508,46 @@ def _reserved_test_domains_resolve() -> Iterator[None]:
         yield
     finally:
         patch.undo()
+
+
+# --------------------------------------------------------------------------------------
+# THE IST MONTH BOUNDARY IS PINNED, BECAUSE THE SUITE IS NOT ALLOWED TO CARE WHAT TIME IT IS
+# --------------------------------------------------------------------------------------
+#
+# `ai_quota.read_ai_quota` asks `month_is_ending(period)` with NO `now=`, so it reads the
+# clock; inside the last `LAST_SALEABLE_MINUTES` of an IST month it answers a tenant past
+# its allowance with `ai_extra_month_ending` ("the allowance comes back within the hour")
+# instead of `ai_quota_exceeded`, and `extra_state` with `month_ending` instead of
+# `not_at_ceiling`. Both are CORRECT product behaviour — the specific sentence is the
+# better one to show a person — so this fixture does not change the product. What it fixes
+# is that a test about a CEILING was being answered by the CALENDAR.
+#
+# THIS COST A FULL RELEASE GATE. On 31 Aug 2026 a 42-minute `make coverage-ratchet` rolled
+# across 00:00 IST mid-run and came back `27 failed` across five files, in the middle of a
+# 48-commit release — 27 things that looked exactly like regressions and were not one. The
+# window is real, it is one hour every month, and the next one is 30 Sep.
+#
+# WHY A DELEGATING WRAPPER RATHER THAN `lambda: False`. `ai_quota_test` deliberately probes
+# the boundary itself, and it does so the honest way — by passing an explicit `now=`
+# (`month_is_ending("2026-08", now=last_day.replace(hour=23, minute=1)) is True`). A blunt
+# stub would silently turn those assertions into tautologies, which is a worse defect than
+# the one being fixed: the boundary would stop being tested at all. So an explicit `now=`
+# still reaches the real implementation and still tests the real edge; only the IMPLICIT
+# clock read — the one no test can control and none of them means to exercise — is pinned.
+#
+# Autouse and unconditional: a test that wants the boundary asks for it by argument, and
+# every other test should be unable to notice what day it is.
+@pytest.fixture(autouse=True)
+def _ist_month_boundary_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.api.billing import ai_quota
+
+    real = ai_quota.month_is_ending
+
+    def _pinned(month: str, *, now: datetime | None = None) -> bool:
+        # An explicit instant is a test that MEANS to sit on the edge — answer honestly.
+        if now is not None:
+            return bool(real(month, now=now))
+        # An implicit read is the clock leaking in. Mid-month, always.
+        return False
+
+    monkeypatch.setattr(ai_quota, "month_is_ending", _pinned)
