@@ -128,6 +128,11 @@ function navigation(slug: string): NavGroup[] {
         // blockers (KYC, PE registration, DND scrub, first-campaign hold) somewhere other
         // than a failed campaign launch.
         { href: `/c/${slug}/agreements`, label: "Agreements", icon: FileSignature },
+        // Second because it is the other DOOR: the identity check that legally gates
+        // outbound dialling. It sat under "Settings & account" — the group of things set
+        // once and forgotten — which is exactly where a client whose calling is blocked
+        // would not look (ux-audit C-3 🔒).
+        { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
         { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
         { href: `/c/${slug}/lead-sources`, label: "Lead sources", icon: GitMerge },
@@ -166,7 +171,6 @@ function navigation(slug: string): NavGroup[] {
         // absorbs until a ceiling.
         { href: `/c/${slug}/ai-assist`, label: "AI help", icon: Sparkles },
         { href: `/c/${slug}/invoice`, label: "Invoice", icon: ReceiptIndianRupee },
-        { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
       ],
     },
   ];
