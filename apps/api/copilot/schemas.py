@@ -26,6 +26,7 @@ each one is stated where a reader can see it.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -209,6 +210,81 @@ class CopilotFillEvent(BaseModel):
     items: list[CopilotFillItem]
 
 
+class CopilotProposalEvent(BaseModel):
+    """`event: proposal` — a described, server-signed intent. NOTHING HAS HAPPENED YET.
+
+    THE FIELDS ARE THE SENTENCE A PERSON APPROVES, and they are separate fields rather than
+    one blob of prose because the browser has to be able to render the two halves of the
+    decision — `current` beside `proposed` — without parsing English. A dialog that shows
+    only what will be set is a dialog that cannot tell somebody the change is a no-op, or
+    that they are about to overwrite something they did not know was there.
+
+    `token` is the whole state of this proposal: signed, tenant-bound, actor-bound,
+    argument-bound and short-lived (`write_tools.py`'s module docstring). The browser
+    stores it, shows this description beside a Confirm button, and posts the token back to
+    `POST /v1/copilot/confirm` UNCHANGED. It carries no parameters of its own — anything
+    the browser could edit would be something the model's description no longer describes.
+
+    `object_id` is an id and never a name or a number: this model crosses the same wire the
+    answer does and lands in the same places (hard rule 6).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+    tool: str
+    #: A few words for the dialog's heading ("Pause this campaign").
+    title: str
+    #: One or two sentences a person can act on, composed by the SERVER from what it read —
+    #: never the model's own account of what it is about to do.
+    summary: str
+    object_type: str
+    object_id: str
+    #: What the value is NOW. `None` only where the tool has no single current value to
+    #: name; every tool shipped so far has one.
+    current: str | None
+    proposed: str
+    #: When the token stops verifying. The browser disables its own button here rather than
+    #: letting a person click into a refusal.
+    expires_at: datetime
+
+
+class CopilotConfirmIn(BaseModel):
+    """`POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.
+
+    Every parameter of the action is inside the signed token, so there is nothing here for
+    a caller to tamper with: no lead id, no status, no campaign. A body that also carried
+    the target would be a body that could disagree with the description the person read.
+
+    The bound is generous against a JWT carrying a small `args` object — this is not a
+    length a legitimate client approaches, it is the wall in front of a caller feeding the
+    verifier megabytes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: Annotated[str, Field(min_length=1, max_length=4_096)]
+
+
+class CopilotConfirmOut(BaseModel):
+    """What the confirmed change did.
+
+    `applied` is False when the world was ALREADY in the requested state — a real outcome,
+    not a failure (D-65's distinction, which `set_campaign_status` and the lead executor
+    both make). `detail` is the sentence to show; it says which of the two happened,
+    because "nothing changed, it was already paused" is the answer a person needs when
+    they are watching calls go out.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str
+    object_type: str
+    object_id: str
+    applied: bool
+    detail: str
+
+
 class CopilotDoneEvent(BaseModel):
     """`event: done` — the turn is over.
 
@@ -230,6 +306,8 @@ __all__ = [
     "MAX_HISTORY",
     "MAX_OPTIONS",
     "CopilotAskIn",
+    "CopilotConfirmIn",
+    "CopilotConfirmOut",
     "CopilotDoneEvent",
     "CopilotFact",
     "CopilotField",
@@ -237,6 +315,7 @@ __all__ = [
     "CopilotFillEvent",
     "CopilotFillItem",
     "CopilotOption",
+    "CopilotProposalEvent",
     "CopilotScreen",
     "CopilotTextEvent",
     "CopilotTurn",

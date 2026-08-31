@@ -41,8 +41,14 @@ from calevate_shared.engine import (
 
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import tools as tools_module
+from apps.api.copilot import write_tools
 from apps.api.copilot.sanitize import clean_value, strip_invisible
-from apps.api.copilot.schemas import CopilotAskIn, CopilotField, CopilotFillItem
+from apps.api.copilot.schemas import (
+    CopilotAskIn,
+    CopilotField,
+    CopilotFillItem,
+    CopilotProposalEvent,
+)
 from apps.api.copilot.tools import ToolContext
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -156,13 +162,15 @@ FALLBACK_NO_TOOLS_NOTE: Final = (
 
 #: Appended, last, on the fallback leg only. See `_answer_via_sarvam`.
 _NO_TOOL_NOTE: Final = (
-    "CORRECTION for this turn only: the set_fields tool AND every lookup tool (this "
-    "account's calls, leads, campaigns and performance) are NOT available to you right "
-    "now. Do not call any of them, do not say you have filled anything in, and do not say "
-    "you have looked anything up. Answer the question in words from what you can already "
-    "see. If the person asked you to fill a field, tell them the value they should type "
-    "and that you cannot enter it for them this time. If they asked for a number about "
-    "their business, say you cannot look it up right now — do not estimate one."
+    "CORRECTION for this turn only: the set_fields tool, every lookup tool (this "
+    "account's calls, leads, campaigns and performance) and every tool that proposes a "
+    "change are NOT available to you right now. Do not call any of them, do not say you "
+    "have filled anything in, do not say you have looked anything up, and do not say you "
+    "have suggested a change. Answer the question in words from what you can already see. "
+    "If the person asked you to fill a field or change something, tell them the value they "
+    "should type or the button they should press, and that you cannot do it for them this "
+    "time. If they asked for a number about their business, say you cannot look it up "
+    "right now — do not estimate one."
 )
 
 
@@ -212,15 +220,22 @@ class CopilotSpend:
 
 @dataclass(frozen=True, slots=True)
 class CopilotEvent:
-    """One step of an answer. Exactly one of the three is set.
+    """One step of an answer. Exactly one of the four is set.
 
     `spend` is emitted exactly once, last, on every path that reached a provider — the
     route needs it whether the answer was good, refused or exhausted, because a completed
     model turn is money spent regardless of what it said.
+
+    `proposal` is a WRITE tool's output and it is NOT a change: `write_tools.py` mints it
+    from reads alone, and it becomes a change only when a person posts its token back to
+    `POST /v1/copilot/confirm`. It sits beside `fill` rather than inside it because the two
+    are different promises — a fill lands in local form state and is undone by a keystroke,
+    a proposal is an offer to touch the database.
     """
 
     text: str | None = None
     fill: tuple[CopilotFillItem, ...] | None = None
+    proposal: CopilotProposalEvent | None = None
     spend: CopilotSpend | None = None
 
 
@@ -466,8 +481,9 @@ def tool_array() -> list[dict[str, Any]]:
     """Every tool the model is offered, in a FIXED order, IDENTICAL ON EVERY REQUEST.
 
     ONE COMPOSER, so there is one answer to "what tools exist" and the cacheable prefix has
-    one definition. The write tool comes first because it was first and because moving it
-    would change the prefix for no gain; the read tools follow in `READ_TOOLS` order.
+    one definition. `set_fields` comes first because it was first and because moving it
+    would change the prefix for no gain; the read tools follow in `READ_TOOLS` order, and
+    the proposing write tools last in registration order.
 
     NOTHING IS GATED OUT OF THIS ARRAY — not by screen, not by tenant, not by role. Azure's
     prompt caching keys on a leading run of byte-identical tokens (`prompt.py`, point 1),
@@ -477,7 +493,11 @@ def tool_array() -> list[dict[str, Any]]:
     exist anyway: a schema the model was never shown is obscurity, not an access control.
     `copilot/tools_test.py` pins the byte-identity across two differing requests.
     """
-    return [prompt_module.set_fields_tool(), *tools_module.read_tool_schemas()]
+    return [
+        prompt_module.set_fields_tool(),
+        *tools_module.read_tool_schemas(),
+        *write_tools.write_tool_schemas(),
+    ]
 
 
 async def _run_read_tools(
@@ -597,6 +617,39 @@ async def _google_turn(
     yield chat.StreamEvent(outcome=outcome)
 
 
+def _with_tool_result(
+    messages: Sequence[chat.ChatMessage],
+    outcome: chat.ChatOutcome,
+    call: chat.ToolCall,
+    result: str,
+) -> list[chat.ChatMessage]:
+    """The conversation plus "you called this, here is what happened".
+
+    ONE builder for both tool families rather than two copies of the same eight lines. The
+    assistant turn has to be replayed WITH its `tool_calls` array and the tool turn has to
+    carry the matching `tool_call_id`, or the provider rejects the next request outright —
+    which is the kind of detail that gets subtly wrong in the second copy.
+
+    `result` is authored by us and names ids and shapes only: it becomes prompt text, and a
+    refusal that quoted a value would put that value in front of the provider (hard rule 6).
+    """
+    return [
+        *messages,
+        {
+            "role": "assistant",
+            "content": outcome.content or None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": call.id, "content": result},
+    ]
+
+
 async def _run_tool_loop(
     payload: CopilotAskIn,
     capability: AssistCapability,
@@ -606,6 +659,7 @@ async def _run_tool_loop(
     model: str | None,
     tool_context: ToolContext | None = None,
     live: str = "",
+    actor: write_tools.ToolActor | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
@@ -630,11 +684,21 @@ async def _run_tool_loop(
     ends. That is deliberate: the read results would have nowhere to go once the fill has
     been emitted, and inventing a second round after a person has already been shown a
     change is the "second chance to change what they were shown" that
-    `test_a_valid_set_fields_stops_the_loop_immediately` exists to forbid."""
-    messages = prompt_module.build_messages(payload, live)
+    `test_a_valid_set_fields_stops_the_loop_immediately` exists to forbid.
+
+    `actor` is who the write tools may propose FOR, and `None` is a legitimate value that
+    the tools refuse rather than a state this function branches on — see
+    `write_tools.write_tool_schemas`, which is the same list for every caller precisely so
+    that the cacheable prefix cannot become a function of who is asking."""
+    messages: list[chat.ChatMessage] = list(prompt_module.build_messages(payload, live))
+    # ONE LIST, SAME BYTES, EVERY REQUEST — see `tool_array`, which is the only composer.
     tools = tool_array()
     turns: list[chat.ChatOutcome] = []
-    refusal: FillRefusedError | None = None
+    #: The LAST refusal fed back to the model, kept so the out-of-turns message can name
+    #: it. One tuple for both tool families: "narrow the request" is unhelpful advice to
+    #: somebody whose real problem is that the field is read-only OR that their role may
+    #: not pause a campaign, and the person cannot tell which loop they were in.
+    refusal_reasons: tuple[str, ...] = ()
 
     for turn_index in range(MAX_TURNS):
         outcome: chat.ChatOutcome | None = None
@@ -665,88 +729,144 @@ async def _run_tool_loop(
                 extra={"turn": turn_index, "finish_reason": outcome.finish_reason},
             )
 
-        calls = [
+        fill_calls = [
             call for call in outcome.tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
         ]
-        if not calls:
-            read_calls = [
-                call
-                for call in outcome.tool_calls
-                if call.name != prompt_module.SET_FIELDS_TOOL_NAME
-            ]
-            if not read_calls:
-                # The model answered in prose. Done — the ordinary end of a question.
-                yield CopilotEvent(
-                    spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
-                )
-                return
-            # A LOOKUP, NOT AN ANSWER. Feed the results back and go round again — this is
-            # the one path that makes "answer about the business" possible, and it is why
-            # `MAX_TURNS` had to grow. Anything the model said alongside the call has
-            # already been streamed above; only the tool plumbing is added here.
-            messages = [
-                *messages,
-                _assistant_tool_message(outcome, read_calls),
-                *await _run_read_tools(read_calls, context=tool_context),
-            ]
-            log.info("copilot_read_tools", extra={"turn": turn_index, "calls": len(read_calls)})
-            continue
-
-        # ONE CALL, EVEN IF THE MODEL SENT SEVERAL. The tool takes an array precisely so
-        # that a turn has one outcome and one Undo; a second call in the same turn is the
-        # documented parallel-tool-call incorrectness, and honouring it would apply two
-        # changes a person asked for as one.
-        call = calls[0]
-        try:
-            items = validate_fill(payload, call.arguments)
-        except FillRefusedError as refused:
-            refusal = refused
-            log.info(
-                "copilot_fill_refused",
-                # Ids and counts. Never a value (hard rule 6), and never the model's prose.
-                extra={"turn": turn_index, "reasons": len(refused.reasons)},
+        write_calls = [call for call in outcome.tool_calls if write_tools.is_write_tool(call.name)]
+        # WHATEVER IS LEFT IS A LOOKUP. Derived by elimination rather than by asking the
+        # read registry, so a tool the model invents lands here and is answered by
+        # `_run_read_tools` with "no such tool" instead of vanishing into a turn that
+        # never explains itself.
+        read_calls = [
+            call
+            for call in outcome.tool_calls
+            if call.name != prompt_module.SET_FIELDS_TOOL_NAME
+            and not write_tools.is_write_tool(call.name)
+        ]
+        if not fill_calls and not write_calls and not read_calls:
+            # The model answered in prose. Done — this is the ordinary end of a question.
+            yield CopilotEvent(
+                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
             )
-            # THE REFUSAL GOES BACK TO THE MODEL rather than to the person, while turns
-            # remain. That is what the cap is FOR: a model told `agent_name` is not
-            # writable usually fixes it in one more turn, and the alternative — surfacing
-            # the first refusal — makes the copilot fail at the thing it exists to do
-            # whenever it guesses one field id wrong.
-            messages = [
-                *messages,
-                {
-                    "role": "assistant",
-                    "content": outcome.content or None,
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {"name": call.name, "arguments": call.arguments},
-                        }
-                    ],
-                },
-                {
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": (
-                        "The fill was refused and NOTHING was written. "
-                        + "; ".join(refused.reasons)
-                        + ". Fix these and call set_fields once more, or tell the user "
-                        "what you need."
-                    ),
-                },
-            ]
+            return
+
+        # ONE CALL PER TURN, EVEN IF THE MODEL SENT SEVERAL. `set_fields` takes an array
+        # precisely so that a turn has one outcome and one Undo; a second call in the same
+        # turn is the documented parallel-tool-call incorrectness, and honouring it would
+        # apply two changes a person asked for as one.
+        #
+        # A TURN THAT MIXES A FILL AND A PROPOSAL IS REFUSED RATHER THAN PART-HONOURED, and
+        # that is the one new rule here. Silently dropping the proposal would leave a model
+        # that had just told somebody it was suggesting a change having suggested nothing,
+        # and silently dropping the fill would lose work. Both go back as one refusal and
+        # the model spends a turn separating them.
+        if fill_calls and write_calls:
+            call = fill_calls[0]
+            reasons = (
+                "you filled fields and proposed a change in the same turn, "
+                "which this app cannot apply as one act",
+            )
+            messages = _with_tool_result(
+                messages,
+                outcome,
+                call,
+                "NOTHING was written and nothing was proposed. "
+                + reasons[0]
+                + ". Do one of them in this turn and the other in the next.",
+            )
+            refusal_reasons = reasons
+            log.info("copilot_mixed_tool_turn", extra={"turn": turn_index})
             continue
 
-        yield CopilotEvent(fill=items)
-        yield CopilotEvent(
-            spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
-        )
-        return
+        if fill_calls:
+            call = fill_calls[0]
+            try:
+                items = validate_fill(payload, call.arguments)
+            except FillRefusedError as refused:
+                refusal_reasons = refused.reasons
+                log.info(
+                    "copilot_fill_refused",
+                    # Ids and counts. Never a value (hard rule 6), never the model's prose.
+                    extra={"turn": turn_index, "reasons": len(refused.reasons)},
+                )
+                # THE REFUSAL GOES BACK TO THE MODEL rather than to the person, while turns
+                # remain. That is what the cap is FOR: a model told `agent_name` is not
+                # writable usually fixes it in one more turn, and the alternative —
+                # surfacing the first refusal — makes the copilot fail at the thing it
+                # exists to do whenever it guesses one field id wrong.
+                messages = _with_tool_result(
+                    messages,
+                    outcome,
+                    call,
+                    "The fill was refused and NOTHING was written. "
+                    + "; ".join(refused.reasons)
+                    + ". Fix these and call set_fields once more, or tell the user "
+                    "what you need.",
+                )
+                continue
+
+            yield CopilotEvent(fill=items)
+            yield CopilotEvent(
+                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+            )
+            return
+
+        # THE WRITE PATH, AND IT WRITES NOTHING. `plan_write` reads, describes and signs;
+        # the only thing that reaches the person is a proposal they can refuse by doing
+        # nothing. The loop ENDS here for the same reason a fill ends it: one act per turn,
+        # so the person has one thing in front of them to decide about.
+        #
+        # GUARDED, because a read-only turn now reaches this line. Before the read tools
+        # existed the prose exit above guaranteed a write call was present by the time
+        # control got here, and this was an unconditional `write_calls[0]`; a lookup-only
+        # turn would have made that an IndexError.
+        if write_calls:
+            call = write_calls[0]
+            try:
+                proposal = await write_tools.plan_write(call.name, call.arguments, actor=actor)
+            except write_tools.WriteRefusedError as refused:
+                refusal_reasons = (refused.reason,)
+                log.info(
+                    "copilot_write_refused",
+                    # The tool NAME and the turn. The reason string is authored by us and names
+                    # ids and shapes only, but it is not needed here and a log line is the
+                    # cheapest place for a value to end up by accident (hard rule 6).
+                    extra={"turn": turn_index, "tool": call.name},
+                )
+                messages = _with_tool_result(
+                    messages,
+                    outcome,
+                    call,
+                    "NOTHING was proposed and NOTHING was changed. "
+                    + refused.reason
+                    + ". Fix it and call the tool once more, or tell the user what you need.",
+                )
+                continue
+
+            yield CopilotEvent(proposal=proposal)
+            yield CopilotEvent(
+                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+            )
+            return
+
+        # A LOOKUP, NOT AN ANSWER, and the only branch that goes round again. It sits
+        # AFTER the fill and write paths because both of those END the turn: a turn that
+        # asks for a change and a lookup at once resolves the way it always did — the act
+        # the person will see wins, and the lookup is dropped rather than answered into a
+        # turn that has already shown them something. Anything the model said alongside
+        # the calls has already been streamed; only the tool plumbing is added here.
+        messages = [
+            *messages,
+            _assistant_tool_message(outcome, read_calls),
+            *await _run_read_tools(read_calls, context=tool_context),
+        ]
+        log.info("copilot_read_tools", extra={"turn": turn_index, "calls": len(read_calls)})
+        continue
 
     # OUT OF TURNS. The person gets a sentence they can act on, and — when the last thing
-    # that happened was a refused fill — the reason, because "narrow the request" is
+    # that happened was a refused tool call — the reason, because "narrow the request" is
     # unhelpful advice to somebody whose real problem is that the field is read-only.
-    detail = f" ({'; '.join(refusal.reasons)})" if refusal is not None else ""
+    detail = f" ({'; '.join(refusal_reasons)})" if refusal_reasons else ""
     yield CopilotEvent(text=f"{EXHAUSTED_MESSAGE}{detail}")
     yield CopilotEvent(
         spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
@@ -760,6 +880,7 @@ async def run_copilot(
     quota_exhausted: bool = False,
     tool_context: ToolContext | None = None,
     live: str = "",
+    actor: write_tools.ToolActor | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -794,6 +915,10 @@ async def run_copilot(
     the same reason: this module holds no connection across a provider call and is not about
     to open one. `""` — the default, and what a degraded snapshot produces — means the model
     sees the screen alone, which is exactly what it saw before that module existed.
+    `actor` arrives the same way again: it is the PRINCIPAL, narrowed, and this module must
+    not go looking for one. `None` defaults to "this run may propose nothing", which the
+    write tools enforce themselves — see `write_tools.plan_write`. It is deliberately NOT a
+    switch that changes the tool list (`write_tools.write_tool_schemas`).
     """
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
@@ -826,6 +951,7 @@ async def run_copilot(
                     model=model,
                     tool_context=tool_context,
                     live=live,
+                    actor=actor,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event

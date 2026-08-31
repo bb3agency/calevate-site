@@ -19,6 +19,7 @@ from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_ba
 
 from apps.api.copilot import service
 from apps.api.copilot import tools as tools_module
+from apps.api.copilot import write_tools
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -622,7 +623,11 @@ async def test_every_request_offers_the_write_tool_and_every_read_tool(
     await _drain_with_tools()
     names = [tool["function"]["name"] for tool in kwargs_seen[0]["tools"]]
     assert names[0] == "set_fields"
-    assert set(names[1:]) == tools_module.READ_TOOL_NAMES
+    # Every family the registry composes actually reaches the wire: a read tool the loop
+    # never sends is a question the model cannot answer, and a write tool it never sends
+    # is a change it cannot offer.
+    assert tools_module.READ_TOOL_NAMES <= set(names)
+    assert {schema["function"]["name"] for schema in write_tools.write_tool_schemas()} <= set(names)
 
 
 async def test_a_read_tool_result_is_fed_back_and_the_model_then_answers_in_prose(

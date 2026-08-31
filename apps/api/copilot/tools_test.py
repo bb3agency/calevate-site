@@ -23,7 +23,7 @@ from sqlalchemy import text
 
 from apps.api.admin import service as admin_service
 from apps.api.copilot import service as copilot_service
-from apps.api.copilot import tools
+from apps.api.copilot import tools, write_tools
 from apps.api.copilot.schemas import CopilotAskIn
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -430,13 +430,22 @@ def test_the_whole_tool_array_is_byte_identical_across_two_different_requests() 
     assert first.screen.route != second.screen.route
 
 
-def test_the_array_offers_the_write_tool_first_and_then_every_read_tool() -> None:
-    """One composer, one order. The write tool stays first because it was first and moving
-    it would change the cached prefix for nothing."""
+def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool() -> None:
+    """One composer, one order, all THREE families. `set_fields` stays first because it was
+    first and moving it would change the cached prefix for nothing; the read tools follow in
+    `READ_TOOLS` order and the proposing write tools last.
+
+    THE ORDER IS PINNED, NOT JUST THE MEMBERSHIP, because the array is the tail of the
+    cacheable prefix — a reordering costs a cache miss on every request and no test that
+    only compared sets would notice."""
     names = [schema["function"]["name"] for schema in copilot_service.tool_array()]
-    assert names[0] == "set_fields"
-    assert names[1:] == [tool.name for tool in tools.READ_TOOLS]
-    assert set(names[1:]) == tools.READ_TOOL_NAMES
+    read_names = [tool.name for tool in tools.READ_TOOLS]
+    write_names = [schema["function"]["name"] for schema in write_tools.write_tool_schemas()]
+    assert names == ["set_fields", *read_names, *write_names]
+    assert set(read_names) == tools.READ_TOOL_NAMES
+    # The three families are disjoint: a name in two registries would make dispatch in
+    # `_run_tool_loop` depend on which check ran first.
+    assert len(set(names)) == len(names)
 
 
 def test_no_read_tool_can_change_anything() -> None:
