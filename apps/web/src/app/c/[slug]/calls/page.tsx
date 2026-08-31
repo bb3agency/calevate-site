@@ -16,7 +16,8 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
-import { useCalls } from "@/lib/api/hooks";
+import { useCallsLog } from "@/lib/api/hooks";
+import { LoadMore } from "@/components/interior/load-more";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -89,7 +90,14 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
   const { session, href } = useClientRealm();
   const [status, setStatus] = useState<string | undefined>(undefined);
-  const calls = useCalls(session, { status, limit: CALLS_PAGE_SIZE });
+  const calls = useCallsLog(session, { status, pageSize: CALLS_PAGE_SIZE });
+
+  // Flattened across the loaded pages, deduped by id: a call landing mid-read shifts
+  // rows across an offset boundary, and a duplicate React key would crash the log.
+  const seen = new Set<string>();
+  const rows = (calls.data?.pages ?? [])
+    .flatMap((page) => page)
+    .filter((call) => (seen.has(call.id) ? false : (seen.add(call.id), true)));
 
   return (
     <div className="space-y-4 pb-12">
@@ -102,22 +110,23 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
             answered — a count rendered from `data ?? []` while loading says 0 and
             then jumps, which reads as calls disappearing. */}
         {calls.data &&
-          /* A full page is a statement about OUR QUERY, not their business: an account
-             past 100 calls would read "100 calls" forever — the exact defect the leads
-             screen's docstring names as the thing it fixed. Below the cap the length IS
-             the total, so the plain count is honest there (ux-audit CL1). */
-          (calls.data.length >= CALLS_PAGE_SIZE ? (
+          /* With more pages behind it, the loaded length is a statement about OUR QUERY,
+             not their business: an account past 100 calls used to read "100 calls"
+             forever — the exact defect the leads screen's docstring names as the thing
+             it fixed. Once the log has no next page, the length IS the total and the
+             plain count is honest (ux-audit CL1). */
+          (calls.hasNextPage ? (
             <p className="text-sm text-ink-muted">
               Showing the{" "}
               <span className="font-semibold tabular-nums text-ink">
-                {formatCount(calls.data.length)}
+                {formatCount(rows.length)}
               </span>{" "}
               most recent{status ? ` matching “${status.replace(/_/g, " ")}”` : ""}
             </p>
           ) : (
             <p className="text-sm text-ink-muted">
               <span className="font-semibold tabular-nums text-ink">
-                {formatCount(calls.data.length)}
+                {formatCount(rows.length)}
               </span>{" "}
               {status ? `matching “${status.replace(/_/g, " ")}”` : "calls"}
             </p>
@@ -159,9 +168,9 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
               onRetry={() => void calls.refetch()}
             />
           </div>
-        ) : calls.data.length ? (
+        ) : rows.length ? (
           <ul className="divide-y divide-line">
-            {calls.data.map((call) => {
+            {rows.map((call) => {
               const Icon = lookup(STATUS_ICONS, call.status) ?? PhoneCall;
               return (
                 <li key={call.id}>
@@ -228,6 +237,22 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
                 ? "Clear the filter to see everything."
                 : "A call appears here within a couple of minutes of the caller hanging up."
             }
+          />
+        )}
+        {/* The way to yesterday (ux-audit CL2): a busy day pushed yesterday past row
+            100 and nothing reached it. Manual — a log the reader is scanning should
+            grow when asked, not while their scroll passes a sentinel. */}
+        {calls.hasNextPage && rows.length > 0 && (
+          <LoadMore
+            auto={false}
+            hasMore={calls.hasNextPage}
+            labels={{ idle: "Show older calls" }}
+            onLoad={async () => {
+              const result = await calls.fetchNextPage();
+              if (result.isError) throw result.error;
+              return result.hasNextPage;
+            }}
+            className="py-1"
           />
         )}
       </Card>
