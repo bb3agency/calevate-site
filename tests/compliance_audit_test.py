@@ -34,6 +34,7 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.billing.service import current_billing_month
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
 from apps.api.core.errors import ProblemError
@@ -410,7 +411,18 @@ async def test_a_capped_tenant_cannot_launch_a_campaign() -> None:
                 "VALUES (:tid, :month, 0, 0, 0, true, now(), now()) "
                 "ON CONFLICT (tenant_id) DO UPDATE SET capped = true"
             ),
-            {"tid": tenant_id, "month": datetime.now(UTC).strftime("%Y-%m")},
+            # THE MONTH IS ASKED THE WAY PRODUCTION ASKS IT, not re-spelled here.
+            # `compliance.spend_capped` compares the stored month against
+            # `billing.service.current_billing_month()`, which is **IST**
+            # (`plans.ist_billing_month`). Spelling it as a UTC month instead made this
+            # test write a cap for the wrong month for the 5.5 hours between 18:30 UTC —
+            # when the IST month rolls — and 00:00 UTC on the last day of every month.
+            # In that window the cap did not match, `spend_capped` correctly returned
+            # False, launch was correctly allowed, and this test failed looking exactly
+            # like a broken compliance gate. It caught a full release gate at 20:10 UTC
+            # on 31 Aug 2026; the sibling defect in the quota suites is pinned by
+            # `conftest._ist_month_boundary_is_pinned`.
+            {"tid": tenant_id, "month": current_billing_month()},
         )
         blockers = await campaigns.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
