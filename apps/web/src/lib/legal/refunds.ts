@@ -192,7 +192,7 @@ export const REFUND_POLICY: LegalDocument = {
             "The gateway then takes {{REFUND_PROCESSING_DAYS}} business days to place the " +
               "money back with your bank or card issuer. Your bank may take longer to show " +
               "it, and that part is outside our control.",
-            "You get a document either way. We are not registered for GST, so no tax " +
+            "You get a document either way. We are {{GST_STATUS}}, so no tax " +
               "was charged on the original bill of supply and there is no tax to credit " +
               "back: what you receive is a corrected bill of supply alongside the " +
               "compensating entry described below. If we are GST-registered by the time " +

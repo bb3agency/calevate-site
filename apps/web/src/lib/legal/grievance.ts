@@ -21,8 +21,13 @@ import type { LegalDocument } from "./types";
  * gazette (docs/LEGAL-SURFACE.md §9, item 9).
  *
  * Publishing the LONGEST of the three would be lawful and would be a worse product. So the
- * page states one commitment — the shortest — and shows the statutory outer limits beside
- * it, so a reader can see both what we promise and what we could get away with.
+ * page states one commitment and shows the statutory outer limits beside it, so a reader
+ * can see both what we promise and what we could get away with. One caveat §2's second
+ * warning callout now states instead of glossing (31 Aug 2026 — this comment used to call
+ * our commitment "the shortest", which row 1 falsifies): the acknowledgement commitment is
+ * 2 BUSINESS days, which across a weekend can pass the E-Commerce Rules' 48 CALENDAR hours
+ * — so if those Rules reach us, the statutory limit governs acknowledgement, and the page
+ * says so rather than claiming every figure sits inside every limit.
  *
  * ## Rewritten 26 August 2026: there is no company behind this page
  *
@@ -239,10 +244,15 @@ export const GRIEVANCE: LegalDocument = {
             "for the purpose of those Rules is a real question and not one we are going " +
             "to answer in our own favour, in either direction, in a document about how " +
             "we handle your complaint. It is on the list for the advocate whose review " +
-            "these documents are waiting on. Nothing about the middle column depends on " +
-            "the answer: the commitments there are ours, they are shorter than every " +
-            "limit in the right-hand column, and rule 5(9) of the 2011 rules — which " +
-            "does bind us — already sets a one-month clock on its own.",
+            "these documents are waiting on. The commitments in the middle column are " +
+            "ours and stand whatever the answer, and rule 5(9) of the 2011 rules — " +
+            "which does bind us — already sets a one-month clock on its own. One piece " +
+            "of arithmetic we would rather point out than leave you to do: our " +
+            "acknowledgement commitment is counted in business days, and two business " +
+            "days spanning a weekend can pass the 48-hour mark — so if the E-Commerce " +
+            "Rules do reach us, the statutory 48 hours is the acknowledgement limit " +
+            "that governs, not our published figure. That question, too, is on the " +
+            "advocate's list rather than resolved here.",
         },
         {
           kind: "callout",

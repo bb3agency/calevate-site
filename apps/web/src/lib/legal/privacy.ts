@@ -4,7 +4,7 @@ import type { LegalDocument } from "./types";
  * The privacy notice. Every factual claim below traces to code, schema or a blueprint
  * document, and `docs/LEGAL-SURFACE.md` carries the trace for each one.
  *
- * Three rules were applied while writing it, and they are what make it different from a
+ * Five rules were applied while writing it, and they are what make it different from a
  * template:
  *
  * 1. **Nothing is claimed that the code does not do.** The retention periods are the
@@ -44,7 +44,7 @@ import type { LegalDocument } from "./types";
  *    — read by the founder 27 Aug 2026 and relayed). ⚠ `sarvam.ai` and `docs.sarvam.ai`
  *    remain egress-blocked from this container; the evidence came by another route and a
  *    fetch from here will still fail.
- * 5. **The training promise is NARROWED to what we can keep, not softened.** "We do not
+ * 3. **The training promise is NARROWED to what we can keep, not softened.** "We do not
  *    use client or caller data to train or fine-tune any model — ours or a vendor's" was
  *    a promise about other companies' conduct that one of them does not make. Sarvam ToS
  *    v2.0 (effective 29 July 2026) s.17.5 permits it to use inputs, outputs and usage data
@@ -54,7 +54,7 @@ import type { LegalDocument } from "./types";
  *    instrument that displaces it — we have none. So OUR undertaking stands unqualified
  *    and the VENDOR position is stated rather than promised away, in §6 here, clause 2 of
  *    the DPA and §3.4 of the sub-processor register.
- * 3. **The Data Fiduciary named in §1 is a PERSON, not a company, and §1 says so.**
+ * 4. **The Data Fiduciary named in §1 is a PERSON, not a company, and §1 says so.**
  *    Corrected 26 August 2026. The notice opened "Calevate is a product of X … mean that
  *    company", which was false in a way that matters here more than in most documents: a
  *    privacy notice's first job is to identify the Data Fiduciary a reader is dealing
@@ -68,7 +68,7 @@ import type { LegalDocument } from "./types";
  *    and it is stated rather than left as an inference from "sole proprietorship" — it is
  *    the one thing that makes this shape STRONGER for a complainant, and burying it would
  *    be as dishonest as the corporate framing it replaces.
- * 4. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
+ * 5. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
  *    Whether the agent announces itself at the start of a call is the client's setting;
  *    that it answers truthfully when asked is enforced server-side and cannot be
  *    overridden by a client's script. The obligation to disclose sits with the client as
@@ -697,9 +697,10 @@ export const PRIVACY_POLICY: LegalDocument = {
             "This section is written narrowly on purpose, and so is what it says about " +
             "the law. Section 16 of the DPDP Act permits transfer outside India except " +
             "to countries the Central Government notifies as restricted, and no such " +
-            "list has been notified — but that section does not commence until 13 May " +
-            "2027, so it is the absence of a restriction rather than a permission you " +
-            "can point at today. Until then the Information Technology Act 2000 and the " +
+            "list has been notified — but that section does not commence until the " +
+            "middle of May 2027 (section 12.1 explains why we give that as a period " +
+            "rather than a day), so it is the absence of a restriction rather than a " +
+            "permission you can point at today. Until then the Information Technology Act 2000 and the " +
             "2011 sensitive-personal-data rules govern, and they do carry a transfer " +
             "test: comparable protection at the destination, plus either consent or " +
             "necessity for a contract. The Data Processing Addendum sets out how we meet " +
