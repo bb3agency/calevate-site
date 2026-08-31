@@ -88,6 +88,7 @@ from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
+from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
     dispatch_outbox,
@@ -222,6 +223,25 @@ CRON_JOBS = [
     # that gives up on its first transient database error is silent for exactly as long
     # as the incident it exists to report. Half an hour of that is not free.
     cron(traced_job(report_stalled_pipeline), minute={5, 35}, max_tries=WORKER_MAX_TRIES),
+    # THE COPILOT'S SEMANTIC DISTILLATION (migration d4a9c17e6b02). Hourly at :25, which is
+    # clear of the poller (:00/:10/...), `report_stalled_pipeline` (:05/:35) and
+    # `reconcile_outstanding_calls` (:15/:45), so no two O(tenants) fan-outs share a minute.
+    #
+    # A CRON AND NOT AN ENQUEUE, deliberately: an enqueue per copilot turn would be a paid
+    # model call per turn, which is the cost this whole job exists to keep OFF the live
+    # path. `copilot_memory.MAX_GROUPS_PER_TICK` times 24 is therefore the most calls this
+    # feature can make in a day, and the cadence IS the spend rate.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason — `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. Retrying is
+    # safe: the job is idempotent on `copilot_memories.distilled_at`, stamped in the same
+    # transaction as the rows it produced, so a re-run finds nothing rather than paying
+    # twice for the same conversation.
+    cron(
+        traced_job(distil_copilot_memories),
+        minute={DISTILL_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE OTHER HALF OF THE GUARANTEE (D-242). `reconcile_executions` above can only see
     # what `list_executions` returns, and that listing is filtered on when an execution
     # was CREATED — so a call that runs longer than the 30-minute window has fallen out of

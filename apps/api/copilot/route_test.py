@@ -486,20 +486,30 @@ async def test_an_answer_the_provider_did_not_count_is_unmetered_and_never_zero(
     assert alerts == ["ai_assist_unmeterable"]
 
 
-# --- 6. nothing is persisted --------------------------------------------------------------
+# --- 6. exactly ONE table is persisted to ---------------------------------------------------
 
 
-async def test_the_conversation_leaves_no_row_anywhere(
+async def test_the_conversation_lands_in_copilot_memories_and_nowhere_else(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`crm/assist.py:10-31` declines to store transcript-derived prose so DPDP erasure and
-    retention gain no new surface; a copilot conversation table would re-open that decision
-    for text a person typed about their own screen.
+    """**THIS TEST USED TO ASSERT THAT NOTHING WAS PERSISTED AT ALL, AND THAT INVARIANT IS
+    GONE ON PURPOSE (migration d4a9c17e6b02).** Its ground was `crm/assist.py:10-31` —
+    which declines to store transcript-derived prose so DPDP erasure and retention gain no
+    new surface to enumerate. That was never a prohibition; it was a PRICE, and
+    `copilot/memory.py` pays it: a FORCEd `tenant_isolation` policy, a `copilot_memory`
+    retention category swept nightly, an unconditional DELETE in the tenant-erasure path,
+    and `redact()` on every string before it reaches a column
+    (`tests/copilot_memory_test.py`, `tests/copilot_memory_lifecycle_test.py`).
 
-    FAILS IF: somebody adds a `copilot_conversations` table, or writes the question into an
-    existing one. Checked by scanning EVERY tenant-scoped table for the question's own
-    words rather than by naming the tables this feature was expected to leave alone — the
-    latter cannot see a table that did not exist when the test was written.
+    What survives is the half that was doing the work, and it is now SHARPER rather than
+    weaker: the copilot's content may land in `copilot_memories` and in NO OTHER TABLE.
+    Scanned across every text-ish column in the schema rather than by naming the tables
+    this feature was expected to leave alone — the latter cannot see a table that did not
+    exist when the test was written, which is the whole reason the scan is written this
+    way.
+
+    FAILS IF: somebody writes the question into a second table, or into an existing one —
+    each of which would be a surface the erasure arm and the retention clock do not cover.
     """
     tenant_id, slug, token = await _make_tenant()
     marker = f"marker-{uuid.uuid4().hex[:12]}"
@@ -540,6 +550,12 @@ async def test_the_conversation_leaves_no_row_anywhere(
                     {"m": f"%{marker}%"},
                 )
             ).scalar()
+            if (table, column) == ("copilot_memories", "content"):
+                # THE ONE PLACE IT IS ALLOWED TO BE, and asserted POSITIVELY rather than
+                # skipped: a `continue` here would also pass on the day the write silently
+                # stopped happening, which is a memory feature that remembers nothing.
+                assert found == 1, "the exchange must be remembered exactly once"
+                continue
             assert found == 0, f"{table}.{column} kept copilot content"
 
 

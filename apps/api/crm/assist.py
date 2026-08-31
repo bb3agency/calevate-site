@@ -133,6 +133,18 @@ ASSIST_FEATURE_SCRIPT_DRAFT: Final = "script_draft"
 #: precisely the row an operator will want to be able to isolate.
 ASSIST_FEATURE_COPILOT: Final = "copilot"
 
+#: `usage_events.meta.feature` for the copilot's SEMANTIC DISTILLATION worker
+#: (`apps/workers/copilot_memory.py`) — the hourly job that reads a finished console
+#: conversation back to a model and extracts durable facts about the business.
+#:
+#: A FOURTH name, and the split matters more here than between the three above: this is the
+#: only AI spend on the platform that NO CLIENT ACTION TRIGGERS. It runs on a cron, against
+#: a budget this product sets, and an operator asking "what did we spend on the client's
+#: behalf versus what did they ask for" cannot answer it if background work is filed under
+#: the interactive surface's name. It is metered (hard rule 7 — a call that spent our
+#: credential is recorded) and it is metered SEPARATELY.
+ASSIST_FEATURE_COPILOT_MEMORY: Final = "copilot_memory_distillation"
+
 
 class MeterableAssist(Protocol):
     """The two things `meter_assist` needs from a completed assist, whatever the surface.
@@ -427,6 +439,7 @@ async def meter_assist(
 
 __all__ = [
     "ASSIST_FEATURE_COPILOT",
+    "ASSIST_FEATURE_COPILOT_MEMORY",
     "ASSIST_FEATURE_RESUMMARISE",
     "ASSIST_FEATURE_SCRIPT_DRAFT",
     "AssistMetering",
