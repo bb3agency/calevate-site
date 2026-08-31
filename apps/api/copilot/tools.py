@@ -369,7 +369,11 @@ async def _agents_list(session: AsyncSession, args: Mapping[str, Any]) -> str:
         )
         for agent in rows
     ]
-    return _clean(_listing(lines, shown_of="agents (excluding the archive)"))
+    # `shown_of` stays one word: `_listing` composes it into both "N agents:" and
+    # "Showing N agents (there may be more):", and a parenthesis inside it lands inside
+    # another parenthesis in the second. That the archive is excluded is in the tool's
+    # DESCRIPTION, which the model reads before it calls and which costs nothing per row.
+    return _clean(_listing(lines, shown_of="agents"))
 
 
 # --- the registry ---------------------------------------------------------------------
