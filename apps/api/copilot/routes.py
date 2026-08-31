@@ -62,7 +62,9 @@ log = get_logger(__name__)
 router = APIRouter(prefix="/v1", tags=["copilot"])
 
 _DESCRIPTION = """\
-Answers a question about the screen the caller is on, and can fill that screen's form
+Answers a question about the screen the caller is on, answers questions about the
+account's own business by reading it (calls, leads, campaigns, performance — read-only,
+under the caller's own permissions and RLS scope), and can fill that screen's form
 fields. Streams `text/event-stream`:
 
 * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
@@ -198,6 +200,13 @@ async def ask_copilot(
             # ever learns to answer instead of raise.
             tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
+            # WHO IS ASKING, for the read tools. The tenant id is what scopes the RLS
+            # session each tool opens for itself; the role is what `tools.run_read_tool`
+            # judges against the tool's own permission, BEFORE it opens one. Built from
+            # the verified principal and never from the body — `payload.screen` is a
+            # caller-composed description and is used for the prompt and the audit row,
+            # never for authorization (`schemas.CopilotScreen`).
+            tool_context=service.ToolContext(tenant_id=tenant_id, role=principal.role),
         ):
             if event.text is not None:
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=event.text))
