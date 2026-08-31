@@ -25,6 +25,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import type { Dashboard } from "@/lib/api/client";
+import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -54,6 +55,11 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
   const dashboard = useDashboard(session);
   const usage = useUsage(session);
   const recent = useCalls(session, { limit: 6 });
+  // The triage queue's size — same query key the header bell reads, so this costs no
+  // extra request. The dashboard is the daily entry point and used to never link to
+  // the one list with a time cost attached to ignoring it (ux-audit D2). Renders
+  // nothing until the server answers, and nothing on zero — exactly as the bell does.
+  const attention = useAttention(session);
 
   if (dashboard.isLoading) {
     return (
@@ -93,6 +99,22 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="space-y-6 pb-12">
+      {/* Only when something IS waiting: a zero here is noise, an unanswered read is
+          not evidence of an all-clear, and both render nothing (the HoldsBanner rule). */}
+      {attention.data && attention.data.total > 0 && (
+        <Link
+          href={href(`/c/${slug}/attention`)}
+          className="flex items-center justify-between gap-3 rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+        >
+          <span>
+            <span className="font-semibold tabular-nums">{formatCount(attention.data.total)}</span>{" "}
+            {attention.data.total === 1 ? "thing needs" : "things need"} your attention —
+            things we stopped on purpose, each with the reason and the fix.
+          </span>
+          <span className="shrink-0 font-medium underline">Open the list</span>
+        </Link>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Calls today"
@@ -320,6 +342,37 @@ function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
   const busiest = Math.max(...days.map((day) => day.total));
   return (
     <div>
+      {/* The four-way split existed ONLY in the bars' `title` tooltips — mouse users
+          got it, keyboard and screen-reader users got nothing (ux-audit D1). The
+          rendered chart is aria-hidden and this table is its text alternative; the
+          numbers are the same `daily_7d` rows, not a second computation. */}
+      <table className="sr-only">
+        <caption>Calls each day for the last 7 days, by outcome</caption>
+        <thead>
+          <tr>
+            <th scope="col">Day</th>
+            <th scope="col">Total</th>
+            {DAY_CLASSES.map((cls) => (
+              <th key={cls.key} scope="col">
+                {cls.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {days.map((day) => (
+            <tr key={day.ist_date}>
+              <th scope="row">{formatDayLabel(day.ist_date)}</th>
+              <td>{day.total}</td>
+              {DAY_CLASSES.map((cls) => (
+                <td key={cls.key}>{day[cls.key]}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div aria-hidden="true">
       <div className="mb-6 flex flex-wrap items-center gap-4 text-xs font-medium text-ink-muted">
         {DAY_CLASSES.map((cls) => (
           <span key={cls.key} className="flex items-center gap-1.5">
@@ -353,6 +406,7 @@ function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
             </span>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );
