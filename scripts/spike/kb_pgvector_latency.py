@@ -24,14 +24,35 @@ WHAT IT DOES AND DOES NOT MEASURE.
   mildly pessimistic (a random graph gives HNSW no cluster structure to exploit). For
   RECALL it is meaningless, and this harness therefore reports NO recall figure.
 
-SAFETY. It builds a throwaway database and refuses to touch `calevate`. It also refuses
-to run while a coverage measurement is using the shared server, because both the load and
-the HNSW build are heavy enough to move somebody else's numbers.
+SAFETY. It builds a throwaway database and refuses to touch `calevate`. On the SHARED dev
+Postgres it also refuses to run at all while a coverage measurement is scoring that server,
+because both the bulk load and the HNSW build are heavy enough to move somebody else's
+numbers and turn their CI red for a reason invisible in their diff.
 
-RERUN:
+RERUN, on the shared server:
 
     make up   # if the shared Postgres is not already listening on 5433
     /home/user/calevate-site/.venv/bin/python -m scripts.spike.kb_pgvector_latency
+
+RERUN, on a PRIVATE cluster — which is what was actually used for the figures in the
+report, because the shared server was busy with back-to-back coverage runs for the whole
+session. Nothing here touches the shared Postgres, so the guard above does not apply:
+
+    mkdir -p /var/tmp/kbspike && chown postgres:postgres /var/tmp/kbspike
+    su postgres -c "/usr/lib/postgresql/16/bin/initdb -D /var/tmp/kbspike/data \
+        -U calevate --auth=trust"
+    su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/tmp/kbspike/data \
+        -o '-p 55432 -k /var/tmp/kbspike' -l /var/tmp/kbspike/log start"
+    /home/user/calevate-site/.venv/bin/python -m scripts.spike.kb_pgvector_latency \
+        --dsn postgresql://calevate@127.0.0.1:55432/postgres
+
+    # afterwards
+    su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/tmp/kbspike/data stop"
+    rm -rf /var/tmp/kbspike
+
+⚠ A private cluster removes DATABASE contention, not CPU contention. This machine has 4
+cores and the siblings' suites keep it oversubscribed, so record `/proc/loadavg` alongside
+any figure — the harness prints it — and read a number taken under load as an UPPER BOUND.
 
 Full options: `--help`. The defaults are the ones whose output is quoted in
 `docs/evidence/kb-retrieval-bakeoff.md`; change one and you are reporting a different
@@ -43,6 +64,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import statistics
 import subprocess
@@ -63,7 +85,8 @@ except ModuleNotFoundError:  # pragma: no cover - spike, not app code
     )
 
 # The shared dev Postgres. Port 5433 because 5432 is another project's (docker-compose.yml:35).
-DEFAULT_DSN = "postgresql://calevate:calevate@localhost:5433/postgres"
+_SHARED_PORT = 5433
+DEFAULT_DSN = f"postgresql://calevate:calevate@localhost:{_SHARED_PORT}/postgres"
 PROTECTED_DATABASES = frozenset({"calevate", "postgres", "template0", "template1"})
 SPIKE_DB = "kb_spike_pgvector"
 
@@ -82,6 +105,10 @@ RRF_K = 60
 CANDIDATE_DEPTH = 20
 
 TOP_K = 3
+
+#: The HNSW index is named so EXPLAIN can be attributed to an access method. See
+#: `_build_corpus` for the misreading that made this necessary.
+HNSW_INDEX = "kb_chunks_hnsw"
 
 # A small vocabulary produces documents that actually share terms, which is what makes the
 # sparse arm do work rather than match nothing. Word salad with no overlap would measure an
@@ -221,23 +248,43 @@ def _percentile(ordered: list[float], q: float) -> float:
     return ordered[rank - 1]
 
 
-def _refuse_if_measurement_running(force: bool) -> None:
-    """The shared Postgres may be mid-coverage-run; this load would corrupt that reading.
+def _refuse_if_measurement_running(dsn: str, force: bool) -> None:
+    """Refuse to add load to the SHARED dev Postgres while a coverage run is scoring it.
 
-    Deliberately a refusal rather than a warning: the failure it prevents is somebody
-    else's CI going red for a reason invisible in their diff.
+    Scoped to the shared server rather than applied blindly, and the distinction is the
+    whole point: the harm this prevents is somebody else's CI going red for a reason
+    invisible in their diff, and that harm only exists on the server their suite is using.
+    A private cluster (see `--dsn`, and the recipe in the module docstring) is nobody
+    else's, so refusing there would block the one escape hatch that makes this measurable
+    while the shared server is busy.
+
+    Deliberately a refusal rather than a warning on the server it does guard.
     """
-    if force:
+    if force or f":{_SHARED_PORT}/" not in dsn:
         return
     probe = subprocess.run(
         ["pgrep", "-f", "coverage run -m pytest"], capture_output=True, text=True, check=False
     )
     if probe.returncode == 0:
         sys.exit(
-            "REFUSING: a coverage measurement is running against the shared Postgres. "
-            "Wait for `pgrep -f 'coverage run -m pytest'` to return nothing, or pass "
-            "--force if you know the server is yours."
+            f"REFUSING: a coverage measurement is running against the shared Postgres on "
+            f"port {_SHARED_PORT}. Either wait for `pgrep -f 'coverage run -m pytest'` to "
+            f"return nothing, or measure on a private cluster instead — the module "
+            f"docstring has the three commands that build one. --force overrides."
         )
+
+
+def _loadavg() -> str:
+    """1/5/15-minute load average, recorded beside every figure.
+
+    This machine has 4 cores and sibling suites keep it oversubscribed, so a latency
+    number without the load it was taken under is uninterpretable. Recording it makes a
+    contended run honest — an UPPER BOUND — instead of silently wrong.
+    """
+    try:
+        return " ".join(f"{value:.2f}" for value in os.getloadavg())
+    except OSError:  # pragma: no cover - spike, not app code
+        return "unavailable"
 
 
 def _random_vector_literal(rng: random.Random) -> str:
@@ -335,8 +382,12 @@ def _build_corpus(
     # also has no build-time minimum row count, which an SMB corpus of a few hundred chunks
     # would otherwise trip. DATA-MODEL.md:351 had already chosen HNSW; this spike measures
     # that choice rather than reopening it.
+    # Named rather than auto-named, so the plan can be attributed. Postgres would call it
+    # `kb_chunks_embedding_idx`, which reads in EXPLAIN as an ordinary "Index Scan using
+    # kb_chunks_embedding_idx" and says nothing about the access method — the first run of
+    # this harness reported "HNSW: False" for a plan that was in fact using it.
     started = time.perf_counter()
-    conn.execute("CREATE INDEX ON kb_chunks USING hnsw (embedding vector_cosine_ops)")
+    conn.execute(f"CREATE INDEX {HNSW_INDEX} ON kb_chunks USING hnsw (embedding vector_cosine_ops)")
     build_seconds = time.perf_counter() - started
 
     conn.execute("VACUUM ANALYZE kb_chunks")
@@ -526,7 +577,13 @@ def _measure_filter_yield(
         yields.append(len(rows))
     return {
         "dense_plan": plan,
-        "used_hnsw": "hnsw" in plan.lower(),
+        # Attribution by INDEX NAME, not by the word "hnsw": an ordinary
+        # `Index Scan using <name>` names the index and never the access method, so a
+        # substring search for "hnsw" reports a false negative on the one plan that
+        # matters. A `Sort` node here means Postgres chose EXACT nearest-neighbour over
+        # the approximate index, which is a better answer rather than a worse one.
+        "used_hnsw": HNSW_INDEX in plan,
+        "exact_scan": "Sort" in plan,
         "requested_depth": CANDIDATE_DEPTH,
         "trials": trials,
         "min_returned": min(yields),
@@ -561,7 +618,7 @@ def _query_params_factory(
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    _refuse_if_measurement_running(args.force)
+    _refuse_if_measurement_running(args.dsn, args.force)
     spike_dsn = _create_spike_database(args.dsn, args.database)
     results: dict[str, Any] = {
         "embedding_dim": EMBEDDING_DIM,
@@ -569,6 +626,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "candidate_depth": CANDIDATE_DEPTH,
         "rrf_k": RRF_K,
         "iterations": args.iterations,
+        "cores": os.cpu_count(),
+        "loadavg_at_start": _loadavg(),
         "shapes": [],
     }
 
@@ -579,6 +638,21 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
         ).fetchone()[0]  # type: ignore[index]
         results["hnsw_ef_search"] = conn.execute("SHOW hnsw.ef_search").fetchone()[0]  # type: ignore[index]
+        # The server settings that decide whether these figures are optimistic or
+        # pessimistic, captured rather than assumed. A stock `initdb` gives 128MB of
+        # shared_buffers and 64MB of maintenance_work_mem, which for a 1024-dim corpus of
+        # any size means the table does not fit in cache and the HNSW graph does not fit in
+        # the build memory. Numbers taken under those settings are an UPPER BOUND: a tuned
+        # server does better, never worse. Reporting them without the settings would be
+        # reporting a number nobody could reproduce or interpret.
+        for setting in (
+            "shared_buffers",
+            "maintenance_work_mem",
+            "work_mem",
+            "max_parallel_maintenance_workers",
+            "effective_cache_size",
+        ):
+            results[setting] = conn.execute(f"SHOW {setting}").fetchone()[0]  # type: ignore[index]
         conn.execute("DROP EXTENSION vector")
 
     for tenants, agents, per_agent in args.shape:
@@ -602,6 +676,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "total_chunks": tenants * agents * per_agent,
                 "hnsw_build_seconds": round(build_seconds, 2),
                 "total_relation_bytes": size,
+                "loadavg": _loadavg(),
                 "filter_yield": _measure_filter_yield(conn, params, trials=args.iterations),
                 "samples": [
                     asdict(
@@ -655,6 +730,7 @@ def _print_shape(shape: dict[str, Any]) -> None:
         f"{yielded['trials_below_top_k']} below top_k={TOP_K}"
     )
     print(f"dense plan uses HNSW: {yielded['used_hnsw']} | {yielded['dense_plan'][:160]}")
+    print(f"loadavg during this shape: {shape['loadavg']}")
 
 
 def _shape(raw: str) -> tuple[int, int, int]:
