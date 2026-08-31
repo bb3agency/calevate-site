@@ -407,7 +407,7 @@ def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
 
 
 async def _answer_via_sarvam(
-    payload: CopilotAskIn, capability: AssistCapability
+    payload: CopilotAskIn, capability: AssistCapability, *, live: str = ""
 ) -> AsyncIterator[CopilotEvent]:
     """The disclosed fallback: one non-streamed answer, in prose, with NO tools.
 
@@ -441,7 +441,10 @@ async def _answer_via_sarvam(
         # nothing, which is the one failure mode worse than saying no. The correction goes
         # LAST rather than into the shared prompt, so the cacheable prefix stays byte
         # identical for the leg that has a cache (`prompt.py`, point 1).
-        [*prompt_module.build_messages(payload), {"role": "system", "content": _NO_TOOL_NOTE}],
+        [
+            *prompt_module.build_messages(payload, live),
+            {"role": "system", "content": _NO_TOOL_NOTE},
+        ],
         timeout_s=STREAM_IDLE_S,
         temperature=0.2,
         # The same safety valve as the Azure turn. `max_tokens` is on Sarvam's own
@@ -602,6 +605,7 @@ async def _run_tool_loop(
     turn: _TurnRunner,
     model: str | None,
     tool_context: ToolContext | None = None,
+    live: str = "",
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
@@ -627,7 +631,7 @@ async def _run_tool_loop(
     been emitted, and inventing a second round after a person has already been shown a
     change is the "second chance to change what they were shown" that
     `test_a_valid_set_fields_stops_the_loop_immediately` exists to forbid."""
-    messages = prompt_module.build_messages(payload)
+    messages = prompt_module.build_messages(payload, live)
     tools = tool_array()
     turns: list[chat.ChatOutcome] = []
     refusal: FillRefusedError | None = None
@@ -755,6 +759,7 @@ async def run_copilot(
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
     tool_context: ToolContext | None = None,
+    live: str = "",
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -784,6 +789,11 @@ async def run_copilot(
     refuses; the tools are still OFFERED, because the tool array must not vary by caller
     (`tool_array`). In production it is never None: `routes.py` builds it from a principal
     whose `tenant_id` it has already asserted.
+    `live` is the rendered LIVE BUSINESS STATE block (`copilot/context.py`), composed by the
+    route in its own short session BEFORE this runs, and passed in for the third time for
+    the same reason: this module holds no connection across a provider call and is not about
+    to open one. `""` — the default, and what a degraded snapshot produces — means the model
+    sees the screen alone, which is exactly what it saw before that module existed.
     """
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
@@ -815,6 +825,7 @@ async def run_copilot(
                     turn=turn,
                     model=model,
                     tool_context=tool_context,
+                    live=live,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
@@ -832,7 +843,7 @@ async def run_copilot(
         if not capability.available:
             raise assist_unavailable(capability)
 
-    async for event in _answer_via_sarvam(payload, capability):
+    async for event in _answer_via_sarvam(payload, capability, live=live):
         yield event
 
 
