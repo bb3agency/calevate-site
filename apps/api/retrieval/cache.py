@@ -20,15 +20,16 @@ the instant the stamp changes; they then expire on their own TTL.
 
 The cost of that choice, stated plainly: the epoch read happens BEFORE the cache lookup, so
 a hit is one small indexed Postgres read plus one Redis round trip, not a Redis round trip
-alone. Both halves are measured in `cache_latency_test.py` and reported separately, because
-a provider whose own epoch is free would pay only the second.
+alone. Both halves are measured in `tests/retrieval_latency_test.py` and reported
+separately, because a provider whose own epoch is free would pay only the second.
 
 The TTL is the SECOND line of defence and not the first: it bounds how long a stamp that
 somehow failed to change can serve, and it bounds the memory a departed tenant occupies.
 
 **TENANCY.** The tenant id is the first element of every key after the prefix, so a key is
-addressable only by a caller that already holds that tenant id — and `cache_tenancy_test.py`
-proves two tenants asking the identical question in the identical words compute two
+addressable only by a caller that already holds that tenant id — and
+`tests/retrieval_tenancy_test.py` proves two tenants asking the identical question in the
+identical words compute two
 different keys and cannot read each other's value. There is no shared or global entry in
 this keyspace at all; that is not an optimisation left on the table, it is the property.
 

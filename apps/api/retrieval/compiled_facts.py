@@ -65,7 +65,7 @@ PROVIDER_NAME: Final = "compiled-facts"
 #:
 #: `per_tenant_namespace` is True and it is not a courtesy: this adapter reads under an RLS
 #: session AND filters on `tenant_id` in the statement, so one tenant's question cannot
-#: address another's rows by any route (`compiled_facts_rls_test.py` proves it both ways).
+#: address another's rows by any route (`tests/retrieval_tenancy_test.py` proves it both ways).
 #: `deletion_proof` is True for the same structural reason — there is no second copy to
 #: prove anything about; deleting the knowledge and re-publishing removes it from the block,
 #: which is the whole of the store.

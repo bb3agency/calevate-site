@@ -103,7 +103,7 @@ def test_the_tenant_is_the_first_element_and_is_not_hashed() -> None:
 
 def test_two_tenants_asking_the_identical_question_get_different_keys() -> None:
     """THE CROSS-TENANT PROOF AT THE KEY LEVEL (hard rule 1). The Redis half —
-    that a write by A is not readable by B — is `cache_tenancy_test.py`."""
+    that a write by A is not readable by B — is `tests/retrieval_tenancy_test.py`."""
     question = "what are your opening hours"
     assert cache_key(_request(question), epoch="1:3") != cache_key(
         _request(question, tenant_id=TENANT_B), epoch="1:3"

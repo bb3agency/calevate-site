@@ -1,4 +1,4 @@
-"""The T0 ranker, without a database. The tenancy half is `compiled_facts_rls_test.py`."""
+"""The T0 ranker, without a database. The tenancy half is `tests/retrieval_tenancy_test.py`."""
 
 from __future__ import annotations
 

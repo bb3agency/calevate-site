@@ -82,6 +82,14 @@ DEGRADED_NOTE: Final = (
 MAX_PASSAGES: Final = 4
 MAX_PASSAGE_CHARS: Final = 400
 
+#: TRUNCATED RATHER THAN REFUSED, and this is the one place in this package where that is
+#: the right way round. `RetrievalRequest.question` is bounded at 2000 characters (D-302),
+#: and the argument arrives from a MODEL — so an over-long question is a generation quirk,
+#: not a caller mistake somebody could act on. Refusing would raise a ValidationError
+#: through a stream a person is reading, to punish nobody. Kept in step with the port's own
+#: ceiling by being the same number.
+MAX_QUESTION_CHARS: Final = 2000
+
 #: What the loop calls: a question in, the tool's reply text out. A CALLABLE rather than an
 #: object because it is one function of one argument, and because the loop must be able to
 #: run with `None` — the Sarvam fallback leg has no tools at all (`service.
@@ -154,7 +162,7 @@ def knowledge_lookup(tenant_id: UUID) -> KnowledgeLookup:
         # Invisible characters out on the way IN as well as out: the question is model
         # output, it becomes a Redis key and a SQL parameter, and `strip_invisible` is
         # already this package's answer to that (`sanitize.py`).
-        cleaned = strip_invisible(question).strip()
+        cleaned = strip_invisible(question).strip()[:MAX_QUESTION_CHARS]
         if not cleaned:
             return NOTHING_FOUND
         async with tenant_session(tenant_id) as session:

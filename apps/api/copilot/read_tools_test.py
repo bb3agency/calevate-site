@@ -1,5 +1,5 @@
 """The copilot's read tool: its schema, its stop condition, and what it says when it cannot
-answer. The database half is `apps/api/retrieval/copilot_lookup_test.py`.
+answer. The database half is `tests/retrieval_copilot_tool_test.py`.
 """
 
 from __future__ import annotations
