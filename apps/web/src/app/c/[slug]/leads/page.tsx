@@ -54,6 +54,7 @@ import { FacetPanel } from "./FacetPanel";
 import { InlineName } from "./InlineName";
 import { RowFailure } from "./RowFailure";
 import { SavedViewBar } from "./SavedViewBar";
+import { STATUSES, StatusSelect } from "./StatusSelect";
 
 /**
  * The CRM table — every lead an agent captured, and the one place a client works them.
@@ -102,9 +103,6 @@ import { SavedViewBar } from "./SavedViewBar";
  * export button says out loud what it downloads.
  */
 
-/** Fixed enum (D-21): clients cannot add statuses, because analytics and the hot-lead
- *  rules key off exactly these values. */
-const STATUSES: LeadStatus[] = ["new", "contacted", "interested", "hot", "won", "lost"];
 
 /** Two ways to look at the same leads: the table for scanning detail columns, the
  *  board for working the pipeline stage by stage (parity with what competitors ship). */
@@ -1116,35 +1114,6 @@ function CallControl({
  *  views go through exactly the same mutation (useUpdateLeadStatus). The label names
  *  the LEAD: a screen reader meeting a hundred selects called "status" cannot tell
  *  which row it is on. */
-function StatusSelect({
-  value,
-  label,
-  disabled,
-  onChange,
-  className,
-}: {
-  value: LeadStatus;
-  label: string;
-  disabled: boolean;
-  onChange: (next: LeadStatus) => void;
-  className: string;
-}) {
-  return (
-    <select
-      value={value}
-      aria-label={label}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value as LeadStatus)}
-      className={className}
-    >
-      {STATUSES.map((s) => (
-        <option key={s} value={s}>
-          {s}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 function cellValue(lead: Lead, key: string): string {
   // `lookup`, not `data[key]`: `data` arrives from JSON.parse and therefore inherits

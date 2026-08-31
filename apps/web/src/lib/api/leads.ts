@@ -29,9 +29,12 @@
 import { useCallback, useState } from "react";
 import {
   keepPreviousData,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
 
@@ -80,11 +83,27 @@ export function useLeadTimeline(
   session: Session,
   leadId: string,
   limit = 50,
-): UseQueryResult<LeadTimeline> {
-  return useQuery({
+): UseInfiniteQueryResult<InfiniteData<LeadTimeline>> {
+  // Infinite, paged by offset, because the history used to STOP at the newest 50 with an
+  // honest sentence about an unreachable remainder (ux-audit LD4) — for a repeat caller
+  // the origin of the relationship is exactly the part that was cut off. The server
+  // validates limit at 1..100 and takes an offset; the page's LoadMore drives
+  // `fetchNextPage`. Rows are deduped by id at the render (newest-first + offset means a
+  // new event landing mid-read can shift a row across a page boundary).
+  return useInfiniteQuery({
     queryKey: ["lead-timeline", session.orgSlug, leadId, limit],
-    queryFn: () =>
-      apiRequest<LeadTimeline>(session, `/v1/leads/${leadId}/timeline${query({ limit })}`),
+    queryFn: ({ pageParam }) =>
+      apiRequest<LeadTimeline>(
+        session,
+        `/v1/leads/${leadId}/timeline${query({ limit, offset: pageParam || undefined })}`,
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((n, page) => n + page.items.length, 0);
+      // The server's `total` is the whole history; an empty page means the offset ran
+      // off the end (rows were deleted under us) and asking again would loop.
+      return loaded < lastPage.total && lastPage.items.length > 0 ? loaded : undefined;
+    },
     enabled: Boolean(leadId),
   });
 }
