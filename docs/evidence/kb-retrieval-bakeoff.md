@@ -38,6 +38,17 @@ work. Choosing between the stores on in-call latency is therefore choosing on th
 term. **That hop has never been measured** — the probe exists and has never been run
 (§2.4).
 
+**And the obvious escape hatch is closed by the thing that makes this product what it is.**
+The vendor does sell Indian residency — "call processing runs on servers in `ap-south-1`
+(Mumbai)" — which would put the orchestrator beside our VPS and shrink the hop to nothing.
+But their own requirements for it say "Do not connect your own API keys for the
+transcriber, synthesizer, or LLM providers", and state the consequence outright: "If you
+connect your own API keys for any provider … calls will automatically route through US
+servers regardless of other configuration settings"
+(`bolna-findings/mirror/pages/enterprise/indian-server-configuration.md:65,68`). **BYOK on
+all three legs is what this product IS**, so the hop cannot be bought away without giving
+up the architecture. It is a fixed cost of the current design, not a procurement item.
+
 **2. The store component is not the problem, and now there is a number instead of an
 argument.** On the contingency schema this repository already specified, a hybrid RRF
 top_k=3 query over a realistic SMB corpus runs in **single-digit milliseconds** (§2). At
@@ -534,7 +545,8 @@ this is exactly the sentence someone writes when they are about to run a vector 
   comes back with an engine→endpoint p95 that leaves real room inside 100ms, in-call
   retrieval becomes live again and a managed vendor's in-pipeline story is worth its
   paperwork. This is the single measurement most likely to move the decision, and it needs
-  one live call.
+  one live call. (Note what would NOT achieve it: buying the vendor's Indian residency,
+  which their own requirements forfeit the moment we connect our own model keys — §0.1.)
 * **A managed vendor offers per-tenant isolation the query layer enforces without our code
   passing a filter** — a scoped credential per tenant, so a leak requires stealing a
   credential rather than forgetting a WHERE clause. That would neutralise reason 1, which
