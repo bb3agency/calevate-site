@@ -3854,40 +3854,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/kb/proposals": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Draft a knowledge entry for review — writes nothing, returns a signed token */
-        post: operations["propose_knowledge_v1_kb_proposals_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/kb/proposals/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm a suggestion — enters the SAME review queue, still NOT live */
-        post: operations["confirm_knowledge_proposal_v1_kb_proposals_confirm_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/kb/sources": {
         parameters: {
             query?: never;
@@ -6618,11 +6584,6 @@ export interface components {
             previous: string | boolean | number | null;
             /** Recorded */
             recorded: boolean;
-        };
-        /** ConfirmIn */
-        ConfirmIn: {
-            /** Token */
-            token: string;
         };
         /**
          * ConsentProvenanceIn
@@ -10749,56 +10710,6 @@ export interface components {
         PromptWrittenOut: {
             /** Version */
             version: number;
-        };
-        /** ProposeIn */
-        ProposeIn: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Body */
-            body: string;
-            /** Name */
-            name: string;
-            /**
-             * Origin
-             * @enum {string}
-             */
-            origin: "gap_digest" | "copilot";
-            /** Topic Key */
-            topic_key?: string | null;
-        };
-        /**
-         * ProposeOut
-         * @description The draft and the token that could execute it. `token` is NOT a credential for
-         *     anything else: it is bound to this tenant, this person and this one draft, it expires,
-         *     and it can be spent once.
-         */
-        ProposeOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Body */
-            body: string;
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-            /** Name */
-            name: string;
-            /**
-             * Origin
-             * @enum {string}
-             */
-            origin: "gap_digest" | "copilot";
-            /** Token */
-            token: string;
-            /** Topic Key */
-            topic_key: string | null;
         };
         /** ProvisionNumberIn */
         ProvisionNumberIn: {
@@ -19572,72 +19483,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvitationOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    propose_knowledge_v1_kb_proposals_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProposeIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProposeOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    confirm_knowledge_proposal_v1_kb_proposals_confirm_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ConfirmIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubmitOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
