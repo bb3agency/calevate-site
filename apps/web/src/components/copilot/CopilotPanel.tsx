@@ -10,6 +10,8 @@ import type { Session } from "@/lib/api/client";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
 
+import { ProposalCard } from "./ProposalCard";
+
 /**
  * The assistant's panel: the transcript, the ask box, what it filled in, and the one Undo.
  *
@@ -121,11 +123,18 @@ export function CopilotPanel({
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
+        {/* THE SECOND SENTENCE USED TO SAY "it never saves anything", AND THAT STOPPED
+            BEING TRUE when the write tools shipped: it can now offer to change a lead's
+            status, suppress a number or pause a campaign. It still cannot DO any of them
+            on its own — every one arrives as a suggestion with a Confirm button — and
+            that is the promise this copy has to make instead, because a person who was
+            told nothing can ever be saved will not read the card before clicking. */}
         {conversation.turns.length === 0 && conversation.streaming === null && (
           <p className="text-xs text-ink-muted">
             It can see the {surface.fields.length} fields on this screen and can fill them
-            in for you. It never saves anything — you still press the screen&apos;s own
-            save button.
+            in for you — nothing is saved until you press the screen&apos;s own save
+            button. If it suggests a change to your leads or campaigns, it asks you to
+            confirm first and does nothing until you do.
           </p>
         )}
 
@@ -150,6 +159,28 @@ export function CopilotPanel({
             ) : (
               <p className="whitespace-pre-wrap text-ink">{conversation.streaming}</p>
             ))}
+        </div>
+
+        {/* A CHANGE THE ASSISTANT IS OFFERING TO MAKE — not one it has made.
+            `aria-live="polite"` on the wrapper rather than focus management on the card:
+            the card must announce itself when it arrives, and it must NOT pull the
+            keyboard out of the ask box to do it. This panel is deliberately not a focus
+            trap (see the header) precisely so a person can keep working beside it, and a
+            suggestion that stole the caret would undo that. The card moves focus exactly
+            once, after a confirm resolves, because the control the person was standing on
+            is gone by then. */}
+        <div aria-live="polite">
+          {conversation.proposal !== null && (
+            <ProposalCard
+              // Keyed by the token so a SECOND proposal in the same conversation gets a
+              // fresh card: the confirm mutation's own state lives inside, and a reused
+              // component would show the previous change's outcome under the new offer.
+              key={conversation.proposal.token}
+              session={session}
+              proposal={conversation.proposal}
+              onDismiss={conversation.dismissProposal}
+            />
+          )}
         </div>
 
         {batch !== null && (

@@ -135,3 +135,42 @@ export interface CopilotSurface {
 export function asText(value: CopilotFillItem["value"]): string {
   return value === null ? "" : String(value);
 }
+
+/**
+ * A described, server-signed intent — the `proposal` SSE frame, unchanged.
+ *
+ * **NOTHING HAS HAPPENED WHEN ONE OF THESE ARRIVES.** It is the copilot's write surface,
+ * and the whole design is that the write tools cannot mutate anything: they read, they
+ * describe, and they return this (`apps/api/copilot/write_tools.py`). The change happens
+ * only if the person presses Confirm, which posts `token` back — UNCHANGED, and with
+ * nothing beside it — to `POST /v1/copilot/confirm`.
+ *
+ * ## Every string here is the SERVER'S, and the browser composes none of them
+ *
+ * `title`, `summary`, `current` and `proposed` are written server-side from what the tool
+ * READ, not from what the model said it would do. A console that re-derived the sentence
+ * from `tool` and `object_id` would be a second, drifting account of the change, and it
+ * would be the one the person actually approved. So the card renders these verbatim; the
+ * only strings it adds are its own chrome ("Confirm", "Dismiss", "Suggestion").
+ *
+ * `current` is nullable because a tool may have no single value to name; every tool
+ * shipped so far has one, and the pair is what makes the decision informed — "set this to
+ * Hot" is a label, "it is Contacted now, this makes it Hot" is a description.
+ *
+ * `object_id` is an id and never a name or a number (hard rule 6): this crosses the same
+ * wire the answer does. It is not rendered.
+ *
+ * `expires_at` is an ISO instant five minutes after minting. The card disables its own
+ * Confirm at that point rather than letting somebody click into a refusal.
+ */
+export interface CopilotProposal {
+  token: string;
+  tool: string;
+  title: string;
+  summary: string;
+  object_type: string;
+  object_id: string;
+  current: string | null;
+  proposed: string;
+  expires_at: string;
+}

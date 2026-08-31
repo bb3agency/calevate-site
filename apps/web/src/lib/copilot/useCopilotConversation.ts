@@ -7,7 +7,7 @@ import { ApiProblem, type Session } from "@/lib/api/client";
 import { clearFilled, markFilled } from "./highlight";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
-import type { CopilotFillItem } from "./types";
+import type { CopilotFillItem, CopilotProposal } from "./types";
 import type { SurfaceHolder } from "./registry";
 
 /**
@@ -73,10 +73,30 @@ export interface CopilotConversation {
   /** The server's sentence, rendered VERBATIM when present (D-127 G-6). */
   disclosure: string | null;
   batch: CopilotBatch | null;
+  /**
+   * The change the assistant is OFFERING to make, or `null`.
+   *
+   * Held here rather than in the panel for the reason the batch is: it belongs to the
+   * EXCHANGE. A new question replaces it, exactly as a new question ends the previous
+   * batch's Undo — a card left over from two answers ago is an offer about a screen state
+   * nobody is looking at any more, and its token is minutes from expiring regardless.
+   *
+   * At most one is held. The server sends at most one per response, and a second would
+   * REPLACE the first rather than stacking: two open proposals is a person choosing which
+   * of two sentences they are agreeing to, which is the shape this whole design exists to
+   * avoid.
+   */
+  proposal: CopilotProposal | null;
   /** True when the refusal on screen is the AI allowance ceiling (G-5, client realm). */
   atCeiling: boolean;
   ask: (question: string) => void;
   undo: () => void;
+  /**
+   * Take the card off the screen. SENDS NOTHING — a proposal is a JWT the server never
+   * stored, so there is no server-side state to release and nothing to tell it. Doing
+   * nothing is a valid answer to a suggestion, and the token simply stops verifying.
+   */
+  dismissProposal: () => void;
   /** Forget the conversation — used when the surface underneath changes. */
   reset: () => void;
 }
@@ -94,6 +114,7 @@ export function useCopilotConversation(
   const [error, setError] = useState<unknown>(null);
   const [disclosure, setDisclosure] = useState<string | null>(null);
   const [batch, setBatch] = useState<CopilotBatch | null>(null);
+  const [proposal, setProposal] = useState<CopilotProposal | null>(null);
 
   // The in-flight request, so a second question cancels the first rather than
   // interleaving two answers into one bubble.
@@ -116,8 +137,11 @@ export function useCopilotConversation(
     setError(null);
     setDisclosure(null);
     setBatch(null);
+    setProposal(null);
     clearFilled();
   }, []);
+
+  const dismissProposal = useCallback(() => setProposal(null), []);
 
   const undo = useCallback(() => {
     if (batch === null) return;
@@ -140,6 +164,10 @@ export function useCopilotConversation(
       // and the marks come off with it. Leaving them would show an "Undo" that restores
       // values from two answers ago.
       setBatch(null);
+      // …and the previous OFFER goes with it, for the same reason and one more: the card
+      // may be sitting in its confirmed state, and a record of what the last answer did
+      // must not be left standing beside a new one as if it were about that.
+      setProposal(null);
       clearFilled();
       setError(null);
       setDisclosure(null);
@@ -208,6 +236,14 @@ export function useCopilotConversation(
               ids: [...ids],
             });
           },
+          onProposal: (offered) => {
+            // Straight through, unedited. The token is the whole state of the offer and
+            // the prose beside it is the server's; there is nothing for this layer to
+            // restore, merge or normalise — `pass.restore` is deliberately NOT applied,
+            // because a proposal names its target by id and carries no placeholder by
+            // construction (`_plan_dnc_add`: the number never enters the prompt).
+            setProposal(offered);
+          },
           onDone: (done) => {
             setDisclosure(done.disclosure);
           },
@@ -262,9 +298,11 @@ export function useCopilotConversation(
     error,
     disclosure,
     batch,
+    proposal,
     atCeiling,
     ask,
     undo,
+    dismissProposal,
     reset,
   };
 }
