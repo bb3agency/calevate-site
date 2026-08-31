@@ -378,15 +378,16 @@ this is a stronger reading than the one it confirms.
 
 **VERIFIED-SDK** — `line/knowledge_base.py`, read 31 Aug 2026:
 
-* The endpoint is real: `GET {base_url}/agents/{agent_id}/documents/query` with `query` and
-  `top_k` params (default `DEFAULT_TOP_K = 5`), returning `payload.get("results")`, each
-  result "currently shaped as `{"content": str}`" with pass-through deliberate.
+* The endpoint is real: `GET {base_url}/agents/{agent_id}/documents/query` (`:86`) with
+  `query` and `top_k` params (`DEFAULT_TOP_K = 5`, `:14`), returning
+  `payload.get("results")`, each result "currently shaped as `{"content": str}`" with
+  pass-through deliberate.
 * It is **agent-scoped by construction** — the path carries `agent_id` and the auth is
-  `Authorization: Bearer {agent_token}`, an agent-scoped token from the session start
-  message, *not* the account API key. It raises if either is missing.
-* Its timeout defaults to `DEFAULT_TIMEOUT_S = 3.0` and warns above
-  `LONG_TIMEOUT_WARN_S = 10.0`, because "long timeouts can stall the call". This is an
-  in-pipeline tool, so it never pays our engine→endpoint hop.
+  `Authorization: Bearer {agent_token}` (`:87`), an agent-scoped token from the session
+  start message, *not* the account API key. It raises if either is missing.
+* Its timeout defaults to `DEFAULT_TIMEOUT_S = 3.0` (`:15`) and warns above
+  `LONG_TIMEOUT_WARN_S = 10.0` (`:20`), because "long timeouts can stall the call". This is
+  an in-pipeline tool, so it never pays our engine→endpoint hop.
 
 **And the decisive gap, also verified this session.** Grepping the entire repository for a
 document write path returns **nothing**: no create, no upload, no delete, no `session.post`
