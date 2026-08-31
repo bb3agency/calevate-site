@@ -386,7 +386,7 @@ def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
 
 
 async def _answer_via_sarvam(
-    payload: CopilotAskIn, capability: AssistCapability
+    payload: CopilotAskIn, capability: AssistCapability, *, live: str = ""
 ) -> AsyncIterator[CopilotEvent]:
     """The disclosed fallback: one non-streamed answer, in prose, with NO tools.
 
@@ -420,7 +420,10 @@ async def _answer_via_sarvam(
         # nothing, which is the one failure mode worse than saying no. The correction goes
         # LAST rather than into the shared prompt, so the cacheable prefix stays byte
         # identical for the leg that has a cache (`prompt.py`, point 1).
-        [*prompt_module.build_messages(payload), {"role": "system", "content": _NO_TOOL_NOTE}],
+        [
+            *prompt_module.build_messages(payload, live),
+            {"role": "system", "content": _NO_TOOL_NOTE},
+        ],
         timeout_s=STREAM_IDLE_S,
         temperature=0.2,
         # The same safety valve as the Azure turn. `max_tokens` is on Sarvam's own
@@ -496,6 +499,7 @@ async def _run_tool_loop(
     leg: chat.ChatLeg,
     turn: _TurnRunner,
     model: str | None,
+    live: str = "",
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
@@ -505,7 +509,7 @@ async def _run_tool_loop(
     and metering are byte-for-byte the same on both, which is what keeps the field-filling
     identical. `model` is threaded into `CopilotSpend` so the ledger names the Gemini model
     on the Gemini leg (`None` = Azure's live-switched setting)."""
-    messages = prompt_module.build_messages(payload)
+    messages = prompt_module.build_messages(payload, live)
     tools = [prompt_module.set_fields_tool()]
     turns: list[chat.ChatOutcome] = []
     refusal: FillRefusedError | None = None
@@ -615,6 +619,7 @@ async def run_copilot(
     *,
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
+    live: str = "",
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -636,6 +641,12 @@ async def run_copilot(
     no session and no tenant, and a literal `False` would be a promise about
     `require_ai_assist`'s control flow made in the wrong file. `tenant_leg` arrives the same
     way and for the same reason: it is a row, and this module has no session to read one.
+
+    `live` is the rendered LIVE BUSINESS STATE block (`copilot/context.py`), composed by the
+    route in its own short session BEFORE this runs, and passed in for the third time for
+    the same reason: this module holds no connection across a provider call and is not about
+    to open one. `""` — the default, and what a degraded snapshot produces — means the model
+    sees the screen alone, which is exactly what it saw before that module existed.
     """
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
@@ -661,7 +672,7 @@ async def run_copilot(
         try:
             async with asyncio.timeout(TOTAL_BUDGET_S):
                 async for event in _run_tool_loop(
-                    payload, capability, leg=leg, turn=turn, model=model
+                    payload, capability, leg=leg, turn=turn, model=model, live=live
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
@@ -679,7 +690,7 @@ async def run_copilot(
         if not capability.available:
             raise assist_unavailable(capability)
 
-    async for event in _answer_via_sarvam(payload, capability):
+    async for event in _answer_via_sarvam(payload, capability, live=live):
         yield event
 
 

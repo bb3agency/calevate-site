@@ -42,6 +42,7 @@ from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.copilot import service
+from apps.api.copilot.context import live_state_block
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     CopilotAskIn,
@@ -183,6 +184,15 @@ async def ask_copilot(
         yield _error_event(refusal)
         return
 
+    # 2b. WHAT IS HAPPENING IN THE BUSINESS, read in ITS OWN short session and closed
+    #     before the first token. It never raises and it never blocks the answer: a
+    #     failed snapshot yields "" and the copilot runs on the screen block alone, which
+    #     is what it did before `context.py` existed. Deliberately AFTER the gate — a
+    #     client at their ceiling is refused without paying for a snapshot nobody reads —
+    #     and deliberately NOT on the gate's session, for the transaction-poisoning reason
+    #     `live_state_block` states.
+    live = await live_state_block(tenant_id)
+
     # 3. THE RUN. The metering key is minted HERE, by the server, per attempt:
     #    `record_ai_assist_usage` accepts nothing else, because its idempotency is a
     #    switch that turns metering off (D-140).
@@ -198,6 +208,7 @@ async def ask_copilot(
             # ever learns to answer instead of raise.
             tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
+            live=live,
         ):
             if event.text is not None:
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=event.text))
