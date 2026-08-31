@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render as rtlRender, screen, within, type RenderResult } from "@testing-library/react";
+import { act, fireEvent, render as rtlRender, screen, within, type RenderResult } from "@testing-library/react";
 import { Suspense } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -294,7 +294,7 @@ describe("the client detail screen", () => {
     // whose controls it is refusing. Each control is awaited on its own panel's arrival.
     for (const name of [
       "Approve",
-      "Reject",
+      "Reject…",
       "Mark registered",
       "Registrar approved",
       "Add",
@@ -312,6 +312,43 @@ describe("the client detail screen", () => {
     expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
+  });
+
+  it("rejects a source only after the operator writes a reason — never from one click", async () => {
+    const decidePath = `/v1/admin/tenants/${TENANT}/kb/${source().id}/reject`;
+    const { calls } = await render({
+      [QUEUE_PATH]: [source()],
+      [`POST ${decidePath}`]: { ok: true },
+    });
+
+    // Stage one: the quiet trigger opens the confirmation and sends NOTHING.
+    const open = await screen.findByRole("button", { name: "Reject…" });
+    await vi.waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(open);
+    expect(calls.some((call) => call.path === decidePath)).toBe(false);
+
+    // The confirmation names the specific document and demands the operator's own words —
+    // the old one-click reject sent a hardcoded reason the operator never saw.
+    expect(screen.getByText(/Rejecting/).textContent).toContain("Clinic price list");
+    const submit = screen.getByRole("button", { name: "Reject this document" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/Why it can't be used/), {
+      target: { value: "Prices are last year's" },
+    });
+    await vi.waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Reject this document" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reject this document" }));
+
+    await vi.waitFor(() =>
+      expect(calls.some((call) => call.method === "POST" && call.path === decidePath)).toBe(true),
+    );
+    const post = calls.find((call) => call.method === "POST" && call.path === decidePath);
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({ reason: "Prices are last year's" });
   });
 
   it("keeps the writes live for a session that holds the permission", async () => {
