@@ -3549,6 +3549,22 @@
         "title": "ConfigWriteOut",
         "type": "object"
       },
+      "ConfirmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "ConfirmIn",
+        "type": "object"
+      },
       "ConsentProvenanceIn": {
         "additionalProperties": false,
         "description": "Where this list's consent came from, and when (SEC-COMP \u00a73).\n\n`source` is a Literal, not a string: the wire type IS the enum, so the generated\nTypeScript client offers a client the five real answers instead of a free-text box\nsomebody types \"yes\" into. `purchased_list` is offered because the gate has to be\nable to refuse it by name \u2014 see campaigns/models.py.",
@@ -12997,6 +13013,113 @@
           "version"
         ],
         "title": "PromptWrittenOut",
+        "type": "object"
+      },
+      "ProposeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "body": {
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "Body",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "gap_digest",
+              "copilot"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "topic_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Key"
+          }
+        },
+        "required": [
+          "agent_id",
+          "name",
+          "body",
+          "origin"
+        ],
+        "title": "ProposeIn",
+        "type": "object"
+      },
+      "ProposeOut": {
+        "additionalProperties": false,
+        "description": "The draft and the token that could execute it. `token` is NOT a credential for\nanything else: it is bound to this tenant, this person and this one draft, it expires,\nand it can be spent once.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "gap_digest",
+              "copilot"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "topic_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Key"
+          }
+        },
+        "required": [
+          "token",
+          "agent_id",
+          "name",
+          "body",
+          "origin",
+          "topic_key",
+          "expires_at"
+        ],
+        "title": "ProposeOut",
         "type": "object"
       },
       "ProvisionNumberIn": {
@@ -27456,6 +27579,82 @@
           "tenancy"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/kb/proposals": {
+      "post": {
+        "operationId": "propose_knowledge_v1_kb_proposals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Draft a knowledge entry for review \u2014 writes nothing, returns a signed token",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/proposals/confirm": {
+      "post": {
+        "operationId": "confirm_knowledge_proposal_v1_kb_proposals_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Confirm a suggestion \u2014 enters the SAME review queue, still NOT live",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/kb/sources": {
