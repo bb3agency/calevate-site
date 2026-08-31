@@ -286,9 +286,13 @@ flip**, because two of the four items change things this product currently guara
 
 **What it does to the T0–T4 tier design.** T3 moves inside the engine, which is the point.
 But T3's parameters stop being ours: chunking is done vendor-side by `chunk_size`
-(default 512) and `overlapping` (default 128) with **units the docs never state**, and
-depth is `similarity_top_k` (default 15) — against TRD §6's design of 200–400-token chunks
-at top_k=3. T1/T2 become the vendor's or nothing. **T4 is the one that matters**: our
+(default 512, described only as "Chunk size for embedding model" — **units unstated**) and
+`overlapping` (default 128, "Number of **characters** which overlap in between neighboring
+nodes"), and depth is `similarity_top_k` (default 15) — against TRD §6's design of
+200–400-**token** chunks at top_k=3. Note the mismatch that unstated unit hides: if
+`chunk_size` is characters, 512 is roughly 100–130 tokens, i.e. **below** the bottom of our
+band, not near the middle of it. Nobody should size a KB against that number until a live
+call shows what it does. T1/T2 become the vendor's or nothing. **T4 is the one that matters**: our
 refuse-and-escalate tier depends on a score threshold, and the built-in KB returns retrieved
 context into the prompt rather than a score to us, so "below threshold → say I don't know"
 has nothing to threshold. It would become prompt instruction rather than enforced
