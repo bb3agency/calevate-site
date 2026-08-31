@@ -213,9 +213,32 @@ function windowLabel(days: number): string {
  * component that cannot see `undefined` cannot accidentally make one out of it.
  */
 function Report({ report }: { report: EngineLatencyReport }) {
+  // THE NUMBER THE OPERATOR ARRIVED FOR (ux-audit F-15): the alarm runbook sends them
+  // here to learn whether anything is over target, and it used to live only in the ninth
+  // column of a nine-column table. This COUNTS the server's own per-leg verdicts
+  // (`budgetVerdict`, three-state) — it derives no percentile, so the screen's
+  // no-derivation doctrine holds. A row with any `over` leg is over; a row with an
+  // `unknown` leg and no `over` one is unknown, counted separately so "we could not
+  // tell" never reads as "fine" — the exact rule the verdict cell below applies.
+  const verdicts = report.groups.map((group) => group.legs.map(budgetVerdict));
+  const rowsOver = verdicts.filter((v) => v.includes("over")).length;
+  const rowsUnknown = verdicts.filter(
+    (v) => !v.includes("over") && v.includes("unknown"),
+  ).length;
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          label="Over target"
+          value={`${formatCount(rowsOver)} of ${formatCount(report.groups.length)}`}
+          tone={rowsOver > 0 ? "strong" : undefined}
+          icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
+          hint={
+            rowsUnknown > 0
+              ? `Rows with any stage over its goal, by the server's own verdicts. ${formatCount(rowsUnknown)} more row(s) could not be judged — that is not the same as fine.`
+              : "Rows with any stage over its goal, by the server's own verdicts."
+          }
+        />
         {/* The WHOLE reply, not one stage of it. This tile read "Target for the first
             reply: 350 ms" — the language model's leg — which is the defect this screen's
             second version exists for. `budget.turn_ms` is the server's sum of the three

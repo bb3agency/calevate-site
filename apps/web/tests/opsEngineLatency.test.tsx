@@ -199,6 +199,19 @@ async function rowFor(stage: string): Promise<string[]> {
 }
 
 describe("the engine latency report", () => {
+  it("foregrounds how many rows are over target, counting verdicts and never deriving one (F-15)", async () => {
+    // Default `measured()` has breached legs; the second group has no verdict at all.
+    const { container } = renderAdminPage(
+      <EngineLatencyPage />,
+      routes({ [WINDOW_PATH(7)]: report({ groups: [measured(), tooFew()] }) }),
+    );
+    await screen.findAllByText("Over target");
+    // The alarm's question, answered above the table: one of two rows is over, and the
+    // unjudgeable row is named separately so "could not tell" never reads as "fine".
+    expect(container.textContent).toContain("1 of 2");
+    expect(container.textContent).toContain("1 more row(s) could not be judged");
+  });
+
   it("prints the server's own percentiles and its budget verdict", async () => {
     const { container } = renderAdminPage(<EngineLatencyPage />, routes());
 
