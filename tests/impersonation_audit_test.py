@@ -194,6 +194,14 @@ def test_the_flag_that_means_impersonation_is_set_in_exactly_one_place() -> None
         and not line.lstrip().startswith("#")
         and "impersonating=False" not in line
         and "impersonating=principal." not in line
+        # ...and not a TEST FILE. What this guards is a way INTO a tenant at runtime, and
+        # a test is not one. A test that proves an impersonating session is REFUSED has to
+        # construct the refused state to refuse it — forbidding that would make the control
+        # untestable, which is the opposite of the point. This is a scope correction, not a
+        # relaxation: every production construction site is still caught, and the case it
+        # admits is `copilot/write_tools_test.py`, which drives the D-22 refusal on the
+        # copilot's proposal-confirm path.
+        and not path.name.endswith("_test.py")
     }
     assert {site.split(":")[0] for site in sites} == {"apps/api/core/auth.py"}, (
         f"`impersonating=` is decided in {sorted(sites)}; every one of those is a way "

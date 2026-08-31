@@ -353,6 +353,16 @@ async def _at_the_ceiling(tenant_id: UUID, monkeypatch: pytest.MonkeyPatch) -> N
             {"i": tenant_id},
         )
     monkeypatch.setitem(ai_quota.AI_QUOTA_INR, "self_serve", Decimal("0.00"))
+    # AND THE CLOCK IS PINNED AWAY FROM THE MONTH BOUNDARY, which is not decoration.
+    # `read_ai_quota` answers a tenant past its allowance with the MORE SPECIFIC refusal
+    # when one applies, and in the last `LAST_SALEABLE_MINUTES` of an IST month that is
+    # `ai_extra_month_ending` ("the allowance comes back within the hour") rather than
+    # `ai_quota_exceeded`. Both are correct product behaviour and the specific one is the
+    # better sentence — but a test about the CEILING must not be answered by the calendar.
+    # Without this the file goes red for one hour every month, which reads to the next
+    # person like a regression in whatever they happened to be holding. Found the hard
+    # way: it failed a full ratchet run at 23:10 IST on 31 Aug 2026.
+    monkeypatch.setattr(ai_quota, "month_is_ending", lambda *_a, **_k: False)
 
 
 async def test_a_tenant_at_its_ceiling_is_refused_before_the_provider_is_reached(
