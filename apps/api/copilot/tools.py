@@ -65,6 +65,7 @@ from apps.api.crm import service as crm_service
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import LeadStatus
 from apps.api.db.session import tenant_session
+from apps.api.retrieval.service import look_up
 from apps.workers.redaction import redact
 
 log = get_logger(__name__)
@@ -89,6 +90,16 @@ _NOTHING = "No rows — this account has none yet."
 #: act on rather than silently dropped (`service._run_tool_loop` applies it).
 MAX_CALLS_PER_TURN: Final = 4
 
+#: The longest question `search_knowledge` will carry to the retrieval port.
+#:
+#: TRUNCATED RATHER THAN REFUSED, and this is the one place in this module where that is
+#: the right way round. `RetrievalRequest.question` is bounded at 2000 characters (D-302)
+#: and the argument arrives from a MODEL — so an over-long question is a generation quirk,
+#: not a caller mistake somebody could act on, and refusing would raise a ValidationError
+#: through a stream a person is reading in order to punish nobody. Kept in step with the
+#: port's own ceiling by being the same number.
+_MAX_QUESTION_CHARS: Final = 2000
+
 
 @dataclass(frozen=True, slots=True)
 class ToolContext:
@@ -108,11 +119,21 @@ class ToolContext:
     role: str | None
 
 
-#: One tool's executor: a tenant-scoped session and the model's already-parsed arguments
-#: in, one compact human-readable string out. It never raises for an ordinary empty
-#: result — "nothing found" is an answer — and it never returns a shape the caller has to
-#: interpret, because the consumer is a language model and not a client.
-_Executor = Callable[[AsyncSession, Mapping[str, Any]], Awaitable[str]]
+#: One tool's executor: a tenant-scoped session, WHO IS ASKING, and the model's
+#: already-parsed arguments in, one compact human-readable string out. It never raises for
+#: an ordinary empty result — "nothing found" is an answer — and it never returns a shape
+#: the caller has to interpret, because the consumer is a language model and not a client.
+#:
+#: **THE `ToolContext` IS IN THE SIGNATURE, AND IT USED NOT TO BE.** Most executors do not
+#: want it — RLS is the tenancy control and a `WHERE tenant_id = ...` in a tool would be
+#: the second copy of it this module's docstring refuses. `search_knowledge` does: the
+#: retrieval port keys its CACHE on the tenant (`retrieval/cache.py`), and a cache key is
+#: not something RLS can supply. Threading it through the registry is `write_tools.
+#: Executor`'s shape verbatim (`Callable[[AsyncSession, ToolActor, Mapping], ...]`), which
+#: is the point — two registries in one package with two calling conventions is the drift
+#: CLAUDE.md calls a defect even when both work. The executors that do not need it say
+#: `del context` on their first line, exactly as `write_tools` does.
+_Executor = Callable[[AsyncSession, "ToolContext", Mapping[str, Any]], Awaitable[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +187,9 @@ def _cap(limit: object, *, default: int = 10) -> int:
     return max(1, min(int(limit), MAX_ROWS))
 
 
-def _listing(rows: list[str], *, total: int | None = None, shown_of: str = "rows") -> str:
+def _listing(
+    rows: list[str], *, total: int | None = None, shown_of: str = "rows", cap: int = MAX_ROWS
+) -> str:
     """Rows as lines, with the truncation note when the cap bit.
 
     `total is None` means the underlying reader does not know how many exist — `list_calls`
@@ -174,12 +197,17 @@ def _listing(rows: list[str], *, total: int | None = None, shown_of: str = "rows
     one. A FULL page from such a reader is therefore reported as "there may be more" rather
     than as a total: "25 calls" would be a number this code has not measured, which is hard
     rule 11 applied to our own data rather than to a vendor's.
+
+    `cap` is the ceiling THIS reader was asked for, and it is a parameter because not every
+    reader's ceiling is `MAX_ROWS`: `search_knowledge` asks the retrieval port for a handful
+    of passages, not twenty-five rows, and a full page of four would otherwise be reported
+    as complete when it is not. Hard-coding `MAX_ROWS` here is what made that silent.
     """
     if not rows:
         return _NOTHING
     if total is not None and total > len(rows):
         head = f"Showing {len(rows)} of {total} {shown_of}:"
-    elif total is None and len(rows) == MAX_ROWS:
+    elif total is None and len(rows) == cap:
         head = f"Showing {len(rows)} {shown_of} (there may be more):"
     else:
         head = f"{len(rows)} {shown_of}:"
@@ -193,7 +221,9 @@ def _pct(value: object) -> str:
 # --- the executors --------------------------------------------------------------------
 
 
-async def _business_snapshot(session: AsyncSession, args: Mapping[str, Any]) -> str:
+async def _business_snapshot(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
     """`crm/performance.performance` as a paragraph.
 
     THE WHOLE TAB IS NOT SENT. `performance` returns a 24-bucket IST histogram and an
@@ -202,6 +232,8 @@ async def _business_snapshot(session: AsyncSession, args: Mapping[str, Any]) -> 
     what a question about "when are we busy" or "how are calls going" is actually answered
     from; the screen is where the whole histogram lives.
     """
+    # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
+    del context
     # NOT `_cap`: that bounds a ROW count at `MAX_ROWS`, and 25 is the wrong ceiling for a
     # window in days. `performance` already clamps its own argument to 1..365 — the schema
     # cannot, since `minimum`/`maximum` are outside the strict subset — so all this has to
@@ -236,7 +268,9 @@ async def _business_snapshot(session: AsyncSession, args: Mapping[str, Any]) -> 
     return _clean(" ".join(lines))
 
 
-async def _leads_search(session: AsyncSession, args: Mapping[str, Any]) -> str:
+async def _leads_search(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
     """`crm/service.list_leads`, rendered.
 
     NO `data` AND NO RAW NUMBER. `LeadOut.data` is the tenant's own extraction payload —
@@ -245,6 +279,8 @@ async def _leads_search(session: AsyncSession, args: Mapping[str, Any]) -> str:
     for a person to recognise the lead on their own screen and not enough to dial from a
     model's answer.
     """
+    # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
+    del context
     status = args.get("status")
     rows, total = await crm_service.list_leads(
         session,
@@ -272,7 +308,9 @@ async def _leads_search(session: AsyncSession, args: Mapping[str, Any]) -> str:
     return _clean(_listing(lines, total=total, shown_of=label))
 
 
-async def _calls_recent(session: AsyncSession, args: Mapping[str, Any]) -> str:
+async def _calls_recent(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
     """`crm/service.list_calls`, rendered.
 
     `summary` IS ALREADY REDACTED PROSE where it is present — `list_calls` puts it through
@@ -281,6 +319,8 @@ async def _calls_recent(session: AsyncSession, args: Mapping[str, Any]) -> str:
     entitled to see on their own screen. It is truncated to one clause because the whole
     point of this result is that it is scannable.
     """
+    # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
+    del context
     rows = await crm_service.list_calls(session, limit=_cap(args.get("limit")))
     lines = [
         " · ".join(
@@ -301,7 +341,9 @@ async def _calls_recent(session: AsyncSession, args: Mapping[str, Any]) -> str:
     return _clean(_listing(lines, shown_of="calls"))
 
 
-async def _campaigns_list(session: AsyncSession, args: Mapping[str, Any]) -> str:
+async def _campaigns_list(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
     """`campaigns/service.list_campaigns`, rendered — including the blocker.
 
     `consent_provenance_blocker` IS THE FIELD WORTH THE TOKENS. It is the launch gate's own
@@ -309,6 +351,8 @@ async def _campaigns_list(session: AsyncSession, args: Mapping[str, Any]) -> str
     copilot asked "why can't I launch this?" can answer with the same vocabulary the
     `/launch-check` screen uses instead of inventing a third one.
     """
+    # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
+    del context
     rows = await campaigns_service.list_campaigns(session, limit=MAX_ROWS)
     lines = [
         " · ".join(
@@ -330,7 +374,7 @@ async def _campaigns_list(session: AsyncSession, args: Mapping[str, Any]) -> str
     return _clean(_listing(lines, shown_of="campaigns"))
 
 
-async def _agents_list(session: AsyncSession, args: Mapping[str, Any]) -> str:
+async def _agents_list(session: AsyncSession, context: ToolContext, args: Mapping[str, Any]) -> str:
     """`agents/roster.list_agents`, rendered — the roster, not the configuration.
 
     NAMES, STATE AND WHETHER IT IS ON THE ENGINE, and nothing else out of a wide row.
@@ -353,6 +397,8 @@ async def _agents_list(session: AsyncSession, args: Mapping[str, Any]) -> str:
     and this tool takes no `status` argument rather than inventing a second answer to a
     question the roster route already settled.
     """
+    # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
+    del context
     rows = await roster.list_agents(session, limit=_cap(args.get("limit")))
     lines = [
         " · ".join(
@@ -374,6 +420,85 @@ async def _agents_list(session: AsyncSession, args: Mapping[str, Any]) -> str:
     # another parenthesis in the second. That the archive is excluded is in the tool's
     # DESCRIPTION, which the model reads before it calls and which costs nothing per row.
     return _clean(_listing(lines, shown_of="agents"))
+
+
+#: How many passages ONE `search_knowledge` call may put in front of the model, and how
+#: much of each. Four passages of at most ~400 characters is a bounded, quotable answer;
+#: more is a wall the model paraphrases badly, on a corpus that is at most a few dozen
+#: compiled lines to begin with. This is the tool's `cap` for `_listing`, NOT `MAX_ROWS` —
+#: the retrieval port counts passages, not rows.
+MAX_PASSAGES: Final = 4
+MAX_PASSAGE_CHARS: Final = 400
+
+#: What the model is told when the account has nothing on file for the question. Phrased so
+#: the model reports it rather than inventing around it — TRD §6's T4 behaviour, which is a
+#: prompt instruction with no code behind it, reaching the dashboard leg.
+_NOTHING_PUBLISHED = (
+    "Nothing in this account's published knowledge matches that. Say so — do not guess "
+    "what the agent might say — and suggest adding it under Knowledge if it should be "
+    "there."
+)
+
+#: Prepended when the port answered from a LOWER tier than the router asked for.
+#:
+#: THE DEGRADATION IS SPOKEN, NOT SWALLOWED. The router asks for t3 on an open-ended
+#: question and no provider serves t3 today, so the port answers from T0 and sets
+#: `unmet_capability`. Putting that in front of the model in words is what stops the person
+#: being told they were answered from a search of everything they have published when they
+#: were answered from the lines compiled into one script. A tool that quietly answered from
+#: a narrower corpus is the silent no-op the whole port exists to forbid.
+_DEGRADED_NOTE = (
+    "NOTE: a full search of everything this account has published is not available, so "
+    "this is only what is compiled into the agent's own script. Tell the person that."
+)
+
+
+async def _search_knowledge(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`retrieval/service.look_up`, rendered — what this account's live agents tell callers.
+
+    THE ONE THING THIS TOOL ADDS OVER THE OTHERS: it is the only read tool whose corpus is
+    the client's own PUBLISHED KNOWLEDGE rather than their operational rows. The facts are
+    on file (`prompt_versions.compiled_t0_context`, compiled from APPROVED sources and the
+    intake sheet by `agents/t0.py`) and were addressable from nowhere except the agent's own
+    prompt, so the copilot could not answer the question a client asks most often about
+    their own account — "what does my agent tell people about X?".
+
+    ONLY APPROVED KNOWLEDGE IS REACHABLE, STRUCTURALLY. This does not read `kb_documents`;
+    it reads the compiled block, and only `kb.service.publish_source` puts anything into
+    that block, and only for an APPROVED source. The preview-and-approve gate is therefore
+    inherited rather than re-implemented — re-deriving "what is approved and live" here
+    would be the second copy of it CLAUDE.md calls a defect even when both copies agree.
+
+    `context.tenant_id` IS USED, AND IT IS NOT A SECOND TENANCY CONTROL. RLS still decides
+    what the SELECT can see; the id is what the retrieval CACHE keys its namespace on
+    (`retrieval/cache.py`), which is not something a session variable can hand it. The
+    adapter also re-states it as a `WHERE` predicate — belt over RLS's braces, defending
+    the one mistake RLS cannot catch, a caller passing tenant A's id on tenant B's session.
+    """
+    question = strip_invisible(str(args.get("question") or "")).strip()[:_MAX_QUESTION_CHARS]
+    if not question:
+        return _NOTHING_PUBLISHED
+    # ONE MORE THAN WE WILL SHOW, so a truncation is a fact rather than a guess: `_listing`
+    # reports "there may be more" exactly when the page came back full.
+    decision, result = await look_up(
+        session, tenant_id=context.tenant_id, question=question, k=MAX_PASSAGES + 1
+    )
+    if result.is_empty():
+        return _NOTHING_PUBLISHED
+    lines = [
+        f"- {passage.text[:MAX_PASSAGE_CHARS]} [{passage.provenance.label}]"
+        for passage in result.passages[:MAX_PASSAGES]
+    ]
+    body = _clean(
+        _listing(
+            lines,
+            shown_of=f"published facts (matched as: {decision.intent})",
+            cap=MAX_PASSAGES,
+        )
+    )
+    return f"{_DEGRADED_NOTE}\n{body}" if result.unmet_capability is not None else body
 
 
 # --- the registry ---------------------------------------------------------------------
@@ -492,6 +617,39 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="agents:read",
         run=_agents_list,
     ),
+    ReadTool(
+        name="search_knowledge",
+        description=(
+            "Look up what THIS account's live voice agents tell callers — the business "
+            "facts and approved knowledge compiled into their scripts (opening hours, "
+            "address, services and prices, staff, policies). Use it whenever the person "
+            "asks what their agent says or knows about something. It cannot see the "
+            "screen, other accounts, or anything not yet approved and published."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": (
+                        "The question in the caller's own words, e.g. 'what are the "
+                        "opening hours on Sunday'. Do not include names, phone numbers "
+                        "or email addresses."
+                    ),
+                }
+            },
+            "required": ["question"],
+            "additionalProperties": False,
+        },
+        # THE SAME PERMISSION THE ROUTES SERVING THIS DATA DECLARE. `kb/routes.py:86-89`
+        # settled this argument already and its comment is the one to read: the two KB
+        # READS are gated on `agents:read`, not `kb:write`, because "reading what an agent
+        # knows is an agent read" and `kb:write` is a submit permission. There is no
+        # `kb:read` in `rbac.Permission` at all, and inventing one here so this tool could
+        # have its own would be a permission no route grants.
+        permission="agents:read",
+        run=_search_knowledge,
+    ),
 )
 
 _BY_NAME: Final[Mapping[str, ReadTool]] = {tool.name: tool for tool in READ_TOOLS}
@@ -566,7 +724,7 @@ async def run_read_tool(name: str, arguments: str, *, context: ToolContext | Non
         # docstring: the streaming route holds no pooled connection across a provider round
         # trip, and this is what keeps that true while the loop can now touch the database.
         async with tenant_session(context.tenant_id) as session:
-            result = await tool.run(session, parsed)
+            result = await tool.run(session, context, parsed)
     except Exception:
         # Ids only (hard rule 6) — never the arguments, which the model composed from
         # screen content, and never the result.
@@ -578,6 +736,8 @@ async def run_read_tool(name: str, arguments: str, *, context: ToolContext | Non
 
 __all__ = [
     "MAX_CALLS_PER_TURN",
+    "MAX_PASSAGES",
+    "MAX_PASSAGE_CHARS",
     "MAX_ROWS",
     "READ_TOOLS",
     "READ_TOOL_NAMES",

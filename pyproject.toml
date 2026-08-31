@@ -97,6 +97,7 @@ source_modules = [
     "apps.api.legal",
     "apps.api.ops",
     "apps.api.reliability",
+    "apps.api.retrieval",
     "apps.api.tenancy",
     "apps.api.core",
     "apps.workers",
