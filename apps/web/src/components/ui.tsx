@@ -744,6 +744,25 @@ export function TypedConfirmation({
 export const FIELD =
   "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11";
 /**
+ * The same control for a FLEX ROW, where `FIELD`'s `w-full` would be wrong.
+ *
+ * `min-w-0 max-w-full` instead: an <input> with no width utility sizes to its `size`
+ * attribute (~20 characters), which at the 16px this repo gives touch devices is ~256px
+ * — 2px wider than the 254px card it sits in at 320px, so it painted across the border.
+ * A CAP rather than `w-full` because these sit in flex rows where a forced full width
+ * would restyle the desktop console; `min-w-0` because a flex item will not otherwise
+ * shrink below its own min-content.
+ *
+ * Hoisted from `do-not-call` and `messaging-consent`, which each carried the
+ * byte-identical trio under the SAME NAME as this module's `FIELD` — shadowing that made
+ * any future edit here silently not reach them (ux-audit MC-2).
+ */
+export const FIELD_INLINE =
+  "rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
+/** `FIELD_INLINE` with room for a leading icon. */
+export const FIELD_INLINE_ICON =
+  "rounded-md border border-line bg-surface pl-8 pr-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
+/**
  * `block` IS THE FIX FOR A BUG THAT LOOKED LIKE THREE DIFFERENT DESIGNS.
  *
  * Without it the label is INLINE, so it renders beside any field narrow enough to leave

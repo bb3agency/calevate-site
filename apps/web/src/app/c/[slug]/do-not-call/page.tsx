@@ -22,6 +22,8 @@ import {
   RestrictionNote,
   Skeleton,
   StatTile,
+  FIELD_INLINE,
+  FIELD_INLINE_ICON,
   formatCount,
   formatIST,
   type NoticeTone,
@@ -143,25 +145,9 @@ const SOURCE_OPTIONS: { value: DncSource; label: string; note: string }[] = [
   },
 ];
 
-/**
- * Form controls, once — a screen whose inputs disagree about padding reads as two.
- *
- * Split rather than overridden at the call site: `${FIELD} pl-8` is two utilities for
- * one property, and which one wins is decided by Tailwind's own emission order rather
- * than by the order they are written in. That is a coin toss dressed as a style.
- */
-/* `min-w-0 max-w-full`: an <input> with no width utility sizes to its `size`
-   attribute (~20 characters), which at the 16px this repo now gives touch devices
-   is ~256px — 2px wider than the 254px card it sits in at 320px, so it painted
-   across the border. A CAP rather than `w-full`: these sit in flex rows where a
-   forced full width would restyle the desktop console, and on desktop there is
-   room so the cap never binds. `min-w-0` because a flex item will not otherwise
-   shrink below its own min-content. */
-const FIELD_BASE =
-  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
-const FIELD = `${FIELD_BASE} px-3`;
-/** The same field with room for a leading icon. */
-const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
+// Form controls come from ui.tsx's FIELD_INLINE / FIELD_INLINE_ICON — this screen and
+// messaging-consent carried a byte-identical local trio shadowing the shared FIELD, the
+// drift MC-2 flagged; both now import the one spelling.
 
 export default function DoNotCallPage() {
   const session = useClientSession();
@@ -266,7 +252,7 @@ export default function DoNotCallPage() {
               autoComplete="off"
               placeholder="9876543210 or +919876543210"
               aria-label="Phone number to check"
-              className={`${FIELD_ICON} w-64 font-mono`}
+              className={`${FIELD_INLINE_ICON} w-64 font-mono`}
             />
           </div>
           <button
@@ -331,7 +317,7 @@ export default function DoNotCallPage() {
               spellCheck={false}
               aria-label="Numbers to suppress"
               placeholder={"9876543210\n+919876543211\n9876543212"}
-              className={`${FIELD} w-full font-mono`}
+              className={`${FIELD_INLINE} w-full font-mono`}
             />
 
             <div className="flex flex-wrap items-center gap-2">
@@ -347,7 +333,7 @@ export default function DoNotCallPage() {
                 // a span merely sitting beside a select is one a screen reader never
                 // reads with it (WCAG 3.3.2 — ux-audit DNC-2).
                 aria-describedby="dnc-source-note"
-                className={FIELD}
+                className={FIELD_INLINE}
               >
                 {SOURCE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
