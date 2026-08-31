@@ -37,20 +37,24 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import service
+from apps.api.copilot import service, write_tools
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     CopilotAskIn,
+    CopilotConfirmIn,
+    CopilotConfirmOut,
     CopilotDoneEvent,
     CopilotFillEvent,
     CopilotTextEvent,
 )
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
+from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
@@ -71,6 +75,13 @@ fields. Streams `text/event-stream`:
   request declared: a field that is not `writable`, a `select` value outside its own
   `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,
   highlight them, and offer one Undo; nothing is saved until the user presses Save.
+* `event: proposal` · `data: {"token": "...", "tool": "...", "title": "...",
+  "summary": "...", "object_type": "...", "object_id": "...", "current": "...",
+  "proposed": "...", "expires_at": "..."}` — at most one per response, and it is NOT a
+  change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` → `proposed`
+  pair, and a Confirm button that posts `token` back, unchanged, to
+  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world
+  untouched; the token stops working at `expires_at`.
 * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
   non-null when a substitute model answered and MUST be shown.
 * `event: error` · `data: {problem+json}` — a refusal that happened after the stream
@@ -189,6 +200,7 @@ async def ask_copilot(
     ref = new_assist_ref()
     spend: service.CopilotSpend | None = None
     filled: tuple[str, ...] = ()
+    proposed: str | None = None
     try:
         async for event in service.run_copilot(
             payload,
@@ -198,12 +210,20 @@ async def ask_copilot(
             # ever learns to answer instead of raise.
             tenant_leg=tenant_leg,
             quota_exhausted=quota.at_ceiling,
+            # WHO THE WRITE TOOLS MAY PROPOSE FOR, narrowed from the principal the
+            # dependency already verified — never from the body. `write_tools.actor_for`
+            # is the one place that narrowing happens, so a `None` tenant cannot reach a
+            # `sub` claim.
+            actor=write_tools.actor_for(principal),
         ):
             if event.text is not None:
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=event.text))
             if event.fill is not None:
                 filled = tuple(item.field_id for item in event.fill)
                 yield ServerSentEvent(event="fill", data=CopilotFillEvent(items=list(event.fill)))
+            if event.proposal is not None:
+                proposed = event.proposal.tool
+                yield ServerSentEvent(event="proposal", data=event.proposal)
             if event.spend is not None:
                 spend = event.spend
     except ProblemError as refusal:
@@ -278,6 +298,11 @@ async def ask_copilot(
                     "metered": metered,
                     "ref": ref,
                     "filled_field_count": len(filled),
+                    # WHICH TOOL WAS PROPOSED, or None. A NAME and not the arguments: this
+                    # row records that the assistant offered a change, and the row that
+                    # records the change itself is written by `POST /v1/copilot/confirm`
+                    # if — and only if — a person agreed to it.
+                    "proposed_tool": proposed,
                 },
             )
 
@@ -287,6 +312,73 @@ async def ask_copilot(
             disclosure=(service.disclosure_for(spend.capability) if spend is not None else None),
             metered=metered,
         ),
+    )
+
+
+_CONFIRM_DESCRIPTION = """\
+Carry out the change the assistant proposed, after the person confirmed it.
+
+Post back the `token` from an `event: proposal` frame, **unchanged**. The body carries
+nothing else: the account, the person, the tool and every argument are inside the token's
+signature, so there is nothing here a browser could edit and nothing a page could invent.
+
+A token works ONCE and only for the account and the person it was minted for, and it stops
+working five minutes after it was issued. Every refusal is a 403 with the same shape —
+already confirmed, expired, tampered with, or minted elsewhere are deliberately not told
+apart, so this endpoint cannot be used to learn which half of a token is wrong.
+
+The change runs through exactly the service function the equivalent button on the screen
+calls, so every refusal that button can get, this can get: `409` when a campaign is not
+running, `404` when nothing of yours has that id. `applied: false` with a `200` is a real
+answer — the world was already in that state and nothing was written.
+
+Every change writes an `audit_log` row naming the person who confirmed it.
+Requires `org:manage`, and the tool's own permission on top of it.\
+"""
+
+
+@router.post(
+    "/copilot/confirm",
+    response_model=CopilotConfirmOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Do the change the assistant proposed — once, for the person who confirmed it",
+    description=_CONFIRM_DESCRIPTION,
+)
+async def confirm_copilot_proposal(
+    payload: Annotated[CopilotConfirmIn, Body()],
+    session: Annotated[AsyncSession, Depends(db)],
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> CopilotConfirmOut:
+    """THE HUMAN-IN-THE-LOOP GATE, and it is this route existing at all.
+
+    **`org:manage` AT THE DOOR, AND THE TOOL'S OWN PERMISSION INSIDE.** The door permission
+    is `POST /v1/copilot/ask`'s, for its reason: this is the client AI surface, and a
+    caller who cannot open the assistant must not be able to complete one of its
+    sentences. It is not sufficient on its own and is not treated as such —
+    `write_tools.confirm` re-checks the permission the equivalent BUTTON declares
+    (`leads:write` for a lead's status, `leads:dispatch` for DNC and for pausing), so this
+    route can never be a way to do something the console would refuse. Both are mutating
+    permissions, so a D-22 view-as session is refused at both.
+
+    **`Depends(db)` HERE, WHERE `ask` TAKES NONE, AND THE DIFFERENCE IS THE PROVIDER.**
+    `ask` must not hold a pooled connection across a model round trip, so it opens short
+    sessions of its own. This route calls no model at all: it verifies a signature, burns
+    an id and runs one service function. Holding one transaction across those is not a
+    cost, it is the REQUIREMENT — the change and its `audit_log` row have to commit
+    together or not at all (`compliance/audit.py` holds the chain lock to COMMIT), and two
+    sessions could not give that.
+
+    **NO `Idempotency-Key`.** `write_tools.confirm` burns the proposal's `jti` in Redis
+    before executing, which is a stronger guarantee than the header's: the header stops one
+    client retrying one request, the burn stops one DECISION being submitted twice by any
+    means, including a second browser tab holding the same token.
+    """
+    return await write_tools.confirm(
+        session,
+        payload.token,
+        principal=principal,
+        ip=client_request_ip(request),
     )
 
 

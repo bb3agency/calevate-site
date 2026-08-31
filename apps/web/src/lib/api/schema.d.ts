@@ -719,6 +719,9 @@ export interface paths {
          * Reopen the intake step — what is durably stored, and only that
          * @description No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
          *     scope directly rather than opening the cross-tenant directory it does not need.
+         *
+         *     Audited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry
+         *     incidental staff PII, which is exactly the class of read the DPDP trail must hold.
          */
         get: operations["read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get"];
         put?: never;
@@ -3474,6 +3477,13 @@ export interface paths {
          *       request declared: a field that is not `writable`, a `select` value outside its own
          *       `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,
          *       highlight them, and offer one Undo; nothing is saved until the user presses Save.
+         *     * `event: proposal` · `data: {"token": "...", "tool": "...", "title": "...",
+         *       "summary": "...", "object_type": "...", "object_id": "...", "current": "...",
+         *       "proposed": "...", "expires_at": "..."}` — at most one per response, and it is NOT a
+         *       change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` → `proposed`
+         *       pair, and a Confirm button that posts `token` back, unchanged, to
+         *       `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world
+         *       untouched; the token stops working at `expires_at`.
          *     * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
          *       non-null when a substitute model answered and MUST be shown.
          *     * `event: error` · `data: {problem+json}` — a refusal that happened after the stream
@@ -3486,6 +3496,43 @@ export interface paths {
          *     Requires `org:manage`.
          */
         post: operations["ask_copilot_v1_copilot_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Do the change the assistant proposed — once, for the person who confirmed it
+         * @description Carry out the change the assistant proposed, after the person confirmed it.
+         *
+         *     Post back the `token` from an `event: proposal` frame, **unchanged**. The body carries
+         *     nothing else: the account, the person, the tool and every argument are inside the token's
+         *     signature, so there is nothing here a browser could edit and nothing a page could invent.
+         *
+         *     A token works ONCE and only for the account and the person it was minted for, and it stops
+         *     working five minutes after it was issued. Every refusal is a 403 with the same shape —
+         *     already confirmed, expired, tampered with, or minted elsewhere are deliberately not told
+         *     apart, so this endpoint cannot be used to learn which half of a token is wrong.
+         *
+         *     The change runs through exactly the service function the equivalent button on the screen
+         *     calls, so every refusal that button can get, this can get: `409` when a campaign is not
+         *     running, `404` when nothing of yours has that id. `applied: false` with a `200` is a real
+         *     answer — the world was already in that state and nothing was written.
+         *
+         *     Every change writes an `audit_log` row naming the person who confirmed it.
+         *     Requires `org:manage`, and the tool's own permission on top of it.
+         */
+        post: operations["confirm_copilot_proposal_v1_copilot_confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6593,6 +6640,44 @@ export interface components {
             /** Question */
             question: string;
             screen: components["schemas"]["CopilotScreen"];
+        };
+        /**
+         * CopilotConfirmIn
+         * @description `POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.
+         *
+         *     Every parameter of the action is inside the signed token, so there is nothing here for
+         *     a caller to tamper with: no lead id, no status, no campaign. A body that also carried
+         *     the target would be a body that could disagree with the description the person read.
+         *
+         *     The bound is generous against a JWT carrying a small `args` object — this is not a
+         *     length a legitimate client approaches, it is the wall in front of a caller feeding the
+         *     verifier megabytes.
+         */
+        CopilotConfirmIn: {
+            /** Token */
+            token: string;
+        };
+        /**
+         * CopilotConfirmOut
+         * @description What the confirmed change did.
+         *
+         *     `applied` is False when the world was ALREADY in the requested state — a real outcome,
+         *     not a failure (D-65's distinction, which `set_campaign_status` and the lead executor
+         *     both make). `detail` is the sentence to show; it says which of the two happened,
+         *     because "nothing changed, it was already paused" is the answer a person needs when
+         *     they are watching calls go out.
+         */
+        CopilotConfirmOut: {
+            /** Applied */
+            applied: boolean;
+            /** Detail */
+            detail: string;
+            /** Object Id */
+            object_id: string;
+            /** Object Type */
+            object_type: string;
+            /** Tool */
+            tool: string;
         };
         /**
          * CopilotFact
@@ -18772,6 +18857,39 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    confirm_copilot_proposal_v1_copilot_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConfirmOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
