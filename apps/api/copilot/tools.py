@@ -1,7 +1,7 @@
 """The copilot's READ tools: what it may look up about the tenant's own business, and
 the four properties that make that safe.
 
-WHY THIS EXISTS AS A REGISTRY RATHER THAN AS FOUR FUNCTIONS THE LOOP KNOWS ABOUT. A tool
+WHY THIS EXISTS AS A REGISTRY RATHER THAN AS A HANDFUL OF FUNCTIONS THE LOOP KNOWS ABOUT. A tool
 is three things that must never drift apart — the schema the model is shown, the
 permission the caller must hold, and the code that runs — and a design that keeps them in
 three places is a design where a tool gains a parameter the executor ignores, or is
@@ -55,7 +55,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import roster
 from apps.api.campaigns import service as campaigns_service
+from apps.api.copilot.prompt import function_tool
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import Permission, role_has
@@ -127,8 +129,9 @@ class ReadTool:
     parameters: dict[str, Any]
     #: The permission a caller must hold, spelled exactly as the route serving the same
     #: data spells it — `GET /v1/crm/performance` is `calls:read`, `GET /v1/leads` is
-    #: `leads:read`, `GET /v1/campaigns` is `leads:read`. A tool that judged itself by a
-    #: looser permission than its own screen would be a way around that screen.
+    #: `leads:read`, `GET /v1/campaigns` is `leads:read`, `GET /v1/agents` is
+    #: `agents:read`. A tool that judged itself by a looser permission than its own screen
+    #: would be a way around that screen.
     permission: Permission
     run: _Executor
 
@@ -327,18 +330,50 @@ async def _campaigns_list(session: AsyncSession, args: Mapping[str, Any]) -> str
     return _clean(_listing(lines, shown_of="campaigns"))
 
 
+async def _agents_list(session: AsyncSession, args: Mapping[str, Any]) -> str:
+    """`agents/roster.list_agents`, rendered — the roster, not the configuration.
+
+    NAMES, STATE AND WHETHER IT IS ON THE ENGINE, and nothing else out of a wide row.
+    `AgentOut` also carries both disclosure sentences, the composed opening line, the
+    extraction schema and the resolved model, and a copilot that pasted all of it would
+    spend hundreds of tokens per agent on every subsequent turn of the loop to answer "how
+    many agents do I have?". The agent's own screen is where its script and its schema are
+    read; what a person asks the assistant is which ones exist, which are live, and whether
+    the one they are working on has actually been pushed to the engine.
+
+    `published` IS THE FIELD THIS TOOL EXISTS FOR and it is deliberately not folded into
+    `status`: they answer different questions. `status` is what the console shows (`live`,
+    `paused`, `draft`, `archived`); `published` is whether the voice platform is holding an
+    agent object for it at all. "Live but never published" is the exact confusion a person
+    asks the assistant about, and a rendering that showed one of the two could not answer it.
+
+    THE ARCHIVE IS EXCLUDED, because `list_agents`'s own default excludes it (see its
+    docstring: the archive is the only unbounded bucket and it would push the working
+    roster past the limit). A model asking "what agents are there" means the working ones,
+    and this tool takes no `status` argument rather than inventing a second answer to a
+    question the roster route already settled.
+    """
+    rows = await roster.list_agents(session, limit=_cap(args.get("limit")))
+    lines = [
+        " · ".join(
+            part
+            for part in (
+                f"- {agent.name}",
+                agent.direction,
+                agent.status,
+                "published" if agent.published else "not published to the phone system yet",
+                f"{agent.inbound_number_count} number(s)",
+                agent.language_primary,
+            )
+            if part
+        )
+        for agent in rows
+    ]
+    return _clean(_listing(lines, shown_of="agents (excluding the archive)"))
+
+
 # --- the registry ---------------------------------------------------------------------
 #
-# ⚠ `agents_list` IS DELIBERATELY ABSENT AND ITS ABSENCE IS A FINDING, NOT AN OVERSIGHT.
-# There is no `agents/service.py::list_agents`: the roster query and its row mapper live
-# INSIDE `agents/routes.py` (`_AGENT_ROSTER`, `_agent_out`) together with the `AgentOut`
-# response model, and the only way to reach them is to call a route handler or to write a
-# second copy of the SQL. Both are refused here — the first is a layering inversion this
-# repo has no precedent for, and the second is the "two ways of doing one thing" defect the
-# quality bar names. What closes it is extracting that roster into `agents/service.py`
-# (moving `AgentOut` with it), which is a change to the agents module and its OpenAPI
-# surface rather than to this registry.
-
 READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="business_snapshot",
@@ -427,6 +462,32 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         permission="leads:read",
         run=_campaigns_list,
     ),
+    ReadTool(
+        name="agents_list",
+        description=(
+            "This account's voice agents: name, whether it answers inbound calls or makes "
+            "outbound ones, whether it is live/paused/draft, whether it has been published "
+            "to the phone system yet, how many phone numbers it answers on, and its main "
+            "language. Retired (archived) agents are not included. Use it to answer which "
+            "agents exist and whether one is actually switched on."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "anyOf": [{"type": "integer"}, {"type": "null"}],
+                    "description": f"How many to return, at most {MAX_ROWS}. Null means 10.",
+                }
+            },
+            "required": ["limit"],
+            "additionalProperties": False,
+        },
+        # THE SAME PERMISSION THE SCREEN SERVING THIS DATA DECLARES — `GET /v1/agents` is
+        # `agents:read`. A tool that judged itself by a looser one would be a way around
+        # that screen.
+        permission="agents:read",
+        run=_agents_list,
+    ),
 )
 
 _BY_NAME: Final[Mapping[str, ReadTool]] = {tool.name: tool for tool in READ_TOOLS}
@@ -452,15 +513,10 @@ def read_tool_schemas() -> list[dict[str, Any]]:
     module (`_cap`, the `isinstance` guards in each executor).
     """
     return [
-        {
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description,
-                "strict": True,
-                "parameters": tool.parameters,
-            },
-        }
+        # ONE ENVELOPE COMPOSER for every tool this package offers (`prompt.function_tool`):
+        # its key ORDER is part of the cacheable prefix, and three copies of it are three
+        # chances for that order to drift with nothing to catch it.
+        function_tool(name=tool.name, description=tool.description, parameters=tool.parameters)
         for tool in READ_TOOLS
     ]
 

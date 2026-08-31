@@ -186,6 +186,50 @@ async def test_campaigns_list_carries_the_launch_blocker_by_its_gate_name() -> N
     assert "consent_provenance_missing" in result
 
 
+async def test_agents_list_says_which_agents_exist_and_whether_each_is_published() -> None:
+    """THE QUESTION THIS TOOL EXISTS FOR: "is my agent actually switched on?" — which is
+    two facts, not one. `status` is what the console shows and `published` is whether the
+    voice platform is holding an agent object at all, so "live but never published" has to
+    be expressible. A rendering that folded them together could not answer it.
+
+    It also pins that the roster reaches the model through ONE query: this is
+    `agents/roster.list_agents`, the same reader `GET /v1/agents` uses, so the tool and the
+    screen cannot come to disagree about which agents exist."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET name = 'Front Desk' WHERE id = :i"), {"i": agent_id}
+        )
+
+    result = await _run("agents_list", tenant_id, limit=None)
+
+    assert "Front Desk" in result
+    # A freshly created account's agent has never been published — the tool has to say so
+    # in words the model can repeat rather than by omitting the fact.
+    assert "not published to the phone system yet" in result
+    assert str(agent_id) not in result  # names, never uuids
+
+
+async def test_agents_list_excludes_the_archive_because_the_roster_reader_does() -> None:
+    """The archive is the only unbounded bucket (`roster.list_agents`), so it is excluded
+    there and this tool does not re-open the question with a `status` argument of its own.
+    A second answer to "which agents are there" is the drift the shared reader prevents."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET name = 'Retired Line', status = 'archived', "
+                "archived_at = now() WHERE id = :i"
+            ),
+            {"i": agent_id},
+        )
+
+    result = await _run("agents_list", tenant_id, limit=None)
+
+    assert "Retired Line" not in result
+    assert "No rows" in result
+
+
 async def test_an_account_with_nothing_yet_gets_a_sentence_not_an_empty_string() -> None:
     """An empty tool result reads to a model as a failure. "There is nothing yet" is a real
     answer on a new account and is the one the person should be given."""
@@ -216,7 +260,9 @@ async def test_the_row_cap_is_the_servers_and_the_truncation_is_declared() -> No
 # --- hard rule 1: RLS, proved with two real tenants -------------------------------------
 
 
-@pytest.mark.parametrize("tool_name", ["leads_search", "calls_recent", "campaigns_list"])
+@pytest.mark.parametrize(
+    "tool_name", ["leads_search", "calls_recent", "campaigns_list", "agents_list"]
+)
 async def test_a_tool_run_for_one_tenant_never_returns_another_tenants_rows(
     tool_name: str,
 ) -> None:
@@ -237,6 +283,19 @@ async def test_a_tool_run_for_one_tenant_never_returns_another_tenants_rows(
     await _call(a_id, a_agent, outcome="transferred")
     await _call(b_id, b_agent, outcome="dropped")
 
+    # The agent each account already has, renamed so a roster leak shows up as a NAME.
+    # `create_organization` names both the same thing, and two identical strings could not
+    # tell "RLS held" from "RLS did not".
+    for tenant_id, agent_id, agent_name in (
+        (a_id, a_agent, "AgentOfA"),
+        (b_id, b_agent, "AgentOfB"),
+    ):
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE agents SET name = :n WHERE id = :i"),
+                {"n": agent_name, "i": agent_id},
+            )
+
     from apps.api.campaigns import service as campaigns_service
 
     campaigns = ((a_id, a_agent, "CampaignOfA"), (b_id, b_agent, "CampaignOfB"))
@@ -256,14 +315,14 @@ async def test_a_tool_run_for_one_tenant_never_returns_another_tenants_rows(
     for_a = await _run(tool_name, a_id)
     for_b = await _run(tool_name, b_id)
 
-    for foreign in ("BobOfB", "dropped", "CampaignOfB"):
+    for foreign in ("BobOfB", "dropped", "CampaignOfB", "AgentOfB"):
         assert foreign not in for_a
-    for foreign in ("AliceOfA", "transferred", "CampaignOfA"):
+    for foreign in ("AliceOfA", "transferred", "CampaignOfA", "AgentOfA"):
         assert foreign not in for_b
     # And each DID see its own — otherwise a tool that returned nothing at all would pass
     # the isolation half of this test while being broken.
-    assert any(mine in for_a for mine in ("AliceOfA", "transferred", "CampaignOfA"))
-    assert any(mine in for_b for mine in ("BobOfB", "dropped", "CampaignOfB"))
+    assert any(mine in for_a for mine in ("AliceOfA", "transferred", "CampaignOfA", "AgentOfA"))
+    assert any(mine in for_b for mine in ("BobOfB", "dropped", "CampaignOfB", "AgentOfB"))
 
 
 async def test_the_snapshot_counts_only_this_tenants_calls() -> None:
