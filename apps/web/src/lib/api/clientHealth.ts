@@ -114,7 +114,7 @@ export const SIGNAL_COPY: Record<string, SignalCopy> = {
   knowledge_waiting: {
     label: "Knowledge waiting on us",
     meaning:
-      "This client uploaded knowledge and nobody here has approved it. Their agent is " +
+      "This client submitted knowledge and nobody here has approved it. Their agent is " +
       "answering without it, and this one is entirely ours to clear.",
     screen: (tenantId) => `/admin/tenants/${tenantId}`,
     cta: "Approve knowledge",

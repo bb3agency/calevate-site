@@ -175,7 +175,7 @@ export default function KnowledgePage() {
         label: "What it should know",
         type: "textarea",
         value: body,
-        help: "Prose, in the language the agent answers in. It is split into chunks and retrieved during calls.",
+        help: "Prose, in the language the agent answers in. Once it is approved it becomes part of what the agent already knows when it picks up.",
       },
       {
         id: "kb-agent",
@@ -204,9 +204,17 @@ export default function KnowledgePage() {
 
   return (
     <div className="space-y-5 pb-12">
+      {/* WHAT THIS SCREEN MAY PROMISE (`docs/TRD.md:948`): in-call retrieval is T0 and
+          nothing else — approved facts are compiled into the agent's own prompt at
+          publish time (`apps/api/agents/t0.py`). The agent does not read a document and
+          does not look anything up while a caller is on the line, so the copy says
+          "part of what it already knows" rather than anything retrieval-shaped. It is
+          the faster arrangement, not the poorer one, and it is written that way.
+          `tests/knowledgeApproval.test.tsx` pins the sentence and bans the shapes. */}
       <p className="text-sm text-ink-muted">
-        What your agent knows. Everything you add is reviewed by your account manager
-        before it goes live.
+        What your agent knows. Everything you add is reviewed by your account manager,
+        and once it is approved it becomes part of what the agent already knows when it
+        picks up — hours, address, prices, the questions you get asked every day.
       </p>
 
       <RestrictionNote reason={write.reason} />
@@ -298,8 +306,9 @@ export default function KnowledgePage() {
                 }
                 className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
               />
-              {/* Chunking is paragraph-aware, so telling the client that changes how they
-                  write — and better input is cheaper than better retrieval. */}
+              {/* Chunking is paragraph-aware, so telling the client that changes how
+                  they write — and what they write is what the agent carries verbatim,
+                  so better input is the only lever there is. */}
               <p className="text-xs text-ink-muted">
                 Submitting a topic that already exists creates a new version; the previous
                 one stays until this is approved.
@@ -438,11 +447,15 @@ export default function KnowledgePage() {
  *     is_active  →  "Live"       (a caller hears this now)
  *     otherwise  →  status copy  ("In review", "Approved, not live yet", …)
  *
- * `approved` is NOT `live`. Between them sit the version bump, the embeddings, the T0
- * recompile and the engine KB sync (FLOWS §7), any of which can still be outstanding —
- * so a badge keyed on `status === "approved"` tells a client the agent is saying
- * something no caller will hear, and they stop chasing the publish. Both fields are on
- * every row, so `tsc` catches nothing here; tests/knowledgeApproval.test.tsx does.
+ * `approved` is NOT `live`. Between them sit the version bump and the T0 recompile that
+ * splices the fact into the agent's own prompt (FLOWS §7), either of which can still be
+ * outstanding — so a badge keyed on `status === "approved"` tells a client the agent is
+ * saying something no caller will hear, and they stop chasing the publish. Both fields
+ * are on every row, so `tsc` catches nothing here; tests/knowledgeApproval.test.tsx does.
+ *
+ * There is no engine-side KB sync in that list, and there used to be: the engine's
+ * built-in knowledge base is off and `attach_kb` refuses
+ * (`apps/api/engine/bolna.py:2484,3536`). Publishing means the prompt, and nothing else.
  *
  * `SourceOut.status` is plain `string` on the wire, so the copy lookup fails VISIBLE: an
  * unnameable status renders as itself, because a client whose submission is stuck in an
