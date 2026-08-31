@@ -14,8 +14,22 @@ The five files, and the seam each one owns:
   reads.
 * `routes.py`   — `POST /v1/copilot/ask`, `text/event-stream`.
 
-NOTHING IN THIS PACKAGE PERSISTS ANYTHING. `crm/assist.py:10-31` declines to store
-transcript-derived prose so that DPDP erasure and retention gain no new surface to
-enumerate; a copilot conversation table would re-open that decision for text a person
-typed about their own screen. `history` arrives in the request and dies with it.
+* `memory.py`   — `copilot_memories`: what is remembered between conversations, and the
+  hybrid recall that gets it back. Migration `d4a9c17e6b02`.
+* `models.py`   — that table, so `Base.metadata` is complete.
+
+**THIS PACKAGE NOW PERSISTS, AND THIS PARAGRAPH USED TO SAY IT DID NOT.** The previous
+text read "NOTHING IN THIS PACKAGE PERSISTS ANYTHING", citing `crm/assist.py:10-31`, which
+declines to store transcript-derived prose so that DPDP erasure and retention gain no new
+surface to enumerate. That refusal was right for a package with no memory and it is not a
+prohibition — it is a PRICE, and `memory.py` pays it rather than dodging it: the store
+ships with a FORCEd `tenant_isolation` policy, a `copilot_memory` retention category swept
+nightly, an unconditional DELETE in the tenant-erasure path, and `redact()` on every string
+before it reaches a column. `history` still arrives in the request and still dies with it —
+what survives is one redacted, capped row per answered question, and the facts an hourly
+worker distils out of them.
+
+Read `memory.py`'s docstring for the two things a reader is most likely to get wrong: that
+the relevance channel is LEXICAL and not semantic (there is no embedding path in this
+repository to reuse — D-28), and that `redact()` catches identifiers but not proper nouns.
 """

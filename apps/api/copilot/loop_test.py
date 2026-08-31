@@ -17,9 +17,8 @@ import httpx
 import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 
-from apps.api.copilot import service
+from apps.api.copilot import service, write_tools
 from apps.api.copilot import tools as tools_module
-from apps.api.copilot import write_tools
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -626,7 +625,7 @@ async def test_every_request_offers_the_write_tool_and_every_read_tool(
     # Every family the registry composes actually reaches the wire: a read tool the loop
     # never sends is a question the model cannot answer, and a write tool it never sends
     # is a change it cannot offer.
-    assert tools_module.READ_TOOL_NAMES <= set(names)
+    assert set(names) >= tools_module.READ_TOOL_NAMES
     assert {schema["function"]["name"] for schema in write_tools.write_tool_schemas()} <= set(names)
 
 

@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import service, write_tools
+from apps.api.copilot import memory, service, write_tools
 from apps.api.copilot.context import live_state_block
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
@@ -50,6 +50,7 @@ from apps.api.copilot.schemas import (
     CopilotConfirmIn,
     CopilotConfirmOut,
     CopilotDoneEvent,
+    CopilotFact,
     CopilotFillEvent,
     CopilotTextEvent,
 )
@@ -91,8 +92,11 @@ fields. Streams `text/event-stream`:
   opened. Permission, rate-limit and request-validation refusals arrive as ordinary
   problem+json responses with their real status instead.
 
-Nothing is stored. `history` is the whole memory of the conversation and dies with the
-request. Metered against the account's AI allowance and refused before a token is spent
+`history` is what the browser replays and it still dies with the request — the server keeps
+no thread. What IS kept is one redacted, capped memory row per answered question
+(`copilot_memories`), which the assistant recalls on later questions from the same person;
+it expires on the account's own `copilot_memory` retention policy and is destroyed by
+offboarding. Metered against the account's AI allowance and refused before a token is spent
 when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
 Requires `org:manage`.\
 """
@@ -146,8 +150,10 @@ async def ask_copilot(
     **NO `Idempotency-Key`, WHERE `assist_call` REQUIRES ONE, AND THE DIFFERENCE IS WHAT A
     REPLAY WOULD HAVE TO BE.** That route's key works because its answer is one JSON object
     the idempotency record can store and hand back. This answer is a stream, and the only
-    way to replay it is to keep it — which is the store of model-written prose about a
-    person's screen that this whole package declines to create (`__init__.py`). A key that
+    way to replay it is to keep the whole of it verbatim, addressable by a caller-supplied
+    key. **`copilot_memories` IS NOT THAT STORE and must not be mistaken for it**: it holds
+    a redacted, truncated MEMORY of the exchange for the model's benefit, not the byte
+    sequence the browser rendered, and nothing addresses it by an idempotency key. A key that
     could not replay anything would be a claim row and a 409 on the honest retry, i.e. the
     mechanism's costs with none of its protection. What bounds a double-click instead is
     the `costly` rate-limit profile (`core/ratelimit.py`, 30/min per caller — its own
@@ -193,6 +199,28 @@ async def ask_copilot(
             # it is needed before the first token is spent, and the alternative is opening
             # a connection of its own for one SELECT.
             tenant_leg = await account_assist_leg(gate_session)
+            # 2b. MEMORY, ON THE GATE'S SESSION AND NOT A FOURTH ONE, for the reason
+            #     `account_assist_leg` is here: it is a single indexed read, it is needed
+            #     before the first token, and the alternative is opening a connection of
+            #     its own. `recall` never raises (see its docstring) — a person whose
+            #     memory query failed gets an answer without memory, never an error
+            #     instead of an answer.
+            #
+            # ONLY THE CLIENT REALM WRITES OR READS ONE. `Principal.user_id` is a
+            # `users.id` on this realm and an `admin_users.id` on the other, and
+            # `copilot_memories.user_id` has a foreign key to `users`. A D-22 view-as
+            # operator is already refused by `org:manage` being in `MUTATING_PERMISSIONS`,
+            # so this guard is unreachable today — and it is the difference between "this
+            # cannot happen" and "this cannot happen because of a permission list two
+            # modules away", on a path whose failure would be a foreign-key violation
+            # inside a streaming response.
+            remembered = (
+                await memory.recall(
+                    gate_session, user_id=principal.user_id, question=payload.question
+                )
+                if principal.realm == "client" and principal.user_id is not None
+                else ()
+            )
     except ProblemError as refusal:
         yield _error_event(refusal)
         return
@@ -205,6 +233,27 @@ async def ask_copilot(
     #     and deliberately NOT on the gate's session, for the transaction-poisoning reason
     #     `live_state_block` states.
     live = await live_state_block(tenant_id)
+    # MEMORY REACHES THE MODEL AS A `fact`, WHICH IS THE SEAM AND NOT A SHORTCUT.
+    # `facts` is already defined as "read-only context the browser volunteers" and
+    # `prompt.py` already fences it; a recalled memory is read-only context of exactly that
+    # kind, so it needs no new prompt section, no new schema field and no change to the
+    # tool loop. Appended AFTER `assert_redacted` deliberately: this text has been through
+    # `redact()` on the way IN (`memory.redacted_content` is the only writer), so
+    # re-running the guard over it would only be able to fail on a row the database should
+    # not contain, in the middle of answering somebody.
+    if remembered:
+        payload = payload.model_copy(
+            update={
+                "facts": [
+                    *payload.facts,
+                    CopilotFact(
+                        key="remembered",
+                        label="What you have told the assistant before",
+                        value=memory.render_for_prompt(remembered),
+                    ),
+                ]
+            }
+        )
 
     # 3. THE RUN. The metering key is minted HERE, by the server, per attempt:
     #    `record_ai_assist_usage` accepts nothing else, because its idempotency is a
@@ -213,6 +262,12 @@ async def ask_copilot(
     spend: service.CopilotSpend | None = None
     filled: tuple[str, ...] = ()
     proposed: str | None = None
+    # THE ANSWER, KEPT ONLY LONG ENOUGH TO REMEMBER IT. Accumulated rather than re-read,
+    # because a stream has no "the answer" to read back; bounded by
+    # `service.MAX_ANSWER_TOKENS` * `service.MAX_TURNS`, which is the same ceiling the
+    # provider bill is under. It is truncated and redacted by `memory.redacted_content`
+    # before it reaches a column and is never logged.
+    answer_parts: list[str] = []
     try:
         async for event in service.run_copilot(
             payload,
@@ -237,6 +292,7 @@ async def ask_copilot(
             actor=write_tools.actor_for(principal),
         ):
             if event.text is not None:
+                answer_parts.append(event.text)
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=event.text))
             if event.fill is not None:
                 filled = tuple(item.field_id for item in event.fill)
@@ -325,6 +381,32 @@ async def ask_copilot(
                     "proposed_tool": proposed,
                 },
             )
+            # 5. THE MEMORY, in the SAME transaction as the meter and the audit, and that
+            #    is the whole reason it is here rather than in a session of its own: a
+            #    memory of an answer whose `usage_events` row rolled back is a memory of
+            #    something that, as far as the ledger is concerned, never happened.
+            #
+            #    AFTER the audit, so a memory write can never be what stops an
+            #    `audit_log` entry from landing. It writes ids, a screen name and prose
+            #    that `memory.redacted_content` has already put through `redact()`; it
+            #    never logs any of it (hard rule 6), and `remember_exchange` returns None
+            #    rather than raising when there is nothing left to store.
+            if principal.realm == "client" and principal.user_id is not None:
+                await memory.remember_exchange(
+                    record_session,
+                    tenant_id=tenant_id,
+                    user_id=principal.user_id,
+                    screen_route=payload.screen.route,
+                    question=payload.question,
+                    answer="".join(answer_parts),
+                    # Counts and names, exactly as the audit summary above — never a field
+                    # value, never the model's prose beyond `content` itself.
+                    meta={
+                        "realm": payload.screen.realm,
+                        "provider": spend.capability.provider,
+                        "filled_field_count": len(filled),
+                    },
+                )
 
     yield ServerSentEvent(
         event="done",

@@ -271,6 +271,10 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # one is a retention period ending, the other is a DPDP obligation finally being
     # discharged, and a single number would hide whether erasures are actually completing.
     "recording_holds": 0,
+    # Copilot memory rows deleted on the tenant's `copilot_memory` policy (migration
+    # d4a9c17e6b02). Counted in ROWS rather than conversations: one row is one exchange or
+    # one distilled fact, and there is no durable notion of a conversation to count.
+    "copilot_memories": 0,
     "deferred": 0,
 }
 
@@ -508,6 +512,14 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM kb_sources s
       WHERE {_KB_EXPIRABLE}
         AND s.updated_at < now() - make_interval(days => r.ttl_days))
+    -- What the in-app copilot remembers (migration d4a9c17e6b02). `created_at` is the
+    -- clock and not `updated_at`: `updated_at` moves when the distillation worker stamps
+    -- `distilled_at`, so dating the row from it would restart a person's retention period
+    -- because a background job read the row. What the client agreed to is how long we keep
+    -- what they typed, measured from when they typed it.
+    WHEN 'copilot_memory' THEN EXISTS (
+      SELECT 1 FROM copilot_memories m
+      WHERE m.created_at < now() - make_interval(days => r.ttl_days))
     ELSE false
   END AS has_work
 FROM retention_policies r
@@ -762,6 +774,26 @@ WHERE id IN (
 # the reason they fail here: they are wrong in both directions and their limits cannot be
 # written down. Note it rides in the SAME statement as the emptying, so there is no window
 # in which a row is scrubbed and unmarked.
+# COPILOT MEMORIES (migration d4a9c17e6b02) on the tenant's own `copilot_memory` clock.
+#
+# A DELETE, and the only DELETE in this sweep — every other arm anonymizes or clears a
+# column, because every other arm's row is load-bearing for something else (a call keeps
+# its metering, a lead keeps the funnel countable, an extraction keeps the digest's
+# denominator). A memory row is load-bearing for nothing: it exists to be read back into a
+# prompt, and an emptied one would be read back saying nothing while still costing tokens.
+# `copilot_memories` is not in `db/registry.APPEND_ONLY_TABLES` precisely because of this.
+#
+# `created_at` is the clock — see the probe arm: `updated_at` moves when the distillation
+# worker stamps `distilled_at`, and a retention period a background job can restart is not
+# a retention period.
+_COPILOT_MEMORY_SQL = """
+DELETE FROM copilot_memories
+WHERE id IN (
+  SELECT id FROM copilot_memories WHERE created_at < :cutoff
+  ORDER BY created_at LIMIT :batch)
+"""
+
+
 _EXTRACTION_SQL = """
 UPDATE call_extractions
    SET data = '{}'::jsonb, moments = NULL, errors = NULL, needs_review = NULL,
@@ -997,6 +1029,24 @@ async def _apply_one(
         # and SEC-COMP §4 says so in the words a client reads.
         counts["engine_payloads"], deferred = await _sweep_engine_payloads(
             session, tenant_id=tenant_id, cutoff=cutoff
+        )
+        counts["deferred"] += int(deferred)
+        return counts
+
+    if category == "copilot_memory":
+        # `action` is not read, for the `kb` arm's reason: a memory row is free prose, so
+        # there is no shape left once the words are gone, and a blanked row would still be
+        # returned by `copilot/memory.recall`, still cost prompt tokens and still say
+        # nothing. A policy row saying `anonymize` therefore deletes.
+        #
+        # BOTH KINDS, one predicate. A semantic fact is DERIVED from episodes that are
+        # themselves expiring, so keeping it past their clock would be the D-126 shape on a
+        # new table: the retelling outliving the thing it retold. It is dated from its own
+        # `created_at`, which is when the worker learned it, so a fact re-learned from a
+        # later conversation gets a fresh row and a fresh clock — which is correct, because
+        # a fact still being observed is a fact still true.
+        counts["copilot_memories"], deferred = await _sweep_in_batches(
+            session, _COPILOT_MEMORY_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
         return counts
@@ -2044,6 +2094,24 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # each page issues object deletions; `_erase_tenant_leads` pages because each page
         # lists a prefix per lead. This touches neither.
         counts["campaign_contacts_erased"] = await _erase_campaign_contacts(session)
+        # WHAT THE COPILOT REMEMBERED (migration d4a9c17e6b02). UNPAGED and UNCONDITIONAL,
+        # and both halves are the decision.
+        #
+        # Unpaged for `_erase_campaign_contacts`' reason: one statement over one tenant's
+        # rows with no object-store round trip in it, so the budget the paging exists to
+        # bound does not apply.
+        #
+        # Unconditional — a DELETE of every row, not a match-and-blank — because there is
+        # nothing to match on. `copilot/memory.redacted_content` keeps IDENTIFIERS out
+        # (phone, email, Aadhaar, PAN, card, OTP, UPI), which is what makes these rows safe
+        # to hold at all; what it cannot recognise is a PROPER NOUN, so a staff member who
+        # typed a caller's first name into the ask box left it here. The per-subject
+        # erasure (`execute_deletion_request`) is keyed on a PHONE NUMBER and therefore
+        # cannot reach that row by any predicate. Offboarding can, by destroying all of
+        # them, so it does — and the certificate says so in words rather than leaving a
+        # reader to infer it from a count.
+        memories = await session.execute(text("DELETE FROM copilot_memories"))
+        counts["copilot_memories_erased"] = int(rowcount_of(memories) or 0)
         # BEFORE the mark, in the same transaction: see `_WITHDRAW_ROUTES_SQL`. An
         # erased account must stop acquiring caller records, and this is the half of
         # that which is ours to perform.
@@ -2104,6 +2172,12 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 "engine_payloads": (
                     f"{counts['engine_payloads_erased']} archived raw engine payload(s) "
                     "deleted from object storage and their references cleared"
+                ),
+                "copilot_memories": (
+                    f"{counts['copilot_memories_erased']} in-app assistant memor(ies) "
+                    "deleted: everything this account's staff asked the assistant, "
+                    "everything it answered, and every fact it had learned about the "
+                    "business"
                 ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",

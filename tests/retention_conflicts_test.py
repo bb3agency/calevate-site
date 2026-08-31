@@ -195,12 +195,13 @@ async def _proof(tenant_id: uuid.UUID, request_id: uuid.UUID) -> dict[str, Any]:
 # ============================================================ 1. WHICH TTLs ARE REAL
 
 
-# Six, not four, since D-179: `engine_payload` and `kb` gave a clock to the two stores
-# of personal data that sat outside every policy a tenant could set (LEGAL-SURFACE F-2
-# and F-3). Their numbers are NOT part of the open divergence the section below tracks —
-# SEC-COMP §4 promises nothing about either store, so there is no doc figure to disagree
-# with — but they are pinned here for the same reason the other four are: this dict is
-# the row a client actually gets.
+# SEVEN, not four, and each addition closed a store of personal data that sat outside
+# every policy a tenant could set. D-179 added `engine_payload` and `kb` (LEGAL-SURFACE
+# F-2 and F-3); migration d4a9c17e6b02 added `copilot_memory` in the same shape, for the
+# in-app assistant's memory of what a client's own staff asked it. None of the three is
+# part of the open divergence the section below tracks — SEC-COMP §4 promises nothing
+# about any of them — but all three are pinned here for the reason the other four are:
+# this dict is the row a client actually gets.
 SHIPPED_TTLS = {
     "recording": 90,
     "transcript": 365,
@@ -208,6 +209,7 @@ SHIPPED_TTLS = {
     "consent_log": 2555,
     "engine_payload": 90,
     "kb": 365,
+    "copilot_memory": 180,
 }
 
 
@@ -235,10 +237,13 @@ async def test_a_real_tenant_gets_those_rows_and_the_sweep_reads_them_back() -> 
         "transcript": "anonymize",
         "lead": "anonymize",
         "consent_log": "anonymize",
-        # Destroy, both of them: an opaque vendor document and a chunk of a client's
-        # price list have no anonymized form worth keeping (D-179).
+        # Destroy, all three of them: an opaque vendor document, a chunk of a client's
+        # price list (D-179) and a sentence a person typed at their console (migration
+        # d4a9c17e6b02) have no anonymized form worth keeping. A blanked copilot memory
+        # would still be recalled into a prompt and still cost tokens while saying nothing.
         "engine_payload": "delete",
         "kb": "delete",
+        "copilot_memory": "delete",
     }
 
 

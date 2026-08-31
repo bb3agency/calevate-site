@@ -11,6 +11,7 @@ from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
 from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
+from apps.api.copilot import models as copilot_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
@@ -33,6 +34,7 @@ __all__ = [
     "billing_models",
     "campaigns_models",
     "compliance_models",
+    "copilot_models",
     "crm_models",
     "flags_models",
     "insights_models",
@@ -177,6 +179,13 @@ TENANT_TABLES = [
     # mutates; the immutable trail of dismiss/teach is `audit_log`.
     "knowledge_gaps",
     "knowledge_gap_occurrences",
+    # What the in-app copilot remembers, per tenant AND per user (migration d4a9c17e6b02).
+    # Tenant data of a shape nothing else here holds: prose a client's own STAFF typed about
+    # their own console, plus the facts a background worker distilled out of it. Redacted on
+    # write (`copilot/memory.redacted_content`), expired by the `copilot_memory` retention
+    # category, and DELETEd whole by tenant erasure. NOT append-only: `distilled_at` is
+    # stamped by the distillation worker, and these rows are meant to expire.
+    "copilot_memories",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
