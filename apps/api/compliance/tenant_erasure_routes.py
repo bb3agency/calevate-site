@@ -50,7 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from apps.api.compliance import tenant_erasure
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
@@ -263,7 +263,8 @@ async def request_tenant_erasure(
 )
 async def list_tenant_erasures(
     tenant_id: UUID,
-    _: CertificateReader,
+    principal: CertificateReader,
+    request: Request,
     limit: int = Query(default=tenant_erasure.MAX_LIST, ge=1, le=tenant_erasure.MAX_LIST),
 ) -> list[TenantErasureOut]:
     """Newest first, and deliberately still answerable once the tenant is erased.
@@ -274,6 +275,10 @@ async def list_tenant_erasures(
     """
     async with tenant_session(tenant_id) as scoped:
         records = await tenant_erasure.list_tenant_erasures(scoped, limit=limit)
+        # D-482 L-1: direct-admin reads of a client's erasure record join the trail.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return [TenantErasureOut(**_out(record)) for record in records]
 
 
@@ -286,12 +291,17 @@ async def list_tenant_erasures(
 async def read_tenant_erasure(
     tenant_id: UUID,
     request_id: UUID,
-    _: CertificateReader,
+    principal: CertificateReader,
+    request: Request,
 ) -> TenantErasureOut:
     """RLS scopes the lookup, so another tenant's record is not found — the same answer
     a nonexistent id gets, deliberately."""
     async with tenant_session(tenant_id) as scoped:
         record = await tenant_erasure.get_tenant_erasure(scoped, request_id=request_id)
+        # D-482 L-1: same trail as the list read above.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return TenantErasureOut(**_out(record))
 
 

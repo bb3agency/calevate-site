@@ -53,7 +53,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.api.admin.service import tenant_exists
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
@@ -185,7 +185,9 @@ def _state(resolution: FlagResolution) -> FlagStateOut:
         "`declared: false`; they change nothing and clearing them is safe."
     ),
 )
-async def read_feature_flags(tenant_id: UUID, principal: FlagReader) -> FeatureFlagsOut:
+async def read_feature_flags(
+    tenant_id: UUID, principal: FlagReader, request: Request
+) -> FeatureFlagsOut:
     """The read a future gate would make, plus the paperwork a human needs beside it.
 
     `resolve_flags` is the SAME function a gate calls — not a second query that agrees
@@ -193,12 +195,15 @@ async def read_feature_flags(tenant_id: UUID, principal: FlagReader) -> FeatureF
     off. `read_overrides` supplies who set it, why and when, which the resolution
     deliberately does not carry (a hot-path read should not drag prose through it).
     """
-    del principal
     async with tenant_session(tenant_id) as session:
         if not await tenant_exists(session, tenant_id):
             raise ProblemError.not_found("Organization")
         resolved = await resolve_flags(session, tenant_id=tenant_id)
         stored = {row.flag: row for row in await read_overrides(session, tenant_id=tenant_id)}
+        # D-482 L-1: a direct-admin read of one client's configuration joins the trail.
+        await record_admin_tenant_read(
+            session, request=request, principal=principal, tenant_id=tenant_id
+        )
 
     items = [
         FeatureFlagOut(
