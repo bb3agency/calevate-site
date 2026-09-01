@@ -335,6 +335,73 @@ def test_every_cron_has_a_retry_ladder_or_says_why_it_does_not() -> None:
     )
 
 
+#: The crons that walk the CLIENT DIRECTORY — one `tenant_session` (or one vendor request)
+#: per tenant, per tick — and therefore compete for the same pool and the same worker when
+#: they fire together. An entry says what the walk costs, because that is the fact that
+#: makes sharing a minute a problem rather than a coincidence.
+#:
+#: WHY THIS IS A TEST AND NOT A COMMENT. `copilot_memory.DISTILL_MINUTE`'s own comment
+#: argued that :25 was "clear of the poller, `report_stalled_pipeline` and
+#: `reconcile_outstanding_calls`, so no two O(tenants) fan-outs share a minute". It was
+#: true when written. `report_overdue_erasures` was then registered on `minute={25}` and
+#: the sentence became false without a line of it changing — the exact defect class
+#: `NO_LADDER_NEEDED` above exists for, one property over. Two fleet walks in one minute
+#: is not a style point: `report_overdue_erasures` has a wall-clock budget
+#: (`fleet_walk.WalkBudget`) it must finish inside, so a neighbour holding pooled
+#: connections in the same minute is spent out of the fleet it reaches — an alarm on a
+#: statutory right going quiet because an unrelated feature picked the same number.
+FLEET_WIDE_WALKS: dict[str, str] = {
+    "cron:report_stalled_pipeline": "one tenant_session per callable tenant",
+    "cron:reconcile_outstanding_calls": "one tenant_session per callable tenant, plus vendor reads",
+    "cron:distil_copilot_memories": "one tenant_session per tenant with a worklist row",
+    "cron:report_overdue_erasures": "one tenant_session per ORGANIZATION, under a time budget",
+    "cron:draw_qa_samples": "one tenant_session per organization, under a time budget",
+    "cron:send_agent_knowledge_digests": "one tenant_session and one SMTP send per live agent",
+    "cron:apply_retention": "one tenant_session per tenant that can hold call data",
+}
+
+
+def test_the_fleet_walk_list_still_names_crons_that_exist() -> None:
+    """A stale name here silently drops a walk out of the collision check below."""
+    registered = {job.name for job in CRON_JOBS}
+    stale = sorted(set(FLEET_WIDE_WALKS) - registered)
+    assert not stale, f"FLEET_WIDE_WALKS names crons that are no longer registered: {stale}"
+
+
+def test_no_two_fleet_wide_walks_share_a_firing_minute() -> None:
+    """The claim three cron comments make, checked instead of repeated.
+
+    Compared on the whole firing instant, not on the minute alone: two weekly walks may
+    share :05 as long as they fall on different hours or weekdays, and demanding
+    otherwise would push a weekly job off a slot for no reason. `None` is arq's wildcard
+    (every value of that field), so it matches anything — which is why the comparison is
+    field-by-field rather than a set intersection.
+    """
+
+    def _overlaps(left: object, right: object) -> bool:
+        if left is None or right is None:
+            return True
+        return bool(set(left) & set(right))  # type: ignore[arg-type]
+
+    walks = [job for job in CRON_JOBS if job.name in FLEET_WIDE_WALKS]
+    assert len(walks) == len(FLEET_WIDE_WALKS), "a named walk is registered twice"
+    clashes = [
+        (a.name, b.name, sorted(set(a.minute or []) & set(b.minute or [])) or "every minute")
+        for index, a in enumerate(walks)
+        for b in walks[index + 1 :]
+        if all(
+            _overlaps(getattr(a, field), getattr(b, field))
+            for field in ("month", "day", "weekday", "hour", "minute")
+        )
+    ]
+    assert not clashes, (
+        "these fleet-wide walks fire in the same minute, so they compete for the worker "
+        f"and the connection pool every time they run: {clashes}. Move one to a free "
+        "slot and record the reason where its schedule is chosen — the walks are listed "
+        "with what each costs in FLEET_WIDE_WALKS."
+    )
+
+
 def test_the_ladder_exemptions_still_name_crons_that_exist() -> None:
     """A stale exemption is worse than none: it silently covers whatever cron inherits
     the name, and it makes the list above read as broader coverage than it has."""

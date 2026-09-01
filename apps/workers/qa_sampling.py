@@ -33,6 +33,16 @@ A failed tenant does NOT fail the tick: one client's database error must not cos
 other client their week's sample. The failure is counted, alerted and re-raised as a
 `Retry` only when EVERY tenant failed, which is the shape that means the problem is ours
 rather than one tenant's.
+
+AND THE WALK IS BOUNDED, which it was not. `_DIRECTORY` is EVERY organization and each one
+costs a `tenant_session` plus one draw per week in `_WEEKS_BACK` — the same cost shape
+`dispatcher.report_overdue_erasures` was bounded for (D-369) and the same one P6.2 took out
+of the nightly retention sweep after measuring it at ~3 minutes on ~16k organizations. Past
+`WorkerSettings.job_timeout` (300s) arq cancels the tick and RETRIES it, so an unbounded
+walk does not sample more of the fleet on the second attempt — it re-walks the same head of
+the ordering, is cancelled again, and the ladder ends with the tail undrawn on every
+attempt and only a generic job-failure notice to show for it. `fleet_walk.WalkBudget` stops
+the pass while it can still SAY so.
 """
 
 from __future__ import annotations
@@ -51,6 +61,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.quality.sampling import draw_week_sample, ist_week_start
+from apps.workers.fleet_walk import WalkBudget
 
 log = get_logger(__name__)
 
@@ -58,7 +69,12 @@ log = get_logger(__name__)
 #: before it as a late-arrival sweep. More would be re-querying settled weeks forever.
 _WEEKS_BACK = 2
 
-_DIRECTORY = "SELECT id FROM organizations WHERE deleted_at IS NULL"
+#: `ORDER BY id` is load-bearing rather than tidy: the walk below can run out of its time
+#: budget, and an UNORDERED directory starves a different arbitrary slice of the fleet every
+#: week — so no client is reliably sampled and nobody can say which were missed. Ordered,
+#: the starved tail is stable and the alarm's advice ("the fleet has outgrown one tick") is
+#: actionable. The same argument `dispatcher._ERASURE_DIRECTORY` makes for the same walk.
+_DIRECTORY = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
 
 
 def closed_weeks(now: datetime, *, count: int = _WEEKS_BACK) -> list[date]:
@@ -84,7 +100,14 @@ async def draw_for_tenants(tenant_ids: Sequence[UUID], weeks: Sequence[date]) ->
     drawn = 0
     scanned = 0
     failed = 0
+    probed = 0
+    # The pass stops itself rather than being cancelled by arq mid-tenant and re-run from
+    # the top — see the module docstring and `fleet_walk.WalkBudget`.
+    budget = WalkBudget()
     for tenant_id in tenant_ids:
+        if budget.spent():
+            break
+        probed += 1
         try:
             async with tenant_session(tenant_id) as scoped:
                 for week_start in weeks:
@@ -100,10 +123,15 @@ async def draw_for_tenants(tenant_ids: Sequence[UUID], weeks: Sequence[date]) ->
             failed += 1
     return {
         "tenants": len(tenant_ids),
+        # What the pass actually REACHED, which is what every other count here is relative
+        # to. `tenants` alone reads as coverage and stops being coverage the moment the
+        # budget runs out.
+        "tenants_probed": probed,
         "weeks": len(weeks),
         "calls_in_frame": scanned,
         "samples_drawn": drawn,
         "tenants_failed": failed,
+        "tenants_unreached": len(tenant_ids) - probed,
     }
 
 
@@ -124,13 +152,33 @@ async def draw_qa_samples(ctx: dict[str, Any]) -> str:
 
     totals = await draw_for_tenants(tenant_ids, weeks)
     log.info("qa_sample_draw", extra=totals)
+    if totals["tenants_unreached"]:
+        # A SEPARATE ALARM from the failure one, because it says what the failure count
+        # cannot: these tenants were never attempted, so `samples_drawn` is a floor rather
+        # than the week's draw. Silence here reads exactly like a quiet week.
+        alert(
+            "WORKER_DELIVERY",
+            "qa_sample_draw_truncated",
+            detail=(
+                f"the weekly QA draw reached {totals['tenants_probed']} of "
+                f"{len(tenant_ids)} tenant(s) inside its time budget and stopped there; "
+                f"{totals['tenants_unreached']} tenant(s) have no sample for the week. "
+                "The walk costs one session per organization, so this is the fleet "
+                "outgrowing one tick rather than a transient failure"
+            ),
+        )
     if totals["tenants_failed"]:
         alert(
             "WORKER_DELIVERY",
             "qa_sample_draw_failed",
             detail=f"{totals['tenants_failed']} tenants",
         )
-    if totals["tenants_failed"] and totals["tenants_failed"] == len(tenant_ids):
+    # AGAINST WHAT THE PASS REACHED, not against the directory. The two were the same
+    # number until the walk grew a time budget; now a truncated pass in which every
+    # attempted tenant failed would have `tenants_failed < len(tenant_ids)` and slip past
+    # this arm entirely — the "database or deploy" verdict is about the tenants that were
+    # actually asked, and the ones never reached are the other alarm's business.
+    if totals["tenants_probed"] and totals["tenants_failed"] == totals["tenants_probed"]:
         # Everybody failed: that is a database or a deploy, not a tenant. Ask for the
         # retry ladder — `WorkerSettings.retry_jobs` only honours `Retry`, so a plain
         # raise here would be a single silent attempt.
@@ -147,7 +195,8 @@ async def draw_qa_samples(ctx: dict[str, Any]) -> str:
             "WORKER_TERMINAL",
             "qa_sample_draw_abandoned",
             detail=(
-                f"the weekly draw failed for all {len(tenant_ids)} tenant(s) after "
+                f"the weekly draw failed for all {totals['tenants_probed']} tenant(s) "
+                "it reached after "
                 f"{attempt} attempt(s); this week's 5% sample is undrawn and the next "
                 "tick is seven days away"
             ),

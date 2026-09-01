@@ -84,6 +84,7 @@ from apps.api.kb.insights import insights_for_agent, render_digest
 from apps.api.kb.patterns import CallContentLeakError
 from apps.api.quality.sampling import ist_week_start
 from apps.workers.email_render import from_text
+from apps.workers.fleet_walk import WalkBudget
 from apps.workers.transport import get_transport
 
 log = get_logger(__name__)
@@ -102,7 +103,16 @@ DIGEST_SUBJECT = "What your callers asked this week"
 #: pruning sweeps (03:40, 04:10), which is where the database is busy.
 DIGEST_WEEKDAY = 0
 DIGEST_HOUR = 7
-DIGEST_MINUTE = 5
+#: :12 and not :05, which is `report_stalled_pipeline`'s minute. That alarm is O(tenants)
+#: and runs every half hour; this sweep is the heaviest walk in the tree — one
+#: `tenant_session` AND one SMTP send per live agent — and it runs under a wall-clock
+#: budget it must finish inside, so a fleet-wide neighbour holding pooled connections in
+#: the same minute is subtracted from the agents it reaches. They only met on Monday
+#: mornings, which is precisely the collision nobody would have caught by reading.
+#: :12 is clear of every registered schedule.
+#: `tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute`
+#: is the guard; it is what found this one.
+DIGEST_MINUTE = 12
 
 #: Agents whose owner gets a digest in one tick. The arithmetic that justifies it: one
 #: bounded SELECT and one SMTP send per agent, at roughly a second each in the worst case,
@@ -111,6 +121,21 @@ DIGEST_MINUTE = 5
 #:
 #: A fleet ABOVE the ceiling is not silently truncated: `_sweep` alerts, because a sweep
 #: that skipped work reports fewer sends, which reads exactly like a quiet week.
+#:
+#: **AND THE ARITHMETIC ABOVE IS MEASURED AGAINST THE WRONG BOUND, WHICH IS WHY THE SWEEP
+#: ALSO CARRIES A CLOCK.** "Under half an hour, comfortably inside a weekly interval" is
+#: true and does not save this job: the binding limit is `WorkerSettings.job_timeout`, 300
+#: SECONDS, and at this ceiling the worst case is five times it. Past the timeout arq
+#: cancels the tick and `CancelledError` is one of the three exceptions it RETRIES, so the
+#: sweep restarts FROM THE TOP of the same ordering — and every client it had already
+#: reached is mailed the same digest again, up to `WORKER_MAX_TRIES` times, while the tail
+#: is never reached on any attempt. That is the one failure this module's own docstring
+#: says it must not have (`_digest_one`: "re-mails every client already reached in this
+#: pass"), arrived at through the clock instead of through an exception.
+#:
+#: So the ceiling bounds the QUERY and `fleet_walk.WalkBudget` bounds the PASS. Both are
+#: needed and they answer different questions: the ceiling keeps one SELECT bounded, the
+#: budget keeps the tick from being killed in the middle of a mailing.
 KB_DIGEST_MAX_AGENTS = 1_500
 
 _IST_TZ = ZoneInfo(IST_ZONE)
@@ -206,7 +231,15 @@ async def _sweep(now: datetime) -> str:
     ]
 
     sent = skipped = failed = 0
+    reached = 0
+    # STOPS ITSELF rather than being cancelled by arq mid-mailing — see
+    # `KB_DIGEST_MAX_AGENTS` for why a cancellation here is a duplicate mailing and not
+    # merely a late one.
+    budget = WalkBudget()
     for target in targets:
+        if budget.spent():
+            break
+        reached += 1
         outcome = await _digest_one(target, since=since, until=until)
         if outcome == "sent":
             sent += 1
@@ -215,7 +248,7 @@ async def _sweep(now: datetime) -> str:
         else:
             skipped += 1
 
-    if failed or truncated:
+    if failed or truncated or budget.exhausted:
         alert(
             "WORKER_DELIVERY",
             "kb_digest_undelivered",
@@ -227,13 +260,31 @@ async def _sweep(now: datetime) -> str:
                     if truncated
                     else ""
                 )
+                # A DIFFERENT truncation from the ceiling's, and the detail says which:
+                # the ceiling means the QUERY did not name every agent, this means the
+                # PASS ran out of wall clock before it reached the ones it did name.
+                # Same remedy family, different diagnosis, and folding them into one
+                # sentence would send an operator to re-check a constant that is fine.
+                + (
+                    f"; the pass reached {reached} of {len(targets)} agent(s) inside its "
+                    f"{budget.budget} time budget and stopped there, so the tail got no "
+                    "digest this week"
+                    if budget.exhausted
+                    else ""
+                )
             ),
         )
     log.info(
         "kb_digest_sweep",
-        extra={"sent": sent, "skipped": skipped, "failed": failed, "agents": len(targets)},
+        extra={
+            "sent": sent,
+            "skipped": skipped,
+            "failed": failed,
+            "agents": len(targets),
+            "reached": reached,
+        },
     )
-    return f"sent={sent} skipped={skipped} failed={failed}"
+    return f"sent={sent} skipped={skipped} failed={failed} reached={reached}"
 
 
 async def _digest_one(target: _Target, *, since: datetime, until: datetime) -> str:

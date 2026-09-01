@@ -11,7 +11,6 @@ coordination: whoever wins the row publishes it, everyone else moves on.
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -34,6 +33,7 @@ from apps.api.reliability.service import (
     record_outbox_metrics,
     sweep_idempotency,
 )
+from apps.workers.fleet_walk import FLEET_WALK_DEADLINE, WalkBudget
 from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER, callable_tenants
 
 log = get_logger(__name__)
@@ -269,6 +269,13 @@ ERASURE_OVERDUE_AFTER = timedelta(hours=1)
 
 #: How long the probe below may spend walking the fleet before it stops and SAYS SO.
 #:
+#: **THE REASONING NOW LIVES IN `fleet_walk.py`, WHICH IS WHERE THE BUDGET IS SPENT.**
+#: This walk was the first to get one (D-369) and the argument turned out to be about the
+#: SHAPE rather than about erasures: two more crons (`qa_sampling.draw_qa_samples`,
+#: `kb_aggregation.send_agent_knowledge_digests`) walk the same directory the same way and
+#: had the same unbounded pass. `WalkBudget` is that one mechanism; this constant stays
+#: because the number is still this job's to choose, and it is the module's default.
+#:
 #: **IT WAS THE ONE FLEET-WIDE WALK IN THIS TREE WITH NO BOUND (D-369)**, and its cost
 #: shape is the most expensive one there is: `deletion_requests` is FORCE-RLS'd, so every
 #: organization costs a `tenant_session` — a connection checkout, a `set_config`, a
@@ -299,7 +306,31 @@ ERASURE_OVERDUE_AFTER = timedelta(hours=1)
 #: 180s leaves two full minutes under `job_timeout` for the alert, the last tenant session
 #: to close and the pool to settle — the same "strictly under, with headroom" reasoning
 #: `job_completion_wait` uses against the compose grace.
-ERASURE_PROBE_DEADLINE = timedelta(seconds=180)
+ERASURE_PROBE_DEADLINE = FLEET_WALK_DEADLINE
+
+#: The minute the overdue-erasure walk fires on.
+#:
+#: **IT WAS :25, WHICH IS `copilot_memory.DISTILL_MINUTE`** — so the two heaviest hourly
+#: fan-outs in the tree started in the same minute, every hour, on the same worker fleet
+#: and the same connection pool. That is not a style point: this walk opens one
+#: `tenant_session` per ORGANIZATION and is already bounded by a wall clock
+#: (`ERASURE_PROBE_DEADLINE`) it must finish inside, so a neighbour holding pooled
+#: connections for the same minute spends this walk's budget on waiting and shortens the
+#: fleet it reaches — an alarm on a statutory right going quiet because an unrelated
+#: feature was scheduled on the same number. The distillation cron's own comment argued
+#: at length that :25 was "clear of the poller, `report_stalled_pipeline` and
+#: `reconcile_outstanding_calls`, so no two O(tenants) fan-outs share a minute", which was
+#: true when it was written and false the moment this job was registered on the same
+#: minute without anyone re-reading it.
+#:
+#: :55 is the free slot: :00 to :50 in tens is the execution poller, :05/:35 the stall alarm,
+#: :07/:37 the engine drift sweep, :15/:45 the outstanding-call sweep, :23 the KB drift
+#: sweep, :25 the distillation and :50 the violations sweep. Only `pull_fx_rate` also
+#: fires at :55, and that is one HTTP GET for one number.
+#:
+#: `tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute` is
+#: what keeps this true — a comment could not, as this minute's history shows.
+ERASURE_PROBE_MINUTE = 55
 
 #: Open erasure requests past the bound, for ONE tenant. Counts only — never the number,
 #: never `subject_ref`, which is a hash of the number and is exactly what an alert body
@@ -414,16 +445,11 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     unasked = 0
     unanswered = 0
     processor_tenants = 0
-    truncated = False
-    # The wall clock, not a counter — see `ERASURE_PROBE_DEADLINE`. `monotonic` because
-    # this measures an ELAPSED interval and `now()` is subject to NTP steps; a clock that
-    # jumped backwards mid-walk would extend the budget past the job timeout it exists to
-    # stay under, which is the one outcome the deadline may not have.
-    deadline = time.monotonic() + ERASURE_PROBE_DEADLINE.total_seconds()
+    # The wall clock, not a counter — see `fleet_walk.WalkBudget`.
+    budget = WalkBudget(ERASURE_PROBE_DEADLINE)
     tenants = await _all_tenants()
     for tenant_id in tenants:
-        if time.monotonic() >= deadline:
-            truncated = True
+        if budget.spent():
             break
         probed += 1
         try:
@@ -482,7 +508,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                 "runbooks/processor-erasure.md"
             ),
         )
-    if truncated:
+    if budget.exhausted:
         # A SEPARATE ALERT, and the reason is that it says something the count above
         # cannot: `overdue_erasures=0` from a walk that only reached part of the fleet is
         # not "no erasure is stuck", it is "no erasure is stuck among the tenants we got
@@ -509,6 +535,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
 
 __all__ = [
     "ERASURE_PROBE_DEADLINE",
+    "ERASURE_PROBE_MINUTE",
     "_OVERDUE_PROCESSOR_TASKS",
     "dispatch_outbox",
     "report_overdue_erasures",
