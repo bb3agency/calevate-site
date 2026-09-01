@@ -358,13 +358,21 @@ async def test_the_projection_is_swept_even_when_every_fact_is_already_scrubbed(
 # ==================================================== 3. EVERY TENANT HAS THE ROW
 
 
-def _migration_backfill_sql() -> str:
-    """The `retention_policies` INSERT out of `e1a4d70c9b52`, taken FROM the migration.
+def _migration_backfill_sql(category: str = RETENTION_CALLER_MEMORY) -> str:
+    """The `retention_policies` INSERT for one category, taken FROM `e1a4d70c9b52`.
 
     Imported and captured rather than retyped, which is the whole point: a test holding its
     own copy of the statement proves that the copy works. The module's `op` is replaced with
     a recorder, `upgrade()` is called for its statements alone (nothing reaches the
-    database), and the one statement that writes the policy row is returned.
+    database), and the statement that seeds THIS category is returned.
+
+    SELECTED BY CATEGORY, NOT BY BEING THE ONLY ONE — and it used to demand the latter,
+    which was right when it was written and became wrong the moment the migration grew a
+    second seed. `_REPAIR` re-seeds `copilot_memory`, a row `d4a9c17e6b02` should have
+    written and did not (its INSERT was unbracketed against FORCE-RLS `organizations`, so it
+    matched nothing). Requiring exactly one statement would make this test fail whenever the
+    migration legitimately repairs something else, which is a guard against the wrong thing.
+    What still has to hold is that the category under test is seeded EXACTLY once.
     """
     spec = importlib.util.spec_from_file_location("_d507_migration", MIGRATION)
     assert spec is not None and spec.loader is not None
@@ -374,10 +382,14 @@ def _migration_backfill_sql() -> str:
     captured: list[str] = []
     module.op = SimpleNamespace(execute=captured.append)  # type: ignore[attr-defined]
     module.upgrade()
-    inserts = [sql for sql in captured if "INSERT INTO retention_policies" in sql]
+    inserts = [
+        sql
+        for sql in captured
+        if "INSERT INTO retention_policies" in sql and f"'{category}'" in sql
+    ]
     assert len(inserts) == 1, (
-        "the migration no longer writes exactly one retention policy statement, so this "
-        "test is reading something other than the backfill it means to test"
+        f"the migration seeds {category!r} {len(inserts)} times, not once — so this test is "
+        "reading something other than the backfill it means to test"
     )
     return inserts[0]
 
@@ -451,3 +463,70 @@ async def test_the_backfill_is_safe_to_run_over_a_tenant_that_already_has_the_ro
         ).scalar_one()
         await session.commit()
     assert int(count) == 1
+
+
+async def test_the_repair_gives_an_old_tenant_the_copilot_memory_row_its_migration_missed() -> None:
+    """`_REPAIR`, and this one fixes a CONFIRMED production gap rather than a hypothesis.
+
+    `d4a9c17e6b02` seeds a `copilot_memory` policy for every existing organisation with an
+    unbracketed `INSERT ... SELECT FROM organizations`. `organizations` is FORCE ROW LEVEL
+    SECURITY, which subjects the table OWNER to `tenant_isolation` too, and that policy is
+    fail-closed on an unset `app.tenant_id` — so on a deployment whose migration role is
+    subject to RLS the SELECT saw nothing, the INSERT wrote nothing, and the statement
+    reported success. Production was checked on 1 Sep 2026 and holds one organisation with
+    a `kb` policy and NO `copilot_memory` policy: the signature exactly.
+
+    That migration has already run and its revision will never be applied again, so the
+    repair rides here. The state is CONSTRUCTED the same way the caller-memory test above
+    constructs its own — an organisation with the row deleted IS an organisation that
+    predates the migration — because a tenant created today gets the row from
+    `DEFAULT_RETENTION_POLICIES` and so proves nothing about the ones that already existed.
+    """
+    tenant_id, _ = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("DELETE FROM retention_policies WHERE data_category = 'copilot_memory'")
+        )
+        await session.commit()
+
+    async with tenant_session(tenant_id) as session:
+        missing = (
+            await session.execute(
+                text("SELECT count(*) FROM retention_policies WHERE data_category = :c"),
+                {"c": "copilot_memory"},
+            )
+        ).scalar_one()
+        # The hole itself, asserted rather than described: without this the test below
+        # would pass against a database that never lost the row.
+        assert int(missing) == 0
+        await session.execute(text(_migration_backfill_sql("copilot_memory")))
+        row = (
+            await session.execute(
+                text("SELECT ttl_days, action FROM retention_policies WHERE data_category = :c"),
+                {"c": "copilot_memory"},
+            )
+        ).first()
+        await session.commit()
+
+    assert row is not None, "the repair did not reach an organisation that predates it"
+    assert (int(row[0]), str(row[1])) == (180, "delete"), (
+        "the repair must write the same pair `scripts/seed.DEFAULT_RETENTION_POLICIES` "
+        "declares, or a repaired tenant runs on a clock no seeded tenant runs on"
+    )
+
+
+def test_the_repair_pair_matches_the_seed_it_restores() -> None:
+    """The migration retypes 180/`delete` rather than importing it, for the reason every
+    migration copies its constants — it must keep meaning what it meant on the day it ran.
+    This is the cost of that copy, paid: the two are read and compared, so a change to the
+    seed that leaves the repair behind fails here instead of silently splitting old tenants
+    from new ones onto different clocks."""
+    from scripts.seed import DEFAULT_RETENTION_POLICIES
+
+    seeded = {
+        policy["data_category"]: (policy["ttl_days"], policy["action"])
+        for policy in DEFAULT_RETENTION_POLICIES
+    }
+    sql = _migration_backfill_sql("copilot_memory")
+    ttl, action = seeded["copilot_memory"]
+    assert f"'copilot_memory', {ttl}, '{action}'" in sql

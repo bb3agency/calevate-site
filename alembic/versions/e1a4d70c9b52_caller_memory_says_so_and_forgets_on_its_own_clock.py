@@ -99,6 +99,29 @@ _NOTICE = {
 _FALLBACK = _NOTICE["en-IN"]
 
 
+#: The row `d4a9c17e6b02` meant to write for every existing organisation and, on a
+#: deployment whose migration role is subject to RLS, did not. Retyped from
+#: `scripts/seed.DEFAULT_RETENTION_POLICIES` rather than imported, for the reason every
+#: migration copies its constants: this file must keep meaning what it meant on the day it
+#: ran. `tests/retention_caller_memory_test.py` reads both and fails if they drift.
+_REPAIR: tuple[str, int, str] = ("copilot_memory", 180, "delete")
+
+
+def _seed_policy(category: str, ttl_days: int, action: str) -> str:
+    """One default policy row per organisation, for a category, skipping any that has one.
+
+    Runs inside the `NO FORCE` bracket: `organizations` and `retention_policies` are both
+    FORCE ROW LEVEL SECURITY, so outside it the SELECT sees nothing and the INSERT is a
+    silent no-op.
+    """
+    return (
+        "INSERT INTO retention_policies (id, tenant_id, data_category, ttl_days, action, "
+        f"created_at) SELECT gen_random_uuid(), id, '{category}', {ttl_days}, '{action}', "
+        "now() FROM organizations "
+        "ON CONFLICT ON CONSTRAINT uq_retention_policies_tenant_id_data_category DO NOTHING"
+    )
+
+
 def _in_list(categories: tuple[str, ...]) -> str:
     return "({})".format(", ".join(repr(c) for c in categories))
 
@@ -123,10 +146,25 @@ def upgrade() -> None:
         f"WHEN language_primary = {_sql_quote(lang)} THEN {_sql_quote(sentence)}"
         for lang, sentence in _NOTICE.items()
     )
+    # THE `NO FORCE` / `FORCE` BRACKET, and this migration failed in production without it.
+    # `agents` is FORCE ROW LEVEL SECURITY, which subjects the TABLE OWNER to the policy
+    # too, and `tenant_isolation` is fail-closed on an unset `app.tenant_id` — so the
+    # backfill matched zero rows, reported success, and the `SET NOT NULL` behind it then
+    # failed on the rows the migration believed it had filled. It passed locally because
+    # the development database had no agents in it, which is the worst way for a data
+    # migration to pass: vacuously. `d3b71c9a5e08` had already written this bracket and its
+    # reasoning down for `call_extractions`; not looking is what cost the deploy.
+    #
+    # It lifts RLS for the OWNER only — `calevate_app` is not the owner and is NOSUPERUSER
+    # NOBYPASSRLS, so it keeps every policy throughout — DDL is transactional in Postgres
+    # so FORCE is restored before anything commits and any failure rolls the bracket back,
+    # and it needs no superuser, which a managed-Postgres owner generally is not.
+    op.execute("ALTER TABLE agents NO FORCE ROW LEVEL SECURITY")
     op.execute(
         "UPDATE agents SET caller_memory_notice_line = CASE "
         f"{case_arms} ELSE {_sql_quote(_FALLBACK)} END"
     )
+    op.execute("ALTER TABLE agents FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE agents ALTER COLUMN caller_memory_notice_line SET NOT NULL")
     op.execute(
         "ALTER TABLE agents ADD CONSTRAINT ck_agents_caller_memory_notice_nonempty "
@@ -139,11 +177,31 @@ def upgrade() -> None:
         "ALTER TABLE retention_policies ADD CONSTRAINT ck_retention_policies_category_enum "
         f"CHECK (data_category IN {_in_list(_CATEGORIES_AFTER)})"
     )
+    # SAME BRACKET, THREE TABLES. `organizations`, `retention_policies` and `caller_chunks`
+    # are all FORCE ROW LEVEL SECURITY, so unbracketed this SELECT sees no organisations,
+    # inserts nothing, and reports success — the reach-backwards silently not happening,
+    # which is indistinguishable from it working.
+    #
+    # ⚠ AND THAT IS NOT HYPOTHETICAL: `d4a9c17e6b02` seeds the `copilot_memory` row with
+    # this exact unbracketed statement, so on any deployment whose migration role is
+    # subject to RLS it inserted ZERO rows and every organisation created before it holds
+    # copilot memories nothing expires. `_REPAIR` below fixes that while the bracket is
+    # open, because the migration that should have done it has already run and cannot run
+    # again. `ON CONFLICT DO NOTHING` makes it a no-op where the seed did work.
+    op.execute("ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE retention_policies NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE caller_chunks NO FORCE ROW LEVEL SECURITY")
+    op.execute(_seed_policy(_CATEGORY, _TTL_DAYS, _ACTION))
+    op.execute(_seed_policy(*_REPAIR))
+    # WIDEN THE CHECK BEFORE THE UPDATE THAT NEEDS IT. This ran the other way round and
+    # passed, because the unbracketed UPDATE matched nothing — a constraint violation
+    # cannot happen on zero rows. Fixing the RLS bug is what made the ordering bug visible,
+    # which is the argument for exercising a data migration against data rather than
+    # against an empty table.
+    op.execute("ALTER TABLE caller_chunks DROP CONSTRAINT ck_caller_chunks_retention_category_enum")
     op.execute(
-        "INSERT INTO retention_policies (id, tenant_id, data_category, ttl_days, action, "
-        f"created_at) SELECT gen_random_uuid(), id, '{_CATEGORY}', {_TTL_DAYS}, '{_ACTION}', "
-        "now() FROM organizations "
-        "ON CONFLICT ON CONSTRAINT uq_retention_policies_tenant_id_data_category DO NOTHING"
+        "ALTER TABLE caller_chunks ADD CONSTRAINT ck_caller_chunks_retention_category_enum "
+        f"CHECK (retention_category IN {_in_list(('transcript', 'lead', _CATEGORY))})"
     )
     # The chunks already on file under the transcript clock move to the new one. They are
     # the caller-memory scope's rows and nothing else's — `subject_kind` is the whole
@@ -153,11 +211,9 @@ def upgrade() -> None:
         f"UPDATE caller_chunks SET retention_category = '{_CATEGORY}' "
         "WHERE subject_kind = 'caller_memory'"
     )
-    op.execute("ALTER TABLE caller_chunks DROP CONSTRAINT ck_caller_chunks_retention_category_enum")
-    op.execute(
-        "ALTER TABLE caller_chunks ADD CONSTRAINT ck_caller_chunks_retention_category_enum "
-        f"CHECK (retention_category IN {_in_list(('transcript', 'lead', _CATEGORY))})"
-    )
+    op.execute("ALTER TABLE caller_chunks FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE retention_policies FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE organizations FORCE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:
