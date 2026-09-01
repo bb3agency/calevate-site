@@ -601,6 +601,56 @@ describe("the dry run", () => {
     expect(container.textContent).not.toContain("WOULD get a call");
     expect(container.textContent).not.toContain("would NOT get a call");
   });
+
+  /**
+   * A VERDICT IS ABOUT THE INPUTS IT WAS RUN ON, and this card had no way of saying so.
+   *
+   * `/do-not-call` already makes this call in as many words — "a stale verdict beside a
+   * changed number is worse than no verdict" — and clears its answer on every keystroke
+   * in the number field. This card is the same shape and did not: the result stayed
+   * under an edited payload and, worse, under a DIFFERENT lead source, where "WOULD get
+   * a call" is a specific and confident claim about a request nobody made. Editing the
+   * sample and re-reading the ticks is the whole workflow this card exists for, so the
+   * stale state is not an edge case, it is the second thing anybody does with it.
+   */
+  it("retracts the verdict when the payload it was about is edited", async () => {
+    const { container } = await runTest({
+      would_call: true,
+      steps: [{ step: "phone_number", ok: true, detail: "Found a dialable Indian number." }],
+    });
+    await screen.findByText("A real submission like this WOULD get a call.");
+
+    fireEvent.change(screen.getByLabelText("Sample lead payload (JSON)"), {
+      target: { value: '{"phone_number":"9000000000"}' },
+    });
+
+    expect(container.textContent).not.toContain("WOULD get a call");
+  });
+
+  it("retracts the verdict when a DIFFERENT lead source is picked", async () => {
+    const { container } = await runTest({
+      would_call: true,
+      steps: [{ step: "phone_number", ok: true, detail: "Found a dialable Indian number." }],
+    });
+    await screen.findByText("A real submission like this WOULD get a call.");
+
+    fireEvent.change(screen.getByLabelText("Lead source to test"), {
+      target: { value: FORM_SOURCE_ID },
+    });
+
+    expect(container.textContent).not.toContain("WOULD get a call");
+  });
+
+  it("retracts a REFUSAL on edit too — it is a verdict about that sample as well", async () => {
+    await runTest(problem(422, { title: "That sample has no phone number." }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Sample lead payload (JSON)"), {
+      target: { value: '{"phone_number":"9000000000"}' },
+    });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
 
 describe("controls are gated on the permission their route requires", () => {
