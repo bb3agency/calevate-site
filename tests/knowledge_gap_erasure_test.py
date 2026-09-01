@@ -218,3 +218,24 @@ async def test_the_aggregate_example_is_re_derived_from_what_survives() -> None:
         "the aggregate was not re-derived from the surviving occurrence — it should show "
         "the older call's answer, not the marker"
     )
+
+
+async def test_a_subject_with_no_calls_scrubs_nothing_and_touches_no_row() -> None:
+    """The empty-list guard, which every erasure of a lead-only subject takes.
+
+    `execute_deletion_request` passes `list(calls)`, and a subject can be on file as a
+    LEAD with no call ever placed — a campaign contact uploaded and never dialled is
+    exactly that shape. Without the guard the scrub would issue `call_id = ANY('{}')`,
+    which matches nothing but still runs two statements and a recompute loop per erasure.
+
+    Asserted on the RETURN VALUE, which is what reaches the proof certificate: a
+    certificate claiming rows were scrubbed for a subject who had no calls would be
+    attesting to work nobody did.
+    """
+    tenant_id, _, _ = await _seed_gap(datetime.now(UTC))
+    before = await _gap_text(tenant_id)
+
+    async with tenant_session(tenant_id) as session:
+        assert await service.scrub_quotes_for_calls(session, call_ids=[], mark=REDACTED_MARK) == 0
+
+    assert await _gap_text(tenant_id) == before, "an empty subject scrubbed somebody else's words"

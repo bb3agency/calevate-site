@@ -32,11 +32,19 @@ from pathlib import Path
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import platform_ai
-from apps.api.billing.ai_quota import ASSIST_REF_PREFIX, is_assist_ref, new_assist_ref
+from apps.api.billing.ai_quota import (
+    ASSIST_REF_PREFIX,
+    PLATFORM_AI_BRAKE_INR,
+    current_billing_month,
+    is_assist_ref,
+    new_assist_ref,
+    read_platform_ai_spend,
+)
 from apps.api.billing.rates import llm_inr_per_ktok
 from apps.api.copilot import admin_memory, admin_tools
 from apps.api.copilot import service as copilot_service
 from apps.api.copilot import tools as copilot_tools
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import (
     IMPERSONATION_PERMITTED_MUTATIONS,
     MUTATING_PERMISSIONS,
@@ -521,3 +529,61 @@ async def test_a_memory_formed_on_one_account_is_not_recalled_on_another() -> No
     assert scoped in {item.id for item in on_the_same_account}
     assert scoped not in {item.id for item in on_another_account}
     assert platform_wide in {item.id for item in on_another_account}
+
+
+async def test_the_platform_brake_refuses_an_operator_and_does_not_offer_a_wallet() -> None:
+    """The ₹25,000 brake, driven rather than described — it had never been exercised.
+
+    `require_platform_ai` is the only ceiling this surface has: an operator has no
+    allowance to sell, so there is no per-caller quota behind it and nothing else stops
+    admin-copilot spend running away on OUR key. The arm that raises was uncovered, which
+    means the one control on that spend had never been shown to fire.
+
+    **The refusal must NOT be the client-facing code, and that is the real assertion.**
+    `ai_paused_platform_wide` is what opens the client's "buy more AI" wallet dialog. An
+    operator cannot buy any, so reusing it would put a purchase modal in front of somebody
+    with nothing to purchase — which is why the admin code is deliberately different.
+    """
+    month = current_billing_month()
+    async with untenanted_session() as session:
+        # At the brake exactly: `tripped` is `>=`, so the boundary is the interesting
+        # value — one paisa under would prove nothing about the comparison.
+        await session.execute(
+            text(
+                "INSERT INTO platform_ai_spend (month, spend_inr, requests) "
+                "VALUES (:m, :s, 1) ON CONFLICT (month) DO UPDATE SET spend_inr = :s"
+            ),
+            {"m": month, "s": PLATFORM_AI_BRAKE_INR},
+        )
+
+    async with untenanted_session() as session:
+        assert (await read_platform_ai_spend(session)).tripped, "premise: the brake is at its limit"
+        with pytest.raises(ProblemError) as exc:
+            await platform_ai.require_platform_ai(session)
+
+    assert exc.value.code == "admin_ai_paused_platform_wide", (
+        "an operator was refused with the CLIENT's code, which is what opens a wallet "
+        "dialog — and an operator has no wallet"
+    )
+    assert exc.value.kind == "transient"
+
+    # Clean up: the brake is global, so leaving it tripped would refuse every later test.
+    async with untenanted_session() as session:
+        await session.execute(text("DELETE FROM platform_ai_spend WHERE month = :m"), {"m": month})
+
+
+async def test_below_the_brake_an_operator_is_served() -> None:
+    """The other arm. Without this the clause above passes against a `require_platform_ai`
+    that refuses unconditionally."""
+    month = current_billing_month()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_ai_spend (month, spend_inr, requests) "
+                "VALUES (:m, :s, 1) ON CONFLICT (month) DO UPDATE SET spend_inr = :s"
+            ),
+            {"m": month, "s": PLATFORM_AI_BRAKE_INR - Decimal("0.0001")},
+        )
+    async with untenanted_session() as session:
+        await platform_ai.require_platform_ai(session)  # must not raise
+        await session.execute(text("DELETE FROM platform_ai_spend WHERE month = :m"), {"m": month})
