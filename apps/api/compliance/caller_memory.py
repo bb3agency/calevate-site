@@ -51,44 +51,55 @@ for six years". Three reasons, in the order they bind:
   replaced by the next distillation; a misheard sentence attributed to a caller is a
   record of something they did not say.
 
+**GAP (1 Sep 2026): NOTHING CALLS `remember()` YET, AND THAT IS DELIBERATE RATHER THAN
+UNFINISHED.** The store, both erasure arms, the retention clock and the guard
+(`tests/caller_memory_erasure_guard_test.py`) are built and tested; the PRODUCER — a
+distillation pass over a finished call — is not, and wiring it is the change that makes
+the switch offerable to a client. Offering the switch is what creates processing no notice
+names, so the producer waits on the decision D-506 records, not on engineering time.
+Recorded here in `kb/models.KbRetrievalLog`'s shape, because the module is what outlives
+the discussion.
+
+WHAT CLOSES IT, in order: (1) the founder's answer on the caller notice; (2) a distillation
+pass in the shape of `workers/copilot_memory.py` — bounded facts per call, `redact()` on
+the way in, metered through `record_ai_assist_usage` (hard rule 7), and running ONLY for
+agents whose switch is on, so the default costs nothing; (3) a per-call idempotency marker,
+because a retry must not re-buy the same facts and `source_call_id` alone cannot say
+"looked at, nothing owed" — `kb_documents.gloss_state` is the worked example of why that
+third state has to exist. `recall()` is reachable the day (1) and (2) land.
+
 **WHAT IS NOT DECIDED HERE.** How a fact is produced from a call is the distillation
 worker's business (`workers/copilot_memory.py` is the shape: a cron, bounded spend,
 `distilled_at` as the idempotency key), and this module takes finished sentences. That
 separation is deliberate — the durable-data seam has to be reviewable without reading a
 prompt.
 
-═══ 3. THE ERASURE, WHICH IS WHY THIS MODULE EXISTS AT ALL ═══
+═══ 3. THE ERASURE IS NOT HERE, AND THAT IS THE DESIGN ═══
 
 **THE FEATURE'S PURPOSE IS THAT THE ROW OUTLIVES THE CALL**, so every mechanism that
 protects a call's data by being attached to the call fails here by construction:
+`source_call_id` is `ON DELETE SET NULL` provenance and could not be an erasure path (a
+DPDP erasure SCRUBS a call in place and keeps the row as billing evidence, so a cascade
+never fires — the lesson `insights/service.scrub_quotes_for_calls` was written to record),
+and the transcript clock reaches nothing that is not in `retention.DERIVED_COPIES`.
 
-* `source_call_id` is `ON DELETE SET NULL` PROVENANCE. It is not an erasure path and could
-  not be one — a DPDP erasure SCRUBS a call in place and keeps the row as billing
-  evidence, so a cascade never fires. `caller_chunks`' migration says the same thing about
-  its own `call_id`, and `scrub_quotes_for_calls` exists because the lesson was learned
-  the expensive way.
-* the transcript clock does not reach it either, unless somebody puts it in
-  `retention.DERIVED_COPIES` — "a category nobody sets is a category that never expires".
+Both doors out are therefore written by hand, and they are written ONCE, in
+`apps/api/retrieval/caller_erasure.py` — `erase_subject_vectors` (DPDP §12, keyed on
+`caller_ref.caller_refs()` so it still resolves after `calls.from_e164` is NULL, and
+walking every KEK generation so a rotation cannot hide a row), `erase_tenant_vectors`, and
+`EXPIRE_MEMORIES_SQL` on the tenant's own `transcript` policy.
 
-So there are exactly three doors out, and all three are in this file:
+**THIS MODULE DELIBERATELY DOES NOT HAVE ITS OWN COPY OF THEM**, and the reason is that
+module's own: `caller_chunks` holds the derived keys and `caller_memories` holds the fact
+they were built from, so splitting their erasure across two modules is exactly the seam
+that goes missing — one gets a new caller and the other does not, silently, for as long as
+nobody looks. One module, one pair of statements, one count on the certificate. An earlier
+draft of this file had a second implementation; it was removed rather than kept beside it,
+because two ways of doing one thing is a defect even when both work.
 
-* `scrub_memories_for_subject` — the per-subject DPDP §12 arm, keyed on
-  `caller_ref.caller_refs()`, which is derived from the NUMBER and therefore still works
-  after `calls.from_e164` has been NULLed. It walks every KEK generation, so a key
-  rotation cannot hide a row from an erasure.
-* `scrub_all_memories` — the tenant-erasure arm. Unconditional, for
-  `execute_tenant_erasure`'s reason on `copilot_memories`: there is no subject to match on
-  when the whole account goes.
-* `expire_memories` — the clock, on the tenant's own `transcript` policy, because a
-  memory is distilled from what the caller said.
-
-**SCRUBBED, NOT DELETED**, matching `call_extractions` and the gap tables: `fact` is
-emptied to `''` and `scrubbed_at` is stamped, enforced by
-`ck_caller_memories_scrubbed_is_empty`. The tombstone is what makes the forgetting
-DURABLE — without it the distillation worker would re-learn the same fact from a
-transcript the erasure had not yet reached and re-create the row, spending money to undo a
-legal obligation. Every one of the three is idempotent on `fact <> ''` so a re-run cannot
-report a second, larger count for work the first one did.
+What remains here is the WRITE and the READ. `tests/caller_memory_test.py` exercises the
+forgetting through the real arms rather than through a local copy, which is also the only
+version of that test that can fail when the real path breaks.
 """
 
 from __future__ import annotations
@@ -104,7 +115,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance.caller_ref import active_caller_ref, caller_refs
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.db.result import rowcount_of
 from apps.workers.redaction import redact
 
 log = get_logger(__name__)
@@ -125,21 +135,6 @@ RECALL_LIMIT: Final = 5
 #: the list is truncated to it — a token ceiling bounds a REQUEST's cost, never the number
 #: of ROWS a compliant answer creates, and rows are what retention and erasure pay for.
 MAX_FACTS_PER_CALL: Final = 3
-
-#: The retention clock this scope rides, and it is deliberately NOT a category of its own.
-#: A memory is DISTILLED from what the caller said, so it belongs on the clock of the words
-#: it was distilled from — `calls.summary` and the knowledge-gap quotes are already filed
-#: exactly that way. Kept in step with `retrieval/models.SUBJECT_RETENTION` by
-#: `tests/caller_memory_test.py`, not by hope.
-RETENTION_CATEGORY: Final = "transcript"
-
-#: What `scrub`/`expire` write into `fact`. EMPTY STRING and never NULL: the column is NOT
-#: NULL and the CHECK pairs `scrubbed_at IS NOT NULL` with `fact = ''`, so every reader has
-#: ONE empty value to test rather than two. Deliberately NOT `retention.REDACTED_MARK` — a
-#: marker is what you leave where a turn USED to be and a reader needs to know one existed;
-#: here the row's own `scrubbed_at` says that, and a marker would be a string recalled into
-#: a prompt.
-SCRUBBED_FACT: Final = ""
 
 
 def clean_fact(raw: str) -> str:
@@ -303,81 +298,6 @@ async def recall(
     return tuple(str(row) for row in rows)
 
 
-# ─────────────────────────────── the three doors out ───────────────────────────────
-#
-# One statement, three callers. The alternative is three statements that drift and a
-# certificate that is right about one erasure and wrong about another — `_erase_campaign_
-# contacts`' argument, which is why that function also takes its predicate as a parameter.
-#
-# `fact <> ''` is the ALREADY-DONE guard on every arm and it is what makes all three
-# idempotent: an erasure re-run must not report a second, larger count for work the first
-# one did, and a retention tick must not re-count rows a §12 request already scrubbed.
-_SCRUB_SQL = """
-UPDATE caller_memories
-SET fact = :empty, scrubbed_at = now(), updated_at = now()
-WHERE {predicate} AND fact <> ''
-"""
-
-
-async def _scrub(session: AsyncSession, predicate: str, params: dict[str, object]) -> int:
-    result = await session.execute(
-        text(_SCRUB_SQL.format(predicate=predicate)), {**params, "empty": SCRUBBED_FACT}
-    )
-    return int(rowcount_of(result) or 0)
-
-
-async def scrub_memories_for_subject(
-    session: AsyncSession, tenant_id: UUID, *, phone_e164: str
-) -> int:
-    """DPDP §12: forget everything this agent's callers' memories hold about ONE person.
-
-    THE ARM `execute_deletion_request` CANNOT INHERIT. That function resolves a phone
-    number to a set of CALL ids and a set of LEAD ids; a caller memory is keyed to neither,
-    because its subject is a person ACROSS calls. `caller_refs()` is derived from the
-    NUMBER, so it still resolves after `calls.from_e164` has been NULLed — and it returns
-    EVERY KEK generation, so a key rotation between the write and the request cannot hide
-    a row.
-
-    Returns the count for the proof certificate. A count and never a fact: the certificate
-    is handed to the requester and kept indefinitely, so it must not become another copy of
-    what it attests was removed (hard rule 6).
-    """
-    return await _scrub(
-        session,
-        "subject_ref = ANY(:refs)",
-        {"refs": list(caller_refs(tenant_id, phone_e164))},
-    )
-
-
-async def scrub_all_memories(session: AsyncSession) -> int:
-    """Tenant erasure: every memory this account holds, unconditionally.
-
-    UNCONDITIONAL — no predicate, no match — for `execute_tenant_erasure`'s reason on
-    `copilot_memories`: when the whole account goes there is no subject to match on, and a
-    per-subject arm would leave behind exactly the rows whose subject nobody remembered to
-    enumerate. RLS scopes it to the tenant (hard rule 1); the caller is already inside
-    `tenant_session`.
-    """
-    return await _scrub(session, "TRUE", {})
-
-
-async def expire_memories(session: AsyncSession, *, cutoff: datetime) -> int:
-    """The clock: facts older than the tenant's own `transcript` retention period.
-
-    `occurred_at`, never `created_at` — the clock of the CALL the fact was learned on, so
-    a distillation that ran late does not buy the row extra life and a backfill does not
-    reset it.
-
-    SCRUBBED RATHER THAN DELETED, unlike `retention.py`'s `copilot_memory` arm, and the
-    difference is the re-learning loop: the distiller discovers its own work from calls,
-    so a deleted row would be re-created from a transcript that has not yet reached its
-    own cutoff — the row would come back, with a fresh clock, for ever. The tombstone is
-    what makes the forgetting converge. It costs one empty row per expired fact, which is
-    the same price `call_extractions` and the gap tables already pay.
-    """
-    return await _scrub(session, "occurred_at < :cutoff", {"cutoff": cutoff})
-
-
 def _active_handle(tenant_id: UUID, phone_e164: str) -> tuple[str, int]:
     """The ref a new row is filed under, and the KEK generation that minted it.
 
@@ -393,13 +313,8 @@ __all__ = [
     "MAX_FACTS_PER_CALL",
     "MAX_FACT_CHARS",
     "RECALL_LIMIT",
-    "RETENTION_CATEGORY",
-    "SCRUBBED_FACT",
     "clean_fact",
-    "expire_memories",
     "memory_enabled",
     "recall",
     "remember",
-    "scrub_all_memories",
-    "scrub_memories_for_subject",
 ]

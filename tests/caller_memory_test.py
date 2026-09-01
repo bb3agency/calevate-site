@@ -25,6 +25,12 @@ from apps.api.admin import service as admin_service
 from apps.api.compliance import caller_memory
 from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.db.session import tenant_session
+from apps.api.retrieval.caller_erasure import (
+    EXPIRE_MEMORIES_SQL,
+    MEMORY_RETENTION_CATEGORY,
+    erase_subject_vectors,
+    erase_tenant_vectors,
+)
 from apps.api.retrieval.models import (
     CALLER_MEMORY_DEFAULT_ENABLED,
     SUBJECT_CALLER_MEMORY,
@@ -233,12 +239,10 @@ async def test_an_erased_caller_is_forgotten() -> None:
     assert FACT in await _facts_on_file(tenant_id)
 
     async with tenant_session(tenant_id) as session:
-        scrubbed = await caller_memory.scrub_memories_for_subject(
-            session, tenant_id, phone_e164=CALLER
-        )
+        counts = await erase_subject_vectors(session, tenant_id=tenant_id, phone=CALLER)
         await session.commit()
 
-    assert scrubbed == 1
+    assert counts.memories == 1
     assert await _facts_on_file(tenant_id) == []
     async with tenant_session(tenant_id) as session:
         assert (
@@ -255,7 +259,7 @@ async def test_an_erasure_forgets_one_person_and_not_the_others() -> None:
     await _remember(tenant_id, agent_id, phone=CALLER, fact=FACT)
     await _remember(tenant_id, agent_id, phone=NEIGHBOUR, fact=OTHER_FACT)
     async with tenant_session(tenant_id) as session:
-        await caller_memory.scrub_memories_for_subject(session, tenant_id, phone_e164=CALLER)
+        await erase_subject_vectors(session, tenant_id=tenant_id, phone=CALLER)
         await session.commit()
     assert await _facts_on_file(tenant_id) == [OTHER_FACT]
 
@@ -268,12 +272,12 @@ async def test_the_erasure_leaves_a_tombstone_rather_than_deleting_the_row() -> 
     await _enable(tenant_id, agent_id)
     await _remember(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
-        await caller_memory.scrub_memories_for_subject(session, tenant_id, phone_e164=CALLER)
+        await erase_subject_vectors(session, tenant_id=tenant_id, phone=CALLER)
         await session.commit()
     async with tenant_session(tenant_id) as session:
         row = (await session.execute(text("SELECT fact, scrubbed_at FROM caller_memories"))).first()
     assert row is not None
-    assert row[0] == caller_memory.SCRUBBED_FACT
+    assert row[0] == ""
     assert row[1] is not None
 
 
@@ -284,14 +288,10 @@ async def test_a_re_run_erasure_reports_nothing_the_first_one_already_did() -> N
     await _enable(tenant_id, agent_id)
     await _remember(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
-        first = await caller_memory.scrub_memories_for_subject(
-            session, tenant_id, phone_e164=CALLER
-        )
-        second = await caller_memory.scrub_memories_for_subject(
-            session, tenant_id, phone_e164=CALLER
-        )
+        first = await erase_subject_vectors(session, tenant_id=tenant_id, phone=CALLER)
+        second = await erase_subject_vectors(session, tenant_id=tenant_id, phone=CALLER)
         await session.commit()
-    assert (first, second) == (1, 0)
+    assert (first.memories, second.memories) == (1, 0)
 
 
 async def test_a_tenant_erasure_forgets_every_caller() -> None:
@@ -303,7 +303,7 @@ async def test_a_tenant_erasure_forgets_every_caller() -> None:
     await _remember(tenant_id, agent_id, phone=CALLER, fact=FACT)
     await _remember(tenant_id, agent_id, phone=NEIGHBOUR, fact=OTHER_FACT)
     async with tenant_session(tenant_id) as session:
-        assert await caller_memory.scrub_all_memories(session) == 2
+        assert (await erase_tenant_vectors(session, tenant_id=tenant_id)).memories == 2
         await session.commit()
     assert await _facts_on_file(tenant_id) == []
 
@@ -319,7 +319,10 @@ async def test_the_clock_forgets_facts_older_than_the_cutoff() -> None:
         tenant_id, agent_id, phone=NEIGHBOUR, fact=OTHER_FACT, occurred_at=now - timedelta(days=5)
     )
     async with tenant_session(tenant_id) as session:
-        expired = await caller_memory.expire_memories(session, cutoff=now - timedelta(days=365))
+        result = await session.execute(
+            text(EXPIRE_MEMORIES_SQL), {"cutoff": now - timedelta(days=365), "batch": 100}
+        )
+        expired = result.rowcount
         await session.commit()
     assert expired == 1
     assert await _facts_on_file(tenant_id) == [OTHER_FACT]
@@ -327,12 +330,17 @@ async def test_the_clock_forgets_facts_older_than_the_cutoff() -> None:
 
 async def test_the_scope_rides_the_transcript_clock_and_nothing_else() -> None:
     """One statement of which clock owns this scope, asserted across the two places that
-    have to agree: the shared store's registry and this module's own constant. They drift
-    silently otherwise — the projection would expire on one clock and the source row on
-    another, and the survivor would be a fact with no words left to justify it.
+    have to agree: the shared store's registry and the erasure module's own constant. They
+    drift silently otherwise — the projection would expire on one clock and the source row
+    on another, and the survivor would be a fact with no words left to justify it.
+
+    `transcript` and not a category of its own: a memory is DISTILLED from what the caller
+    said, so it rides the clock of the words it was distilled from — `calls.summary`'s
+    argument, one table over — and it costs no new `retention_policies` row a client would
+    have to be asked about.
     """
-    assert SUBJECT_RETENTION[SUBJECT_CALLER_MEMORY] == caller_memory.RETENTION_CATEGORY
-    assert caller_memory.RETENTION_CATEGORY == "transcript"
+    assert SUBJECT_RETENTION[SUBJECT_CALLER_MEMORY] == MEMORY_RETENTION_CATEGORY
+    assert MEMORY_RETENTION_CATEGORY == "transcript"
 
 
 async def test_the_subject_key_matches_the_one_the_projection_is_filed_under() -> None:
@@ -378,8 +386,6 @@ async def test_one_tenant_cannot_see_another_tenants_caller_memories() -> None:
     async with tenant_session(first) as session:
         assert active_caller_ref(first, CALLER).ref != active_caller_ref(second, CALLER).ref
         # The neighbour's refs match nothing here even with RLS set aside on the predicate.
-        assert (
-            await caller_memory.scrub_memories_for_subject(session, second, phone_e164=CALLER) == 0
-        )
+        assert (await erase_subject_vectors(session, tenant_id=second, phone=CALLER)).memories == 0
         await session.commit()
     assert await _facts_on_file(first) == [FACT]
