@@ -87,6 +87,7 @@ from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
+from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.dial_recall import recall_queued_dials
@@ -107,7 +108,6 @@ from apps.workers.kb_aggregation import (
     DIGEST_WEEKDAY,
     send_agent_knowledge_digests,
 )
-from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
