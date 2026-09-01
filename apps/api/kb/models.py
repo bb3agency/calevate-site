@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
+from apps.api.kb.gloss import GLOSS_PENDING, GLOSS_STATES
 
 KB_KINDS = ("file", "url", "text", "call_corpus")
 KB_STATUSES = ("uploaded", "parsed", "pending_approval", "approved", "rejected", "archived")
@@ -73,7 +74,10 @@ class KbDocument(PKMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "kb_documents"
-    __table_args__ = (UniqueConstraint("source_id", "idx"),)
+    __table_args__ = (
+        UniqueConstraint("source_id", "idx"),
+        CheckConstraint(f"gloss_state IN {GLOSS_STATES!r}", name="gloss_state_enum"),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -84,6 +88,24 @@ class KbDocument(PKMixin, TimestampMixin, Base):
     idx: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str | None] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    #: A short ENGLISH rendering of `content`, written once at ingestion by
+    #: `apps/workers/kb_gloss.py` (migration `a7f4c31d95e8`).
+    #:
+    #: IT IS A RETRIEVAL KEY AND NEVER AN UTTERANCE. `retrieval/compiled_facts.py` scores
+    #: it against a question and then returns the ORIGINAL line; nothing compiles it into a
+    #: prompt, pushes it to the engine, or shows it to a caller. So a machine translation
+    #: cannot widen what a client's agent may say — the human approved Telugu, the agent
+    #: still says Telugu, and the gloss only changes whether a Tenglish question finds it.
+    #: `kb/gloss.py` carries the measurement that justifies the column.
+    gloss: Mapped[str | None] = mapped_column(Text)
+    #: Which model wrote `gloss`. Provenance, so "machine-generated" is a checkable fact on
+    #: the row rather than a convention — the preview screen marks the gloss from this.
+    gloss_model: Mapped[str | None] = mapped_column(Text)
+    #: `pending` / `ready` / `not_needed` (`kb/gloss.GLOSS_STATES`). THE IDEMPOTENCY KEY of
+    #: the gloss sweep: `not_needed` is how an English chunk says "looked at, nothing owed",
+    #: which `gloss IS NULL` cannot say and which is the difference between a sweep that
+    #: converges and one that re-pays a model call for the same "no" on every tick.
+    gloss_state: Mapped[str] = mapped_column(String, nullable=False, server_default=GLOSS_PENDING)
     meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
 
 

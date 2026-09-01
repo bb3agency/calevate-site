@@ -81,6 +81,15 @@ class ChunkOut(Strict):
     idx: int
     content: str
     chars: int
+    #: The MACHINE-WRITTEN English rendering of `content`, or None. NEVER the client's own
+    #: words and never what the agent says — it is a retrieval key so that a Tenglish
+    #: question (the form Sarvam's Saaras STT returns) can find a Telugu-script chunk at
+    #: all (`apps/api/kb/gloss.py` carries the measurement). It is shown at the review
+    #: screen so a reviewer can report a bad one, and `gloss_model` is beside it so the
+    #: screen labels it by the model that wrote it rather than asserting "machine-generated"
+    #: as an unenforced convention.
+    gloss: str | None = None
+    gloss_model: str | None = None
 
 
 # The two READS below are gated on `agents:read`, not `kb:write`. They were `kb:write`

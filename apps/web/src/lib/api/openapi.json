@@ -2827,6 +2827,28 @@
             "title": "Content",
             "type": "string"
           },
+          "gloss": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss"
+          },
+          "gloss_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss Model"
+          },
           "idx": {
             "title": "Idx",
             "type": "integer"
@@ -26640,7 +26662,7 @@
     },
     "/v1/copilot/ask": {
       "post": {
-        "description": "Answers a question about the screen the caller is on, and can fill that screen's form\nfields. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: proposal` \u00b7 `data: {\"token\": \"...\", \"tool\": \"...\", \"title\": \"...\",\n  \"summary\": \"...\", \"object_type\": \"...\", \"object_id\": \"...\", \"current\": \"...\",\n  \"proposed\": \"...\", \"expires_at\": \"...\"}` \u2014 at most one per response, and it is NOT a\n  change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` \u2192 `proposed`\n  pair, and a Confirm button that posts `token` back, unchanged, to\n  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world\n  untouched; the token stops working at `expires_at`.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\nNothing is stored. `history` is the whole memory of the conversation and dies with the\nrequest. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `org:manage`.",
+        "description": "Answers a question about the screen the caller is on, answers questions about the\naccount's own business by reading it (calls, leads, campaigns, agents, performance \u2014\nread-only, under the caller's own permissions and RLS scope), and can fill that screen's\nform fields. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: proposal` \u00b7 `data: {\"token\": \"...\", \"tool\": \"...\", \"title\": \"...\",\n  \"summary\": \"...\", \"object_type\": \"...\", \"object_id\": \"...\", \"current\": \"...\",\n  \"proposed\": \"...\", \"expires_at\": \"...\"}` \u2014 at most one per response, and it is NOT a\n  change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` \u2192 `proposed`\n  pair, and a Confirm button that posts `token` back, unchanged, to\n  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world\n  untouched; the token stops working at `expires_at`.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\n`history` is what the browser replays and it still dies with the request \u2014 the server keeps\nno thread. What IS kept is one redacted, capped memory row per answered question\n(`copilot_memories`), which the assistant recalls on later questions from the same person;\nit expires on the account's own `copilot_memory` retention policy and is destroyed by\noffboarding. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `org:manage`.",
         "operationId": "ask_copilot_v1_copilot_ask_post",
         "requestBody": {
           "content": {

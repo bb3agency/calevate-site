@@ -407,12 +407,28 @@ export default function KnowledgePage() {
                             ) : chunks.data.length ? (
                               <div className="space-y-2">
                                 {chunks.data.map((chunk) => (
-                                  <p
+                                  <div
                                     key={chunk.idx}
                                     className="rounded-md border border-line bg-surface p-2 text-xs text-ink-muted"
                                   >
-                                    {chunk.content}
-                                  </p>
+                                    <p>{chunk.content}</p>
+                                    {/* THE GLOSS, AND IT IS LABELLED AS A MACHINE'S WORK.
+                                        It is a SEARCH AID, not something the agent says:
+                                        it exists so a caller who asks in Telugu typed in
+                                        English letters can still be found the answer
+                                        above. Showing it unlabelled beside the client's
+                                        own approved words would read as their words, so
+                                        the label is part of the feature rather than
+                                        decoration. */}
+                                    {chunk.gloss ? (
+                                      <p className="mt-2 border-t border-line pt-2 text-ink-faint">
+                                        <span className="font-medium">
+                                          Auto-translated for search
+                                        </span>{" "}
+                                        — not spoken by your agent. {chunk.gloss}
+                                      </p>
+                                    ) : null}
+                                  </div>
                                 ))}
                               </div>
                             ) : (

@@ -316,11 +316,27 @@ async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]
         raise ProblemError.not_found("Knowledge source")
     rows = (
         await session.execute(
-            text("SELECT idx, content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
+            text(
+                "SELECT idx, content, gloss, gloss_model FROM kb_documents "
+                "WHERE source_id = :sid ORDER BY idx"
+            ),
             {"sid": source_id},
         )
     ).all()
-    return [{"idx": r[0], "content": r[1], "chars": len(r[1])} for r in rows]
+    # THE GLOSS IS SHOWN AND IT IS SHOWN AS A MACHINE'S WORK. `gloss_model` travels with it
+    # so the screen can say WHICH model wrote it rather than asserting "machine-generated"
+    # as a convention the API merely hopes the client honours. A reviewer who can see it can
+    # report a bad one; a reviewer who cannot would be approving text they never read.
+    return [
+        {
+            "idx": r[0],
+            "content": r[1],
+            "chars": len(r[1]),
+            "gloss": r[2],
+            "gloss_model": r[3],
+        }
+        for r in rows
+    ]
 
 
 async def approve_source(
@@ -771,6 +787,51 @@ async def active_knowledge(session: AsyncSession, *, agent_id: UUID) -> list[Kno
         )
     ).all()
     return [KnowledgeFact(name=str(row[0]), text=str(row[1] or "")) for row in rows]
+
+
+async def live_glosses(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID | None = None
+) -> list[tuple[UUID, str, str]]:
+    """(agent_id, source name, English gloss) for every LIVE source that has one.
+
+    THE TWIN OF `active_knowledge`, AND THAT IS THE WHOLE POINT OF IT LIVING HERE. This
+    module owns what "live" means — `s.is_active = true`, set by `publish_source` and by
+    nothing else — and `retrieval/compiled_facts.py` must not re-derive it. Its own
+    docstring already refuses to read `kb_documents` directly for exactly this reason
+    ("re-deriving what is approved and live in a second place"), so the gloss is handed
+    over the same way the knowledge itself is, by the module that decides it.
+
+    ONLY GLOSSES OF LIVE SOURCES, SO THE APPROVAL GATE IS INHERITED RATHER THAN
+    RE-ARGUED. A gloss of a rejected or superseded source is unreachable here for the same
+    reason its original text is unreachable from the compiled block.
+
+    `d.gloss IS NOT NULL` inside the aggregate rather than around it: a source whose Telugu
+    chunks are glossed and whose one English chunk is `not_needed` should contribute the
+    Telugu glosses, not vanish. `string_agg` skips NULLs anyway; the predicate is what keeps
+    a source with NO glossed chunk out of the result entirely instead of returning an empty
+    string that would score against every question.
+
+    `s.tenant_id = :tid` is REDUNDANT WITH RLS AND IS STILL THERE, for the reason
+    `compiled_facts._live_blocks` gives about its own copy: it defends a caller passing
+    tenant A's id on a session opened for tenant B, which RLS cannot see as a mistake.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT s.agent_id, s.name, string_agg(d.gloss, ' ' ORDER BY d.idx) "
+                "FROM kb_sources s JOIN kb_documents d ON d.source_id = s.id "
+                "WHERE s.tenant_id = :tid AND s.is_active = true AND d.gloss IS NOT NULL "
+                # Cast for `_live_blocks`' reason: an untyped placeholder inside `IS NULL`
+                # gives Postgres nothing to infer from and it refuses the statement with
+                # `AmbiguousParameter`. `CAST(... AS uuid)` and not `::`, which SQLAlchemy's
+                # `text()` consumes as a bound-parameter marker.
+                "AND (CAST(:aid AS uuid) IS NULL OR s.agent_id = CAST(:aid AS uuid)) "
+                "GROUP BY s.agent_id, s.id, s.name"
+            ),
+            {"tid": tenant_id, "aid": agent_id},
+        )
+    ).all()
+    return [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows if r[2]]
 
 
 async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> int:

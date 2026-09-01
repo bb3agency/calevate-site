@@ -33,8 +33,34 @@ eight lines of a client's own opening hours would be the exact "everything agent
 the router exists to refuse. When the bake-off lands, T3 ranks properly and this stays what
 it is.
 
+THE ONE THING THE RANKER LOOKS AT BESIDES THE LINE: THE ENGLISH GLOSS, BEHIND A SCRIPT
+GATE. `docs/evidence/telugu-embedding-quality.md` measured (n=24, this repo's own seeded
+verticals) that a **Tenglish** question — Telugu grammar in Latin script, which is what
+Sarvam's Saaras STT returns, so it is the query form production actually produces — scores
+recall@1 **0.250** against a Telugu-script corpus where an English control scores 0.958.
+Token overlap makes that failure total rather than merely poor: a Latin-script question and
+a Telugu-script line share NO tokens, `score_line` returns 0.0, and the tier returns
+nothing at all. So each live source's machine-written English gloss (`kb_documents.gloss`,
+written at ingestion by `apps/workers/kb_gloss.py`) is scored as a SECOND KEY for the same
+line, and the higher of the two scores wins.
+
+TWO PROPERTIES OF THAT ARM, AND BOTH ARE THE POINT:
+
+1. **The gloss is a key, never an answer.** The `Passage` returned always carries the
+   ORIGINAL line. A machine translation therefore cannot widen what a client's agent may
+   say, or what this tier quotes back to them — a bad gloss costs a wrong MATCH on the
+   client's own approved words, never a wrong sentence. That is what lets the gloss ride
+   the existing approval gate instead of needing one of its own.
+2. **The arm is GATED on a script difference** (`kb/gloss.gloss_applies`), because the same
+   measurement found the ungated version measurably WORSE: fusing a second arm
+   unconditionally dropped cross-script recall@1 from 0.708 to **0.375**, since an arm that
+   matches nothing still contributes its arbitrary ranking. Here the gate is structural
+   rather than tuned — when question and line share a script the gloss is never read, so a
+   same-script score is byte-identical to what it was before glosses existed.
+
 WHAT IS DELIBERATELY NOT HERE: no embeddings, no vector store, no provider client, no
-migration. The D-28 bake-off is open and this file must not pre-empt it.
+migration. The D-28 bake-off is open and this file must not pre-empt it — and the gloss arm
+does not pre-empt it either, because it is our own stored text scored by our own ranker.
 """
 
 from __future__ import annotations
@@ -54,7 +80,9 @@ from calevate_shared.retrieval import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.t0 import T0_HEADER, T0_KNOWLEDGE_MARKER
+from apps.api.agents.t0 import T0_HEADER, T0_KNOWLEDGE_MARKER, knowledge_line_prefix
+from apps.api.kb.gloss import SCRIPT_OTHER, dominant_script, gloss_applies
+from apps.api.kb.service import live_glosses
 from apps.api.retrieval.capabilities import require_tier
 
 #: OUR name for this implementation. A metric label and a log field; never shown to a
@@ -72,6 +100,10 @@ PROVIDER_NAME: Final = "compiled-facts"
 T0_CAPABILITIES: Final = RetrievalCapabilities(
     compiled_facts=True,
     semantic_search=False,
+    # STILL FALSE, and the gloss arm does not change it. `hybrid_search` in this port's
+    # vocabulary means a dense arm fused with a sparse one; the gloss arm is a second
+    # LEXICAL key over the same deterministic overlap score, with no vector on either side.
+    # Declaring true here would promise `routing.py` a tier this adapter cannot serve.
     hybrid_search=False,
     reranking=False,
     per_tenant_namespace=True,
@@ -232,6 +264,62 @@ class CompiledFactsRetriever:
         ).all()
         return [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows]
 
+    async def _glosses(self, request: RetrievalRequest) -> dict[UUID, tuple[tuple[str, str], ...]]:
+        """agent id → ((line prefix, gloss), ...) for the live sources that have a gloss.
+
+        Keyed by the LINE PREFIX rather than by the source name, and built through
+        `agents/t0.knowledge_line_prefix` rather than by re-spelling `f"- {name}: "`, so the
+        one string that joins a compiled line back to the source it came from has one
+        author. A prefix match is exact where splitting on the first `": "` is not: a source
+        a client named "Hours: weekday" produces a line with two colons, and the naive split
+        would silently hand that source's gloss to nobody.
+
+        `kb.service.live_glosses` is asked rather than `kb_documents` read here, for the
+        reason the module docstring gives about the block: this adapter must not re-derive
+        what is approved and live.
+
+        THE READ IS SKIPPED ENTIRELY when the question carries no script of its own — a
+        price ("8000?"), a code, a date. `gloss_applies` would shut the gate on every line
+        of every agent for such a question, so the query could only ever be paid for and
+        then ignored. Decided from the QUESTION rather than from the rows, so the saving
+        costs nothing to evaluate.
+        """
+        if dominant_script(request.question) == SCRIPT_OTHER:
+            return {}
+        by_agent: dict[UUID, list[tuple[str, str]]] = {}
+        for agent_id, name, gloss in await live_glosses(
+            self._session, tenant_id=request.tenant_id, agent_id=request.agent_id
+        ):
+            by_agent.setdefault(agent_id, []).append((knowledge_line_prefix(name), gloss))
+        return {agent_id: tuple(pairs) for agent_id, pairs in by_agent.items()}
+
+    @staticmethod
+    def _gloss_score(
+        question_tokens: frozenset[str],
+        question: str,
+        line: str,
+        glosses: tuple[tuple[str, str], ...],
+    ) -> float:
+        """This line's score through its English gloss, or 0.0 when the gate is shut.
+
+        THE GATE IS CHECKED BEFORE THE LOOKUP, not after, and it is checked against the
+        LINE rather than against the gloss: the question is whether the ORIGINAL can serve
+        this question's script, and a gloss is by construction always English. Scoring a
+        gloss for a question that shares the line's script is the ungated blend the
+        measurement priced at 0.708 → 0.375 recall@1, and there is no path to it here.
+
+        Returns 0.0 rather than None so the caller can `max()` without a branch — a line
+        with no gloss, a shut gate and a gloss that simply does not match are the same
+        outcome for ranking, and giving them three shapes would put two arms of dead code
+        on the hot path of the only tier this product serves.
+        """
+        if not glosses or not gloss_applies(question=question, passage=line):
+            return 0.0
+        for prefix, gloss in glosses:
+            if line.startswith(prefix):
+                return score_line(question_tokens, gloss)
+        return 0.0
+
     async def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
         """Rank the live agents' compiled fact lines against the question.
 
@@ -245,8 +333,10 @@ class CompiledFactsRetriever:
             require_tier(request.tier, provider=self)
 
         question_tokens = tokens(request.question)
+        glosses = await self._glosses(request)
         scored: list[tuple[float, Passage]] = []
         for agent_id, agent_name, block in await self._live_blocks(request):
+            agent_glosses = glosses.get(agent_id, ())
             provenance = Provenance(
                 # What a person would call it. The agent's name is the client's own word
                 # for the thing that answers their phone, which is what makes a citation
@@ -258,7 +348,10 @@ class CompiledFactsRetriever:
                 # answers, so naming one source would be a citation that does not check out.
             )
             for line in facts_of(block):
-                score = score_line(question_tokens, line)
+                score = max(
+                    score_line(question_tokens, line),
+                    self._gloss_score(question_tokens, request.question, line, agent_glosses),
+                )
                 if score > 0.0:
                     passage = Passage(text=line[:4000], provenance=provenance, score=score)
                     scored.append((score, passage))

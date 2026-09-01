@@ -3468,8 +3468,10 @@ export interface paths {
         put?: never;
         /**
          * Ask the in-app assistant about this screen — streamed, metered, quota-gated
-         * @description Answers a question about the screen the caller is on, and can fill that screen's form
-         *     fields. Streams `text/event-stream`:
+         * @description Answers a question about the screen the caller is on, answers questions about the
+         *     account's own business by reading it (calls, leads, campaigns, agents, performance —
+         *     read-only, under the caller's own permissions and RLS scope), and can fill that screen's
+         *     form fields. Streams `text/event-stream`:
          *
          *     * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
          *     * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
@@ -3490,8 +3492,11 @@ export interface paths {
          *       opened. Permission, rate-limit and request-validation refusals arrive as ordinary
          *       problem+json responses with their real status instead.
          *
-         *     Nothing is stored. `history` is the whole memory of the conversation and dies with the
-         *     request. Metered against the account's AI allowance and refused before a token is spent
+         *     `history` is what the browser replays and it still dies with the request — the server keeps
+         *     no thread. What IS kept is one redacted, capped memory row per answered question
+         *     (`copilot_memories`), which the assistant recalls on later questions from the same person;
+         *     it expires on the account's own `copilot_memory` retention policy and is destroyed by
+         *     offboarding. Metered against the account's AI allowance and refused before a token is spent
          *     when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
          *     Requires `org:manage`.
          */
@@ -6332,6 +6337,10 @@ export interface components {
             chars: number;
             /** Content */
             content: string;
+            /** Gloss */
+            gloss?: string | null;
+            /** Gloss Model */
+            gloss_model?: string | null;
             /** Idx */
             idx: number;
         };

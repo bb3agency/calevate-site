@@ -1,0 +1,218 @@
+[
+  {
+    "fact_id": "clinic_hours",
+    "vertical": "clinic",
+    "passage_te": "సన్‌రైజ్ క్లినిక్ సోమవారం నుండి శనివారం వరకు ఉదయం 9 గంటల నుండి మధ్యాహ్నం 1 గంట వరకు, మళ్ళీ సాయంత్రం 5 గంటల నుండి రాత్రి 9 గంటల వరకు తెరిచి ఉంటుంది. ఆదివారం ఉదయం 9 నుండి మధ్యాహ్నం 12 గంటల వరకు మాత్రమే పని చేస్తుంది.",
+    "passage_en": "Sunrise Clinic is open Monday to Saturday from 9 am to 1 pm and again from 5 pm to 9 pm. On Sunday it works only in the morning, from 9 am to 12 noon.",
+    "query_te": "ఆదివారం క్లినిక్ ఎన్ని గంటల వరకు తెరిచి ఉంటుంది?",
+    "query_tenglish": "Sunday roju clinic enni gantala varaku open untundi?",
+    "query_en": "How late is the clinic open on Sunday?"
+  },
+  {
+    "fact_id": "clinic_booking",
+    "vertical": "clinic",
+    "passage_te": "అపాయింట్‌మెంట్ కోసం క్లినిక్ నంబర్‌కు ఫోన్ చేయవచ్చు లేదా అదే నంబర్‌కు వాట్సాప్‌లో మెసేజ్ పంపవచ్చు. ముందుగా బుక్ చేసుకోకుండా వచ్చినవారిని రాత్రి 8:30 వరకు మాత్రమే చూస్తారు.",
+    "passage_en": "You can book an appointment by calling the clinic number or by sending a WhatsApp message to the same number. Walk-in patients without a booking are seen only until 8:30 pm.",
+    "query_te": "అపాయింట్‌మెంట్ ఎలా బుక్ చేసుకోవాలి?",
+    "query_tenglish": "Appointment ela book cheskovali?",
+    "query_en": "How do I book an appointment?"
+  },
+  {
+    "fact_id": "clinic_fee",
+    "vertical": "clinic",
+    "passage_te": "మొదటి సారి డాక్టర్‌ను కలిస్తే కన్సల్టేషన్ ఫీజు 500 రూపాయలు. అదే సమస్యకు 15 రోజుల లోపు మళ్ళీ వస్తే ఫాలో-అప్ చూపించడానికి ఎటువంటి ఫీజు తీసుకోరు.",
+    "passage_en": "The consultation fee for a first visit to the doctor is 500 rupees. If you come back for the same problem within 15 days, the follow-up visit is free of charge.",
+    "query_te": "డాక్టర్‌ను చూపించుకోవడానికి ఎంత ఫీజు అవుతుంది?",
+    "query_tenglish": "Doctor ni chupinchukovadaniki entha fees avutundi?",
+    "query_en": "How much does it cost to see the doctor?"
+  },
+  {
+    "fact_id": "clinic_insurance",
+    "vertical": "clinic",
+    "passage_te": "స్టార్ హెల్త్ ఇన్సూరెన్స్ ఉన్నవారికి క్యాష్‌లెస్ సదుపాయం ఉంది. ఆరోగ్యశ్రీ కార్డు మాత్రం ఇక్కడ పని చేయదు. ఇతర ఇన్సూరెన్స్ ఉన్నవారికి బిల్లు ఇస్తారు, దాన్ని కంపెనీకి పెట్టుకుని డబ్బు తిరిగి తీసుకోవచ్చు.",
+    "passage_en": "Cashless treatment is available for patients holding Star Health insurance. The Aarogyasri card is not accepted here. Patients with other insurers are given a bill which they can submit to the company for reimbursement.",
+    "query_te": "నా దగ్గర ఆరోగ్యశ్రీ కార్డు ఉంది, అది ఇక్కడ పని చేస్తుందా?",
+    "query_tenglish": "Naa daggara Aarogyasri card undi, adi ikkada work avutunda?",
+    "query_en": "I have an Aarogyasri card, is it accepted here?"
+  },
+  {
+    "fact_id": "clinic_gynaec",
+    "vertical": "clinic",
+    "passage_te": "డాక్టర్ పద్మ గైనకాలజిస్ట్. ఆమె మంగళవారం మరియు గురువారం మాత్రమే అందుబాటులో ఉంటారు, సాయంత్రం 5 నుండి రాత్రి 8 గంటల వరకు. గర్భిణీ స్త్రీల చెకప్‌లు ఆమె దగ్గరే జరుగుతాయి.",
+    "passage_en": "Dr. Padma is the gynaecologist. She is available only on Tuesday and Thursday, from 5 pm to 8 pm. Pregnancy check-ups are done with her.",
+    "query_te": "గర్భిణీ స్త్రీలను ఏ డాక్టర్ చూస్తారు, ఏ రోజుల్లో వస్తారు?",
+    "query_tenglish": "Pregnancy checkup ki ye doctor unnaru, ye rojullo vastaru?",
+    "query_en": "Which doctor handles pregnancy check-ups and on which days?"
+  },
+  {
+    "fact_id": "clinic_paediatrics",
+    "vertical": "clinic",
+    "passage_te": "పిల్లల డాక్టర్ రమేష్ ప్రతిరోజూ ఉదయం పూట మాత్రమే ఉంటారు. చిన్న పిల్లలకు జ్వరం, దగ్గు వంటివి ఉంటే ఉదయమే తీసుకురావడం మంచిది.",
+    "passage_en": "Dr. Ramesh, the children's doctor, sits only in the morning session every day. If a small child has fever or cough it is better to bring them in the morning.",
+    "query_te": "చిన్న పిల్లాడికి జ్వరం వచ్చింది, ఎప్పుడు తీసుకురావాలి?",
+    "query_tenglish": "Chinna pilladiki jwaram vachindi, eppudu teesukuravali?",
+    "query_en": "My small child has a fever, when should I bring him in?"
+  },
+  {
+    "fact_id": "clinic_lab",
+    "vertical": "clinic",
+    "passage_te": "రక్త పరీక్షలు ఉదయం 7 గంటల నుండి 11 గంటల వరకు చేస్తారు. షుగర్ టెస్ట్ కోసం రాత్రి నుండి ఏమీ తినకుండా ఖాళీ కడుపుతో రావాలి. రిపోర్టులు అదే రోజు సాయంత్రం వాట్సాప్‌లో పంపుతారు.",
+    "passage_en": "Blood tests are done between 7 am and 11 am. For a sugar test you must come on an empty stomach, having eaten nothing since the previous night. Reports are sent on WhatsApp the same evening.",
+    "query_te": "షుగర్ టెస్ట్ కోసం ఖాళీ కడుపుతో రావాలా, రిపోర్ట్ ఎప్పుడు వస్తుంది?",
+    "query_tenglish": "Sugar test ki fasting ga ravala, report eppudu vastundi?",
+    "query_en": "Do I need to fast for a sugar test, and when will the report come?"
+  },
+  {
+    "fact_id": "clinic_vaccine",
+    "vertical": "clinic",
+    "passage_te": "పిల్లలకు వేసే టీకాలు బుధవారం మాత్రమే వేస్తారు, ముందుగా చెప్పి రావాలి. కుక్క కరిస్తే వేసే ఇంజెక్షన్ మాత్రం ఏ రోజైనా, ఏ సమయంలోనైనా వేస్తారు.",
+    "passage_en": "Childhood vaccinations are given only on Wednesday and need to be booked in advance. The anti-rabies injection after a dog bite is given on any day, at any time.",
+    "query_te": "పిల్లలకు టీకాలు ఏ రోజు వేస్తారు?",
+    "query_tenglish": "Pillalaki vaccine ye roju vestaru?",
+    "query_en": "Which day are children's vaccinations given?"
+  },
+  {
+    "fact_id": "clinic_emergency",
+    "vertical": "clinic",
+    "passage_te": "ఇక్కడ ఐసీయూ లేదు, అంబులెన్స్ సదుపాయం కూడా లేదు. ప్రమాదం జరిగినా, గుండె నొప్పి వచ్చినా వెంటనే కొండాపూర్‌లోని పెద్ద ఆసుపత్రికి వెళ్ళమని చెప్తారు.",
+    "passage_en": "There is no ICU here and no ambulance service. In case of an accident or chest pain, patients are told to go straight to the large hospital in Kondapur.",
+    "query_te": "అర్ధరాత్రి గుండె నొప్పి వస్తే మీ దగ్గరకు తీసుకురావచ్చా?",
+    "query_tenglish": "Ardharatri gunde noppi vaste mee daggaraki teesukuravacha?",
+    "query_en": "Can I bring someone to you at midnight with chest pain?"
+  },
+  {
+    "fact_id": "clinic_address",
+    "vertical": "clinic",
+    "passage_te": "క్లినిక్ కూకట్‌పల్లి మెట్రో పిల్లర్ నంబర్ 143 పక్కనే, రెండో అంతస్తులో ఉంది. లిఫ్ట్ ఉంది. బండ్లు పెట్టుకోవడానికి కింద ఉచిత పార్కింగ్ ఉంది, కారుకు మాత్రం చోటు తక్కువ.",
+    "passage_en": "The clinic is right beside metro pillar number 143 in Kukatpally, on the second floor. There is a lift. Free parking for two-wheelers is available downstairs, but there is little space for cars.",
+    "query_te": "మీ క్లినిక్ ఎక్కడ ఉంది, బండి పెట్టుకోవడానికి చోటు ఉందా?",
+    "query_tenglish": "Mee clinic ekkada undi, bandi park cheyadaniki place unda?",
+    "query_en": "Where is your clinic and is there somewhere to park?"
+  },
+  {
+    "fact_id": "clinic_payment",
+    "vertical": "clinic",
+    "passage_te": "డబ్బు నగదు రూపంలో గానీ, ఫోన్‌పే గూగుల్‌పే వంటి యూపీఐ ద్వారా గానీ, కార్డు ద్వారా గానీ కట్టవచ్చు. వాయిదాల పద్ధతి ఇక్కడ లేదు.",
+    "passage_en": "Payment can be made in cash, by UPI such as PhonePe or Google Pay, or by card. There is no instalment or EMI facility here.",
+    "query_te": "కార్డు తీసుకుంటారా లేక ఫోన్‌పే చేయాలా?",
+    "query_tenglish": "Card teesukuntara leda PhonePe cheyala?",
+    "query_en": "Do you take cards or should I pay by PhonePe?"
+  },
+  {
+    "fact_id": "clinic_cancel",
+    "vertical": "clinic",
+    "passage_te": "బుక్ చేసుకున్న అపాయింట్‌మెంట్ రద్దు చేసుకోవాలంటే కనీసం రెండు గంటల ముందు చెప్పాలి. అప్పటికే కట్టిన డబ్బు తర్వాతి సారి వచ్చినప్పుడు సర్దుబాటు చేస్తారు.",
+    "passage_en": "To cancel a booked appointment you must inform the clinic at least two hours in advance. Money already paid is adjusted against your next visit.",
+    "query_te": "అపాయింట్‌మెంట్ రద్దు చేసుకుంటే కట్టిన డబ్బు తిరిగి వస్తుందా?",
+    "query_tenglish": "Appointment cancel chesukunte kattina money tirigi vastunda?",
+    "query_en": "If I cancel my appointment do I get my money back?"
+  },
+  {
+    "fact_id": "re_site_visit",
+    "vertical": "real_estate",
+    "passage_te": "సైట్ చూడటానికి రావాలనుకుంటే శని, ఆదివారాల్లో గచ్చిబౌలి నుండి ఉచితంగా క్యాబ్‌లో తీసుకువెళ్తారు. ఒక రోజు ముందుగా ఫోన్ చేసి చెప్పాలి.",
+    "passage_en": "If you want to see the site, a free cab pick-up from Gachibowli is arranged on Saturdays and Sundays. You must call one day in advance to arrange it.",
+    "query_te": "సైట్ చూడటానికి రావాలంటే ఏమైనా ఏర్పాటు చేస్తారా?",
+    "query_tenglish": "Site visit ki ravalante emaina arrangement chestara?",
+    "query_en": "Do you arrange anything for me to come and see the site?"
+  },
+  {
+    "fact_id": "re_sizes",
+    "vertical": "real_estate",
+    "passage_te": "కొండాపూర్‌లోని ఈ ప్రాజెక్టులో రెండు పడక గదుల ఫ్లాట్ 1180 చదరపు అడుగులు, మూడు పడక గదుల ఫ్లాట్ 1650 చదరపు అడుగులు ఉంటుంది. ఒక పడక గది ఫ్లాట్లు ఇక్కడ లేవు.",
+    "passage_en": "In this Kondapur project the two-bedroom flat is 1180 square feet and the three-bedroom flat is 1650 square feet. There are no one-bedroom flats here.",
+    "query_te": "మీ దగ్గర 3బీహెచ్‌కే ఎన్ని చదరపు అడుగులు ఉంటుంది?",
+    "query_tenglish": "Mee daggara 3BHK entha square feet untundi?",
+    "query_en": "How many square feet is your 3BHK?"
+  },
+  {
+    "fact_id": "re_price",
+    "vertical": "real_estate",
+    "passage_te": "ధర చదరపు అడుగుకు 6800 రూపాయలు. అంటే రెండు పడక గదుల ఫ్లాట్ దాదాపు 80 లక్షలు అవుతుంది. పై అంతస్తులకు ప్రతి అంతస్తుకు చదరపు అడుగుకు 50 రూపాయలు అదనంగా కలుస్తుంది.",
+    "passage_en": "The rate is 6,800 rupees per square foot, which makes a two-bedroom flat roughly 80 lakhs. For higher floors there is a floor rise of 50 rupees per square foot per floor.",
+    "query_te": "రెండు పడక గదుల ఫ్లాట్ ధర ఎంత?",
+    "query_tenglish": "2BHK flat rate entha untundi?",
+    "query_en": "What is the price of a 2BHK flat?"
+  },
+  {
+    "fact_id": "re_booking_amount",
+    "vertical": "real_estate",
+    "passage_te": "ఫ్లాట్ బుక్ చేసుకోవాలంటే ముందుగా రెండు లక్షల రూపాయలు కట్టాలి. మనసు మారితే 15 రోజుల లోపు చెప్తే ఆ డబ్బు మొత్తం తిరిగి ఇచ్చేస్తారు.",
+    "passage_en": "To book a flat you must first pay two lakh rupees. If you change your mind and tell us within 15 days, the entire amount is refunded.",
+    "query_te": "బుకింగ్ కోసం ఎంత కట్టాలి, తర్వాత వద్దనుకుంటే తిరిగి ఇస్తారా?",
+    "query_tenglish": "Booking ki entha kattali, tarvata venduku ante tirigi istara?",
+    "query_en": "How much is the booking amount and is it refundable?"
+  },
+  {
+    "fact_id": "re_loan",
+    "vertical": "real_estate",
+    "passage_te": "ఎస్‌బీఐ మరియు హెచ్‌డీఎఫ్‌సీ బ్యాంకులతో ఒప్పందం ఉంది, ఫ్లాట్ ధరలో 80 శాతం వరకు రుణం వస్తుంది. ఆధార్, పాన్, జీతం రసీదులు, ఆరు నెలల బ్యాంక్ స్టేట్‌మెంట్ ఇవ్వాలి.",
+    "passage_en": "We have a tie-up with SBI and HDFC banks, and a loan of up to 80 percent of the flat cost is available. Aadhaar, PAN, salary slips and six months of bank statements are required.",
+    "query_te": "బ్యాంకు లోన్ ఎంత వరకు వస్తుంది, ఏమేమి పత్రాలు కావాలి?",
+    "query_tenglish": "Bank loan entha varaku vastundi, em documents kavali?",
+    "query_en": "How much bank loan can I get and what documents are needed?"
+  },
+  {
+    "fact_id": "re_possession",
+    "vertical": "real_estate",
+    "passage_te": "ఇళ్ళు 2027 డిసెంబర్‌లో అప్పగిస్తారు. ఈ ప్రాజెక్టుకు రెరా అనుమతి ఉంది, ఆ నంబర్ ఒప్పంద పత్రంలో రాసి ఉంటుంది.",
+    "passage_en": "The flats will be handed over in December 2027. The project has RERA approval and the registration number is written in the agreement.",
+    "query_te": "ఫ్లాట్ ఎప్పుడు అప్పగిస్తారు?",
+    "query_tenglish": "Flat possession eppudu istaru?",
+    "query_en": "When will the flat be handed over?"
+  },
+  {
+    "fact_id": "re_amenities",
+    "vertical": "real_estate",
+    "passage_te": "ఇందులో జిమ్, ఈత కొలను, పిల్లల ఆట స్థలం, కమ్యూనిటీ హాల్ ఉన్నాయి. వీటి నిర్వహణ కోసం నెలకు చదరపు అడుగుకు 3 రూపాయలు చొప్పున కట్టాలి.",
+    "passage_en": "The complex has a gym, a swimming pool, a children's play area and a community hall. For their upkeep a maintenance charge of 3 rupees per square foot per month is payable.",
+    "query_te": "నెలవారీ మెయింటెనెన్స్ ఎంత అవుతుంది?",
+    "query_tenglish": "Nelavari maintenance entha avutundi?",
+    "query_en": "What is the monthly maintenance charge?"
+  },
+  {
+    "fact_id": "re_rent",
+    "vertical": "real_estate",
+    "passage_te": "అద్దెకు కావాలంటే ఇదే ప్రాంతంలో రెండు పడక గదుల ఇల్లు నెలకు 22 వేల రూపాయలు, దానికి అదనంగా 2 వేలు మెయింటెనెన్స్. మూడు నెలల అద్దె ముందుగా డిపాజిట్‌గా కట్టాలి.",
+    "passage_en": "If you are looking to rent, a two-bedroom house in this area is 22,000 rupees a month plus 2,000 maintenance. Three months' rent must be paid up front as deposit.",
+    "query_te": "అద్దెకు ఇల్లు కావాలి, నెలకు ఎంత అవుతుంది, డిపాజిట్ ఎంత?",
+    "query_tenglish": "Adde ki illu kavali, nelaki entha avutundi, deposit entha?",
+    "query_en": "I want a house on rent, how much per month and how much deposit?"
+  },
+  {
+    "fact_id": "re_parking",
+    "vertical": "real_estate",
+    "passage_te": "ప్రతి ఫ్లాట్‌కు ఒక కారు నిలపడానికి పైకప్పు ఉన్న చోటు ఉచితంగా ఇస్తారు. రెండో కారుకు చోటు కావాలంటే 4 లక్షల రూపాయలు అదనంగా కట్టాలి.",
+    "passage_en": "Each flat comes with one covered car parking space at no extra cost. A second parking space costs an additional 4 lakh rupees.",
+    "query_te": "రెండు కార్లు ఉన్నాయి, రెండో కారుకు పార్కింగ్ దొరుకుతుందా?",
+    "query_tenglish": "Rendu cars unnayi, rendo car ki parking dorukutunda?",
+    "query_en": "I have two cars, can I get a second parking space?"
+  },
+  {
+    "fact_id": "re_registration",
+    "vertical": "real_estate",
+    "passage_te": "చెప్పిన ధరలో రిజిస్ట్రేషన్ ఖర్చులు కలపలేదు. స్టాంప్ డ్యూటీ, రిజిస్ట్రేషన్ కలిపి దాదాపు 7.5 శాతం విడిగా కట్టాల్సి ఉంటుంది.",
+    "passage_en": "Registration costs are not included in the quoted price. Stamp duty and registration together come to roughly 7.5 percent, payable separately.",
+    "query_te": "చెప్పిన ధరలో రిజిస్ట్రేషన్ ఖర్చు కలిసి ఉందా?",
+    "query_tenglish": "Cheppina rate lo registration charges kalisi unnaya?",
+    "query_en": "Does the quoted price include registration charges?"
+  },
+  {
+    "fact_id": "re_office",
+    "vertical": "real_estate",
+    "passage_te": "మా ఆఫీసు ఉదయం 10 గంటల నుండి సాయంత్రం 7 గంటల వరకు తెరిచి ఉంటుంది. బుధవారం సెలవు, ఆ రోజు ఎవరూ ఉండరు.",
+    "passage_en": "Our office is open from 10 am to 7 pm. Wednesday is our weekly holiday and nobody is present that day.",
+    "query_te": "మీ ఆఫీసుకు ఏ రోజు సెలవు?",
+    "query_tenglish": "Mee office ki ye roju selavu?",
+    "query_en": "Which day is your office closed?"
+  },
+  {
+    "fact_id": "re_water",
+    "vertical": "real_estate",
+    "passage_te": "నీటి కోసం బోరు మరియు మంజీరా కనెక్షన్ రెండూ ఉన్నాయి. కరెంటు పోతే మెట్లు, లిఫ్టుకే కాక ప్రతి ఫ్లాట్‌కు ఒక కిలోవాట్ వరకు జనరేటర్ బ్యాకప్ ఇస్తారు.",
+    "passage_en": "For water there is both a borewell and a Manjeera connection. When the power goes off, generator backup covers the stairs and lift and also up to one kilowatt for each flat.",
+    "query_te": "కరెంటు పోతే ఫ్లాట్‌లో లైట్లు వెలుగుతాయా?",
+    "query_tenglish": "Current pote flat lo lights veligutaya?",
+    "query_en": "If the power goes out will the lights in the flat still work?"
+  }
+]

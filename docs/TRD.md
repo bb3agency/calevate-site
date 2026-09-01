@@ -1022,9 +1022,23 @@ Tier model (unchanged in intent; T1–T3 now provider-backed):
   callback, call tagged needs_follow_up. Never invents prices/medical/legal facts.
 
 Ingestion (workers, offline — OURS regardless of provider): parse (LlamaParse for
-messy PDFs) → chunk preview → **client/admin approve** → push to BOTH targets
-(engine KB API for in-call; managed service for CRM/memory) → version
-bump → T0 recompilation. The preview-and-approve gate stays ours — a bad upload must
+messy PDFs) → chunk preview → **client/admin approve** → **English gloss (D-487)** →
+push to BOTH targets (engine KB API for in-call; managed service for CRM/memory) →
+version bump → T0 recompilation.
+
+**The English gloss (D-487), because the query form production produces is the one
+retrieval is worst at.** Sarvam's Saaras STT returns **Tenglish** — Telugu grammar in
+Latin script — and a Tenglish question scores recall@1 **0.250** against a Telugu-script
+corpus on a dense ranker where an English control scores 0.958
+(`docs/evidence/telugu-embedding-quality.md`, n=24). On the ranker this system runs today
+(T0 token overlap) the same question scores **0.000**: there are no shared tokens at all.
+So `apps/workers/kb_gloss.py` writes a short English rendering into
+`kb_documents.gloss` once per chunk, at ingestion, deciding by SCRIPT which chunks need
+one; retrieval scores it as a second key BEHIND A SCRIPT GATE and returns the original
+line, taking Tenglish to **0.542** and English to **0.875** while leaving Telugu-script
+questions bit-identical. It is a RETRIEVAL KEY and never an utterance, so it does not
+widen the approval gate above it, and it is provider-independent — our own stored text,
+written before the D-28 bake-off and given to whichever store wins. The preview-and-approve gate stays ours — a bad upload must
 not poison live calls, whichever store serves it. Resolved-call transcripts are
 indexed into the managed service as the per-client corpus (compounding, uncopyable).
 

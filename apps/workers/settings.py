@@ -106,6 +106,7 @@ from apps.workers.kb_aggregation import (
     DIGEST_WEEKDAY,
     send_agent_knowledge_digests,
 )
+from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
@@ -437,6 +438,25 @@ CRON_JOBS = [
     cron(
         traced_job(sweep_kb_drift),
         minute=set(KB_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that
+    # arrived without the one derived field retrieval needs. `apps/workers/kb_gloss.py`
+    # carries the measurement: a Tenglish question (the form Saaras returns, so the form
+    # production actually produces) retrieves a Telugu-script chunk at recall@1 0.250
+    # unaided and 0.750 with the gloss, and on this repo's token-overlap ranker it retrieves
+    # nothing at all. An unregistered cron here is not a dormant feature: every chunk stays
+    # `pending` forever, `search_knowledge` silently keeps answering nothing to half its
+    # questions, and the column reads as shipped in every review.
+    #
+    # `minute` comes FROM the module for its neighbours' reason — two places writing "twice
+    # hourly" is how the module's own clearance argument stops being true. `max_tries`
+    # EXPLICIT because `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not
+    # reach a function registered here; the tick's own failure is a worklist read, which is
+    # exactly the kind a retry fixes.
+    cron(
+        traced_job(write_knowledge_glosses),
+        minute=set(GLOSS_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE COMPLIANCE-FLAG SWEEP. The third drift-shaped gap and the one with a regulator
