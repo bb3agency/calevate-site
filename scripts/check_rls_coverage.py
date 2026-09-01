@@ -26,7 +26,13 @@ that CLAIMS to have created a policy:
    must be tenant-isolated OR registered, because such a row is tenant data at one
    remove. `webhook_deliveries` is the table (b) exists for: no tenant_id, no policy, and
    a `payload_ref` pointing at a CRM payload with a lead's name and number, whose "why"
-   lived only in a model docstring no guardrail reads.
+   lived only in a model docstring no guardrail reads. (c) every table holding a tenant
+   payload INLINE — a jsonb `payload`/`response_payload` — must likewise be tenant-isolated
+   or registered. (b) caught the POINTER and structurally could not see the payload itself,
+   which is the strictly worse shape: `outbox_messages.payload` carries a subject's email
+   address with a plaintext password-reset secret beside it, and the whole outbound CRM
+   body (a lead's name, number and extraction), with no tenant_id, no policy and — until
+   this rule — no entry in the one dict that answers "what is not tenant-isolated, and why".
 
 Run: uv run python -m scripts.check_rls_coverage   (needs migrated DB; owner URL)
 """
@@ -94,6 +100,25 @@ _OBJECT_REF_TABLE_SQL = text(
     "AND a.attname = ANY(:cols) AND a.attnum > 0 AND NOT a.attisdropped"
 )
 
+#: Tables that hold a tenant payload INLINE rather than by reference. `_OBJECT_REF_COLUMNS`
+#: above catches a STRING THAT DEREFERENCES to tenant data; this catches the data itself
+#: sitting in the row, which is the same exposure without the indirection — and was the
+#: shape rule 7b could not see. Enumerated, not pattern-matched, for 7b's reason: the
+#: property that matters is "this column holds a caller's or a subject's own data", which
+#: is a judgement about a column and not a spelling. Restricted to `jsonb` deliberately —
+#: a `text` column called `content` on a tenant-isolated table is a different question that
+#: rules 1-3 already own, and widening the type here would only add noise.
+_INLINE_PAYLOAD_COLUMNS = ("payload", "response_payload")
+
+_INLINE_PAYLOAD_TABLE_SQL = text(
+    "SELECT DISTINCT c.relname FROM pg_class c "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "JOIN pg_attribute a ON a.attrelid = c.oid "
+    "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') "
+    "AND a.attname = ANY(:cols) AND a.atttypid = 'jsonb'::regtype "
+    "AND a.attnum > 0 AND NOT a.attisdropped"
+)
+
 _POLICY_SQL = text(
     "SELECT c.relname, p.polname, c.relrowsecurity, c.relforcerowsecurity, "
     "pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid), "
@@ -137,6 +162,12 @@ class SchemaState:
     #: states in `tests/guardrail_audit_test.py`, where an empty set makes 7b vacuous
     #: rather than wrong.
     object_ref_tables: frozenset[str] = frozenset()
+    #: Tables carrying a tenant payload INLINE (`_INLINE_PAYLOAD_COLUMNS`, jsonb only).
+    #: Read so rule 7c can ask about the payload itself rather than only about a pointer
+    #: to it. Defaulted empty for the synthetic states in `tests/guardrail_audit_test.py`,
+    #: where an empty set makes 7c vacuous rather than wrong — the same contract as
+    #: `object_ref_tables` above.
+    inline_payload_tables: frozenset[str] = frozenset()
 
     def for_table(self, table: str) -> list[PolicyFacts]:
         return [p for p in self.policies if p.table == table]
@@ -148,6 +179,12 @@ def fetch_state(engine: Engine) -> SchemaState:
         all_tables = {r[0] for r in conn.execute(_ALL_TABLE_SQL)}
         object_ref_tables = {
             r[0] for r in conn.execute(_OBJECT_REF_TABLE_SQL, {"cols": list(_OBJECT_REF_COLUMNS)})
+        }
+        inline_payload_tables = {
+            r[0]
+            for r in conn.execute(
+                _INLINE_PAYLOAD_TABLE_SQL, {"cols": list(_INLINE_PAYLOAD_COLUMNS)}
+            )
         }
         policies = tuple(
             PolicyFacts(
@@ -168,6 +205,7 @@ def fetch_state(engine: Engine) -> SchemaState:
         model_tables=frozenset(Base.metadata.tables),
         all_tables=frozenset(all_tables),
         object_ref_tables=frozenset(object_ref_tables),
+        inline_payload_tables=frozenset(inline_payload_tables),
     )
 
 
@@ -307,6 +345,31 @@ def evaluate(
                 f"{table}: holds an object-storage reference to tenant data and has "
                 "no tenant_id, so nothing above can check it. Register it in "
                 "RLS_EXEMPT_TENANT_COLUMNS with what stops the reference leaking."
+            )
+    # (c) A TENANT PAYLOAD HELD INLINE. Rule (b) asks about a string that DEREFERENCES to
+    #     tenant data; this asks about the data sitting in the row, which is the same
+    #     exposure with one less hop — and (b) structurally could not see it, because it
+    #     matches on the reference columns and a jsonb body is not one.
+    #
+    #     `outbox_messages` is the table this rule exists for, and it is the worse omission
+    #     of the two: `payload` carries a subject's email address next to a PLAINTEXT
+    #     password-reset secret (`authn/service.py`, whose own docstring records the
+    #     incident where one sat there for ninety days) and the entire outbound CRM body —
+    #     a lead's name, number and extracted fields. It has no tenant_id, no policy, and
+    #     sat outside `RLS_EXEMPT_TENANT_COLUMNS` while `webhook_deliveries`, which holds
+    #     only a KEY to a comparable body, carries a fifteen-line entry.
+    #
+    #     Registering is a legitimate answer here exactly as it is for (b): the reliability
+    #     triad is claimed by workers with no tenant context, so a tenant predicate is not
+    #     available at write time. What the entry must say is what bounds the exposure —
+    #     who can read the table, and what scrubs the payload once the job has run.
+    for table in sorted(state.inline_payload_tables - state.tenant_column_tables):
+        if table not in exempt:
+            failures.append(
+                f"{table}: holds a tenant payload INLINE (jsonb "
+                f"{'/'.join(_INLINE_PAYLOAD_COLUMNS)}) and has no tenant_id, so nothing "
+                "above can check it. Register it in RLS_EXEMPT_TENANT_COLUMNS with who "
+                "may read it and what scrubs the payload."
             )
     return failures
 
