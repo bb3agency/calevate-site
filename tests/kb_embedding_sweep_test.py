@@ -265,3 +265,81 @@ async def test_the_spend_reaches_the_ledger_under_its_own_feature_name(
         # output half at all.
         ("ai_assist_ktok_out", Decimal("0"), EMBEDDING_MODEL),
     ]
+
+
+async def test_a_vector_from_a_superseded_model_is_re_bought(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """A `ready` row whose stored model is not the one we embed with now is RE-CLAIMED.
+
+    **THE FAILURE THIS PREVENTS IS SILENT, WHICH IS WHY IT NEEDS A TEST RATHER THAN A
+    COMMENT.** Two embedding models' vectors are not comparable: a cosine distance
+    between one model's vector and another's is a number with no meaning. Nothing raises,
+    nothing looks wrong on any screen, and retrieval simply returns the wrong chunk for
+    as long as nobody notices. Changing `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` is all it
+    takes to get there.
+
+    `embed_model` and `embed_dim` were written for exactly this and read by nothing —
+    `check_half_wired` caught them as write-only, which is the same defect wearing a
+    different hat: provenance nobody consults cannot detect the thing it records.
+
+    Asserted on PROVIDER CALLS, not on rows: a row-count assertion passes against a
+    sweep that never re-bought anything, because the row is already there either way.
+    """
+    tenant_id, _ = await _tenant_with_pending_chunk("A consultation costs 500 rupees.")
+    await _only_tenant(monkeypatch, tenant_id)
+    await _settle_gloss(tenant_id)
+
+    calls: list[int] = []
+    monkeypatch.setattr(chat, "embed", _counting_embed(calls))
+    await kb_embeddings.embed_knowledge_chunks({})
+    assert calls == [1], "premise: the first tick bought exactly one vector"
+    assert await _states(tenant_id) == [("ready", True)]
+
+    # A second tick over an unchanged corpus buys nothing — the guard that makes the
+    # clause below mean something rather than just restating the sweep's own eagerness.
+    calls.clear()
+    await kb_embeddings.embed_knowledge_chunks({})
+    assert calls == [], "premise: an unchanged ready row is not re-bought"
+
+    # The deployment is changed under it: the stored provenance no longer matches.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_chunks SET embed_model = 'superseded-embedding-v0'"),
+            {},
+        )
+
+    calls.clear()
+    await kb_embeddings.embed_knowledge_chunks({})
+    assert calls == [1], (
+        "a vector written by a different model was left in place — the index now mixes "
+        "two models' vectors and every distance computed across them is meaningless"
+    )
+    assert await _states(tenant_id) == [("ready", True)]
+
+
+async def test_a_row_with_no_recorded_provenance_is_re_bought_too(
+    monkeypatch: pytest.MonkeyPatch, priced: Any
+) -> None:
+    """NULL provenance is re-claimed, and that is why the predicate is `IS DISTINCT FROM`.
+
+    Both columns are nullable, so a row written before either was recorded compares NULL
+    against a real value. Under a plain `<>` that answers NULL, the row is skipped, and
+    the rows with NO provenance — precisely the ones most likely to be stale — are the
+    ones the staleness check silently ignores. This is the clause that pins the operator.
+    """
+    tenant_id, _ = await _tenant_with_pending_chunk("We are open 9am to 8pm.")
+    await _only_tenant(monkeypatch, tenant_id)
+    await _settle_gloss(tenant_id)
+
+    calls: list[int] = []
+    monkeypatch.setattr(chat, "embed", _counting_embed(calls))
+    await kb_embeddings.embed_knowledge_chunks({})
+    assert calls == [1]
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE kb_chunks SET embed_model = NULL"), {})
+
+    calls.clear()
+    await kb_embeddings.embed_knowledge_chunks({})
+    assert calls == [1], "an un-provenanced vector was skipped — `<>` instead of IS DISTINCT FROM"

@@ -132,11 +132,34 @@ MAX_CHUNKS_PER_TENANT: Final = 96
 #: `d.gloss_state <> 'pending'` — the ordering constraint the module docstring argues:
 #: `ready` and `not_needed` are both settled answers, `pending` means the English key has
 #: not been written yet and embedding now would vectorise half the chunk.
+#: `embed_model` / `embed_dim` ARE READ HERE, AND THIS IS WHY THEY ARE WRITTEN. A `ready`
+#: row whose stored model or width is not the one this deployment now embeds with is
+#: RE-CLAIMED, because the alternative is the silent failure this projection is most
+#: exposed to: two embedding models' vectors in one index are not comparable, so a
+#: cosine distance between them is a number with no meaning. Nothing raises, nothing
+#: looks wrong, and retrieval quietly returns the wrong chunk — for exactly as long as
+#: nobody notices. `check_half_wired` caught these two as write-only, which is the same
+#: defect wearing a different hat: a provenance column nothing consults cannot detect the
+#: thing it was written down for.
+#:
+#: `IS DISTINCT FROM` rather than `<>`, because both columns are nullable: a row written
+#: before either was recorded compares NULL against a real value, and `<>` would answer
+#: NULL and skip it — leaving exactly the un-provenanced rows most likely to be stale.
+#:
+#: THIS RE-BUYS VECTORS WHEN THE DEPLOYMENT CHANGES, deliberately. It is bounded by
+#: `MAX_CHUNKS_PER_TICK` per tick, gated by `llm_price_is_billable` before any provider
+#: call, and metered like every other embedding, so a configuration change costs a
+#: measured, capped amount rather than an unbounded one. Leaving stale vectors in place
+#: to save that spend would be choosing a corrupt index over a bill.
 _CLAIM_SQL: Final = (
     "SELECT c.id, d.content, coalesce(d.gloss, '') FROM kb_chunks c "
     "JOIN kb_documents d ON d.id = c.document_id "
-    f"WHERE c.embed_state = '{EMBED_PENDING}' AND c.is_active "
+    "WHERE c.is_active "
     f"AND d.gloss_state <> '{GLOSS_PENDING}' "
+    f"AND (c.embed_state = '{EMBED_PENDING}' "
+    f"     OR (c.embed_state = '{EMBED_READY}' "
+    "         AND (c.embed_model IS DISTINCT FROM :model "
+    "              OR c.embed_dim IS DISTINCT FROM :dim))) "
     "ORDER BY c.id LIMIT :limit FOR UPDATE OF c SKIP LOCKED"
 )
 
@@ -315,7 +338,14 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
                 while remaining > 0:
                     rows = (
                         await session.execute(
-                            text(_CLAIM_SQL), {"limit": min(EMBED_BATCH, remaining)}
+                            text(_CLAIM_SQL),
+                            {
+                                "limit": min(EMBED_BATCH, remaining),
+                                # The model and width THIS deployment embeds with; a
+                                # `ready` row not matching both is stale and re-claimed.
+                                "model": EMBEDDING_MODEL,
+                                "dim": EMBEDDING_DIMS,
+                            },
                         )
                     ).all()
                     if not rows:
