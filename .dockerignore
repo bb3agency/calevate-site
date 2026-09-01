@@ -41,10 +41,23 @@ htmlcov
 coverage_baseline.json
 
 docs
-runbooks
 infra
 *.md
 !README.md
+
+# `runbooks/` IS SHIPPED, and it is the one documentation tree that is (D-499). The admin
+# copilot's `search_runbooks` tool reads these 22 files at RUNTIME to answer "what do I do
+# when `engine_error_spike` fires" — so excluding them made that tool pass every test and
+# return nothing in production, which is why `Dockerfile` copies them.
+#
+# THIS LINE USED TO SAY `runbooks` AND THE DEPLOY FAILED ON IT: the `COPY runbooks
+# runbooks` added for that tool could not resolve, because a path excluded here is not in
+# the build context at all — `docker build` fails with "/runbooks: not found" rather than
+# silently shipping an empty directory. 416K, against the 5.5MB `docs` tree that stays
+# excluded because nothing reads it at runtime.
+#
+# `*.md` above does not re-exclude them: .dockerignore patterns use Go filepath.Match, so
+# `*` does not cross a `/` and that rule only matches .md files at the ROOT.
 
 dump.rdb
 *.log
