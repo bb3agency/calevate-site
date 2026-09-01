@@ -208,11 +208,11 @@ UPDATE caller_chunks
     ORDER BY occurred_at LIMIT :batch)
 """
 
-#: THE RETENTION ARM for the source. On the TRANSCRIPT clock and no other: a memory is
-#: distilled from what the caller said, so it belongs to the clock of the words it was
-#: distilled from — `calls.summary`'s argument, one table over — and the category is
-#: asserted by the caller rather than parameterised so a future `lead` sweep cannot reach
-#: this table by passing its own name.
+#: THE RETENTION ARM for the source. On the `caller_memory` clock and no other (D-507 —
+#: this comment used to say the TRANSCRIPT clock, see `MEMORY_RETENTION_CATEGORY` below).
+#: The category is NOT a parameter of this statement, deliberately: it is asserted by the
+#: one arm allowed to run it, so no other category's sweep can reach this table by passing
+#: its own name, and there is no `retention_category` column here to constrain it with.
 EXPIRE_MEMORIES_SQL: Final = """
 UPDATE caller_memories
    SET fact = '', scrubbed_at = now(), updated_at = now()

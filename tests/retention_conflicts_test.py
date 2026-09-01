@@ -210,6 +210,11 @@ SHIPPED_TTLS = {
     "engine_payload": 90,
     "kb": 365,
     "copilot_memory": 180,
+    # What an agent remembers about a CALLER between calls (D-507). The same pair as
+    # `copilot_memory` and not the transcript's 365: a memory exists to outlive the call,
+    # so the call's period is the wrong clock for it, and a caller — unlike a client's own
+    # staff — never chose us, which is why the shorter of the two numbers wins.
+    "caller_memory": 180,
 }
 
 
@@ -244,6 +249,9 @@ async def test_a_real_tenant_gets_those_rows_and_the_sweep_reads_them_back() -> 
         "engine_payload": "delete",
         "kb": "delete",
         "copilot_memory": "delete",
+        # Four of them, since D-507. There is no anonymised form of a distilled sentence
+        # either, and a blanked memory would still be recalled into a prompt.
+        "caller_memory": "delete",
     }
 
 
@@ -535,11 +543,20 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
             # THE VECTOR AND THE LEXEMES (D-503). `caller_chunks` stores no content and is
             # still a copy of the transcript: an embedding is derived from the text by a
             # deterministic function of it and is substantially invertible, and `tsv` is
-            # literally the caller's words as lexemes. `caller_memories.fact` rides the same
-            # clock because a memory is DISTILLED from what the caller said — `calls.summary`'s
-            # argument, one table over — and because a fifth category is a migration and a
-            # number the founder has to give, which is this test's own point.
+            # literally the caller's words as lexemes.
             "caller_chunks.tsv+embedding (transcript scopes)",
+        ),
+        # `caller_memories.fact` AND the caller-memory scope's chunks USED TO SIT IN THE
+        # TUPLE ABOVE, on the argument that a memory is distilled from what the caller said
+        # and so rides the clock of the words it came from — plus this test's own point,
+        # that a fifth category is a migration and a number the founder has to give. D-507
+        # gave the number (180/`delete`) and `e1a4d70c9b52` writes the row for every
+        # organisation that already existed, so what remains of that argument is its
+        # weakest half: the PURPOSE of a memory is to outlive the call, which makes the
+        # call's clock the wrong one rather than a convenient one. A fifth category is
+        # still a migration; this is what one looks like when it is warranted.
+        "caller_memory": (
+            "caller_chunks.tsv+embedding (caller memory scope)",
             "caller_memories.fact",
         ),
         # `webhook_deliveries.payload_ref` names the object holding the CRM payload we

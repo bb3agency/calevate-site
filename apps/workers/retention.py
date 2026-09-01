@@ -562,18 +562,20 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM calls c
       WHERE c.summary IS NOT NULL
         AND {_CLOCK} < now() - make_interval(days => r.ttl_days))
-      -- The vector projection and the distilled facts, on this same clock (D-503). Asked
+      -- The vector projection of the TRANSCRIPT scopes, on this same clock (D-503). Asked
       -- in the PROBE and not only in the arm, because a category the probe reports as
       -- having no work is a category whose arms never run: the projection would then be
       -- expired only on the ticks where some OTHER transcript copy happened to be due.
+      --
+      -- `caller_memories` USED TO BE PROBED HERE TOO and is not any more (D-507): the arm
+      -- that sweeps it moved to the `caller_memory` category below, so asking about it on
+      -- this clock would report work the transcript arm cannot do — a tick where the
+      -- transcript period has elapsed and the memory period has not would run four
+      -- statements that match nothing and report a sweep that swept nothing.
       OR EXISTS (
       SELECT 1 FROM caller_chunks cc
       WHERE cc.retention_category = 'transcript' AND cc.scrubbed_at IS NULL
         AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
-      OR EXISTS (
-      SELECT 1 FROM caller_memories m
-      WHERE m.scrubbed_at IS NULL
-        AND m.occurred_at < now() - make_interval(days => r.ttl_days))
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -621,6 +623,17 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM caller_memories cm
       WHERE cm.scrubbed_at IS NULL
         AND cm.occurred_at < now() - make_interval(days => r.ttl_days))
+      -- AND THE PROJECTION OF THOSE FACTS, asked separately rather than assumed to follow
+      -- the source. The two are scrubbed together by the arm and by both erasure paths,
+      -- but they are not the same rows and they can diverge: a fact erased on a §12
+      -- request leaves its `caller_memories` row scrubbed, and if the tick that would
+      -- have expired the chunks then found no unscrubbed FACT it would report no work and
+      -- the vector and the lexemes — the copy of the sentence nobody reads — would stay
+      -- on file for as long as nobody looked. Same reason the transcript arm asks twice.
+      OR EXISTS (
+      SELECT 1 FROM caller_chunks cc
+      WHERE cc.retention_category = 'caller_memory' AND cc.scrubbed_at IS NULL
+        AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
     ELSE false
   END AS has_work
 FROM retention_policies r

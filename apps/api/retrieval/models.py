@@ -74,10 +74,10 @@ RETENTION_CATEGORIES: Final[tuple[str, ...]] = (
 #: own category could file a caller's sentence on the 1095-day CRM clock by naming itself
 #: a lead.
 #:
-#: `caller_memory` rides the TRANSCRIPT clock because a memory is DISTILLED from what the
-#: caller said, so it belongs on the clock of the words it was distilled from —
-#: `calls.summary` and the knowledge-gap quotes are already filed exactly that way
-#: (`retention.DERIVED_COPIES`), and it costs no new `retention_policies` row.
+#: `caller_memory` RODE THE TRANSCRIPT CLOCK UNTIL D-507 and no longer does — see
+#: `RETENTION_CALLER_MEMORY` above for why the distillation argument had the feature
+#: backwards. The two call scopes still ride it, and the lead scope still rides the CRM
+#: clock: one table, three clocks, none of them chosen by the scope itself.
 SUBJECT_RETENTION: Final[dict[str, str]] = {
     SUBJECT_LEAD: RETENTION_LEAD,
     SUBJECT_CALL_TURN: RETENTION_TRANSCRIPT,
@@ -261,8 +261,14 @@ class CallerMemory(PKMixin, TimestampMixin, Base):
     (`occurred_at`, from the source call rather than from `created_at`), and ISOLATED by a
     FORCEd policy.
 
-    NO RETENTION CATEGORY OF ITS OWN: a memory is distilled from what the caller said, so it
-    rides the tenant's existing `transcript` clock through `retention.DERIVED_COPIES`.
+    A RETENTION CATEGORY OF ITS OWN (D-507), 180 days and `delete`, and this docstring used
+    to say the opposite — that a memory rides the tenant's `transcript` clock because it is
+    distilled from what the caller said. The clock a thing is kept on is a question about
+    its PURPOSE, and this row's purpose is to outlive the call, so inheriting the call's
+    period (365 days by default, and settable higher) was the wrong shape rather than a
+    convenient one. `copilot_memory` had already answered the same question at the same
+    pair; what does not transfer is the subject, since a caller never chose us, which is
+    why the shorter number wins where the two disagree.
 
     `source_call_id` IS PROVENANCE AND NOT AN ERASURE PATH — SET NULL, so the row survives
     the call it was learned on, which is the entire point of cross-call memory. Erasure

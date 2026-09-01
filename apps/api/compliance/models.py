@@ -172,6 +172,13 @@ DATA_CATEGORIES = (
     # describe data those callers are not the subject of. `consent_log` is already omitted
     # there for its own reason, so the omission is a pattern rather than a gap.
     "copilot_memory",
+    # What an AGENT remembers about a CALLER between calls (D-507, migration e1a4d70c9b52).
+    # A category rather than a share of `transcript`'s, because the question it answers is
+    # a different one: not "how long may we keep what was said on this call" but "how long
+    # may we remember this person between calls". 180 days and `delete`, `copilot_memory`'s
+    # pair — and unlike that one it IS a caller-facing period, so it belongs in
+    # `compliance/caller_notice._CATEGORY_LABELS` rather than being omitted from it.
+    "caller_memory",
 )
 RETENTION_ACTIONS = ("delete", "anonymize")
 ACTOR_TYPES = ("admin", "user", "system")
