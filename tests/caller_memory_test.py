@@ -209,6 +209,54 @@ async def test_a_fact_longer_than_the_cap_is_stored_short() -> None:
     assert len(stored[0]) <= caller_memory.MAX_FACT_CHARS
 
 
+async def test_a_distiller_that_produced_nothing_writes_nothing_and_is_not_an_error() -> None:
+    """Three shapes of "nothing", all of which a real distiller produces, none of which is
+    a failure — and each of which would be a row of whitespace if it were not refused.
+
+    A call where nothing durable was learned is the ORDINARY outcome, not an incident: it
+    must be silent, cheap, and must not consume the per-call budget. An empty `facts` list
+    also short-circuits BEFORE the switch is read, so a client who never turned this on
+    pays no query for a call that had nothing to remember anyway.
+    """
+    tenant_id, agent_id = await _tenant()
+    await _enable(tenant_id, agent_id)
+
+    assert caller_memory.clean_fact("") == ""
+    assert caller_memory.clean_fact("   \n\t ") == ""
+
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await caller_memory.remember(
+                session,
+                tenant_id,
+                agent_id=agent_id,
+                phone_e164=CALLER,
+                occurred_at=datetime.now(UTC),
+                source_call_id=None,
+                facts=[],
+            )
+            == 0
+        )
+        # A fact that survives the strip as nothing is SKIPPED, not counted and not
+        # written: the return value is what the caller logs, so counting a discarded fact
+        # would tell an operator the memory holds something it does not.
+        assert (
+            await caller_memory.remember(
+                session,
+                tenant_id,
+                agent_id=agent_id,
+                phone_e164=CALLER,
+                occurred_at=datetime.now(UTC),
+                source_call_id=None,
+                facts=["   ", "", FACT],
+            )
+            == 1
+        )
+        await session.commit()
+
+    assert await _facts_on_file(tenant_id) == [FACT]
+
+
 async def test_an_identifier_the_distiller_invented_does_not_reach_a_row() -> None:
     """The backstop, not the reason a fact is safe to keep. A model writing a phone-shaped
     number into its own summary would otherwise put it in a durable row."""

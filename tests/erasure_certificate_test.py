@@ -400,3 +400,76 @@ def test_the_certificate_tells_a_data_principal_about_backups() -> None:
     # is what a machine-readable consumer reads instead of the prose.
     assert len(deletion.ERASURE_LIMITATIONS) == len(deletion.ERASURE_EXCEPTIONS)
     assert any(e.keyword == "backup" for e in deletion.ERASURE_EXCEPTIONS)
+
+
+# --- the search store, which the certificate must not overstate -----------------------
+
+
+def _scope(**extra: Any) -> dict[str, Any]:
+    """The stored scope plus whatever the caller-chunk arms recorded."""
+    scope: dict[str, Any] = {
+        "calls": ["a" * 32],
+        "leads": ["b" * 32],
+        "transcript_turns_erased": 4,
+        "call_extractions_erased": 1,
+    }
+    scope.update(extra)
+    return scope
+
+
+def _erased_lines(**extra: Any) -> list[str]:
+    return list(_certified(scope=_scope(**extra))["erased"])
+
+
+def test_the_certificate_says_what_the_search_store_lost_in_the_readers_vocabulary() -> None:
+    """Both counts present: two sentences, and neither reaches for our storage vocabulary.
+
+    A data principal is owed the fact that a machine-readable copy of their sentences
+    existed and is gone. They are not owed our storage vocabulary — a certificate that
+    reads like an architecture diagram is one they cannot check, and this document gets
+    filed and read years later by someone who cannot ask us what it meant.
+    """
+    lines = _erased_lines(caller_vectors_erased=3, caller_memories_erased=2)
+    searchable = [line for line in lines if "searchable copies" in line]
+    remembered = [line for line in lines if "remembered about this person" in line]
+    assert len(searchable) == 1, lines
+    assert len(remembered) == 1, lines
+    assert "3 searchable copies" in searchable[0]
+    assert "2 facts" in remembered[0]
+    joined = " ".join(lines).lower()
+    # "index" IS allowed and is in the copy: "the machine-readable index that let staff
+    # search past conversations by meaning" is plain English a reader can picture. What is
+    # banned is our storage vocabulary, which tells them nothing they can check.
+    assert "vector" not in joined
+    assert "embedding" not in joined
+    assert "pgvector" not in joined and "tsvector" not in joined
+
+
+def test_one_count_present_and_the_other_zero_yields_exactly_one_sentence() -> None:
+    """Zero is not silence about the OTHER store — each sentence answers for its own.
+
+    A run that emptied the search index but found nothing remembered must say the first
+    and not the second, or the certificate claims an erasure it did not perform.
+    """
+    only_vectors = _erased_lines(caller_vectors_erased=1, caller_memories_erased=0)
+    assert any("1 searchable copy" in line for line in only_vectors)
+    assert not any("remembered about this person" in line for line in only_vectors)
+
+    only_memories = _erased_lines(caller_vectors_erased=0, caller_memories_erased=1)
+    assert any("1 fact" in line for line in only_memories)
+    assert not any("searchable cop" in line for line in only_memories)
+
+
+def test_a_proof_that_predates_the_search_store_certifies_nothing_about_it() -> None:
+    """ABSENT IS NOT ZERO, and this is the case that distinction exists for.
+
+    Every proof written before `caller_chunks` existed carries neither key. Rendering a
+    `0` for those would tell a data principal "we looked in the search store and there
+    was nothing" about an erasure that could not look — a claim the run never made and
+    nobody can go back and check. Proofs are not back-filled (hard rule 4), so this state
+    is permanent and will be read for years.
+    """
+    lines = _erased_lines()
+    assert not any("searchable cop" in line for line in lines)
+    assert not any("remembered about this person" in line for line in lines)
+    assert lines, "the rest of the certificate still speaks"

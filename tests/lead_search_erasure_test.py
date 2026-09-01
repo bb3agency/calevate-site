@@ -34,11 +34,15 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance import tenant_erasure
+from apps.api.core.errors import ProblemError
+from apps.api.crm import routes as crm_routes
 from apps.api.crm.lead_chunks import discover_lead_chunks
 from apps.api.crm.lead_projection import LEAD_SUBJECT_KIND
 from apps.api.crm.lead_search import search_leads
+from apps.api.crm.schemas import LeadLensIn, LeadSearchIn
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.retrieval.caller_projections import registered_projections, store_chunks
 from apps.workers.retention import (
@@ -320,3 +324,59 @@ async def test_the_lead_retention_clock_reaches_the_projection() -> None:
 
     assert await _matching_chunks(tenant_id, NEEDLE) == 0
     assert await _live_vectors(tenant_id) == 0
+
+
+# ── the two route seams the lens travels through ─────────────────────────────────────
+
+
+async def test_the_table_route_answers_the_question_through_the_same_lens() -> None:
+    """`ask` is a FIELD on the lens, not a second route, and this proves the branch keeps
+    the rest of the lens intact.
+
+    A client asking "3BHK in Gachibowli" inside "hot leads assigned to me" is asking ONE
+    question. Two routes would have meant two column resolutions, two facet parsers and
+    two places for the two to drift — so the semantic branch reuses every one of them and
+    replaces only the ROWS and their ORDER. What it must therefore still return is the
+    resolved column list, which is what the screen renders and what the CSV header is
+    built from.
+    """
+    tenant_id, lead_id = await _tenant_with_projected_lead("+919876500131")
+
+    async with tenant_session(tenant_id) as session:
+        asked = await crm_routes._leads_page(
+            session, LeadSearchIn(ask="3BHK in Gachibowli"), tenant_id=tenant_id
+        )
+        plain = await crm_routes._leads_page(session, LeadSearchIn(), tenant_id=tenant_id)
+
+    assert [lead.id for lead in asked.items] == [lead_id]
+    assert asked.total == 1
+    # The columns are the lens's answer and must not depend on which arm produced the rows:
+    # a semantic search that rendered different columns would be a second screen.
+    assert [c.key for c in asked.columns] == [c.key for c in plain.columns]
+    assert [c.key for c in asked.available_columns] == [c.key for c in plain.available_columns]
+
+
+async def test_the_csv_export_refuses_a_question_rather_than_dropping_it() -> None:
+    """The widest possible read of the narrowest possible request, refused BY NAME.
+
+    `LeadLensIn` is shared by the table and the file. An `ask` the export silently dropped
+    would hand a client who had narrowed their screen to four matching leads a CSV of
+    their ENTIRE contact list with full phone numbers. The refusal is what makes the
+    shared lens safe; without it the sharing is the bug.
+
+    It is a refusal rather than an implementation because the honest export of a RANKING
+    is not the "complete filtered set" a CSV promises — deciding what an exported ranking
+    IS is a product answer, and until it exists the file must not pretend.
+    """
+    tenant_id, _ = await _tenant_with_projected_lead("+919876500132")
+
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as refused:
+            await crm_routes._export_and_summary(session, LeadLensIn(ask=NEEDLE))
+        # The same lens WITHOUT the question exports normally, so the refusal is about the
+        # question and not about the export being broken.
+        export, summary = await crm_routes._export_and_summary(session, LeadLensIn())
+
+    assert refused.value.code == "ask_cannot_be_exported"
+    assert export.row_count == 1, "the filter-only export still produces the file"
+    assert "ask" not in summary, "the audit row records ids, keys and counts — never the text"

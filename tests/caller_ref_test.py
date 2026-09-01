@@ -234,3 +234,25 @@ def test_surrounding_whitespace_is_tolerated_on_both_sides() -> None:
         active_caller_ref(tenant, f"  {CALLER} ", ring=ring).ref
         == active_caller_ref(tenant, CALLER, ring=ring).ref
     )
+
+
+def test_an_erased_leads_placeholder_number_is_refused_rather_than_given_a_ref() -> None:
+    """The one number in the system that is not a person, and must not become one.
+
+    `retention.ANONYMIZED_PHONE` is what a lead's number becomes after an erasure. Deriving
+    a ref from it would be arithmetically fine and semantically catastrophic: every erased
+    lead in the tenant lands on ONE shared pseudonym, which then reads like a single very
+    active caller — rows about different people accumulating under one key, in the exact
+    store whose whole purpose is to be erasable per person.
+
+    Imported from the worker rather than retyped, so the day that constant moves this test
+    moves with it instead of quietly guarding a string nothing writes any more.
+    """
+    from apps.workers.retention import ANONYMIZED_PHONE
+
+    ring = _ring(_kek())
+    with pytest.raises(CallerRefError, match="anonymized placeholder"):
+        active_caller_ref(uuid.uuid4(), ANONYMIZED_PHONE, ring=ring)
+
+    with pytest.raises(CallerRefError, match="anonymized placeholder"):
+        caller_refs(uuid.uuid4(), ANONYMIZED_PHONE, ring=ring)
