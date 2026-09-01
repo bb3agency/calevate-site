@@ -1673,6 +1673,15 @@ KB_MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 #: retrieved chunk CONTAINS. They are also the honest boundary of the approval gate — a
 #: human approves the CONTENT, and these numbers are the only part of the chunking we
 #: control. Where the vendor then places a boundary inside that content is theirs.
+#:
+#: ⚠ `kb/pdf_render.RECOMMENDED_CHUNK_SIZE` IS 768 AND THIS IS 512, ON PURPOSE. The
+#: renderer lays out one approved chunk per block and our chunks are capped at 700
+#: characters, so 512 splits every block if the unit is characters. The vendor never
+#: states the unit for `chunk_size` (it does for `overlapping`), so 768 is right under
+#: one reading and worse under the other, and neither has been observed from here. The
+#: default stays until gate 43a reads back what the vendor actually stored. Move both
+#: constants together or neither — a renderer laying out for one number while the wire
+#: asks for another is the silent-drift failure this file exists to avoid.
 KB_CHUNK_SIZE = 512
 KB_OVERLAPPING = 128
 KB_SIMILARITY_TOP_K = 15

@@ -20,9 +20,7 @@ read aloud, and a chunk cut mid-sentence becomes a sentence the agent says badly
 
 from __future__ import annotations
 
-import hashlib
 import re
-from importlib import import_module
 from typing import Any
 from uuid import UUID
 
@@ -39,6 +37,12 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
 from apps.api.kb.models import KB_STATUSES
+from apps.api.kb.pdf_render import (
+    ApprovedChunk,
+    KnowledgePdfError,
+    RenderedKnowledgePdf,
+    render_knowledge_pdf,
+)
 
 log = get_logger(__name__)
 
@@ -487,84 +491,94 @@ async def _remember_engine_kb_ref(
     )
 
 
-#: What the publisher hands an engine whose knowledge base ingests FILES rather than
-#: text, and the one place this module knows a document format exists at all.
-#:
-#: **THE MODULE IS A SIBLING'S AND THIS IS ONLY THE SEAM.** The contract it must satisfy,
-#: stated here because two changes have to agree and only one of them is in this file:
-#:
-#:     apps/api/kb/render.py
-#:     def render_knowledge_pdf(*, title: str, chunks: list[str], language: str) -> bytes
-#:
-#: DETERMINISTIC, and that word is load-bearing rather than decorative: the re-upload
-#: guard below keys on the SHA-256 of these bytes, so a renderer that stamps a timestamp,
-#: a uuid or a hash-seeded font subset into the file makes every republish look like new
-#: content and uploads a duplicate every time. It must also render exactly the approved
-#: chunks in reading order and add nothing a human did not approve.
-#:
-#: RESOLVED BY NAME AT CALL TIME. A missing renderer is a deployment fact, not a client's
-#: mistake, and it surfaces BEFORE anything is uploaded or withdrawn — which is where this
-#: is called from. `importlib` rather than a
-#: deferred `from ... import`, because the module is a SIBLING's and is not in this tree
-#: yet: a static import of a module that does not exist fails type checking, and silencing
-#: that with an ignore leaves a lie behind on the day it lands.
-_RENDERER_MODULE = "apps.api.kb.render"
-_RENDERER_FUNCTION = "render_knowledge_pdf"
+async def _approved_chunks_of(
+    session: AsyncSession, source_id: UUID, *, source_name: str
+) -> list[ApprovedChunk]:
+    """The rows `render_knowledge_pdf` renders, in reading order.
+
+    Separate from `_chunks_of`, which answers a different question: that one returns the
+    TEXT for the engines whose knowledge base ingests prose, and this one returns the
+    renderer's row type, which carries `idx` (so a retrieved marker points back at a
+    chunk) and the approval flags the renderer re-asserts for itself.
+    """
+    rows = (
+        await session.execute(
+            text("SELECT idx, content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
+            {"sid": source_id},
+        )
+    ).all()
+    return [
+        ApprovedChunk(
+            source_id=source_id,
+            source_name=source_name,
+            idx=int(idx),
+            content=str(content),
+            # BOTH TRUE, AND STATED RATHER THAN READ, because at this point in a publish
+            # the row's own `is_active` is still FALSE on every first publish — line
+            # 1340 sets it, and that is AFTER the attach this document is being rendered
+            # for. Passing the column would refuse every first publish of every source.
+            # What these two flags mean to the renderer is "this content is cleared to go
+            # to a vendor", and `publish_source` has already proved exactly that above
+            # (`approved_at IS NOT NULL AND status IN ('approved','archived')`) and
+            # refused with `kb_not_approved` if not. The renderer's own re-assertion is
+            # therefore vacuous FROM THIS CALLER and deliberately kept anyway: it guards
+            # the next caller, which will not have this function's gate above it.
+            approved=True,
+            is_active=True,
+        )
+        for idx, content in rows
+    ]
 
 
-def _render_document(*, title: str, chunks: list[str], language: str) -> bytes | None:
-    """The approved chunks as the document an engine will ingest, or `None`.
+def _render_document(
+    *, title: str, chunks: list[ApprovedChunk], language: str
+) -> RenderedKnowledgePdf:
+    """The approved chunks as the document an engine will ingest.
 
-    **`None` IS NOT A SHRUG AND IT IS NOT A SILENT DEGRADATION — read where it goes.** Not
-    every engine's knowledge base ingests files: the port carries both, `KBSourceRef.text`
-    for the ones that take prose and `.document` for the ones that take a document, and an
-    adapter that NEEDS a document and is handed `None` refuses by NAME
-    (`engine_kb_document_missing`) before a byte reaches the vendor. So the loud failure
-    happens where the requirement actually lives, and the publisher does not have to know
-    which kind of engine it is talking to.
+    **THIS USED TO BE A `importlib` SEAM RESOLVING `apps.api.kb.render` BY NAME, AND IT
+    IS NOW A PLAIN IMPORT.** The indirection existed for one reason, written into the
+    comment it replaced: the renderer was a sibling agent's module and was not in this
+    tree yet, so a static import would not type-check. It landed (`kb/pdf_render.py`),
+    so the reason is spent — and a dynamic lookup that outlives its reason is strictly
+    worse than an import: mypy cannot see the signature, the arity is unchecked, and the
+    two halves drifted apart exactly as you would expect. They HAD drifted: the seam
+    declared `render_knowledge_pdf(*, title, chunks: list[str], language) -> bytes`
+    against a module named `render.py`, and what shipped was
+    `render_knowledge_pdf(chunks: Sequence[ApprovedChunk]) -> RenderedKnowledgePdf` in
+    `pdf_render.py`. Nothing failed: `import_module` raised `ImportError`, the seam
+    logged `kb_renderer_unavailable`, returned `None`, and the adapter refused with
+    `engine_kb_document_missing` — so publishing knowledge to the engine was DEAD, and
+    every test passed, because the fake adapter accepts `document=None`.
 
-    RAISING HERE INSTEAD WOULD BE THE WRONG PLACE, and it is worth saying why, because
-    that was the first shape of this function: a deployment whose engine ingests text
-    would then be unable to publish knowledge at all because a renderer it never needed
-    was missing. The refusal belongs to the adapter that cannot proceed, not to every
-    caller of this module.
+    `title` and `language` are accepted and not passed on, and that is not an oversight.
+    The renderer puts each chunk's own source name above it (a retrieved passage has to
+    carry its provenance INSIDE the text, since the vendor re-chunks what we upload), so
+    a document-level title would be a second, weaker copy of the same thing; and the
+    script is decided by the font, which covers Telugu and Latin, rather than by a
+    declared language. They stay in the signature because the caller has them and the
+    next renderer may need them — dropping them would make re-adding them a change at
+    both ends.
 
-    It is logged at ERROR either way. A missing renderer is a deployment fault and
-    somebody has to be told, whether or not this particular engine minds.
+    Raises `ProblemError` for every refusal the renderer can produce. All four are the
+    same class of event — a document that would upload cleanly and then under-serve a
+    live call — so they share a remediation shape: say which chunk, and what to do.
     """
     try:
-        renderer = getattr(import_module(_RENDERER_MODULE), _RENDERER_FUNCTION)
-    except (ImportError, AttributeError):
-        log.error("kb_renderer_unavailable", extra={"renderer": _RENDERER_MODULE})
-        return None
-    document = renderer(title=title, chunks=chunks, language=language)
-    # CHECKED, because a dynamically resolved callable is unchecked by construction and
-    # this one's output goes straight into a multipart upload. `str` is the likely wrong
-    # answer and would be encoded to plausible-looking bytes by httpx without a word.
-    if not isinstance(document, bytes) or not document:
-        log.error("kb_renderer_returned_no_document", extra={"renderer": _RENDERER_MODULE})
-        raise ProblemError(
-            kind="dependency",
-            code="kb_renderer_unavailable",
-            title="Knowledge cannot be published right now",
-            detail="The approved wording could not be turned into a document.",
-            remediation="Nothing changed. Support has been alerted.",
+        return render_knowledge_pdf(chunks)
+    except KnowledgePdfError as exc:
+        # AT ERROR AND WITH NO CHUNK TEXT. `str(exc)` names markers and codepoints, never
+        # content (hard rule 6), which is why the message is safe to log and to show.
+        log.error(
+            "kb_render_refused",
+            extra={"reason": type(exc).__name__, "chunks": len(chunks)},
         )
-    return document
-
-
-def _digest_of(document: bytes) -> str:
-    """The idempotency key: hex SHA-256 over the rendered bytes.
-
-    OVER THE DOCUMENT AND NOT OVER THE CHUNKS, because the document is what the vendor
-    was handed. Two chunk lists that render identically SHOULD be treated as one upload,
-    and a renderer change that alters the bytes SHOULD force a fresh one — hashing the
-    input would get both of those backwards.
-
-    SHA-256 rather than anything cheaper: this decides whether a client's newly approved
-    text reaches their agent, so a collision is a silently unpublished approval.
-    """
-    return hashlib.sha256(document).hexdigest()
+        raise ProblemError(
+            kind="business_rule",
+            code="kb_render_refused",
+            title="This knowledge cannot be published as it stands",
+            detail=str(exc),
+            remediation="Edit the knowledge source and approve it again.",
+        ) from exc
 
 
 async def _publish_config(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> AgentConfig:
@@ -1219,16 +1233,30 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     own_handle = await _engine_kb_ref(session, source_id)
 
     # THE DOCUMENT, AND ITS DIGEST (D-488). Rendered before anything is touched, because
-    # a deployment with no renderer must refuse while the client's knowledge is still
-    # whole rather than half way through a rollover.
-    document = _render_document(
-        title=str(name), chunks=chunks, language=agent_config.language_primary
+    # a renderer that refuses must do so while the client's knowledge is still whole
+    # rather than half way through a rollover.
+    #
+    # NO LONGER OPTIONAL, AND THAT IS THE SEAM BEING FINISHED RATHER THAN A NEW RULE:
+    # `_render_document` used to return `None` when the renderer module was missing, and
+    # it was ALWAYS missing, because the seam named `apps.api.kb.render` and the module
+    # that shipped is `apps.api.kb.pdf_render` with a different signature. Every engine
+    # that ingests files therefore refused every publish. The renderer is now imported
+    # directly and `fpdf2` is a declared runtime dependency of `apps/api`, so "there is
+    # no renderer" is not a state this deployment can be in; a refusal now comes from
+    # the CONTENT and says which chunk.
+    rendered = _render_document(
+        title=str(name),
+        chunks=await _approved_chunks_of(session, source_id, source_name=str(name)),
+        language=agent_config.language_primary,
     )
-    # `None` when this deployment has no renderer — see `_render_document`. The engine that
-    # needs one then refuses by name; the engine that ingests text carries on as it always
-    # has, and its re-upload guard has nothing to key on, which is the state it was in
-    # before D-488 rather than a regression.
-    digest = _digest_of(document) if document is not None else None
+    document = rendered.content
+    # THE RENDERER'S OWN DIGEST, not a second hash taken here. It is the SHA-256 of the
+    # same bytes either way, so this is not about the value — it is about there being one
+    # place that decides what the idempotency key is computed over. A local `_digest_of`
+    # would be a second answer to a settled question, and the day the renderer starts
+    # returning a digest over something else (a normalised form, say) the two would
+    # disagree silently and the re-upload guard would stop guarding.
+    digest = rendered.sha256
 
     # THE RE-UPLOAD GUARD. Three conditions, and all three are load-bearing: we hold a
     # handle, the bytes are the ones that handle was minted from, and the engine still
@@ -1238,9 +1266,11 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # double-clicked Publish, a retry after a timeout, and FLOWS §7's rollback onto the
     # version already live cost nothing instead of stacking a second billed copy the first
     # handle could never name again.
+    # `digest` is no longer part of this conjunction: it was `str | None` while the
+    # renderer was optional, and it is now always a digest. An arm that cannot be false
+    # is an uncovered branch the ratchet counts and a reader has to reason about twice.
     unchanged = (
-        digest is not None
-        and own_handle is not None
+        own_handle is not None
         and await _engine_kb_digest(session, source_id) == digest
         and (attached_now is None or own_handle in attached_now)
     )

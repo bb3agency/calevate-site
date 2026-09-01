@@ -82,6 +82,22 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 #: What the uploader should send as `chunk_size` / `overlapping`. See the module
 #: docstring on why 768 and not the vendor's 512 default.
+#:
+#: ⚠ **THE WIRE DOES NOT SEND 768 TODAY, AND THAT IS DELIBERATE RATHER THAN DRIFT.**
+#: `engine/bolna.py::KB_CHUNK_SIZE` sends the vendor's documented default, 512. The
+#: argument for 768 above is sound under the reading that `chunk_size` counts
+#: CHARACTERS — our chunks are capped at 700 (`kb/service.MAX_CHUNK_CHARS`), so 512
+#: cuts every one of them in two — but the vendor's page says only *"Chunk size for
+#: embedding model"* and never states the unit, while documenting `overlapping` in
+#: characters. Under a TOKEN reading, 768 tokens is ~3,000 characters and welds several
+#: approved facts into one node, which costs retrieval precision in the other direction.
+#: Neither reading has been observed: `api.bolna.ai` is egress-blocked here and there is
+#: no account (hard rule 12 — the premise is not verifiable from this container, so the
+#: wire keeps the vendor's own default rather than moving on an inference).
+#:
+#: OPERATIONS §2 gate 43a settles it in one upload: send a document whose block
+#: boundaries are known, read back what the vendor stored, and see where it cut. Whoever
+#: runs that gate changes BOTH constants or neither.
 RECOMMENDED_CHUNK_SIZE = 768
 RECOMMENDED_OVERLAP = 128
 
