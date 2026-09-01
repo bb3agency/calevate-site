@@ -888,6 +888,49 @@ async def _detach_superseded(
     await _remember_engine_kb_ref(session, source_id, None)
 
 
+async def _restore_withdrawn(
+    engine: VoiceEngine,
+    engine_ref: str,
+    *,
+    agent: AgentConfig,
+    withdrawn: list[tuple[UUID, list[str]]],
+    name: str,
+) -> None:
+    """Put back versions this publish withdrew, when a LATER step then failed.
+
+    **THERE IS EXACTLY ONE CALLER AND THAT IS THE POINT (D-488).** Under attach-first,
+    almost every failure happens before anything is withdrawn — a failed attach leaves the
+    previous version untouched, and a failed detach is undone by removing the copy we
+    added. The one failure that lands AFTER the withdrawals is the source vanishing from
+    under us (`kb_source_vanished`): the retention sweep DELETEs superseded versions on the
+    tenant's own clock, from its own transaction, taking no part in our lock, and FLOWS §7's
+    rollback republishes exactly the population it expires. By then the superseded copies
+    are gone from the engine, and walking away would leave the client with no knowledge at
+    all — an outage we caused to report that somebody else deleted a row.
+
+    WHAT IS DELIBERATELY NOT DONE HERE: recording the new handles. The caller re-raises,
+    the transaction rolls back, and any write here would roll back with it — so our tables
+    keep pointing at handles that were just deleted. That is the intended residue and it is
+    caught twice over: the next publish either finds a handle the engine no longer holds
+    (which `_detach_superseded` now treats as already withdrawn) or a copy it cannot
+    account for (`kb_engine_out_of_sync`). Neither quietly stacks two versions.
+    """
+    for source_id, chunks in withdrawn:
+        try:
+            await engine.attach_kb(
+                engine_ref,
+                KBSourceRef(kb_id=str(source_id), title=name, text="\n\n".join(chunks)),
+                agent=agent,
+            )
+        except Exception:
+            # Nothing left to try: the engine is refusing both directions. ERROR, because
+            # this agent now has NO knowledge for this source and only an operator can put
+            # it back.
+            log.error("kb_left_detached", extra={"source_id": str(source_id)})
+        else:
+            log.info("kb_restored_after_failed_publish", extra={"source_id": str(source_id)})
+
+
 async def _undo_attach(
     engine: VoiceEngine,
     engine_ref: str,
@@ -1176,6 +1219,23 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         )
         attached_ref = minted
 
+    # NEVER WITHDRAW THE HANDLE WE JUST ATTACHED, and this is a consequence of the order
+    # rather than defensive noise (D-488). Under detach-first the two sets could not
+    # overlap; under attach-first they can, on any engine that de-duplicates — hand it two
+    # uploads it considers the same document and it may hand back one id, and the
+    # withdrawal of "the old copy" would then delete the new one. The fake adapter does
+    # exactly that (its handle is derived from OUR `kb_id`), which is how this was found;
+    # a real engine that ever behaved the same way would take a client's knowledge down
+    # silently, because every one of our records would still look right.
+    withdraw = [(wid, handle) for wid, handle in withdraw if handle != attached_ref]
+
+    # Read the fallback text BEFORE anything is withdrawn, for `_restore_withdrawn`'s one
+    # caller: a query issued after the failure is a query issued on a session that may
+    # itself be the thing that failed.
+    withdrawn_chunks: list[tuple[UUID, list[str]]] = [
+        (withdrawn_id, await _chunks_of(session, withdrawn_id)) for withdrawn_id, _ in withdraw
+    ]
+
     for withdrawn_id, withdrawn_kb_ref in withdraw:
         try:
             await _detach_superseded(
@@ -1245,18 +1305,25 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         # for the same reason: the client keeps a working knowledge base and loses only
         # the update. The raise then rolls our side back.
         log.error("kb_publish_source_vanished", extra={"source_id": str(source_id)})
-        # Only what THIS publish added comes down. The superseded versions were withdrawn
-        # above and their rows are going with the rollback, so there is nothing to put
-        # back — under the attach-first order the previous state is "everything we did not
-        # touch", and the one thing we touched is `minted`. When the re-upload guard
-        # matched, `minted` is None and the handle belongs to the version that was already
-        # live: removing it would turn a lost race into an outage.
+        # BOTH HALVES, because this is the ONE failure that lands after the withdrawals.
+        # The copy this publish added comes down (`minted`; `None` when the re-upload
+        # guard matched, in which case the handle belongs to the version that was already
+        # live and removing it would turn a lost race into an outage), and the versions
+        # withdrawn for it go back — otherwise the client is left with no knowledge at all
+        # because somebody else's transaction deleted a row.
         await _undo_attach(
             engine,
             engine_ref,
             agent=agent_config,
             attached_ref=minted,
             source_id=source_id,
+        )
+        await _restore_withdrawn(
+            engine,
+            engine_ref,
+            agent=agent_config,
+            withdrawn=withdrawn_chunks,
+            name=str(name),
         )
         raise ProblemError.conflict(
             "kb_source_vanished",

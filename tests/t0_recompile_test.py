@@ -286,7 +286,12 @@ async def test_a_rollback_to_the_earlier_knowledge_puts_the_earlier_facts_back()
     versions = await _versions(tenant_id, agent_id)
     assert "500 rupees" in versions[-1]["compiled"]
     assert "800 rupees" not in versions[-1]["compiled"]
-    assert len(versions) == 3, "the rollback edited a version instead of minting one"
+    # FOUR, NOT THREE, SINCE D-488: the fixture agent now starts with the applied SCRIPT
+    # that every live agent really has (`give_agent_a_script` — an agent with none cannot
+    # be published at all), so version 1 is the script and the three T0 recompiles follow
+    # it. The property under test is unchanged and is the one that matters: a rollback
+    # MINTS a version rather than editing one, so the count goes up.
+    assert len(versions) == 4, "the rollback edited a version instead of minting one"
 
 
 # --- the budget (PROMPT-GUIDE §2) -----------------------------------------------------
