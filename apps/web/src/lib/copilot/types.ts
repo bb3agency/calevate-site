@@ -207,5 +207,73 @@ export interface CopilotProposal {
   object_id: string;
   current: string | null;
   proposed: string;
+  /**
+   * What it costs, in a sentence, or `null` for "nothing". D-500.
+   *
+   * Never a rupee figure, deliberately: the per-minute rate is a property of the account's
+   * plan, so the server's sentence says what is billed and names the screen that holds the
+   * amount. Render it verbatim when it is non-null and render nothing when it is null —
+   * "Cost: none" is a line that makes a free action look like a priced one.
+   */
+  cost: string | null;
+  /**
+   * Whether and how it can be taken back. NEVER null, and never softened.
+   *
+   * This is the field the console owes the person most. The panel offers an Undo for a
+   * field fill, so somebody has already learned that this assistant's changes come back —
+   * and for a launch they do not. Render it on every card.
+   */
+  reversal: string;
   expires_at: string;
+}
+
+/**
+ * A TIER 1 action that HAS ALREADY HAPPENED — the `action` SSE frame, unchanged. D-500.
+ *
+ * **THE OPPOSITE PROMISE FROM `CopilotProposal`, AND THE TWO MUST NEVER LOOK THE SAME.**
+ * A proposal is an offer with a Confirm button and nothing behind it yet; this is a
+ * receipt. There is no token and no button, because the change is done: the assistant's
+ * risk tiering (`apps/api/copilot/actions.py`) lets an action run without a click only when
+ * it is reversible, reaches no caller and spends nothing, and creating a draft agent is the
+ * shape of that.
+ *
+ * Every string is the SERVER'S. `detail` is composed from what the executor returned,
+ * `reversal` says what taking it back would mean, and `where` says where the result now
+ * lives — which is the console's half of "act without navigating": the assistant does the
+ * thing from whatever screen the person is on and then tells them where it went, rather
+ * than moving them or pre-filling a form for them to save.
+ *
+ * `applied: false` means the world was already in that state, which is a real outcome and
+ * not a failure (D-65).
+ */
+export interface CopilotAction {
+  tool: string;
+  title: string;
+  detail: string;
+  object_type: string;
+  object_id: string;
+  applied: boolean;
+  reversal: string;
+  where: string;
+}
+
+/**
+ * One tool call as it happens — the `step` SSE frame. D-500.
+ *
+ * TWO FRAMES PER CALL, sharing an `id`: `running` when it starts, then exactly one of
+ * `done` / `refused` / `failed` carrying `elapsed_ms`. Key the row by `id` and REPLACE it,
+ * rather than appending, or one lookup renders as two lines.
+ *
+ * Purely observational: dropping every one of these loses no outcome, which is what makes
+ * it safe to render live. `args` and `detail` are bounded previews the server has already
+ * stripped and truncated; they are the person's own account data going back to the person's
+ * own screen, and they are never logged or stored anywhere.
+ */
+export interface CopilotStep {
+  id: string;
+  tool: string;
+  status: "running" | "done" | "refused" | "failed";
+  args: string;
+  detail: string | null;
+  elapsed_ms: number | null;
 }

@@ -141,6 +141,29 @@ export function ProposalCard({
             <span className="font-medium text-ink">{proposal.proposed}</span>
           </p>
 
+          {/* WHAT IT COSTS AND WHETHER IT COMES BACK (D-500). An approve/deny prompt with a
+              verb on it gets a worse decision than one that states the consequence, and
+              these are the two facts a person most needs in front of the two actions this
+              field was added for — publishing an agent, launching a campaign.
+
+              `cost` is skipped when null rather than rendered as "no cost": a line saying
+              "Cost: none" makes a free action look like a priced one that happens to be
+              zero. `reversal` is ALWAYS shown, including on the safe actions, because the
+              panel offers an Undo for field fills and a person who has learned that this
+              assistant's changes come back must be told, every time, when they do not. */}
+          <dl className="mt-2 space-y-1 text-xs">
+            {proposal.cost !== null && (
+              <div className="flex gap-1.5">
+                <dt className="shrink-0 text-ink-faint">Cost</dt>
+                <dd className="text-ink-muted">{proposal.cost}</dd>
+              </div>
+            )}
+            <div className="flex gap-1.5">
+              <dt className="shrink-0 text-ink-faint">Undo</dt>
+              <dd className="text-ink-muted">{proposal.reversal}</dd>
+            </div>
+          </dl>
+
           {expired ? (
             <p className="mt-2 text-xs text-ink-muted">
               This suggestion has expired. Ask the assistant again — nothing was changed.

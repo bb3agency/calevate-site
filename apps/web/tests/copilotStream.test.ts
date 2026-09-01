@@ -130,9 +130,14 @@ describe("askCopilot", () => {
      * FAILS IF: somebody collapses the two paths, or derives the path from the pathname
      * rather than from the realm the dock was mounted with.
      */
-    const fetchMock = vi.fn(async () =>
-      streamOf(['event: done\ndata: {"disclosure":null,"metered":false}\n\n']),
-    );
+    // The URL is recorded BY the stub rather than read back off `mock.calls`: an
+    // argument-less `vi.fn(async () => ...)` infers a zero-length tuple, so `calls[0][0]`
+    // has no type at all and the assertion would not compile.
+    const asked: string[] = [];
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      asked.push(String(url));
+      return streamOf(['event: done\ndata: {"disclosure":null,"metered":false}\n\n']);
+    });
     vi.stubGlobal("fetch", fetchMock);
     await askCopilot(SESSION, BODY, handlers());
     await askCopilot(
@@ -140,7 +145,6 @@ describe("askCopilot", () => {
       { ...BODY, screen: { ...BODY.screen, realm: "admin" } },
       handlers(),
     );
-    const asked = fetchMock.mock.calls.map(([url]) => String(url));
     expect(asked[0].endsWith(COPILOT_ASK_PATH)).toBe(true);
     expect(asked[1].endsWith(ADMIN_COPILOT_ASK_PATH)).toBe(true);
     expect(COPILOT_ASK_PATH).not.toBe(ADMIN_COPILOT_ASK_PATH);

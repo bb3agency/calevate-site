@@ -10,7 +10,9 @@ import type { Session } from "@/lib/api/client";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
 
+import { ActionReceipt } from "./ActionReceipt";
 import { ProposalCard } from "./ProposalCard";
+import { StepList } from "./StepList";
 
 /**
  * The assistant's panel: the transcript, the ask box, what it filled in, and the one Undo.
@@ -202,12 +204,25 @@ export function CopilotPanel({
             </p>
           ))}
           {conversation.streaming !== null &&
-            (conversation.streaming === "" ? (
+            (conversation.streaming === "" && conversation.steps.length === 0 ? (
+              // THE SKELETON IS NOW THE FALLBACK RATHER THAN THE DEFAULT. Once a tool call
+              // has started there is something real to show — which tool, with what, and how
+              // long it has been going — and a spinner beside a live step list is two
+              // answers to "is it still working".
               <Skeleton rows={2} label="Thinking…" />
             ) : (
-              <p className="whitespace-pre-wrap text-ink">{conversation.streaming}</p>
+              conversation.streaming !== "" && (
+                <p className="whitespace-pre-wrap text-ink">{conversation.streaming}</p>
+              )
             ))}
         </div>
+
+        {/* WHAT IT IS DOING, WHILE IT DOES IT. Outside the `aria-live` region above on
+            purpose: these frames change several times per second, and announcing each one
+            would talk over the answer — which is the thing a screen-reader user is waiting
+            for and which IS announced. Kept after the answer has arrived too, so a person
+            can still see which of their data was read and what each lookup returned. */}
+        <StepList steps={conversation.steps} />
 
         {/* A CHANGE THE ASSISTANT IS OFFERING TO MAKE — not one it has made.
             `aria-live="polite"` on the wrapper rather than focus management on the card:
@@ -229,6 +244,20 @@ export function CopilotPanel({
               onDismiss={conversation.dismissProposal}
             />
           )}
+        </div>
+
+        {/* WHAT IT HAS ALREADY DONE. Announced, because a change to the person's account
+            that happened without a click is exactly the thing they must not have to
+            discover. Rendered ABOVE the fill batch and BELOW the proposal: a receipt is
+            settled, an offer is not, and the unsettled thing belongs nearest the input. */}
+        <div aria-live="polite" className="space-y-2">
+          {conversation.actions.map((performed, index) => (
+            // Keyed by position because an action list only ever grows within an exchange
+            // and is emptied by the next question — there is no reorder for a key to
+            // survive, and `object_id` is empty on an action whose object did not exist
+            // when it was described.
+            <ActionReceipt key={index} action={performed} />
+          ))}
         </div>
 
         {batch !== null && (

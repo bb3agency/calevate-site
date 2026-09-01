@@ -7,7 +7,7 @@ import { ApiProblem, type Session } from "@/lib/api/client";
 import { clearFilled, markFilled } from "./highlight";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
-import type { CopilotFillItem, CopilotProposal } from "./types";
+import type { CopilotAction, CopilotFillItem, CopilotProposal, CopilotStep } from "./types";
 import type { SurfaceHolder } from "./registry";
 
 /**
@@ -87,6 +87,26 @@ export interface CopilotConversation {
    * avoid.
    */
   proposal: CopilotProposal | null;
+  /**
+   * TIER 1 actions this exchange has already performed, oldest first. D-500.
+   *
+   * A LIST where `proposal` is a single value, and the difference is the promise. At most
+   * one offer can be open at a time — two would be a person choosing which of two sentences
+   * they are agreeing to — but an answer may genuinely DO more than one thing ("make an
+   * inbound and an outbound agent"), and each of those is a receipt for something that has
+   * already happened. Dropping the first to show the second would hide a change from the
+   * person it was made for.
+   */
+  actions: CopilotAction[];
+  /**
+   * Every tool call this exchange has made, in the order they started, each carrying its
+   * latest state. Live, and cleared by the next question.
+   *
+   * KEYED BY `id` AND REPLACED IN PLACE: the server sends two frames per call, and appending
+   * both would render one lookup as two rows. Purely observational — the panel may render
+   * none of it and lose no outcome.
+   */
+  steps: CopilotStep[];
   /** True when the refusal on screen is the AI allowance ceiling (G-5, client realm). */
   atCeiling: boolean;
   ask: (question: string) => void;
@@ -115,6 +135,8 @@ export function useCopilotConversation(
   const [disclosure, setDisclosure] = useState<string | null>(null);
   const [batch, setBatch] = useState<CopilotBatch | null>(null);
   const [proposal, setProposal] = useState<CopilotProposal | null>(null);
+  const [actions, setActions] = useState<CopilotAction[]>([]);
+  const [steps, setSteps] = useState<CopilotStep[]>([]);
 
   // The in-flight request, so a second question cancels the first rather than
   // interleaving two answers into one bubble.
@@ -138,6 +160,8 @@ export function useCopilotConversation(
     setDisclosure(null);
     setBatch(null);
     setProposal(null);
+    setActions([]);
+    setSteps([]);
     clearFilled();
   }, []);
 
@@ -168,6 +192,14 @@ export function useCopilotConversation(
       // may be sitting in its confirmed state, and a record of what the last answer did
       // must not be left standing beside a new one as if it were about that.
       setProposal(null);
+      // AND THE PREVIOUS ANSWER'S RECEIPTS AND STEPS. Both belong to the EXCHANGE, exactly
+      // as the batch and the offer do. Leaving a receipt standing beside a new answer says
+      // "this is what I just did" about something that happened two questions ago — and it
+      // is a receipt for a change that is still real, which is why it goes rather than
+      // being greyed out: the record of it is in the audit log and on the object's own
+      // screen, not in a chat panel.
+      setActions([]);
+      setSteps([]);
       clearFilled();
       setError(null);
       setDisclosure(null);
@@ -244,6 +276,25 @@ export function useCopilotConversation(
             // construction (`_plan_dnc_add`: the number never enters the prompt).
             setProposal(offered);
           },
+          onAction: (performed) => {
+            // APPENDED, never replaced — see `actions`. Straight through and unedited for
+            // `onProposal`'s reason: every string is the server's own account of something
+            // it has already done, and an action names its object by id, so there is no
+            // placeholder to restore.
+            setActions((previous) => [...previous, performed]);
+          },
+          onStep: (step) => {
+            // UPSERT BY `id`. The terminal frame REPLACES its own `running` one rather than
+            // following it, so one call is one row that changes state — which is the whole
+            // point of showing them.
+            setSteps((previous) => {
+              const at = previous.findIndex((existing) => existing.id === step.id);
+              if (at === -1) return [...previous, step];
+              const next = [...previous];
+              next[at] = step;
+              return next;
+            });
+          },
           onDone: (done) => {
             setDisclosure(done.disclosure);
           },
@@ -299,6 +350,8 @@ export function useCopilotConversation(
     disclosure,
     batch,
     proposal,
+    actions,
+    steps,
     atCeiling,
     ask,
     undo,
