@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import prompts
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
@@ -84,7 +84,8 @@ class RollbackOut(BaseModel):
 async def prompt_history(
     tenant_id: UUID,
     agent_id: UUID,
-    _: AgentsWrite,
+    request: Request,
+    principal: AgentsWrite,
     # Bounded (D-302). `prompt_versions` is APPEND-ONLY by design — every publish, every
     # rollback and every T0 recompile writes a row and nothing ever deletes one — so this
     # is the one admin list whose length grows without anybody creating anything.
@@ -93,6 +94,13 @@ async def prompt_history(
 ) -> list[PromptVersionOut]:
     async with tenant_session(tenant_id) as scoped:
         rows = await prompts.list_prompt_versions(scoped, agent_id, limit=limit)
+        # D-482 L-1: a direct per-tenant admin read leaves its own ledger row. The
+        # history carries the client's own operator-authored notes and the shape of how
+        # often their script has been rewritten, which is the client's record and not
+        # ours — and it is read WITHOUT impersonation, so nothing else records it.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return [PromptVersionOut.model_validate(row) for row in rows]
 
 

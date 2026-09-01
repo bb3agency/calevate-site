@@ -744,11 +744,19 @@ def _summaries(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
     a summary nobody can read, and asserting on the dict we passed in would not have
     noticed. `fields` used to be a list, and `_redact_value` collapses every sequence to
     "[3 items]".
+
+    The D-482 L-1 direct-admin READ row is filtered out rather than expected, because it
+    is not a decision anybody took about a model: `record_admin_tenant_read` appends one
+    `admin.tenant_read` per (operator, tenant) per minute for every admin GET that enters
+    a client's scope, so it rides along with any admin read this file happens to make and
+    would turn each assertion below into a statement about how many GETs the test issued.
+    `window_s` is that row's own key and nothing else in this module emits it;
+    `tests/admin_read_audit_test.py` owns the assertions about it.
     """
     return [
         {key: getattr(record, key) for key in _SUMMARY_KEYS if hasattr(record, key)}
         for record in caplog.records
-        if record.message == "audit"
+        if record.message == "audit" and not hasattr(record, "window_s")
     ]
 
 

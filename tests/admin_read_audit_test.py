@@ -146,6 +146,7 @@ async def test_every_audited_surface_leaves_its_own_row() -> None:
         f"/v1/admin/tenants/{tenant_id}/spend",
         f"/v1/admin/tenants/{tenant_id}/feature-flags",
         f"/v1/admin/tenants/{tenant_id}/erasure",
+        f"/v1/admin/organizations/{tenant_id}/llm-defaults",
     )
     async with _client() as http:
         headers = _auth(token)
@@ -178,3 +179,58 @@ async def test_redis_outage_fails_towards_recording(monkeypatch: Any) -> None:
         response = await http.get(f"/v1/admin/tenants/{tenant_id}/margin", headers=_auth(token))
     assert response.status_code == 200, response.text
     assert len(await _read_rows(tenant_id)) == 1
+
+
+#: Admin-realm routes that take a tenant in the PATH and deliberately write no
+#: `admin.tenant_read` row, with the reason. The bar is that the route does not read one
+#: client's tenant-scoped rows — otherwise the entry is an exemption for exactly the case
+#: SEC-COMP §5 asks the ledger to hold.
+_NOT_A_PER_TENANT_READ: dict[str, str] = {}
+
+
+def test_every_direct_per_tenant_admin_read_records_one() -> None:
+    """The half the surface walk above cannot see, and the one that went stale.
+
+    `test_every_audited_surface_leaves_its_own_row` is a HAND-WRITTEN list checked in one
+    direction only: every path in it must leave a row. Nothing asked the other direction —
+    is every per-tenant admin read in the list? So a route added afterwards reads a
+    client's rows and leaves nothing, the count is unchanged, and the suite stays green.
+    That is the same defect shape `adversarial_pass_test::
+    test_every_id_route_in_the_client_space_is_swept` exists for, applied to the ledger
+    instead of to IDOR.
+
+    Derived from the live app, so the list can only fall behind the routes for as long as
+    it takes CI to run.
+    """
+    import inspect
+
+    from apps.api.core.rbac import iter_api_routes
+
+    missing: list[str] = []
+    seen = 0
+    for route in iter_api_routes(app):
+        if not route.path.startswith(("/v1/admin/", "/v1/ops/")):
+            continue
+        if "{tenant_id}" not in route.path and "{org_id}" not in route.path:
+            continue
+        methods = sorted(m for m in (route.methods or []) if m in {"GET"})
+        if not methods:
+            continue
+        seen += 1
+        name = f"{methods[0]} {route.path}"
+        if name in _NOT_A_PER_TENANT_READ:
+            continue
+        try:
+            source = inspect.getsource(route.endpoint)
+        except OSError:  # pragma: no cover — source is always on disk here
+            continue
+        if "record_admin_tenant_read" not in source:
+            missing.append(name)
+
+    assert seen, "found no per-tenant admin GET routes — this walk sees nothing"
+    assert not missing, (
+        "these admin-realm GETs read one client's tenant-scoped rows and leave no "
+        f"`admin.tenant_read` row (SEC-COMP §5, D-482 L-1): {missing}. Call "
+        "`record_admin_tenant_read` inside the route's transaction, or record in "
+        "_NOT_A_PER_TENANT_READ why the route reads nothing of the client's."
+    )

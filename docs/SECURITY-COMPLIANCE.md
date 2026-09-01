@@ -775,8 +775,9 @@ Identity & access
     `grant_id` so a session's two halves join exactly.
   - **DIRECT admin reads are in the same ledger since D-483 (D-482 L-1).** The console's
     per-tenant screens — directory record, invitations, intake, margin, spend, invoice,
-    credits, commercial terms, feature flags, erasure records — read a client's
-    tenant-scoped rows WITHOUT impersonation, and until D-483 left no row.
+    credits, commercial terms, feature flags, erasure records, prompt history, the
+    account's language-model default and the owner's WhatsApp-alert consent — read a
+    client's tenant-scoped rows WITHOUT impersonation, and until D-483 left no row.
     `admin.tenant_read` (`core/auth.py::record_admin_tenant_read`) now records them,
     coalesced per (admin, tenant) per minute under the same volume rule and the same
     fail-towards-recording dedupe as `admin.impersonation_read`; the route template
@@ -785,6 +786,14 @@ Identity & access
     `/v1/admin/client-health`, unfinished onboardings) are deliberately not per-tenant
     audited: a row per client per board view is volume without a targeting signal, and
     the boards return counters and money aggregates, not member or caller data.
+    THE LIST ABOVE IS NO LONGER THE ENFORCEMENT. It was a hand-kept enumeration in one
+    prose paragraph and one test tuple, checked in one direction only — every named
+    screen leaves a row — so the three routes added after D-483 (prompt history,
+    llm-defaults, the WhatsApp-alert read) read a client's rows and left nothing while
+    both stayed green. `tests/admin_read_audit_test.py::
+    test_every_direct_per_tenant_admin_read_records_one` now derives the set from the
+    live route table: an admin-realm GET whose path names a tenant must call
+    `record_admin_tenant_read` or be argued in `_NOT_A_PER_TENANT_READ`.
     Driven in `tests/admin_read_audit_test.py`.
   - `X-Impersonate-Org` is either ABSENT or a slug. A present-but-blank value is a
     request defect and is refused `422 impersonate_org_blank`, because the third state
