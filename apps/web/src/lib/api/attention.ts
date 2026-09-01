@@ -45,9 +45,21 @@ export type AttentionKind = AttentionItem["kind"];
  */
 export type AttentionQueue = Schemas["AttentionOut"];
 
+/**
+ * The queue's cache key, OWNED HERE — never respelled at a call site.
+ *
+ * Exported because the bell in `app/c/[slug]/layout.tsx` renders a COUNT of things the
+ * client is expected to go and fix, while the mutations that fix them live in other
+ * modules. Those modules invalidate this key so the badge drops when the work is done
+ * rather than up to a minute later, and they reach it through this function for the
+ * reason `kb.ts` records about `queryKeys.me`: two spellings of one key that happen to
+ * be equal today is exactly how an invalidation silently stops working.
+ */
+export const attentionKey = (org: string) => ["attention", org] as const;
+
 export function useAttention(session: Session): UseQueryResult<AttentionQueue> {
   return useQuery({
-    queryKey: ["attention", session.orgSlug],
+    queryKey: attentionKey(session.orgSlug),
     queryFn: () => apiRequest<AttentionQueue>(session, "/v1/attention"),
     // This is a work queue someone keeps open in a tab; a minute keeps it
     // honest without hammering the four count queries behind it.
