@@ -145,6 +145,18 @@ ASSIST_FEATURE_COPILOT: Final = "copilot"
 #: credential is recorded) and it is metered SEPARATELY.
 ASSIST_FEATURE_COPILOT_MEMORY: Final = "copilot_memory_distillation"
 
+#: `usage_events.meta.feature` for the KB ENGLISH GLOSS worker (`apps/workers/kb_gloss.py`)
+#: — the sweep that writes a short English rendering beside each approved Telugu-script
+#: knowledge chunk so a Tenglish question can retrieve it (`apps/api/kb/gloss.py`).
+#:
+#: A FIFTH name, and it is `copilot_memory_distillation`'s argument applied a second time:
+#: this is background spend that NO CLIENT ACTION TRIGGERS. An operator asking "what did we
+#: spend on the client's behalf versus what did they ask for" cannot answer it if a sweep's
+#: translations are filed under an interactive surface. It is also the only AI spend whose
+#: quantity is a function of how much knowledge a client UPLOADS rather than of how much
+#: they USE, which is a different curve and one an operator will want to see on its own.
+ASSIST_FEATURE_KB_GLOSS: Final = "kb_gloss"
+
 
 class MeterableAssist(Protocol):
     """The two things `meter_assist` needs from a completed assist, whatever the surface.
@@ -440,6 +452,7 @@ async def meter_assist(
 __all__ = [
     "ASSIST_FEATURE_COPILOT",
     "ASSIST_FEATURE_COPILOT_MEMORY",
+    "ASSIST_FEATURE_KB_GLOSS",
     "ASSIST_FEATURE_RESUMMARISE",
     "ASSIST_FEATURE_SCRIPT_DRAFT",
     "AssistMetering",

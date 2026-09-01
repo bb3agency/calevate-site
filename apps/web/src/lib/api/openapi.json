@@ -2827,6 +2827,28 @@
             "title": "Content",
             "type": "string"
           },
+          "gloss": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss"
+          },
+          "gloss_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss Model"
+          },
           "idx": {
             "title": "Idx",
             "type": "integer"

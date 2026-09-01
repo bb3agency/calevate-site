@@ -6358,6 +6358,10 @@ export interface components {
             chars: number;
             /** Content */
             content: string;
+            /** Gloss */
+            gloss?: string | null;
+            /** Gloss Model */
+            gloss_model?: string | null;
             /** Idx */
             idx: number;
         };
