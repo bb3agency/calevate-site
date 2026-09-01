@@ -36,6 +36,8 @@ import {
   type LatencyGroup,
   type LegSummary,
 } from "@/lib/api/engineLatency";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -138,6 +140,122 @@ export default function EngineLatencyPage() {
    */
   const access = useAdminAccess("ops:manage", "read the engine's latency report");
   const report = useEngineLatency(days, !access.refused);
+
+  /*
+   * THE LATENCY REPORT, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * Aggregate over every call the engine ran, grouped by REGION and not by client, so
+   * there is no cross-tenant question to answer: no group here belongs to a tenant and no
+   * row can be traced to one. The whole payload is milliseconds and turn counts.
+   *
+   * The window IS writable — it is the screen's only control, it is a choice from four
+   * fixed values, and "show me the last 30 days instead" is what an operator says out loud
+   * while reading this. `WINDOW_CHOICES` is the option list, so a fill that names anything
+   * else is refused server-side against the declared options rather than setting a window
+   * the endpoint would reject.
+   *
+   * The per-leg breach counts go, because they are the answer to the question
+   * `runbooks/alarm-index.md` sends people here with ("read this first" on
+   * `engine_llm_ttft_degraded`). Whether the unit was VERIFIED goes with them — an
+   * unverified figure that reaches a model as a bare number becomes a fact somebody
+   * repeats, which is hard rule 11's whole subject.
+   */
+  const data = report.data;
+  useCopilotSurface({
+    route: "/admin/ops/engine-latency",
+    title: "Engine latency",
+    realm: "admin",
+    fields: [
+      {
+        id: "latency-window-days",
+        label: "Window (days)",
+        type: "select",
+        value: String(days),
+        options: WINDOW_CHOICES.map((choice) => ({
+          value: String(choice),
+          label: `Last ${windowLabel(choice)}`,
+        })),
+      },
+    ],
+    facts: access.refused
+      ? [
+          {
+            key: "report",
+            label: "The latency report",
+            value: "withheld — this admin account may not read it",
+          },
+        ]
+      : data
+        ? [
+            { key: "window_days", label: "Window shown (days)", value: String(data.window_days) },
+            {
+              key: "complete",
+              label: "Did every measured turn fit the window",
+              value: data.complete ? "yes" : "no, the report is truncated",
+            },
+            {
+              key: "groups",
+              label: "Regions the engine ran calls in",
+              value:
+                data.groups.map((group) => regionLabel(group.region)).join(", ") ||
+                "no calls measured in this window",
+            },
+            {
+              key: "calls",
+              label: "Calls measured",
+              value: String(data.groups.reduce((total, group) => total + group.calls, 0)),
+            },
+            {
+              key: "turns",
+              label: "Turns measured",
+              value: String(data.groups.reduce((total, group) => total + group.turns, 0)),
+            },
+            {
+              key: "breaches",
+              label: "Legs over budget, by region",
+              value:
+                data.groups
+                  .flatMap((group) =>
+                    group.legs
+                      .filter((leg) => leg.budget_breached === true)
+                      .map(
+                        (leg) =>
+                          `${regionLabel(group.region)} ${leg.leg}: ${leg.turns_over_budget} of ${leg.turns} turns over ${leg.budget_ms}ms`,
+                      ),
+                  )
+                  .join("; ") || "none",
+            },
+            {
+              key: "unverified_units",
+              label: "Legs whose unit is NOT verified against the vendor's own docs",
+              value:
+                [
+                  ...new Set(
+                    data.groups.flatMap((group) =>
+                      group.legs.filter((leg) => !leg.unit_verified).map((leg) => leg.leg),
+                    ),
+                  ),
+                ]
+                  .sort()
+                  .join(", ") || "none — every leg's unit is verified",
+            },
+          ]
+        : [
+            {
+              key: "report",
+              label: "The latency report",
+              value: report.error ? "could not be read" : "still loading",
+            },
+          ],
+    apply: (items) => {
+      const window = items.find((item) => item.field_id === "latency-window-days");
+      if (window === undefined) return;
+      const chosen = Number(asText(window.value));
+      // Only one of the four the chips offer. A window the endpoint would refuse is worse
+      // than no change: the screen would sit on a red box the operator did not ask for.
+      if (WINDOW_CHOICES.includes(chosen)) setDays(chosen);
+    },
+  });
 
   return (
     <div className="space-y-4 pb-12">

@@ -27,6 +27,8 @@ import {
   useSetTenantStatus,
   type LifecycleStatus,
 } from "@/lib/api/commercials";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 import { useAdminAccess } from "@/app/admin/access";
 
@@ -59,6 +61,60 @@ export default function LifecyclePage({
   // before it will erase. Previewed here so an operator sees why the control is closed
   // to them, rather than discovering it as a 403 after typing a confirmation.
   const erase = useAdminAccess("ops:manage", "erase a client's data");
+
+  /*
+   * ACCOUNT STATE, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * One tenant, named by the route. Nothing personal is on this screen at all — a status
+   * word and two permission verdicts.
+   *
+   * NO FIELDS, AND THIS IS THE STRONGEST CASE FOR IT IN THE REALM. Every control here
+   * stops a business from dialling or erases its data, and each stands behind a typed
+   * confirmation (`erase_tenant_data:<id>`) whose entire purpose is that a human read the
+   * consequence first. The assistant explaining what suspending does is useful; the
+   * assistant being able to put a value anywhere near it is not, so it cannot.
+   *
+   * BOTH permissions are declared, because the interesting question on this screen is why
+   * a control is closed — the API checks `ops:manage` IN ADDITION to `admin:tenants`
+   * before it will erase, and an operator who holds only the first meets a dead button.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}/lifecycle",
+    title: "Account state",
+    realm: "admin",
+    fields: [],
+    facts: tenantQuery.data
+      ? [
+          { key: "tenant_id", label: "Tenant id", value: tenantId },
+          { key: "client", label: "Client", value: tenantQuery.data.name },
+          { key: "status", label: "Account status now", value: tenantQuery.data.status },
+          {
+            key: "terminal",
+            label: "Is this state terminal (a closed account cannot be reopened here)",
+            value: tenantQuery.data.status === "churned" ? "yes" : "no",
+          },
+          {
+            key: "may_move",
+            label: "May this operator suspend, reactivate or close",
+            value: write.allowed ? "yes" : "no",
+          },
+          {
+            key: "may_erase",
+            label: "May this operator erase the account's data (needs ops:manage too)",
+            value: erase.allowed ? "yes" : "no",
+          },
+        ]
+      : [
+          {
+            key: "client",
+            label: "This client",
+            // "Active" printed over a 503 is exactly how somebody suspends the wrong
+            // client; the assistant gets the same refusal the screen does.
+            value: tenantQuery.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
 
   if (tenantQuery.isLoading) return <Skeleton rows={5} />;
   // §52: a failed read is a refusal, never a screen that reports a state it could not

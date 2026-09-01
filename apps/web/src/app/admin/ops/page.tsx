@@ -51,6 +51,8 @@ import {
   type TmRegistration,
   type TmStatus,
 } from "@/lib/api/admin";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { hasKey, lookup } from "@/lib/lookup";
 import { TermGloss, loadShedModeCopy, tmStatusCopy } from "@/app/admin/ops/opsLanguage";
 
@@ -312,6 +314,105 @@ export default function OpsPage() {
   // permission, which is what its own nav entry has always declared.
   const access = opsAccess(mayManage, state);
 
+  const platform = state.data;
+  /*
+   * The SAME three readers the panels below are given, computed once and handed to both.
+   * Reaching into `state.data.kb_drift` here instead would be a second opinion about
+   * whether the platform row is readable — and it was one: a payload missing `kb_drift`
+   * (which `kbDriftState` treats as UNREADABLE, not as an all-clear) crashed the whole
+   * screen from this declaration while the panel three lines below rendered it correctly.
+   */
+  const deadLetters = deadLetterState(state);
+  const engineDrift = engineDriftState(state);
+  const kbDrift = kbDriftState(state);
+  /*
+   * THE OPERATIONS SURFACE, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * NOT CROSS-TENANT AT ALL — this is the one admin screen whose whole subject is the
+   * PLATFORM, so there is no per-client detail to weigh. Everything here is a switch
+   * position, a queue depth or a count of agents, and every one of those applies to every
+   * client at the same moment.
+   *
+   * NO FIELDS, and that is the decision worth recording. Each of the three switches below
+   * is a typed confirmation plus a written reason, deliberately: the halt stops every
+   * client's outbound dialling, and the TM registration is a legal fact about this company.
+   * A model that could put a value in those forms would be one keystroke from moving them,
+   * and the person's typed confirmation is the whole control. So the assistant reads this
+   * screen and explains it; the levers stay in human hands.
+   *
+   * `halt_reason` IS DELIBERATELY WITHHELD even though it is on screen. It is operator free
+   * text, and free text about an incident is where a phone number ends up — which would
+   * hit `assert_redacted` and refuse the whole question, on the screen an operator opens
+   * when calls have stopped. Whether a reason was recorded is the fact worth having; the
+   * words are on the screen they are already looking at.
+   */
+  useCopilotSurface({
+    route: "/admin/ops",
+    title: "Operations",
+    realm: "admin",
+    fields: [],
+    facts: platform
+      ? [
+          {
+            key: "outbound_halted",
+            label: "Big red switch — outbound dialling halted platform-wide",
+            value: platform.outbound_halted ? "yes, halted" : "no, running",
+          },
+          {
+            key: "halt_reason_recorded",
+            label: "Is a halt reason on file (the text itself is not sent)",
+            value: platform.halt_reason ? "yes" : "no",
+          },
+          { key: "load_shed_mode", label: "Load-shed mode", value: platform.load_shed_mode },
+          {
+            key: "tm_registration",
+            label: "Calevate's telemarketer registration",
+            value: `${platform.tm_registration.status}${platform.tm_registration.is_live ? " (live)" : " (not live)"}`,
+          },
+          {
+            key: "outbox_dead_letters",
+            label: "Outbox dead-letter queue",
+            value:
+              deadLetters.status === "read"
+                ? `${deadLetters.queue.depth} dead-lettered, ${deadLetters.queue.deferred} deferred`
+                : "could not be read",
+          },
+          {
+            key: "engine_drift",
+            label: "Live agents by engine-config drift",
+            value:
+              engineDrift.status === "read"
+                ? `${engineDrift.drift.in_sync} in sync, ${engineDrift.drift.out_of_sync} out of sync, ${engineDrift.drift.undetermined} undetermined, ${engineDrift.drift.never_checked} never checked, of ${engineDrift.drift.live_agents} live`
+                : "could not be read",
+          },
+          {
+            key: "kb_drift",
+            label: "Live agents by knowledge-base drift",
+            value:
+              kbDrift.status !== "read"
+                ? "could not be read"
+                : kbDrift.drift.engine_supports_knowledge_base
+                  ? `${kbDrift.drift.in_sync} in sync, ${kbDrift.drift.out_of_sync} out of sync, ${kbDrift.drift.undetermined} undetermined, ${kbDrift.drift.never_checked} never checked, of ${kbDrift.drift.live_agents} live`
+                  : "the engine exposes no knowledge-base API, so nothing is checked",
+          },
+          {
+            key: "may_manage",
+            label: "May this operator move these switches",
+            value: mayManage.allowed ? "yes" : "no",
+          },
+        ]
+      : [
+          {
+            key: "platform",
+            label: "The platform state row",
+            // The `boolean | null` the whole screen is built around: "we could not read it"
+            // is never rendered as "outbound is running", here least of all.
+            value: state.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
+
   return (
     <div className="max-w-2xl space-y-5">
       <div>
@@ -342,7 +443,7 @@ export default function OpsPage() {
           verification because an unrelated row was unreadable would remove the one control
           an operator most wants when the platform is behaving strangely — and both still
           disable themselves, with the reason, for a session that lacks `ops:manage`. */}
-      <OutboxReplayPanel access={mayRecover} queue={deadLetterState(state)} />
+      <OutboxReplayPanel access={mayRecover} queue={deadLetters} />
       {/* READ-ONLY, and the only panel on this screen with no lever — deliberately. The
           sweep behind it re-publishes nothing (D-121/D-123: overwriting an operator's
           emergency console edit is a decision with a blast radius), so the console must
@@ -350,14 +451,14 @@ export default function OpsPage() {
           an operator does with a drift starts on the AGENT's own screen, where the
           per-agent sentence lives. Not gated on `access` for the reason the two panels
           above are not: it reads no platform-row state. */}
-      <EngineDriftPanel drift={engineDriftState(state)} />
+      <EngineDriftPanel drift={engineDrift} />
       {/* The same read, on the other object. `EngineDriftPanel` above answers "is the
           agent CONFIGURED as we published"; this answers "is it ANSWERING from text a
           human approved" — an agent can be perfectly in sync on the first and be reading
           out a knowledge base somebody pasted into the vendor's console. Also read-only,
           and here the absence of a lever is stronger: the repair a KB drift invites is a
           DELETE at the vendor of a document our tables cannot describe. */}
-      <KnowledgeDriftPanel drift={kbDriftState(state)} />
+      <KnowledgeDriftPanel drift={kbDrift} />
       <AuditChainPanel access={mayRecover} />
 
       {/* THE CONFIG AND CREDENTIAL PANELS USED TO SIT HERE AND NOW HAVE THEIR OWN SCREEN

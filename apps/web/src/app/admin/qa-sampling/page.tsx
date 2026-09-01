@@ -17,6 +17,8 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useQaSamples, VERDICTS, type QaSample } from "@/lib/api/qaSamples";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * The QA sampling queue — which calls we spot-checked this week, and why those ones.
@@ -51,6 +53,63 @@ export default function QaSamplingPage() {
   const queue = useQaSamples(pending);
   const rows = queue.data ?? [];
   const defects = rows.filter((row) => row.verdict === "defect");
+
+  /*
+   * THE SAMPLING QUEUE, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * The draw spans every client, so the rows are cross-tenant and the counts are what
+   * leave — not `tenant_name`, not `agent_name`, and not `call_id`. That is stricter than
+   * the payload needs (the list carries no transcript at all) and it is the right side of
+   * the line to be on: an operator asking "how many defects this week" is asking about the
+   * queue, and an operator asking about ONE call opens it, where the surface is scoped to
+   * that call and reading it is audited.
+   *
+   * The filter IS declared writable: it is a two-value toggle over a list the person is
+   * already looking at, it costs one cached read, and "show me everything, not just the
+   * unreviewed" is the most obvious thing anybody would ask this screen to do.
+   */
+  useCopilotSurface({
+    route: "/admin/qa-sampling",
+    title: "Call quality sampling",
+    realm: "admin",
+    fields: [
+      {
+        id: "qa-filter-pending",
+        label: "Which calls are listed",
+        type: "select",
+        value: pending ? "pending" : "all",
+        options: [
+          { value: "pending", label: "Not yet reviewed" },
+          { value: "all", label: "Every sampled call" },
+        ],
+      },
+    ],
+    facts: queue.data
+      ? [
+          {
+            key: "listed",
+            label: pending ? "Calls waiting for review" : "Calls sampled",
+            value: String(rows.length),
+          },
+          { key: "defects", label: "Listed calls marked as a defect", value: String(defects.length) },
+          {
+            key: "weeks",
+            label: "Draw weeks represented in the list",
+            value: String(new Set(rows.map((row) => row.week_start)).size),
+          },
+        ]
+      : [
+          {
+            key: "queue",
+            label: "The sampling queue",
+            value: queue.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: (items) => {
+      const filter = items.find((item) => item.field_id === "qa-filter-pending");
+      if (filter !== undefined) setPending(asText(filter.value) !== "all");
+    },
+  });
 
   return (
     <div className="space-y-4 pb-12">

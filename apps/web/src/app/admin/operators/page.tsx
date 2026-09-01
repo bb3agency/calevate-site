@@ -58,6 +58,8 @@ import {
   type AdminRole,
   type Operator,
 } from "@/lib/api/adminOperators";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -131,6 +133,42 @@ export default function OperatorsPage() {
     "admin:operators",
     "manage who may use this console",
   );
+
+  /*
+   * THE OUTER DECLARATION — the one that exists so the launcher is on screen at all.
+   *
+   * This screen has three renders (identity in flight, refused, the list) and two of them
+   * return before `OperatorsScreen` is ever mounted. A declaration only inside the list
+   * would put the assistant on a third of this screen's lifetime, including the refused
+   * render, which is exactly where somebody wants to ask "why can I not see this".
+   *
+   * `registry.ts` makes the INNERMOST registration the live one, so when the list does
+   * mount its own richer declaration wins and this one is not consulted. Two holders on
+   * the stack is the case that module's "a stack, not a slot" section was written for.
+   */
+  useCopilotSurface({
+    route: "/admin/operators",
+    title: "Admin accounts",
+    realm: "admin",
+    fields: [],
+    facts: [
+      {
+        key: "may_manage",
+        label: "May this operator manage who may use the console",
+        value: identityAnswerPending(me) ? "still checking" : access.refused ? "no" : "yes",
+      },
+      {
+        key: "screen",
+        label: "What is on screen",
+        value: identityAnswerPending(me)
+          ? "the permission check has not answered yet"
+          : access.refused
+            ? "a withheld panel — this account may not see who may sign in"
+            : "the list of admin accounts",
+      },
+    ],
+    apply: noFill,
+  });
 
   // The gate `admin/ops/page.tsx` puts in front of its permission-gated panels, for the
   // same two reasons: mounting the list for an unknown session fires a `GET` that can
@@ -207,6 +245,88 @@ function OperatorsScreen({
 }) {
   const list = useOperators();
 
+  /**
+   * `.data`, never `.data ?? []` — the difference between "the server said there is one
+   * admin" and "the server did not answer" is this screen's whole honesty (§52).
+   *
+   * AND ERROR FIRST, which is the stricter of the two precedents this repo has and the
+   * right one here. The client realm's team screen keeps its last good list under a
+   * failure notice; `configState` on `/admin/ops` refuses to, on the grounds that "a
+   * stale config table rendered as current is the same lie as an invented one". This list
+   * is the answer to "who can reach every client's data", and a failed REFETCH leaves the
+   * previous rows in place — so a colleague revoked thirty seconds ago by another super
+   * admin would still be shown as having access, under a red box that reads as a network
+   * blip. Withholding costs a reload; the other way costs a wrong belief about access.
+   *
+   * Read HERE, above the copilot declaration and the forbidden branch, rather than beside
+   * the table: one answer to "did the list arrive", so the assistant and the screen
+   * cannot end up disagreeing about whether there is one.
+   */
+  const operators = list.error ? undefined : list.data?.operators;
+
+  /*
+   * THE ALLOWLIST, DECLARED TO THE SCREEN ASSISTANT — AS A TALLY, NEVER AS A ROSTER.
+   *
+   * Every row here is a NAMED HUMAN with an email address, so this is the most directly
+   * personal screen in the admin realm and the only honest declaration is counts. Marking
+   * the rows `personal: "name"` / `"email"` would technically satisfy `assert_redacted` —
+   * and would send «NAME_1» through «NAME_9» to a US provider along with each one's tier
+   * and activation state, which is a map of this company's privileged access with the
+   * labels peeled off. It is not information the assistant needs to be useful about "how
+   * do I promote somebody", and it is not ours to volunteer.
+   *
+   * The viewer's OWN id is not sent either. It is a uuid rather than a name, so hard rule
+   * 6 would permit it; it is left out because it identifies exactly one person and buys
+   * nothing — the screen already knows which row is theirs.
+   *
+   * Declared BEFORE the forbidden branch below, because a hook cannot sit behind a return
+   * and because the 403 render wants a launcher as much as the list does.
+   */
+  useCopilotSurface({
+    route: "/admin/operators",
+    title: "Admin accounts",
+    realm: "admin",
+    fields: [],
+    facts: operators
+      ? [
+          { key: "accounts", label: "Accounts that may sign in", value: String(operators.length) },
+          {
+            key: "by_role",
+            label: "How many in each tier",
+            value:
+              ADMIN_ROLES.map(
+                (role) =>
+                  `${ROLE_COPY[role].label}: ${operators.filter((operator) => operator.role === role).length}`,
+              ).join(", ") || "none",
+          },
+          {
+            key: "not_activated",
+            label: "Invited but not yet activated",
+            value: String(operators.filter((operator) => !operator.activated).length),
+          },
+          {
+            key: "controls",
+            label: "Are the add/promote/revoke controls open to this operator",
+            value: restriction === null ? "yes" : "no",
+          },
+          {
+            key: "identities_withheld",
+            label: "Who those accounts are",
+            value: "not sent to the assistant — see the comment above this declaration",
+          },
+        ]
+      : [
+          {
+            key: "roster",
+            label: "The admin allowlist",
+            // A stale roster under a red box is how a colleague revoked thirty seconds ago
+            // still reads as having access; the assistant inherits that refusal.
+            value: list.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
+
   if (isForbidden(list.error)) {
     return (
       <div className="max-w-3xl space-y-5">
@@ -221,21 +341,6 @@ function OperatorsScreen({
       </div>
     );
   }
-
-  /**
-   * `.data`, never `.data ?? []` — the difference between "the server said there is one
-   * admin" and "the server did not answer" is this screen's whole honesty (§52).
-   *
-   * AND ERROR FIRST, which is the stricter of the two precedents this repo has and the
-   * right one here. The client realm's team screen keeps its last good list under a
-   * failure notice; `configState` on `/admin/ops` refuses to, on the grounds that "a
-   * stale config table rendered as current is the same lie as an invented one". This list
-   * is the answer to "who can reach every client's data", and a failed REFETCH leaves the
-   * previous rows in place — so a colleague revoked thirty seconds ago by another super
-   * admin would still be shown as having access, under a red box that reads as a network
-   * blip. Withholding costs a reload; the other way costs a wrong belief about access.
-   */
-  const operators = list.error ? undefined : list.data?.operators;
 
   return (
     <div className="max-w-3xl space-y-5 pb-12">

@@ -41,6 +41,8 @@ import {
   type FirstCampaignHold,
   type FirstCampaignState,
 } from "@/lib/api/firstCampaign";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { viewAsHref } from "@/lib/api/session";
 
 import { useAdminAccess } from "@/app/admin/access";
@@ -107,6 +109,60 @@ export default function FirstCampaignReviewPage({
   const decide = useFirstCampaignDecision(tenantId);
   const hold = useTenantFirstCampaignHold(slug);
   const write = useAdminAccess("admin:tenants", "record a review decision");
+
+  /*
+   * THE R-11 REVIEW, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * One tenant, named by the route. `firstCampaignState` is the ONE reading of the hold on
+   * this screen and the declaration uses it rather than re-deriving the same verdict from
+   * `held`/`rule`/`status` — two answers to "is this account released" is the drift this
+   * repo treats as a defect even when both agree.
+   *
+   * `decision_note` IS NOT DECLARED, in either direction. Reading it out would forward an
+   * operator's free prose about a named client — the same text `/admin/holds` drops
+   * SERVER-side rather than render — and writing it would have the assistant compose the
+   * justification for a compliance decision that an auditor will later read as a human's.
+   * `decided_at` and the verdict are the facts; the words stay on the screen.
+   */
+  const state = hold.data ? firstCampaignState(hold.data) : null;
+  useCopilotSurface({
+    route: "/admin/tenants/{id}/first-campaign-review",
+    title: "First campaign review",
+    realm: "admin",
+    fields: [],
+    facts:
+      hold.data && state
+        ? [
+            { key: "tenant_id", label: "Tenant id", value: tenantId },
+            { key: "client", label: "Client", value: tenant?.name ?? "not read yet" },
+            { key: "state", label: "Where this account stands", value: state },
+            { key: "held", label: "Is outbound campaigning held", value: hold.data.held ? "yes" : "no" },
+            { key: "rule", label: "Which gate is holding it", value: hold.data.rule ?? "none" },
+            { key: "status", label: "Recorded decision", value: hold.data.status ?? "none yet" },
+            { key: "decided_at", label: "When it was decided", value: hold.data.decided_at ?? "not decided" },
+            {
+              key: "note_recorded",
+              label: "Is a decision note on file (the text itself is not sent)",
+              value: hold.data.decision_note ? "yes" : "no",
+            },
+            {
+              key: "may_decide",
+              label: "May this operator record a decision",
+              value: write.allowed ? "yes" : "no",
+            },
+          ]
+        : [
+            { key: "client", label: "Client", value: tenant?.name ?? "not read yet" },
+            {
+              key: "hold",
+              label: "The current decision",
+              // Deciding while the current state is unreadable can reverse a colleague's
+              // refusal; the assistant is told the same thing the form is.
+              value: hold.error ? "could not be read" : "still loading",
+            },
+          ],
+    apply: noFill,
+  });
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   if (tenantQuery.error)

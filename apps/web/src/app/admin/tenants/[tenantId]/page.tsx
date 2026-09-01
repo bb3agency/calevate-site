@@ -64,6 +64,8 @@ import {
   type TmLinkStatus,
 } from "@/lib/api/admin";
 import { useCaps } from "@/lib/api/caps";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 import { viewAsHref } from "@/lib/api/session";
 import { useRecordTenantAlertOptIn, useTenantAlertOptIn } from "@/lib/api/whatsappAlerts";
@@ -128,6 +130,89 @@ export default function TenantDetailPage({
   const preview = useKbPreview(slug, selected);
   const decide = useKbDecision(tenantId);
   const kbWrite = useAdminAccess("admin:tenants", "decide on this client's knowledge");
+
+  /*
+   * ONE CLIENT, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * THE CROSS-TENANT QUESTION IS ANSWERED BY THE ROUTE HERE, and this is the one admin
+   * shape where per-client detail is the right answer rather than the leak: the URL names
+   * a single tenant, every figure below was read under that tenant's own RLS session, and
+   * an operator asking "why can this client not dial" is asking about the client whose
+   * name is in the heading. The boards that list many tenants (`/admin`, `/admin/health`,
+   * `/admin/holds`, `/admin/spend`) send counts precisely so that the detail lives here,
+   * scoped, once.
+   *
+   * The KB queue is declared as COUNTS and not as titles. A source name is client-authored
+   * text — the rename-your-price-list kind — and the module that guards this seam exists
+   * partly because attacker-authored titles carry invisible characters
+   * (`copilot/sanitize.py`); the document PREVIEW, which is the client's own content, is
+   * further still from anything worth volunteering.
+   *
+   * The reject-reason box is not declared. It is free text an operator writes onto a
+   * client's permanent `rejection_reason`, and a machine-drafted rejection is not a thing
+   * this console should offer at the point the operator is deciding.
+   *
+   * Declared before the three early returns, because a hook cannot sit behind one — and
+   * the loading and not-found renders want the launcher too.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}",
+    title: "Client",
+    realm: "admin",
+    fields: [],
+    facts: tenant
+      ? [
+          { key: "tenant_id", label: "Tenant id", value: tenantId },
+          { key: "client", label: "Client", value: tenant.name },
+          { key: "slug", label: "Slug", value: tenant.slug },
+          { key: "status", label: "Account status", value: tenant.status },
+          {
+            key: "vertical_template",
+            label: "Vertical template",
+            value: tenant.vertical_template ?? "none",
+          },
+          { key: "live_agents", label: "Live agents", value: String(tenant.live_agents) },
+          { key: "calls_7d", label: "Calls in the last 7 days", value: String(tenant.calls_7d) },
+          { key: "leads", label: "Leads", value: String(tenant.leads) },
+          { key: "last_call_at", label: "Last call", value: tenant.last_call_at ?? "never" },
+          {
+            key: "capped",
+            label: "At the spend ceiling (outbound refused pre-dispatch)",
+            value: tenant.capped ? "yes" : "no",
+          },
+          {
+            key: "holds",
+            label: "Gates holding this account",
+            value:
+              tenant.holds.map((rule) => holdRule(rule)?.label ?? rule).join(", ") || "none",
+          },
+          {
+            key: "kb_awaiting_approval",
+            label: "Knowledge documents awaiting approval (titles are not sent)",
+            value: queue.data ? String(queue.data.length) : "could not be read",
+          },
+          {
+            key: "kb_awaiting_publish",
+            label: "Approved knowledge documents not yet live",
+            value: publishQueue.data ? String(awaitingPublish.length) : "could not be read",
+          },
+          {
+            key: "may_decide_kb",
+            label: "May this operator approve or reject knowledge",
+            value: kbWrite.allowed ? "yes" : "no",
+          },
+        ]
+      : [
+          {
+            key: "client",
+            label: "This client",
+            // A 403, a 500 or a dropped connection is not "no such client", and the
+            // assistant must not be the surface that says it is.
+            value: tenantQuery.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   // A 403, a 500 or a dropped connection is not "no such client" — saying so sends

@@ -45,6 +45,8 @@ import {
   type GlobalDncEntry,
   type GlobalDncSource,
 } from "@/lib/api/opsDnc";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * The PLATFORM-WIDE do-not-call screen — `/v1/ops/dnc/global` given the screen it never had.
@@ -140,6 +142,76 @@ export default function GlobalDncPage() {
   /* At the endpoint's ceiling the row count stops being a total (it clamps and has no
      offset), so the header says which of the two it is showing. */
   const truncated = rows !== undefined && rows.length >= DNC_LIST_LIMIT;
+
+  /*
+   * THE PLATFORM-WIDE DNC LIST, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * EVERY ROW ON THIS SCREEN IS A PHONE NUMBER, so this declaration carries none of them
+   * and declares no field either — which is a stronger statement than marking them
+   * `personal: "phone"` would be, and it is deliberate.
+   *
+   * Redaction would have WORKED: `redactForWire` would swap each value for «PHONE_n» and
+   * `assert_redacted` would confirm it. The reason not to is that the two controls it
+   * would cover are the paste box and the suppression reason, and neither should be
+   * reachable from a sentence. The paste box is a bulk WRITE against every client's dialler
+   * at once; a fill into it is the assistant nominating who this platform will never call
+   * again, behind a typed confirmation whose whole purpose is that a human read the
+   * numbers. The reason box is free text an operator writes about a complainant, which is
+   * where a name lands — and a name in the payload refuses the question outright
+   * (`copilot/sanitize.py`), on a screen somebody has open because a regulator is on the
+   * phone.
+   *
+   * The counts are the useful half and identify nobody: how many numbers this platform
+   * refuses to dial, which provenances they carry, and whether the list is complete.
+   */
+  useCopilotSurface({
+    route: "/admin/ops/dnc",
+    title: "Do-not-call, platform-wide",
+    realm: "admin",
+    fields: [],
+    facts: rows
+      ? [
+          {
+            key: "entries",
+            label: truncated
+              ? `Entries listed (clamped at the endpoint's ceiling of ${DNC_LIST_LIMIT}, so this is not the total)`
+              : "Numbers suppressed for every client",
+            value: String(rows.length),
+          },
+          {
+            key: "sources",
+            label: "Where the listed entries came from",
+            value:
+              [...new Set(rows.map((entry) => entry.source ?? "unrecorded"))].sort().join(", ") ||
+              "none",
+          },
+          {
+            key: "removable",
+            label: "Listed entries an operator may release",
+            value: String(rows.filter((entry) => entry.removable).length),
+          },
+          {
+            key: "may_write",
+            label: "May this operator suppress or release a number",
+            value: write.allowed ? "yes" : "no",
+          },
+          {
+            key: "numbers_withheld",
+            label: "The numbers themselves",
+            value: "not sent to the assistant — see the comment above this declaration",
+          },
+        ]
+      : [
+          {
+            key: "list",
+            label: "The platform-wide list",
+            // "Nothing is suppressed platform-wide" is the most dangerous sentence this
+            // page can say, and a failed read is not evidence for it.
+            value: entries.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
 
   return (
     <div className="max-w-2xl space-y-5">

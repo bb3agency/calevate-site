@@ -50,6 +50,8 @@ import type {
   EngineVerification,
 } from "@/lib/api/publishing";
 import { useSetAgentVoice, useTenantVoiceCatalogue, type Voice } from "@/lib/api/voices";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 import { useAdminAccess } from "@/app/admin/access";
 
@@ -104,6 +106,99 @@ export default function AgentPromptPage({
 
   const [body, setBody] = useState("");
   const [notes, setNotes] = useState("");
+
+  /*
+   * THE SCRIPT EDITOR, DECLARED TO THE SCREEN ASSISTANT — and the ONE admin screen with a
+   * writable draft, which is why the fields exist here and nowhere else in this realm.
+   *
+   * Drafting a system prompt is what an assistant is genuinely good at, the client realm
+   * already offers it on the same object (`c/{slug}/agents/{id}/script`), and one product
+   * offering it on one side of the console and not the other is two answers to one problem.
+   * So the body and the note are declared, and `apply` writes them through the same
+   * setters the textarea uses — never the DOM, so the draft React re-renders from is the
+   * draft that gets saved.
+   *
+   * WHAT A FILL CANNOT DO IS THE REASON THIS IS SAFE TO OFFER. Saving STAGES a version; the
+   * live pointer only moves when a person presses Apply, so nothing written here reaches a
+   * phone line without a human step. And the compliance sentences are not in this box at
+   * all — `compose_engine_prompt` appends them server-side on every publish and the drift
+   * sweep re-checks them against the engine (hard rule 5), so no text drafted here can
+   * withdraw the AI disclosure or the recording notice. That is stated in the field's
+   * `help` rather than only here, because the model is the other reader of this decision.
+   *
+   * The VERSION HISTORY is declared as counts and version numbers, not bodies: the older
+   * scripts are already on screen, and shipping every past prompt would put the whole
+   * history in the context window on a screen whose whole point is one edit at a time.
+   * `notes` on past versions are operator prose and stay behind for the reason every other
+   * free-text box in this realm does.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}/agents/{agentId}/prompt",
+    title: "Agent prompt",
+    realm: "admin",
+    fields: [
+      {
+        id: "prompt-body",
+        label: "New version — the agent's system prompt",
+        type: "textarea",
+        value: body,
+        writable: write.allowed,
+        help:
+          "The full instruction the agent thinks with. Saving STAGES it; callers keep " +
+          "hearing the live version until a person presses Apply. Do not write the AI " +
+          "disclosure or the recording notice here — the server appends both to every " +
+          "published prompt and verifies them against the engine, and nothing written " +
+          "in this box can withdraw them. Minimum 20 characters.",
+      },
+      {
+        id: "prompt-notes",
+        label: "Notes — what changed and why",
+        type: "text",
+        value: notes,
+        writable: write.allowed,
+        help: "Optional, at most 200 characters. Read by whoever rolls this version back.",
+      },
+    ],
+    facts: [
+      { key: "tenant_id", label: "Tenant id", value: tenantId },
+      { key: "client", label: "Client", value: tenant.data?.name ?? "not read yet" },
+      { key: "agent_id", label: "Agent id", value: agentId },
+      { key: "agent", label: "Agent", value: agentName ?? "not read yet" },
+      {
+        key: "versions",
+        label: "Versions written so far",
+        value: history.data ? String(history.data.length) : "could not be read",
+      },
+      {
+        key: "live_version",
+        label: "Version callers hear now",
+        value: history.data
+          ? (history.data.find((entry) => entry.active)?.version.toString() ?? "none is live")
+          : "could not be read",
+      },
+      {
+        key: "has_pending",
+        label: "Is there a staged change waiting to be applied",
+        value: pending.data ? (pending.data.has_pending ? "yes" : "no") : "could not be read",
+      },
+      {
+        key: "agent_status",
+        label: "Agent status",
+        value: pending.data?.agent_status ?? "could not be read",
+      },
+      {
+        key: "may_write",
+        label: "May this operator change this agent's script",
+        value: write.allowed ? "yes" : "no",
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id === "prompt-body") setBody(asText(item.value));
+        if (item.field_id === "prompt-notes") setNotes(asText(item.value));
+      }
+    },
+  });
 
   return (
     <div className="space-y-5">

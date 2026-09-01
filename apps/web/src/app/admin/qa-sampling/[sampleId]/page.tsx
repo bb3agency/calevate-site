@@ -21,6 +21,8 @@ import {
   VERDICTS,
   type QaVerdict,
 } from "@/lib/api/qaSamples";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill, type CopilotFact } from "@/lib/copilot/types";
 
 /**
  * One sampled call, reviewed — the screen where our 5% spot-check actually happens.
@@ -52,6 +54,94 @@ export default function QaSampleReviewPage({
   const { sampleId } = use(params);
   const detail = useQaSample(sampleId);
   const review = useReviewQaSample(sampleId);
+
+  /*
+   * ONE SAMPLED CALL, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * THE CONVERSATION DOES NOT LEAVE THIS SCREEN, and that is the whole shape of this
+   * declaration. The transcript rendered below is redacted, but redacted is not the same
+   * as safe to forward: the header above says raw text has exactly one audited route in
+   * this product, and a copilot declaration would be a second one that nobody signed off.
+   * The `summary` is left out for a sharper reason — it is model-written prose ABOUT the
+   * raw transcript (`workers/extraction.py` runs the first pass on Sarvam, over unredacted
+   * text), so it can name a caller that no redaction pass afterwards would catch.
+   *
+   * What DOES go is the draw's own evidence and the call's metadata: rank, target,
+   * population, week, duration, direction, tags. That is exactly what a reviewer asks
+   * about — "why was this one picked", "has it been reviewed", "was the disclosure
+   * played" — and none of it is a person.
+   *
+   * THE VERDICT IS READ-ONLY. It is written once, cannot be overwritten, and is recorded
+   * against the reviewer's own name; a machine-filled judgement about a call the model has
+   * not been shown would be the worst kind of assistance this console could offer.
+   */
+  const sample = detail.data?.sample;
+  const call = detail.data?.call;
+  useCopilotSurface({
+    route: "/admin/qa-sampling/{sampleId}",
+    title: "Review a sampled call",
+    realm: "admin",
+    fields:
+      sample === undefined
+        ? []
+        : [
+            {
+              id: "qa-verdict",
+              label: "Verdict",
+              type: "select",
+              value: review.data?.verdict ?? sample.verdict ?? "",
+              options: (Object.keys(VERDICTS) as QaVerdict[]).map((verdict) => ({
+                value: verdict,
+                label: VERDICTS[verdict].label,
+              })),
+              writable: false,
+              help: "Written once, against the reviewer's own name, after they have read the call. Empty means not yet reviewed.",
+            },
+          ],
+    facts:
+      sample !== undefined && call !== undefined
+        ? ([
+            { key: "client", label: "Client whose call this is", value: sample.tenant_name },
+            { key: "agent", label: "Agent that took the call", value: sample.agent_name },
+            { key: "week_start", label: "Draw week", value: sample.week_start },
+            {
+              key: "draw",
+              label: "Where this call came in the published draw",
+              value: `${sample.selection_rank} of ${sample.target}, drawn from ${sample.population} completed calls`,
+            },
+            { key: "direction", label: "Direction", value: call.direction },
+            {
+              key: "duration_s",
+              label: "Duration (seconds)",
+              value: call.duration_s === null ? "not recorded" : String(call.duration_s),
+            },
+            {
+              key: "disclosure_played",
+              label: "AI disclosure played at the start",
+              value:
+                call.disclosure_played === null
+                  ? "not recorded"
+                  : call.disclosure_played
+                    ? "yes"
+                    : "no",
+            },
+            { key: "outcome_tag", label: "Outcome tag", value: call.outcome_tag ?? "none" },
+            { key: "sentiment", label: "Sentiment", value: call.sentiment ?? "not scored" },
+            {
+              key: "turns",
+              label: "Turns in the transcript (the text itself is not sent)",
+              value: String(call.transcript?.length ?? 0),
+            },
+          ] satisfies CopilotFact[])
+        : [
+            {
+              key: "call",
+              label: "This sampled call",
+              value: detail.error ? "could not be read" : "still loading",
+            },
+          ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-4 pb-12">

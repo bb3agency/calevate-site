@@ -28,6 +28,8 @@ import {
   type FeatureFlag,
   type FeatureFlagIn,
 } from "@/lib/api/featureFlags";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 import { useAdminAccess } from "@/app/admin/access";
 
@@ -83,6 +85,59 @@ export default function FeatureFlagsPage({
   // remounted with it — taking the confirmation down at the moment the write landed.
   const set = useSetFeatureFlag(tenantId);
   const write = useAdminAccess("admin:tenants", "change a client's feature flags");
+
+  /*
+   * THE FLAG TABLE, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * One tenant, named by the route, so the same scoping argument the client-detail screen
+   * makes applies unchanged. Nothing here is personal: a flag is a machine name, a boolean
+   * and a provenance.
+   *
+   * THE RESOLVED ANSWER IS SENT WITH ITS PROVENANCE, never on its own. The screen's whole
+   * reason for existing (see the nav comment on `/admin/tenants/{id}`) is that a row
+   * showing only "on" reads as a switch nobody set, and an assistant told "on" would
+   * repeat the same half-fact back. So each flag goes as
+   * `<resolved> (platform default <x>, override <y>)`.
+   *
+   * NO FIELDS. Every write here is a switch plus a REASON that goes into the audit log
+   * under the operator's name, and the screen deliberately shows the projected state
+   * before the click; a fill would be the assistant flipping a client's behaviour with a
+   * justification it wrote for itself. The `reason` box is left out for the same reason
+   * the DNC one is — free text, and free text about a client is where a name lands.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}/feature-flags",
+    title: "Feature flags",
+    realm: "admin",
+    fields: [],
+    facts: [
+      { key: "tenant_id", label: "Tenant id", value: tenantId },
+      { key: "client", label: "Client", value: tenant?.name ?? "not read yet" },
+      {
+        key: "may_write",
+        label: "May this operator change a flag",
+        value: write.allowed ? "yes" : "no",
+      },
+      ...(flags.data
+        ? flags.data.items.map((item) => ({
+            key: `flag_${item.flag}`,
+            label: `Flag ${item.flag}${item.declared ? "" : " (not declared in code)"}`,
+            value: `${item.enabled ? "on" : "off"} — platform default ${
+              item.platform_default === null ? "unset" : item.platform_default ? "on" : "off"
+            }, this client's override ${
+              item.override === null ? "none" : item.override ? "on" : "off"
+            }`,
+          }))
+        : [
+            {
+              key: "flags",
+              label: "The flag table",
+              value: flags.error ? "could not be read" : "still loading",
+            },
+          ]),
+    ],
+    apply: noFill,
+  });
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   if (tenantQuery.error)

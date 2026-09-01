@@ -26,6 +26,8 @@ import {
   type ClientHealth,
   type HealthSignal,
 } from "@/lib/api/clientHealth";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * The client health overview: which account is about to churn or break, this week.
@@ -71,6 +73,55 @@ export default function ClientHealthPage() {
   const board = useClientHealth();
   const rows = board.data ?? [];
   const breaking = rows.filter((row) => row.severity === "stop");
+
+  /*
+   * THE WORK LIST, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * HOW MANY AND WHICH RULES, NEVER WHICH CLIENT. Every row here is a different tenant, so
+   * the same cross-tenant argument the directory makes applies with more force: these rows
+   * say an account is FAILING, and a leaked one is a claim about a named business in a
+   * conversation about somebody else. What an operator actually asks this screen is "what
+   * am I looking at and what do I do about it" — which the counts and the distinct rule
+   * names answer completely, and neither identifies a tenant.
+   *
+   * The rule names are machine identifiers from `signals[].rule` (the same strings
+   * `SIGNAL_COPY` is keyed on), not reviewer prose: this board deliberately fetches none
+   * of the latter, and the declaration does not go looking for it either.
+   */
+  useCopilotSurface({
+    route: "/admin/health",
+    title: "Client health",
+    realm: "admin",
+    fields: [],
+    facts: board.data
+      ? [
+          { key: "accounts", label: "Accounts with something wrong", value: String(rows.length) },
+          { key: "breaking", label: "Broken now (severity stop)", value: String(breaking.length) },
+          {
+            key: "warning",
+            label: "Will break (severity warn)",
+            value: String(rows.length - breaking.length),
+          },
+          {
+            key: "rules",
+            label: "Which rules fired, across all listed accounts",
+            value:
+              [...new Set(rows.flatMap((row) => row.signals.map((signal) => signal.rule)))]
+                .sort()
+                .join(", ") || "none",
+          },
+        ]
+      : [
+          {
+            key: "board",
+            label: "The health board",
+            // "Nobody is in trouble" is the good state and a failed read is not evidence
+            // for it — the fourth rule in this module's header, kept here too.
+            value: board.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-4 pb-12">
