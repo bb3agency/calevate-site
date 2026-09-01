@@ -1679,7 +1679,7 @@ KB_MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 #: characters, so 512 splits every block if the unit is characters. The vendor never
 #: states the unit for `chunk_size` (it does for `overlapping`), so 768 is right under
 #: one reading and worse under the other, and neither has been observed from here. The
-#: default stays until gate 43a reads back what the vendor actually stored. Move both
+#: default stays until gate 43g reads back what the vendor actually stored. Move both
 #: constants together or neither — a renderer laying out for one number while the wire
 #: asks for another is the silent-drift failure this file exists to avoid.
 KB_CHUNK_SIZE = 512

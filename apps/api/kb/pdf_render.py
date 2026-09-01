@@ -95,7 +95,7 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 #: no account (hard rule 12 — the premise is not verifiable from this container, so the
 #: wire keeps the vendor's own default rather than moving on an inference).
 #:
-#: OPERATIONS §2 gate 43a settles it in one upload: send a document whose block
+#: OPERATIONS §2 gate 43g settles it in one upload: send a document whose block
 #: boundaries are known, read back what the vendor stored, and see where it cut. Whoever
 #: runs that gate changes BOTH constants or neither.
 RECOMMENDED_CHUNK_SIZE = 768
