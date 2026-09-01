@@ -1340,3 +1340,61 @@ now traces to one of them.
 | FOLLOW-UP-13 | **F-16(b): tell the person typing into the assistant that it remembers.** `apps/web/src/components/copilot/CopilotPanel.tsx` was corrected for the write tools ("it asks you to confirm first"), but its empty-state copy still says nothing about the memory: that the question is stored per person for 180 days and read back to a model on an hourly job. That panel is the surface the data subject actually reads; a privacy notice they will not open does not discharge it. One paragraph. | The copilot UI lane owns `apps/web/src/components/copilot/`. **OURS, no external dependency.** |
 | FOLLOW-UP-11 | **Correct `apps/api/compliance/deletion.py:62`**, which quotes the withdrawn *"90-day minimum retention of call recordings on Indian infrastructure"* from `SECURITY-COMPLIANCE.md` §1. The duration is right and the location half has no citable source (§1, 22 Aug 2026). | `apps/api` is another lane's. One docstring line. |
 | ~~FOLLOW-UP-5~~ | ~~F-6: write the breach-notification runbook section.~~ — **DONE (D-179)**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py` and `scripts/breach_notice.py`. What remains is the Board's own reporting channel, which is a lookup and is recorded in that runbook's §7. | Was outside the audit session's ownership; closed in the next one. |
+
+---
+
+## 12. Held checklists — two features that are IN FLIGHT and MUST NOT be described as shipped
+
+**Read the first line of each before anything else: neither exists in this tree today, and
+I verified that rather than assuming it.** `grep -rn "gloss\|translate" apps/api/kb/*.py`
+returns one unrelated comment in `patterns.py`, and `engine/bolna.py:2373` still declares
+`knowledge_base=False` with the two walls behind it. **Announcing an unshipped data flow is
+exactly as wrong as omitting a shipped one** — a sub-processor register that lists a vendor
+receiving content it has never received is a false statement to a buyer's counsel, and the
+register's own §1 Status column exists so that "built" and "processing" are never conflated.
+So nothing below is in any client-facing document, and nothing below may be put in one
+until the code merges. These are the checklists to execute IN THE SAME CHANGE that lands
+each feature — not before, not after.
+
+Both features share one property that decides most of the rows: **each adds a data flow to
+a sub-processor outside India**, which means each is a **clause 5 event** — 30 days' notice
+by email before it starts processing, a right to object on data-protection grounds, and
+termination of the affected part without penalty if we cannot offer a workaround. That
+clause costs nothing today only because no client is live (`/legal/subprocessors` §4 says
+so in terms). The first feature to merge after client #1 signs pays it.
+
+### 12.1 English-gloss translation of knowledge at ingestion
+
+*Status: NOT MERGED. Nothing below is published.*
+
+| # | What the change must do to the documents | Why |
+|---|---|---|
+| T-1 | Name the translating vendor in `SUBPROCESSOR_ROWS` — a row if it is a new company, an amended `does`/`receives` cell if it is one already on the register — with what it receives (**a client's own knowledge content**, which invites their staff names, escalation numbers and prices) and where it processes. **If the vendor's location cannot be read from a primary source, the Location cell says NOT VERIFIED**, exactly as the WhatsApp BSP row does; do not name a country we would be guessing at. | The register is the authorised list under DPA clause 5, and `SUBPROCESSOR_NAMES` is derived from it, so a vendor that does not enter here reaches no test and no document. |
+| T-2 | If the translation runs on a leg already declared (`azure_openai` / `openai` / `google` / Sarvam), say WHICH — and check it against `agents/llm_models.dashboard_leg_reason` before writing it. A leg barred from the dashboard assist for an unread data-use position is barred here for the same reason: this content is a client's own writing. | F-16's fifth finding. The register claimed a provider served a leg the code fail-closes against, and the same mistake is one line away here. |
+| T-3 | State it in `/legal/privacy` §8 as its own definitions item — a NEW cross-border flow of client content, distinct from the call legs — and in `/legal/dpa` Annex A under *Nature of the processing* (add "translation"). | §8 is where a client is told what leaves and to whom; Annex A is the operative contract description of the processing. |
+| T-4 | Decide and state whether the gloss is STORED, and if so under which `retention_policies.data_category`. A second copy of a client's knowledge with no clock is finding **F-3** repeating itself — the defect D-179 closed by adding `kb` at 365 days, and the gloss is content of the same class. If it rides the existing `kb` category, say so; if it needs its own, it needs a migration, a seed row, a sweep arm and a row in `/legal/privacy` §9. | DPDP §8(7). A store nothing expires is the exact shape of F-2 and F-3. |
+| T-5 | Say whether the erasure reaches it. If the gloss is a derived copy of knowledge content, `execute_deletion_request`'s knowledge SEARCH must cover it or the certificate's `KB_OUTCOME` count becomes an undercount — and an undercount on a certificate is worse than no count. | D-179 made the count a client-facing number; a second copy the search does not see silently falsifies it. |
+| T-6 | AUP §? / Terms §5: the client warrants the rights to knowledge content they upload. A machine translation of it is a DERIVATIVE work. Whether the existing warranty covers producing one, and who owns the gloss, is **for counsel** — flag it, do not draft an IP position. | `/legal/terms` §8 is the IP split, and it was written for content the client supplies, not content we generate from it. |
+| T-7 | Bump the revision of every document touched in `catalogue.py` AND `versions.ts`, `material=True` if a new sub-processor or a new purpose is involved (it is, on both counts), and confirm `check_docs_drift.legal_catalogue_drift()` returns `[]`. | The two mirrors are compared on every read of every gate; CI fails on drift and nothing compares the TEXT. |
+| T-8 | Add a test to `apps/web/tests/legal.test.tsx` pinning the new flow and banning the pre-merge silence from returning, in the shape the F-16 tests use. | Every load-bearing sentence in this set is pinned; an unpinned one is one edit from gone. |
+
+### 12.2 Uploading approved knowledge to the voice platform's own knowledge base, as PDFs
+
+*Status: NOT MERGED. `engine/bolna.py` declares `knowledge_base=False` and
+`require_capability` refuses at the KB publish path, so nothing reaches that vendor today.*
+
+| # | What the change must do to the documents | Why |
+|---|---|---|
+| K-1 | Amend the voice platform's register row: `receives` gains **the client's approved knowledge content, as a document**, and the row must not imply the content is transient. That vendor's row already says United States and its §3.1 caution already says why India residency is foreclosed by our BYOK posture — so this adds a NEW CATEGORY to an existing US flow rather than a new country. Say that plainly; a reader who knows the row already said "United States" will otherwise not notice the category changed. | The `receives` cell is what a client's counsel reads to decide what a vendor holds. F-12 exists because that cell was wrong about this exact vendor. |
+| K-2 | Update `/legal/privacy` §8's *"The voice platform"* item and `/legal/dpa` clause 9 in the same words. Today they cover the live audio, the transcript and the platform's copy of the recording; knowledge content is a fourth thing and is the client's own writing rather than a caller's speech. | The three documents must not disagree; cross-document drift is the defect the previous pass found repeatedly. |
+| K-3 | **The erasure and retention story is the hard one and it must be settled BEFORE the copy is written, not after.** `/legal/privacy` §9 and §12.4 and `/legal/dpa` clause 8 currently tell a client that an erasure SEARCHES knowledge content and reports a count but never edits it, *and* that the vendor's own copy is a manual step on both copies (F-3). A second engine-side copy makes that sentence load-bearing: state whether deleting our `kb_documents` row deletes the platform's document, and if the vendor's delete path is unverified, report it the way the engine-side call copy is reported — **`unconfirmed_pending_vendor_api`**, never as done. | §6 of this document already records the standing rule: no claim that the erasure reaches engine-side copies. A knowledge PDF sitting in a vendor account after an erasure is that claim's next victim. |
+| K-4 | Superseded versions expire at 365 days on the `kb` category and the sweep deliberately never deletes one **still carrying an engine handle**, because a handle against an archived source means an incomplete detach (F-3). Uploading PDFs creates exactly those handles at scale — so confirm what the sweep does with them before publishing a period, and if the answer is "they stop expiring", `/legal/privacy` §9's knowledge row is no longer true as written. | The published period must be the period that runs. F-5 is this repository's worked example of publishing a number a sweep does not honour. |
+| K-5 | If the PDF is RENDERED by us from the client's prose (the adapter comment names this as the thing it refused to invent), say who authored the document and that its content is the client's. Whether rendering a client's prose into a document format is processing "on documented instructions" within DPA clause 2 is **for counsel**, and clause 2's instruction list should probably name the upload explicitly either way. | Clause 2 is the operative instruction clause and it now enumerates configuration, model choice, the staff-curation switch and confirmed assistant proposals. An upload belongs in that enumeration or outside it, decided rather than assumed. |
+| K-6 | Check `/legal/subprocessors` §3.1's second paragraph before editing anything else: it tells a client that buying that vendor's India residency would not move our calls, *because* BYOK routes through their US servers. Using their knowledge base does not change that and must not be allowed to read as if it does. | It is the single most carefully-worded paragraph on the page and the one a prospect quotes back. |
+| K-7 | Same as T-7 and T-8: revision bump in both mirrors, `legal_catalogue_drift()` empty, and a pinning test. `material=True` — a new category of a client's own content reaching a US sub-processor is material by any reading. | Every stored acceptance names a version; a material change re-asks. |
+
+**One row is common to both and is not a document change: LEGAL-SURFACE F-10 does not move.**
+No sub-processor DPA has been signed with anybody, so both features widen a flow whose
+comparable-protection leg under SPDI rule 7 is unevidenced. That is not a reason to hold
+either feature; it IS a reason not to write a sentence that implies the flow is covered by
+a contract. Say what the register already says and no more.
