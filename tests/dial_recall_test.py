@@ -81,10 +81,11 @@ async def _tenant_with_dials(dials: list[dict[str, Any]]) -> tuple[uuid.UUID, li
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
-                "created_at, updated_at) VALUES (:id, :tid, 'Rec', 'outbound', 'Idi AI "
-                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'live', "
-                "'fake', :ref, now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, 'Rec', "
+                "'outbound', 'Idi AI assistant.', 'Idi AI assistant.', 'This call is being "
+                "recorded.', 'I keep a short note of what you ask about.', 'live', 'fake', "
+                ":ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": ref},
         )

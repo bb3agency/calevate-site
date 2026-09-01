@@ -490,6 +490,8 @@ function agent(over: Partial<AgentWithLlm> = {}): AgentWithLlm {
     ai_disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
+    caller_memory_notice_line: "I keep a short note of what you ask about.",
+    caller_memory_enabled: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaste, this is an AI assistant calling on behalf of Sri Clinic. This call is being recorded.",

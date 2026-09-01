@@ -91,10 +91,11 @@ async def _tenant(label: str) -> tuple[UUID, UUID, str]:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
-                "created_at, updated_at) VALUES (:id, :tid, 'Follow-up caller', 'outbound', 'Idi "
-                "AI assistant. Call record avutundi.', 'Idi AI assistant. Call record avutundi.', "
-                "'This call is being recorded.', 'live', 'fake', :ref, now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
+                "'Follow-up caller', 'outbound', 'Idi AI assistant. Call record avutundi.', "
+                "'Idi AI assistant. Call record avutundi.', 'This call is being recorded.', 'I "
+                "keep a short note of what you ask about.', 'live', 'fake', :ref, now(), now())"
             ),
             {"id": outbound_agent_id, "tid": tenant_id, "ref": f"{agent_ref}_out"},
         )

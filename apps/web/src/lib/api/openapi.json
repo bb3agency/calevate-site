@@ -532,6 +532,14 @@
             ],
             "title": "Archived At"
           },
+          "caller_memory_enabled": {
+            "title": "Caller Memory Enabled",
+            "type": "boolean"
+          },
+          "caller_memory_notice_line": {
+            "title": "Caller Memory Notice Line",
+            "type": "string"
+          },
           "direction": {
             "enum": [
               "inbound",
@@ -642,6 +650,8 @@
           "ai_disclosure_enabled",
           "recording_notice_line",
           "recording_notice_enabled",
+          "caller_memory_notice_line",
+          "caller_memory_enabled",
           "opening_line",
           "engine",
           "published",

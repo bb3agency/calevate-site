@@ -69,6 +69,7 @@ from apps.api.agents.service import publish_agent, route_inbound_numbers
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
     bundled_disclosure_line,
+    caller_memory_notice_for,
     recording_notice_for,
 )
 from apps.api.core.errors import ProblemError
@@ -244,10 +245,14 @@ async def create_agent(
     writer of an agent's existence or status with its reason, and fails the build on a third.
     A prose claim of uniqueness is worth exactly as much as the enumeration behind it.
 
-    **CREATION IS NOT A ROUTE AROUND THE FLOOR.** Both sentences are written here, from the
-    language templates, and never taken from the caller: `ai_disclosure_line` and
-    `recording_notice_line` are NOT NULL with non-empty CHECKs, both toggles start TRUE,
-    and the legacy bundle is composed from the pair by its own function. There is no
+    **CREATION IS NOT A ROUTE AROUND THE FLOOR.** All THREE sentences are written here, from
+    the language templates, and never taken from the caller: `ai_disclosure_line`,
+    `recording_notice_line` and `caller_memory_notice_line` are NOT NULL with non-empty
+    CHECKs, both D-163 toggles start TRUE, `caller_memory_enabled` starts FALSE (D-506) and
+    the legacy bundle is composed from the first pair by its own function. The memory
+    sentence is on file from the first second of an agent's life even though nothing speaks
+    it yet, which is the whole of D-507's argument for a column with no switch: turning
+    memory on must never be the moment somebody discovers there is nothing to say. There is no
     argument to this function that can produce an agent without an AI disclosure on file,
     which is what the dial gate reads and what the truthful answer needs something to say.
     Wording a disclosure differently is a separate, reviewed surface — not a field on the
@@ -285,14 +290,20 @@ async def create_agent(
     # read cannot be empty; `str()` is for the type, not for a case.
     ai_line = ai_disclosure_for(language=language_primary, business=str(business))
     recording_line = recording_notice_for(language=language_primary)
+    # Sentence three, in the agent's own language and written whether or not memory is on
+    # (D-507). The column is NOT NULL with a non-empty CHECK and has no server default, so
+    # omitting it here is an IntegrityError on every create — which is how this was found.
+    memory_line = caller_memory_notice_for(language=language_primary)
     agent_id = uuid7()
     await session.execute(
         text(
             "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
             "disclosure_line, ai_disclosure_line, recording_notice_line, "
+            "caller_memory_notice_line, "
             "ai_disclosure_enabled, recording_notice_enabled, max_call_duration_s, "
             "status, engine, created_at, updated_at) VALUES (:id, :tid, :name, :dir, :lang, "
-            ":bundle, :ai_line, :rec_line, true, true, :cap, 'draft', :engine, now(), now())"
+            ":bundle, :ai_line, :rec_line, :mem_line, true, true, :cap, 'draft', :engine, "
+            "now(), now())"
         ),
         {
             "id": agent_id,
@@ -308,6 +319,7 @@ async def create_agent(
             ),
             "ai_line": ai_line,
             "rec_line": recording_line,
+            "mem_line": memory_line,
             "cap": max_call_duration_s,
             "engine": get_settings().engine,
         },

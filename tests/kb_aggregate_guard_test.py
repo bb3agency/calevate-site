@@ -601,10 +601,11 @@ async def _agent_with_calls(
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
-                "created_at, updated_at) VALUES (:id, :tid, 'Reception', 'inbound', "
-                "'Idi AI assistant.', 'Idi AI assistant.', 'This call is being recorded.', "
-                "'live', 'fake', :ref, now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
+                "'Reception', 'inbound', 'Idi AI assistant.', 'Idi AI assistant.', 'This call "
+                "is being recorded.', 'I keep a short note of what you ask about.', 'live', "
+                "'fake', :ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": slug},
         )
@@ -768,10 +769,10 @@ async def test_an_agent_with_no_extraction_schema_has_nothing_to_say() -> None:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
-                "updated_at) VALUES (:id, :tid, 'Bare', 'inbound', 'Idi AI assistant.', "
-                "'Idi AI assistant.', 'This call is being recorded.', 'live', 'fake', "
-                "now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:id, :tid, 'Bare', 'inbound', 'Idi AI "
+                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'I keep a "
+                "short note of what you ask about.', 'live', 'fake', now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id},
         )

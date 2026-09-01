@@ -111,6 +111,8 @@ def agent_out(r: Any) -> AgentOut:
         ai_disclosure_enabled=bool(r[10]),
         recording_notice_line=r[11],
         recording_notice_enabled=bool(r[12]),
+        caller_memory_notice_line=str(r[17]),
+        caller_memory_enabled=bool(r[18]),
         archived_at=r[13],
         inbound_number_count=int(r[14]),
         llm_model=r[15],

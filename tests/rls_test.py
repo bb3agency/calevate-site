@@ -43,9 +43,10 @@ async def _make_lead(tenant_id: uuid.UUID, phone: str) -> None:
         await s.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, created_at, updated_at) VALUES (:id, "
-                ":tid, 'a', 'inbound', 'I am an AI', 'I am an AI', 'This call is being recorded.', "
-                "now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, "
+                "created_at, updated_at) VALUES (:id, :tid, 'a', 'inbound', 'I am an AI', 'I am "
+                "an AI', 'This call is being recorded.', 'I keep a short note of what you ask "
+                "about.', now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id},
         )
@@ -125,9 +126,10 @@ async def test_wrong_tenant_guc_cannot_write_into_other_tenant() -> None:
             await s.execute(
                 text(
                     "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                    "ai_disclosure_line, recording_notice_line, created_at, updated_at) VALUES "
-                    "(:id, :tid, 'x', 'inbound', 'AI', 'AI', 'This call is being recorded.', "
-                    "now(), now())"
+                    "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, "
+                    "created_at, updated_at) VALUES (:id, :tid, 'x', 'inbound', 'AI', 'AI', "
+                    "'This call is being recorded.', 'I keep a short note of what you ask "
+                    "about.', now(), now())"
                 ),
                 {"id": uuid.uuid4(), "tid": org_b},
             )
