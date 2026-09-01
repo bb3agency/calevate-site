@@ -41,6 +41,7 @@ import {
   formatCount,
   formatINR,
   formatIST,
+  istDateToInstant,
 } from "@/components/ui";
 import {
   useKbDecision,
@@ -1176,10 +1177,15 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
             tm_link_status: tmLink,
             pe_id: peId.trim() || null,
             entity_name: entityName.trim() || null,
-            // `<input type="date">` parsed as LOCAL midnight, not UTC: at +05:30 the
-            // UTC reading of "today" is a moment that has not happened yet, and the
-            // server refuses a future registration date.
-            registered_at: registeredAt ? new Date(`${registeredAt}T00:00:00`).toISOString() : null,
+            // `<input type="date">` read as MIDNIGHT IST, not UTC and not the browser's.
+            // UTC midnight is 05:30 IST, so "today" would be a moment that has not
+            // happened yet and the server refuses a future registration date. The
+            // browser's own midnight avoided that and introduced a worse one: this is the
+            // date on an Indian registrar's letter, it is read back with `formatIST`, and
+            // from a machine east of IST local midnight lands on the previous IST day —
+            // so the same digits filed a different date depending on who typed them.
+            // `istDateToInstant` (components/ui.tsx) is the one spelling of this.
+            registered_at: istDateToInstant(registeredAt),
           });
         }}
       >
@@ -1228,7 +1234,12 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
           />
           <input
             type="date"
-            aria-label="Registered on"
+            // THE ZONE IS ON SCREEN, for `/admin/ops`'s reason, said there in full: a
+            // `type="date"` carries no zone, so an unlabelled one reads as this machine's
+            // calendar — and this field holds the date printed on an Indian registrar's
+            // letter, which is IST wherever the operator is sitting. The two screens
+            // record the same fact and now say the same thing about it.
+            aria-label="Registered on (IST)"
             value={registeredAt}
             disabled={!write.allowed}
             onChange={(e) => setRegisteredAt(e.target.value)}

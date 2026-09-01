@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render as rtlRender, screen, within, type RenderResult } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender, screen, within, type RenderResult } from "@testing-library/react";
 import { Suspense } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -398,5 +398,51 @@ describe("the client detail screen", () => {
     // sitting right there.
     expect(container.textContent).not.toContain("Client not found");
     expect(container.textContent).toContain("You do not have permission to do this.");
+  });
+
+  /**
+   * THE REGISTRAR'S DATE IS A CALENDAR DATE IN INDIA, NOT ON THIS MACHINE.
+   *
+   * `registered_at` is the date printed on an Indian registrar's letter, and this screen
+   * reads it back with `formatIST`. It was parsed as `new Date("<picked>T00:00:00")` —
+   * midnight in the VIEWER's zone — which is the defect `components/ui.tsx::formatISTInput`
+   * documents at length. East of IST that lands on the PREVIOUS IST day outright, so the
+   * same digits filed a different date depending on whose laptop typed them, on a
+   * compliance record. `/admin/ops` already records the same fact IST-first and labels its
+   * field for it; this is the second of the two screens and now matches.
+   *
+   * `TZ` is forced because the property under test is "the answer does not move with the
+   * viewer" — asserted in a single zone, the old code would have passed.
+   */
+  it("files the DLT registration date as IST, whatever zone the operator is in", async () => {
+    const dltPath = `${TENANT_PATH}/dlt-registration`;
+    const originalTz = process.env.TZ;
+    try {
+      for (const zone of ["UTC", "America/Los_Angeles", "Pacific/Auckland"]) {
+        // One mounted form per iteration: RTL's auto-cleanup is per TEST.
+        cleanup();
+        process.env.TZ = zone;
+        const { calls } = await render({
+          [`POST ${dltPath}`]: { status: "active", tm_link_status: "linked" },
+        });
+
+        fireEvent.change(await screen.findByLabelText("Registered on (IST)"), {
+          target: { value: "2026-08-10" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: "Record registration" }));
+
+        await vi.waitFor(() => {
+          expect(calls.some((c) => c.method === "POST" && c.path === dltPath)).toBe(true);
+        });
+        const body = JSON.parse(
+          calls.find((c) => c.method === "POST" && c.path === dltPath)?.body ?? "{}",
+        );
+        // Midnight IST on the picked day === 18:30Z the day before.
+        expect(body.registered_at, `registered_at in ${zone}`).toBe("2026-08-09T18:30:00.000Z");
+      }
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
   });
 });
