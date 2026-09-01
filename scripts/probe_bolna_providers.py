@@ -65,6 +65,16 @@ import asyncio
 import sys
 from typing import Final
 
+from calevate_shared.engine import AZURE_OPENAI_LEG
+
+#: THE LEG THIS PROBE INSTALLS A KEY FOR, taken from the declared posture rather than
+#: typed here. The posture opened to three legs (D-456) and every engine's credential
+#: store keys them separately, so "which leg" is now part of the write — and a leg named
+#: by a string literal in an operator script is a fourth copy of a value the posture
+#: already owns. `DECLARED_LEGS`' order documents Azure as the incumbent; this probe's
+#: subject is that leg's key entry, and nothing here writes the other two.
+PROBE_LEG: Final = AZURE_OPENAI_LEG.provider
+
 #: Obviously-not-a-credential, and it says so in its own value so that a human who finds
 #: it in the dashboard six weeks from now needs no context to know it is safe to delete.
 PROBE_VALUE: Final = "calevate-azure-gate-probe-not-a-real-credential"
@@ -78,7 +88,7 @@ async def _run() -> int:
     engine = get_engine(settings)
     name = settings.bolna_llm_credential_name
 
-    print(f"engine={engine.name}  credential name under test={name!r}\n")
+    print(f"engine={engine.name}  leg={PROBE_LEG}  credential name under test={name!r}\n")
 
     if not engine.capabilities.is_ours("llm"):
         # Not a failure of the gate — a deployment whose engine dictates its own model has
@@ -90,7 +100,14 @@ async def _run() -> int:
         return 0
 
     try:
-        placement = await engine.set_llm_credential(PROBE_VALUE)
+        # `provider` IS REQUIRED AND KEYWORD-ONLY, and this call site did not pass it —
+        # for a year of the file's life it raised `TypeError` inside the `except` below
+        # and printed "GATE: NEGATIVE ... this ACCOUNT disagrees with that page", blaming
+        # a vendor account for our own arity (D-493). The Protocol's docstring says the
+        # absence of a default "turns that into a type error at every call site"; it does,
+        # and CI's `mypy apps packages` does not reach `scripts/`, so this one call site
+        # was checked by nobody until `tests/probe_bolna_providers_test.py` drove it.
+        placement = await engine.set_llm_credential(PROBE_VALUE, provider=PROBE_LEG)
     except Exception as exc:
         # The adapter's error ladder raises here. The status and reason are the finding,
         # so they are printed — `PROBE_VALUE` is not a secret and the ladder does not put
