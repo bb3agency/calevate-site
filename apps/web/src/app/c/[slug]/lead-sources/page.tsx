@@ -203,6 +203,27 @@ export default function LeadSourcesPage() {
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [result, setResult] = useState<LeadSourceDryRun | null>(null);
 
+  /**
+   * A VERDICT IS ABOUT THE INPUTS IT WAS RUN ON, so changing either retracts it.
+   *
+   * The verdict names steps that passed and failed for one source and one payload. Left
+   * standing under an edited payload — or, worse, under a DIFFERENT lead source — it is
+   * a specific, confident claim about a request nobody made, and the pass/fail ticks
+   * beside it read as the answer for what is on screen now. `/do-not-call` already makes
+   * this call in the same words ("a stale verdict beside a changed number is worse than
+   * no verdict") and takes the same action; this card is the second of the two and had
+   * no such retraction, so an operator could change the source and read the previous
+   * source's result as this one's.
+   *
+   * `test.reset()` as well as the local state, because the refusal rendered from
+   * `test.error` is a verdict too — it says why THAT sample was rejected.
+   */
+  const clearVerdict = () => {
+    setResult(null);
+    setJsonError(null);
+    test.reset();
+  };
+
   const runTest = () => {
     setJsonError(null);
     setResult(null);
@@ -259,12 +280,18 @@ export default function LeadSourcesPage() {
           <SourcePicker
             label="Lead source to test"
             value={testSourceId}
-            onChange={setTestSourceId}
+            onChange={(next) => {
+              setTestSourceId(next);
+              clearVerdict();
+            }}
             query={sources}
           />
           <textarea
             value={payloadText}
-            onChange={(e) => setPayloadText(e.target.value)}
+            onChange={(e) => {
+              setPayloadText(e.target.value);
+              clearVerdict();
+            }}
             rows={5}
             spellCheck={false}
             className={`${FIELD_BASE} w-full font-mono text-xs`}

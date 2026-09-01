@@ -1267,3 +1267,32 @@ export function istInputToInstant(value: string): string | null {
   const at = new Date(`${withSeconds}+05:30`);
   return Number.isNaN(at.getTime()) ? null : at.toISOString();
 }
+
+/**
+ * The same conversion for a DATE-ONLY field: `<input type="date">` → midnight IST.
+ *
+ * A `type="date"` value is a calendar date, not an instant, and every one of them on this
+ * console names a day in India — the day a registrar issued a letter, the day a client
+ * collected consent. The API stores an instant, so a day has to be given a time, and
+ * WHICH midnight it is given is the whole of the correctness:
+ *
+ * - `new Date("2026-08-10")` is UTC midnight = 05:30 IST, which for "today" is a moment
+ *   that has not happened yet, and the server refuses a future date.
+ * - `new Date("2026-08-10T00:00:00")` is midnight in the BROWSER's zone, which is the
+ *   defect `formatISTInput` above documents at length. East of IST it lands on the
+ *   previous IST date outright — Auckland midnight is 16:30 IST the day before — so the
+ *   same digits record a different day depending on who typed them, and the value is
+ *   then read back with `formatIST`, which is where the disagreement becomes visible.
+ * - Midnight IST is the earliest instant of the day the person actually picked, in the
+ *   zone every reader of it is in. It is never in the future when the day is not.
+ *
+ * Separate from `istInputToInstant` rather than folded into it: that one takes a
+ * `datetime-local` and would silently accept a bare date by appending nothing, and a
+ * helper that guesses which of two input types it was handed is a helper that guesses.
+ */
+export function istDateToInstant(value: string): string | null {
+  const typed = value.trim();
+  if (typed === "") return null;
+  const at = new Date(`${typed}T00:00:00+05:30`);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}

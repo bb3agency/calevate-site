@@ -17,6 +17,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { attentionKey } from "./attention";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -64,15 +65,27 @@ export type ConsentSource = ConsentProvenance["source"];
 /**
  * A `<input type="date">` value → the `date-time` the API expects.
  *
- * Parsed as LOCAL midnight, not `Date.parse("2026-08-10")` which is UTC midnight: for
- * a client in IST the latter is 05:30 IST on the same day, so "collected today" would
- * be sent as a moment that has not happened yet in the only timezone this product
- * runs in — and the server refuses a future collection date. Local midnight is always
- * safely in the past at +05:30.
+ * **MIDNIGHT IST, written in — not `Date.parse("2026-08-10")` and not the browser's own
+ * midnight.** UTC midnight is 05:30 IST on the same day, so "collected today" would be
+ * sent as a moment that has not happened yet in the timezone this product runs in, and
+ * the server refuses a future collection date. That much was already right.
+ *
+ * What was wrong was the fix: `new Date("2026-08-10T00:00:00")` is midnight in the
+ * VIEWER's zone, and this value is not the viewer's — it is the DATE A CLIENT ASSERTS
+ * THEY COLLECTED CONSENT ON, which is a fact about a form somebody filled in in India
+ * and which `/campaigns` reads back with `formatIST`. From a browser set east of IST the
+ * two disagree by a whole day: local midnight in Auckland is 16:30 IST on the PREVIOUS
+ * date, so the same digits typed by an operator viewing the account (D-22) record a
+ * different consent date than the client would. `scheduleStartAt` and `recurrenceUntil`
+ * below write the offset in for exactly this reason, and this is the third of the three.
+ *
+ * Midnight IST is also strictly safer against the server's future-date refusal than
+ * local midnight was: it is the earliest instant of the day the client picked, in the
+ * zone the server compares against.
  */
 export function consentCollectedAt(date: string): string | null {
   if (!date) return null;
-  const parsed = new Date(`${date}T00:00:00`);
+  const parsed = new Date(`${date}T00:00:00+05:30`);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
@@ -126,6 +139,17 @@ export function useAddContacts(session: Session, campaignId: string | null) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
+      // THE LIST CARRIES THE CONTACT COUNT (`CampaignSummaryOut.contacts`) and it is on
+      // the same screen as this form — without it a client who has just uploaded five
+      // thousand numbers watches the row keep saying the old figure, which reads as an
+      // upload that did not land. `useCampaigns` does not poll, so nothing else corrects
+      // it until the page is remounted.
+      void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+      // A RUNNING campaign with nothing left to dial is a `campaign_stalled` item in the
+      // "needs attention" queue (`crm/attention.py::stalled_campaigns` — the HAVING is
+      // `pending = 0`), so giving it contacts is exactly what takes it back out. The bell
+      // otherwise keeps the count for up to its 60s poll after the fix.
+      void client.invalidateQueries({ queryKey: attentionKey(session.orgSlug) });
     },
   });
 }
@@ -164,6 +188,12 @@ export function useDeclareConsentProvenance(session: Session, campaignId: string
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
+      // THE ROW'S BLOCKER CHIP IS THE SAME FACT THIS FORM JUST ANSWERED.
+      // `CampaignSummaryOut.consent_provenance_blocker` is derived per row, and the list
+      // sits on the same screen as this form — so without this the client answers the
+      // provenance question and the row goes on telling them it is unanswered, which is
+      // the one message that would send them to support. `useCampaigns` does not poll.
+      void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
     },
   });
 }
@@ -211,6 +241,10 @@ export function useLaunchCampaign(session: Session, campaignId: string | null) {
       void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+      // `stalled_campaigns` only looks at `running` and `paused`, so a launch is a move
+      // INTO the set it counts — a campaign that goes live with every contact already
+      // attempted is stalled the moment it starts. See `useAddContacts` for the key.
+      void client.invalidateQueries({ queryKey: attentionKey(session.orgSlug) });
     },
   });
 }
@@ -233,6 +267,11 @@ export function usePauseCampaign(session: Session, campaignId: string | null) {
       // The list carries the status too, and it is one click away ("Start another
       // campaign") — without this it keeps showing "running" for a paused campaign.
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+      // PAUSED IS ITSELF A `campaign_stalled` ITEM (`crm/attention.py` — the HAVING's
+      // first arm is `status = 'paused'`), so this is the one control that moves the
+      // bell's count in BOTH directions: pausing adds an item, resuming removes it. A
+      // client who pauses a campaign and sees the badge stay put learns to disbelieve it.
+      void client.invalidateQueries({ queryKey: attentionKey(session.orgSlug) });
     },
   });
 }
