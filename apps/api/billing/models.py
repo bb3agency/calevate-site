@@ -615,4 +615,57 @@ class PlatformAiUsage(PKMixin, Base):
     )
 
 
+class PlatformListRate(Base):
+    """One published list rate, and the instant it came into force (D-492).
+
+    THE SELF-SERVE MINUTE PRICE ACQUIRES A VALID TIME. `Settings.self_serve_inr_per_min` is
+    one number with no history — `platform_settings` is keyed by `key`, so an operator's
+    change OVERWRITES the row — and two money readers were asking it a question it cannot
+    answer: `billing/service.calling_revenue_inr` re-priced a CLOSED month's minutes at
+    today's setting, and `workers/pipeline` debited a LATE-SETTLING call at next month's.
+    A row here says what the rate was, from when.
+
+    APPEND-ONLY (hard rule 4) and effective-dated, which here is one property: a correction
+    is a NEW row at a distinct `effective_from`, never an edit, so a statement re-rendered a
+    year later resolves the figure it was struck at. The trigger is the blanket
+    `calevate_forbid_mutation` with no carve-out — unlike `platform_secrets`, nothing in this
+    table ever needs an in-place edit.
+
+    NOT tenant-scoped and never will be: one published price for the whole self-serve motion
+    at an instant, and a MANAGED client's price is their `plans` row rather than this. It is
+    `platform_*`-named for the family it belongs to and registered in
+    `db/registry.RLS_EXEMPT_TENANT_COLUMNS` with that as the written reason (the RLS sweep's
+    rule 7a REQUIRES a `platform_*` table to appear there).
+
+    Declared as an ORM model so `Base.metadata` knows about it and `check_rls_coverage` can
+    compare the live schema against it; `billing/list_rates.py` is the reader and the writer,
+    and it uses SQL text like every other money reader in this package.
+    """
+
+    __tablename__ = "platform_list_rates"
+
+    #: WHICH published rate this row dates — the name of the `Settings` field it mirrors, so
+    #: nothing has to guess the relation. Text and not an enum for `platform_model_prices
+    #: .model`'s reason: a figure read back for a historical statement must resolve even for
+    #: a key this build no longer carries. Today there is exactly one,
+    #: `billing/list_rates.SELF_SERVE_PER_MIN`.
+    rate_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The instant this figure becomes the published rate. Part of the PK with `rate_key`, so
+    #: two writes at one instant collide rather than silently both existing. Resolution at
+    #: instant T is this key's row with the greatest `effective_from <= T`
+    #: (`ix_platform_list_rates_key`).
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    #: INR, at `MONEY`'s scale — `usage_events.unit_cost_paid`'s storage precision, which is
+    #: also what `billing/rates.prepaid_billed_inr` quantizes a wallet debit at, so the rate
+    #: and the debit derived from it round in one place. NUMERIC, never a float.
+    inr_amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: The operator whose console write published it. NOT NULL, referencing `admin_users`
+    #: exactly as `platform_settings.updated_by` does: every row here was typed by a person.
+    recorded_by: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: WHY the price moved, in the operator's words — the `reason` the ops console already
+    #: requires for the setting change this row dates.
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

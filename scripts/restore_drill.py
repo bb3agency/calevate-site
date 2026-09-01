@@ -239,6 +239,11 @@ _APPEND_ONLY_PROBE_SET = {
     # the constraint instead of on the trigger would report a protected ledger as
     # protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_dashboard_data_use": "source_note = source_note || 'x'",
+    # D-492: not tenant-scoped either, for `platform_model_prices`' reason. `source_note`
+    # rather than `inr_amount`, which carries `ck_platform_list_rates_positive` — a probe
+    # that could fail on the constraint instead of on the trigger would report a protected
+    # ledger as protected for the wrong reason (`fx_rate_observations`' own note).
+    "platform_list_rates": "source_note = source_note || 'x'",
 }
 
 
@@ -742,6 +747,14 @@ class RestoreDrill:
             "source_note) VALUES ('google', now(), "
             f"'{ADMIN_ID}', 'restore-drill-fixture-project', false, false, "
             "'restore-drill fixture')",
+            # D-492: one published list rate, for the same reason — `append_only_enforced`
+            # needs a row on `platform_list_rates` for its FOR EACH ROW trigger to fire
+            # against. `recorded_by` is the ADMIN_ID seeded above and the amount is inside
+            # the table's positive CHECK; the note marks it a fixture so it can never be
+            # mistaken for a real published price.
+            "INSERT INTO platform_list_rates (rate_key, effective_from, inr_amount, "
+            "recorded_by, source_note) VALUES ('self_serve_inr_per_min', now(), 6.0000, "
+            f"'{ADMIN_ID}', 'restore-drill fixture')",
             # D-475: one pulled rate, for the same reason — `append_only_enforced` needs a
             # row on `fx_rate_observations` for its FOR EACH ROW trigger to fire against.
             # The source is marked as a fixture so it can never be mistaken for a real

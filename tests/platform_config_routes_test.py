@@ -51,6 +51,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from starlette.requests import Request
 from tests.admin_security_test import _make_admin
+from tests.conftest import purge_platform_list_rates
 
 KEY = "self_serve_inr_per_min"
 PATH = f"/v1/ops/config/{KEY}"
@@ -140,6 +141,11 @@ async def _clean() -> AsyncIterator[None]:
             text("DELETE FROM platform_settings WHERE key = ANY(:keys)"),
             {"keys": list(_WRITTEN_KEYS)},
         )
+    # THE PRICE THIS SUITE WRITES NOW HAS A SECOND HOME (D-492). A successful PUT of
+    # `self_serve_inr_per_min` appends a row to the append-only `platform_list_rates`, and
+    # a row left behind stops every other suite's prepaid arithmetic falling back to the
+    # `Settings` value — see the helper for the measured failure this prevents.
+    await purge_platform_list_rates()
     pc.reset_for_test()
     await pc.refresh(force=True)
 

@@ -47,6 +47,7 @@ from scripts import check_config_applies as guard
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from tests.admin_security_test import _make_admin
+from tests.conftest import purge_platform_list_rates
 from tests.platform_support import requires_graceful_sigterm
 
 #: A `Decimal` money field, so every round trip here also proves hard rule 7.
@@ -152,6 +153,10 @@ async def _clean() -> AsyncIterator[None]:
         await session.execute(
             text("DELETE FROM platform_settings WHERE key = ANY(:keys)"), {"keys": list(TOUCHED)}
         )
+    # A successful PUT of `self_serve_inr_per_min` also appends to the append-only
+    # `platform_list_rates` (D-492); a row left behind re-prices every other prepaid suite
+    # on this shared database.
+    await purge_platform_list_rates()
     pc.reset_for_test()
     await pc.refresh(force=True)
 

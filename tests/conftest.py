@@ -129,6 +129,50 @@ async def accept_agreements(tenant_id: uuid.UUID, user_id: uuid.UUID | None = No
             )
 
 
+async def purge_platform_list_rates() -> None:
+    """Remove every row from `platform_list_rates`, as the OWNER (D-492).
+
+    **A CONFIG TEST NOW WRITES AN APPEND-ONLY LEDGER, AND MUST CLEAN UP AFTER ITSELF.**
+    `PUT /v1/ops/config/self_serve_inr_per_min` records the new price into
+    `platform_list_rates` in the same transaction as the `platform_settings` row it dates,
+    so a suite that exercises that route leaves a PUBLISHED RATE behind. One stray row
+    stops `billing/list_rates.self_serve_rate_at` falling back to the `Settings` value, and
+    every other prepaid-money suite on this shared database then prices its minutes at a
+    figure a config test typed (measured: `spend_attribution_test` reading ₹72.50 where it
+    expects ₹50.00, from a `7.25` left by `platform_config_routes_test`).
+
+    The table is append-only ON PURPOSE, so only the owner can do this, and only with the
+    triggers momentarily off. `ENABLE TRIGGER` is not the inverse of `DISABLE` — plain
+    ENABLE demotes an `ENABLE ALWAYS` trigger to ORIGIN — so each trigger's mode is read
+    first and put back verbatim (the trap `platform_secrets_test` documents).
+    """
+    from apps.api.core.settings import Settings
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    owner_url = Settings().alembic_database_url
+    assert owner_url, "ALEMBIC_DATABASE_URL required: platform_list_rates is append-only"
+    engine = create_async_engine(owner_url)
+    try:
+        async with engine.begin() as conn:
+            modes = (
+                await conn.execute(
+                    text(
+                        "SELECT tgname, tgenabled FROM pg_trigger "
+                        "WHERE tgrelid = 'platform_list_rates'::regclass AND NOT tgisinternal"
+                    )
+                )
+            ).all()
+            await conn.execute(text("ALTER TABLE platform_list_rates DISABLE TRIGGER USER"))
+            await conn.execute(text("DELETE FROM platform_list_rates"))
+            for name, mode in modes:
+                verb = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
+                    str(mode), "ENABLE"
+                )
+                await conn.execute(text(f'ALTER TABLE platform_list_rates {verb} TRIGGER "{name}"'))
+    finally:
+        await engine.dispose()
+
+
 async def _owner_of(tenant_id: uuid.UUID) -> uuid.UUID:
     """This tenant's owner where it has one, and a stand-in person where it does not.
 

@@ -345,6 +345,19 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "redacted on the way in by the same `copilot/memory.redacted_content` the client "
         "table uses, and CASCADEs away with the operator's account."
     ),
+    "platform_list_rates": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). The self-serve list price "
+        "per calling minute, effective-dated (D-492) — ONE published price for the whole "
+        "self-serve motion at an instant, and a MANAGED client's price is their `plans` row "
+        "rather than this, so there is no tenant whose row this could be and it carries no "
+        "tenant_id. Written only from the ops config route, in the same transaction as the "
+        "`platform_settings` change it dates; every such write is step-up confirmed and "
+        "lands an audit_log row. Holds a rate key, an instant, one NUMERIC INR figure, the "
+        "operator's id and their stated reason — no PII, no credential, no tenant data. "
+        "Append-only (see APPEND_ONLY_TABLES): a price correction is a new effective-dated "
+        "row, never an edit, so a closed month's statement resolves the rate it was struck "
+        "at instead of being re-priced by every later rate move."
+    ),
     "platform_ai_spend": (
         "platform-scoped, admin realm only. The dashboard AI's monthly spend against the "
         "platform ceiling (D-127) — OUR bill to Google, not a client's, so there is no "
@@ -515,5 +528,11 @@ APPEND_ONLY_TABLES = [
     # rendered and paid last quarter, which is not a correction but a rewrite of the
     # evidence — a superseding observation is a NEW row, and the newest publication wins.
     "fx_rate_observations",
+    # The published self-serve list rate, effective-dated (D-492). Append-only for
+    # `platform_model_prices`' reason, one surface closer to the client: a closed month's
+    # statement is DERIVED, so a rate row somebody could edit would silently re-price a
+    # month the client already paid for out of their wallet. A correction is a new row at a
+    # later instant, and the blanket `calevate_forbid_mutation` applies with no carve-out.
+    "platform_list_rates",
     "legal_acceptances",
 ]
