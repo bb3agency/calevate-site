@@ -244,6 +244,14 @@ _APPEND_ONLY_PROBE_SET = {
     # that could fail on the constraint instead of on the trigger would report a protected
     # ledger as protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_list_rates": "source_note = source_note || 'x'",
+    # D-499: platform-scoped for `platform_model_prices`' reason — the payer is Calevate,
+    # so there is no tenant whose row this could be and no `tenant_id` to mutate. `ref` is
+    # the safe target: `qty`/`unit_cost_paid` carry non-negative CHECKs and `ref` carries
+    # `ck_platform_ai_usage_ref_shape`, so appending to `meta` would be the only other
+    # option and a probe that failed on a CHECK would report a protected ledger as
+    # protected for the wrong reason (`fx_rate_observations`' own note). `occurred_at` has
+    # no constraint and is not part of the idempotency key.
+    "platform_ai_usage": "occurred_at = occurred_at + interval '1 second'",
 }
 
 
@@ -755,6 +763,17 @@ class RestoreDrill:
             "INSERT INTO platform_list_rates (rate_key, effective_from, inr_amount, "
             "recorded_by, source_note) VALUES ('self_serve_inr_per_min', now(), 6.0000, "
             f"'{ADMIN_ID}', 'restore-drill fixture')",
+            # D-499: one metered unit of ADMIN copilot spend, for the same reason —
+            # `append_only_enforced` needs a row for its FOR EACH ROW trigger to fire
+            # against. `admin_user_id` is the ADMIN_ID seeded above; `ref` must match
+            # `ck_platform_ai_usage_ref_shape` (`assist:<uuid>`), and the uuid is fixed so
+            # the drill is deterministic. `viewing_tenant_id` is NULL because this fixture
+            # is an operator on a console screen, not one viewing an account.
+            "INSERT INTO platform_ai_usage (admin_user_id, viewing_tenant_id, unit_type, "
+            "qty, unit_cost_paid, ref, meta) VALUES ("
+            f"'{ADMIN_ID}', NULL, 'llm_tok_out', 0.0000, 0.0000, "
+            "'assist:00000000-0000-0000-0000-000000000001', "
+            '\'{"source_note": "restore-drill fixture"}\'::jsonb)',
             # D-475: one pulled rate, for the same reason — `append_only_enforced` needs a
             # row on `fx_rate_observations` for its FOR EACH ROW trigger to fire against.
             # The source is marked as a fixture so it can never be mistaken for a real

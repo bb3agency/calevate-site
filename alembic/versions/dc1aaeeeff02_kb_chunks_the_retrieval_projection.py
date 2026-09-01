@@ -205,7 +205,6 @@ def upgrade() -> None:
         sa.Column(
             "embed_state", sa.String(), nullable=False, server_default=sa.text("'pending'")
         ),
-        sa.Column("chunk_meta", sa.dialects.postgresql.JSONB(), nullable=True),
         sa.Column("version", sa.Integer(), nullable=False, server_default=sa.text("1")),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column(

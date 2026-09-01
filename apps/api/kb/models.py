@@ -185,7 +185,6 @@ class KbChunk(PKMixin, TimestampMixin, Base):
     embed_model: Mapped[str | None] = mapped_column(Text)
     embed_dim: Mapped[int | None] = mapped_column(Integer)
     embed_state: Mapped[str] = mapped_column(String, nullable=False, server_default=EMBED_PENDING)
-    chunk_meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     #: Whether this projection is of the LIVE version of its source. `publish_source`
     #: archives a superseded version rather than deleting it (FLOWS §7 rollback), so the

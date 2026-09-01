@@ -38,7 +38,12 @@ from datetime import UTC, datetime
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.core import auth as auth_module
-from apps.api.core.rbac import MUTATING_PERMISSIONS, PUBLIC_PREFIXES, iter_api_routes
+from apps.api.core.rbac import (
+    IMPERSONATION_PERMITTED_MUTATIONS,
+    MUTATING_PERMISSIONS,
+    PUBLIC_PREFIXES,
+    iter_api_routes,
+)
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -319,9 +324,41 @@ def _mutating_routes() -> list[tuple[str, str, str]]:
         declared = (route.openapi_extra or {}).get("x-calevate-permission")
         if declared not in MUTATING_PERMISSIONS:
             continue
+        # THE ONE SANCTIONED HOLE IN D-22, READ FROM THE SET RATHER THAN NAMED HERE
+        # (D-499). `rbac.IMPERSONATION_PERMITTED_MUTATIONS` exists so the exemption is a
+        # VALUE a test can enumerate instead of a special case buried in `requires()`,
+        # and this is the test that enumerates it. Skipping by permission rather than by
+        # path is deliberate: a second route on an exempt permission is covered without
+        # anyone remembering to add it here, and a route added to a NON-exempt permission
+        # cannot be smuggled past by editing a path list.
+        if declared in IMPERSONATION_PERMITTED_MUTATIONS:
+            continue
         for method in sorted((route.methods or set()) - {"HEAD", "OPTIONS"}):
             found.append((method, route.path, str(declared)))
     return found
+
+
+def test_the_impersonation_exemption_is_exactly_one_permission_and_not_the_client_one() -> None:
+    """The hole in D-22 is pinned, because the test above SKIPS whatever is in it.
+
+    That skip is the only way a mutating route may answer an impersonating operator, so
+    an addition to this set silently removes a route from the drive-every-route test —
+    the guard would go green while the property weakened. Pinning the set means widening
+    it fails HERE, where the argument for it has to be written.
+
+    `copilot:use` is the sentence to check: it is in `MUTATING_PERMISSIONS` precisely
+    because asking spends the CLIENT'S allowance, and an operator burning it from the
+    client's own screen is the hazard the listing exists for. `copilot:admin` spends the
+    platform's ledger on every path, impersonating or not, so there is no client balance
+    for it to move — which is why it, and only it, is exempt.
+    """
+    assert frozenset({"copilot:admin"}) == IMPERSONATION_PERMITTED_MUTATIONS, (
+        "the D-22 exemption set changed — every permission in it is skipped by the "
+        "drive-every-route test above, so widening it weakens the read-only rule"
+    )
+    assert "copilot:use" not in IMPERSONATION_PERMITTED_MUTATIONS, (
+        "copilot:use spends the CLIENT'S allowance and must never be exempt from D-22"
+    )
 
 
 async def test_no_route_declaring_a_mutating_permission_is_reachable_while_impersonating() -> None:

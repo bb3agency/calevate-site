@@ -1083,6 +1083,17 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "covered at RUNTIME by `apps/api/copilot/route_test.py` — the same split "
         "`GET /v1/leads/export.csv` above makes with tests/crm_egress_redaction_test.py."
     ),
+    "POST /v1/admin/copilot/ask": (
+        "the ADMIN twin of `POST /v1/copilot/ask` above (D-499), and exempt for exactly "
+        "the same reason and no other: an SSE stream has no single 2xx model to declare, "
+        "and the frame envelope FastAPI emits describes the SSE wrapper rather than the "
+        "payloads. Listed separately instead of pattern-matching `*/copilot/ask`, because "
+        "a pattern would silently exempt the next route somebody names that way — the "
+        "admin realm reads across tenants, so a free-form 200 there is the more dangerous "
+        "of the two, not the safer. The runtime egress property is covered by "
+        "`tests/admin_copilot_billing_test.py` and the redaction guard the route shares "
+        "with its client twin."
+    ),
     "POST /v1/actions/invoke/{engine}/{tool_id}": (
         "the engine-called in-call action endpoint (source-IP gated like the webhook "
         "receiver, never a client dashboard route). The body IS the tool result the LLM "

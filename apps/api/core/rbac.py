@@ -409,7 +409,7 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
 # WHAT AN IMPERSONATING OPERATOR STILL CANNOT DO, and none of it relies on this set:
 #
 #   * CHANGE ANYTHING. The admin assistant's write tools are refused at the point of use by
-#     `write_tools._may`, which is `requires()`'s own ladder asked from a non-route caller —
+#     `actions.may_act`, which is `requires()`'s own ladder asked from a non-route caller —
 #     the same `MUTATING_PERMISSIONS` membership, the same D-22 clause, one implementation.
 #     `leads:write`, `leads:dispatch`, `org:manage` and `kb:write` are all in that set, so
 #     every write tool refuses to PROPOSE and `write_tools.confirm` refuses again to APPLY.

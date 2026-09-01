@@ -418,7 +418,17 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         }
 
     assert set(retention.DERIVED_COPIES) <= categories
-    assert retention.DERIVED_COPIES["transcript"] == ("calls.summary",)
+    assert retention.DERIVED_COPIES["transcript"] == (
+        "calls.summary",
+        # The knowledge-gap quote columns hold the caller's own sentences, copied out of
+        # `transcript_turns.text_redacted` by the gap detector. They were in NO category,
+        # which is exactly the condition this test names: a copy nothing expires. Filed
+        # under `transcript` because that is the category owning the words they came from,
+        # not a fifth category — see this test's own docstring on why a fifth is a
+        # migration rather than a constant.
+        "knowledge_gap_occurrences.question_redacted",
+        "knowledge_gaps.example_question_redacted",
+    )
     assert retention.DERIVED_COPIES["lead"] == (
         "call_extractions.data",
         # The delivered webhook body (D-23): the client's CRM payload in object storage,
