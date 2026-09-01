@@ -1,9 +1,11 @@
-"""Approved knowledge chunks → one PDF the engine's knowledgebase endpoint will accept.
+"""Approved knowledge chunks → one PDF the engine's knowledge base will accept.
 
-**Why a PDF at all.** `POST /knowledgebase` takes `multipart/form-data` carrying `file`
+**Why a PDF at all.** The engine's knowledge-base upload takes `multipart/form-data`
+carrying `file`
 (PDF, max 20 MB) *or* `url`, "not both", and there is no text field
-(`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:36-51`, read
-2026-09-01). Our knowledge is approved PROSE in `kb_documents`. So the only way to reach
+(the vendor citation lives with the wire constants in the adapter, which is the
+only place hard rule 2 lets a vendor be named — see its knowledge-base constants
+block; read 2026-09-01). Our knowledge is approved PROSE in `kb_documents`. So the only way to reach
 the engine's in-call RAG is to render our chunks into a PDF and upload that. This module
 is the renderer, and nothing more: it is pure, synchronous, takes no session and does no
 I/O beyond reading the vendored font off disk.
@@ -84,15 +86,16 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 #: docstring on why 768 and not the vendor's 512 default.
 #:
 #: ⚠ **THE WIRE DOES NOT SEND 768 TODAY, AND THAT IS DELIBERATE RATHER THAN DRIFT.**
-#: `engine/bolna.py::KB_CHUNK_SIZE` sends the vendor's documented default, 512. The
+#: The ADAPTER sends the vendor's documented default, 512 (its `KB_CHUNK_SIZE`). The
 #: argument for 768 above is sound under the reading that `chunk_size` counts
 #: CHARACTERS — our chunks are capped at 700 (`kb/service.MAX_CHUNK_CHARS`), so 512
 #: cuts every one of them in two — but the vendor's page says only *"Chunk size for
 #: embedding model"* and never states the unit, while documenting `overlapping` in
 #: characters. Under a TOKEN reading, 768 tokens is ~3,000 characters and welds several
 #: approved facts into one node, which costs retrieval precision in the other direction.
-#: Neither reading has been observed: `api.bolna.ai` is egress-blocked here and there is
-#: no account (hard rule 12 — the premise is not verifiable from this container, so the
+#: Neither reading has been observed: the vendor's API host is egress-blocked here and
+#: there is no account (hard rule 12 — the premise is not verifiable from this
+#: container, so the
 #: wire keeps the vendor's own default rather than moving on an inference).
 #:
 #: OPERATIONS §2 gate 43g settles it in one upload: send a document whose block
@@ -192,8 +195,13 @@ class KnowledgePdfTooLargeError(KnowledgePdfError):
     **Nothing is truncated.** Dropping the tail would hand the client an agent that
     silently does not know its own last N facts, which is the failure this whole module
     is written against. The caller's answer is to split the agent's knowledge across
-    more than one knowledgebase — the engine addresses knowledgebases by `rag_id`, so
-    several are attachable — and the operator-facing remediation says so.
+    more than one knowledge source — the port hands back an opaque handle per attached
+    source (`EngineKBRef`) and an agent may hold several, so splitting works — and the
+    operator-facing remediation says so.
+
+    The vendor's own name for that handle is deliberately NOT written here: this module
+    sits above the adapter boundary, and hard rule 2 keeps vendor vocabulary on the far
+    side of it (`tests/kb_boundaries_test.py` enforces it, and caught this line).
     """
 
     def __init__(self, size_bytes: int, chunk_count: int) -> None:
@@ -212,7 +220,7 @@ class EmptyKnowledgeError(KnowledgePdfError):
 
     A zero-fact PDF is accepted by the engine and retrieves nothing, so it is
     indistinguishable on the wire from the silent failure above. Refusing here means the
-    caller never attaches an empty knowledgebase to a live agent.
+    caller never attaches an empty knowledge source to a live agent.
     """
 
     def __init__(self) -> None:
@@ -321,7 +329,7 @@ def _new_document() -> FPDF:
 
 
 def render_knowledge_pdf(chunks: Sequence[ApprovedChunk]) -> RenderedKnowledgePdf:
-    """Render approved, active chunks into one PDF for the engine's knowledgebase.
+    """Render approved, active chunks into one PDF for the engine's knowledge base.
 
     Pure and deterministic: no clock, no randomness, no DB, no network. Chunks are
     rendered in the order given — the caller decides reading order (the KB's own

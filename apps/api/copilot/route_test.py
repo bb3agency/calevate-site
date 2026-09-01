@@ -377,7 +377,11 @@ async def test_the_assistant_still_costs_a_mutating_permission(
         blocked = await http.put(
             "/v1/organization/llm-defaults",
             headers=_headers(token, slug),
-            json={"default_llm_model": "gpt-4o-mini"},
+            # READ, NOT SPELLED. The request body only has to be a well-formed one this
+            # surface would accept — the assertion is the 403, not the model. A literal
+            # here is a second spelling of the default that the live `gpt-4.1-mini`
+            # switch would not reach, and `sarvam_model_identifier_test` refuses it.
+            json={"default_llm_model": get_settings().azure_openai_model},
         )
     assert blocked.status_code == 403, (
         "an `org:manage` surface must still refuse the staff member who can now chat"
