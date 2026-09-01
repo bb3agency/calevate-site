@@ -169,6 +169,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
             ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
+            ),
         ),
     ),
     LegalDocumentSpec(
@@ -184,6 +193,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "the speech vendor's published terms and privacy policy: an Indian "
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
+            ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
             ),
         ),
     ),
@@ -207,6 +225,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
             ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
+            ),
         ),
     ),
     LegalDocumentSpec(
@@ -222,6 +249,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "the speech vendor's published terms and privacy policy: an Indian "
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
+            ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
             ),
         ),
     ),

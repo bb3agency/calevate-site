@@ -222,6 +222,14 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "You are responsible for everyone you give access to, and for keeping " +
               "credentials safe. Tell us at once if you think an account has been " +
               "compromised.",
+            "Your account has two kinds of user, an owner and staff, and what staff may " +
+              "do is partly yours to decide. Staff never reach billing, organisation " +
+              "settings, unredacted transcripts or unredacted exports. Two things they " +
+              "can do are worth knowing about before you invite somebody: they may use " +
+              "the in-app assistant, which spends the AI allowance on your account; and " +
+              "they may curate the knowledge your agents answer from, but only if you as " +
+              "owner switch that on. It is off until you turn it on, and neither staff " +
+              "nor anyone at Calevate viewing your account can turn it on for you.",
             "The information you give us must be accurate — your legal name, your GST " +
               "registration details and place of supply if you have them, and the " +
               "documents you produce for identity verification. Today those GST details " +
@@ -280,6 +288,13 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "rights to it.",
             "Reviewing what your agent says. It is a language model. It will occasionally " +
               "be wrong, and it speaks in your name.",
+            "Reviewing what the in-app assistant proposes before anyone confirms it. It " +
+              "can suggest changing a lead's status, adding a number to your suppression " +
+              "list, pausing a campaign or adding an entry to your knowledge, and it " +
+              "carries none of them out by itself — the person who accepts a suggestion " +
+              "is making that change, on your account, with the same effect and the same " +
+              "checks as if they had used the screen. It is a language model too, and " +
+              "the same sentence above applies to it.",
           ],
         },
       ],
