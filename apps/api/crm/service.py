@@ -620,6 +620,64 @@ async def list_leads_page(
     return LeadPage(items=[_lead_out(r) for r in rows], total=total, status_counts=counts)
 
 
+async def leads_ranked_by_id(
+    session: AsyncSession,
+    *,
+    lead_ids: Sequence[UUID],
+    status: str | None = None,
+    search: str | None = None,
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+) -> list[LeadOut]:
+    """These leads, in the order they were given, with the Leads screen's filters applied.
+
+    THE HYDRATION HALF OF SEMANTIC SEARCH (`crm/lead_search.py`). The ranking comes from
+    the caller-chunk store, which knows about vectors and nothing about a client's screen;
+    this turns a ranked list of ids back into rows.
+
+    **`_lead_scope` IS REUSED RATHER THAN RE-STATED, and that is the whole design.** Every
+    filter the list, the facet counts and the CSV export honour is honoured here by
+    construction — a semantic search inside "hot leads assigned to me" is those leads
+    ranked, not a second definition of what the set is. A filter added to that function
+    reaches this surface with no change here, which is the property the alternative (a
+    hand-written WHERE clause for search) would have quietly lost.
+
+    ORDER IS THE CALLER'S, restored by `array_position` over the ids: an RRF score is not a
+    column of `leads` and re-sorting by `updated_at` would throw the ranking away. A lead
+    the filters excluded is simply absent, which is why the caller ranks deeper than it
+    displays and reports what it actually got rather than promising `k` rows.
+    """
+    if not lead_ids:
+        return []
+    params: dict[str, Any] = {"ids": list(lead_ids)}
+    clauses = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
+    clauses.append("l.id = ANY(:ids)")
+    if status:
+        clauses.append("l.status = :status")
+        params["status"] = status
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_LEAD_COLUMNS} FROM leads l {_LEAD_OWNER_JOIN} "
+                f"WHERE {' AND '.join(clauses)} "
+                # `array_position` and not a CASE ladder: the ids arrive as a bound array
+                # and their POSITION in it is the rank, so the ordering needs no value
+                # spliced into the statement (hard rule 1's neighbour, D-172).
+                "ORDER BY array_position(CAST(:ids AS uuid[]), l.id)"
+            ),
+            params,
+        )
+    ).all()
+    return [_lead_out(r) for r in rows]
+
+
 @dataclass(frozen=True, slots=True)
 class FacetValue:
     """One selectable value of one facet, and how many rows it would give you."""
@@ -2352,6 +2410,7 @@ __all__ = [
     "lead_facets",
     "lead_phone",
     "lead_timeline",
+    "leads_ranked_by_id",
     "link_callback",
     "list_calls",
     "list_leads",

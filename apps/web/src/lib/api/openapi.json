@@ -6078,6 +6078,28 @@
             "title": "Call Extractions Erased",
             "type": "integer"
           },
+          "caller_memories_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Memories Erased"
+          },
+          "caller_vectors_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Vectors Erased"
+          },
           "calls": {
             "items": {
               "type": "string"
@@ -6149,7 +6171,9 @@
           "recordings_within_trai_floor",
           "recordings_destroyed",
           "recording_hold_until",
-          "knowledge_base_documents_matched"
+          "knowledge_base_documents_matched",
+          "caller_vectors_erased",
+          "caller_memories_erased"
         ],
         "title": "ErasureScopeOut",
         "type": "object"
@@ -9603,6 +9627,18 @@
             ],
             "title": "Agent Id"
           },
+          "ask": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask"
+          },
           "assigned_to": {
             "anyOf": [
               {
@@ -9699,6 +9735,11 @@
           "offset": {
             "title": "Offset",
             "type": "integer"
+          },
+          "semantic_truncated": {
+            "default": false,
+            "title": "Semantic Truncated",
+            "type": "boolean"
           },
           "status_counts_matching_search": {
             "additionalProperties": {
@@ -9862,6 +9903,18 @@
               }
             ],
             "title": "Agent Id"
+          },
+          "ask": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask"
           },
           "assigned_to": {
             "anyOf": [
@@ -16812,6 +16865,28 @@
             ],
             "title": "Call Extractions Erased"
           },
+          "caller_memories_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Memories Erased"
+          },
+          "caller_vectors_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Vectors Erased"
+          },
           "calls_erased": {
             "anyOf": [
               {
@@ -16898,7 +16973,9 @@
           "campaign_contacts_erased",
           "recordings_destroyed",
           "recordings_within_trai_floor",
-          "webhook_bodies_erased"
+          "webhook_bodies_erased",
+          "caller_vectors_erased",
+          "caller_memories_erased"
         ],
         "title": "TenantErasureScopeOut",
         "type": "object"

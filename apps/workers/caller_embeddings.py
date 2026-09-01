@@ -91,6 +91,15 @@ from apps.api.billing.platform_ai import record_platform_ai_usage
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+
+# `lead_chunks` IS IMPORTED FOR ITS REGISTRATION SIDE EFFECT AND FOR NOTHING ELSE.
+# `registered_projections()` is empty until the modules that call `register_projection`
+# have been imported, and nothing else in this worker's import graph reaches them — so
+# without this line the sweep runs, logs `no_scopes`, indexes nothing, and looks healthy
+# doing it: the half-wired feature CLAUDE.md names, a job nobody registered. It is imported
+# HERE, in the one job that walks the registry, so a missing scope is visible beside the
+# thing that would have swept it.
+from apps.api.crm import lead_chunks  # noqa: F401
 from apps.api.crm.assist import ASSIST_FEATURE_CALLER_EMBED
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.retrieval.caller_projections import (

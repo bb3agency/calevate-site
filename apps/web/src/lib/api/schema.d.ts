@@ -7889,6 +7889,10 @@ export interface components {
         ErasureScopeOut: {
             /** Call Extractions Erased */
             call_extractions_erased: number;
+            /** Caller Memories Erased */
+            caller_memories_erased: number | null;
+            /** Caller Vectors Erased */
+            caller_vectors_erased: number | null;
             /** Calls */
             calls: string[];
             /** Knowledge Base Documents Matched */
@@ -9471,6 +9475,8 @@ export interface components {
         LeadLensIn: {
             /** Agent Id */
             agent_id?: string | null;
+            /** Ask */
+            ask?: string | null;
             /** Assigned To */
             assigned_to?: string | null;
             /** Columns */
@@ -9500,6 +9506,11 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /**
+             * Semantic Truncated
+             * @default false
+             */
+            semantic_truncated: boolean;
             /** Status Counts Matching Search */
             status_counts_matching_search: {
                 [key: string]: number;
@@ -9559,6 +9570,8 @@ export interface components {
         LeadSearchIn: {
             /** Agent Id */
             agent_id?: string | null;
+            /** Ask */
+            ask?: string | null;
             /** Assigned To */
             assigned_to?: string | null;
             /** Columns */
@@ -12446,6 +12459,10 @@ export interface components {
         TenantErasureScopeOut: {
             /** Call Extractions Erased */
             call_extractions_erased: number | null;
+            /** Caller Memories Erased */
+            caller_memories_erased: number | null;
+            /** Caller Vectors Erased */
+            caller_vectors_erased: number | null;
             /** Calls Erased */
             calls_erased: number | null;
             /** Campaign Contacts Erased */

@@ -9,6 +9,7 @@ import {
   List,
   PhoneOutgoing,
   Search,
+  Sparkles,
   ShieldAlert,
 } from "lucide-react";
 
@@ -171,6 +172,18 @@ export default function LeadsPage() {
   const { toast } = useToast();
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
+  /**
+   * THE SEMANTIC QUESTION (D-504) — "leads who asked about a 3BHK in Gachibowli".
+   *
+   * A second box beside the search box rather than a mode on it, for the reason
+   * `LeadLens.ask` gives: the two match different things and a person must be able to use
+   * both at once. It is submitted rather than debounced, and that is the difference that
+   * matters — every keystroke of `search` costs a `LIKE`, but every submission of this
+   * costs an EMBEDDING against the account's AI ceiling, so it fires when a person says
+   * so and never while they are still typing.
+   */
+  const [ask, setAsk] = useState("");
+  const [askTerm, setAskTerm] = useState("");
   const [view, setView] = useState<ViewMode>("list");
   /** "Assigned to me" — a member id sent to the SERVER, never a slice of the page. */
   const [assignedTo, setAssignedTo] = useState<string | undefined>();
@@ -206,6 +219,7 @@ export default function LeadsPage() {
   const lens: LeadLens = {
     status,
     search: searchTerm || undefined,
+    ask: askTerm || undefined,
     assigned_to: assignedTo,
     fields: facetValues,
     columns: chosenColumns,
@@ -703,6 +717,22 @@ export default function LeadsPage() {
             {scopeLabel(status, searchTerm, leads.data.total)}
           </p>
         )}
+        {/* WHAT THE ROWS ARE, said in words, because a ranked table looks exactly like a
+            filtered one and a person who cannot tell them apart will read "12 leads" as
+            "this account has 12 leads". `semantic_truncated` is the server's own answer to
+            "is this all of them" — never inferred here from a full page, which is the
+            guess `_listing` refuses to make on the copilot's side of the same data. */}
+        {askTerm && leads.data && (
+          <p className="mt-1 text-xs text-ink-muted">
+            Ranked by how closely each lead&rsquo;s captured answers match{" "}
+            <span className="font-medium text-ink">&ldquo;{askTerm}&rdquo;</span>.
+            {leads.data.semantic_truncated
+              ? " There may be more matches than were ranked — ask a narrower question."
+              : ""}{" "}
+            Names, phone numbers and dates are not searched this way — use the search box
+            and the filters for those.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -718,6 +748,36 @@ export default function LeadsPage() {
             className="w-56 rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint"
           />
         </div>
+
+        {/* THE QUESTION BOX (D-504). A FORM, not a debounced input, and the difference is
+            money: each submission buys one embedding against this account's AI ceiling,
+            so it fires when the person says so. `type="search"` gives the browser's own
+            clear affordance, and clearing it returns the table to the ordinary filtered
+            list because `askTerm` is what the lens reads. */}
+        <form
+          className="relative"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setAskTerm(ask.trim());
+            setOffset(0);
+          }}
+        >
+          <Sparkles className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+          <input
+            type="search"
+            value={ask}
+            onChange={(e) => {
+              setAsk(e.target.value);
+              // Clearing the box clears the search. Anything else leaves a person
+              // looking at ranked rows with an empty box and no way to explain them.
+              if (e.target.value === "") setAskTerm("");
+            }}
+            maxLength={2000}
+            aria-label="Find leads by what they asked for"
+            placeholder="What did they ask for? e.g. 3BHK in Gachibowli"
+            className="w-72 rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint"
+          />
+        </form>
 
         {/* View toggle: the list keeps every capture-list column; the board trades
             detail for a stage-by-stage picture of the pipeline. */}
@@ -779,9 +839,14 @@ export default function LeadsPage() {
             preview of its answer, never a substitute for it. */}
         <button
           type="button"
-          disabled={exportLeads.isPending || !mayExport}
+          disabled={exportLeads.isPending || !mayExport || Boolean(askTerm)}
           onClick={() =>
-            exportLeads.mutate(lens, {
+            // WITHOUT `ask`. The API refuses a lens carrying a question on the export
+            // (`_ASK_CANNOT_BE_EXPORTED`): a ranking is not "the whole filtered set" the
+            // file promises. The button is disabled with that sentence above, so this
+            // strip is the belt — a lens that reached the mutation with a question would
+            // otherwise be a 422 on a control we had already said was available.
+            exportLeads.mutate({ ...lens, ask: undefined }, {
               onSuccess: () =>
                 toast({
                   tone: "success",
@@ -791,7 +856,10 @@ export default function LeadsPage() {
             })
           }
           title={
-            mayExport
+            askTerm
+              ? "A question ranks the best matches rather than selecting a complete set, " +
+                "so it cannot be exported. Clear it to export by the filters instead."
+              : mayExport
               ? "Downloads the leads and the columns shown here, with full phone numbers."
               : // The refusal in the server's own terms — "Only an account owner can
                 // export leads." for a role that lacks it, and "We could not check…"
@@ -1079,7 +1147,13 @@ export default function LeadsPage() {
                which is why that case never reaches this Card at all. With a filter on,
                the emptiness belongs to the filter and not to the business. */
             <EmptyState
-              title={status || searchTerm ? "No leads match this filter" : "No leads yet"}
+              title={
+              askTerm
+                ? "No lead's captured answers match that question"
+                : status || searchTerm
+                  ? "No leads match this filter"
+                  : "No leads yet"
+            }
               hint={
                 status || searchTerm
                   ? "Clear the filter to see everything."

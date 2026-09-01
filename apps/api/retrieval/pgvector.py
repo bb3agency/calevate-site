@@ -89,7 +89,6 @@ import time
 from typing import Final
 from uuid import UUID
 
-import httpx
 from calevate_shared.retrieval import (
     Passage,
     Provenance,
@@ -100,19 +99,14 @@ from calevate_shared.retrieval import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.core.logging import get_logger
 from apps.api.kb.models import EMBED_READY
 from apps.api.retrieval.capabilities import require_tier
 from apps.api.retrieval.embedding import (
     ASSIST_FEATURE_KB_SEARCH,
-    EMBED_TIMEOUT_S,
-    EMBEDDING_DIMS,
-    EMBEDDING_MODEL,
-    embedding_leg,
-    embedding_price_is_billable,
+    embed_query_vector,
+    vector_literal,
 )
-from apps.workers import chat
 
 log = get_logger(__name__)
 
@@ -251,57 +245,22 @@ class PgVectorRetriever:
         self._session = session
 
     async def _question_vector(self, request: RetrievalRequest) -> list[float] | None:
-        """The question as a vector, metered — or None, and then the dense arm is skipped.
+        """The question as a vector, metered under this surface's own feature name.
 
-        **THE PRICE IS CHECKED BEFORE THE PROVIDER IS CALLED (hard rule 7).** Buying an
-        embedding this repository cannot price would either write a made-up
-        `unit_cost_paid` on an append-only row or record nothing at all; both are worse than
-        answering from the sparse arm. `embedding_price_is_billable` is total and never
-        raises, so this is a branch and not a failure.
-
-        Returning None on EVERY failure — no leg, no price, a provider error, a width the
-        column will not hold — is deliberate. A dashboard question is not the place to
-        surface a provider outage as an exception: the sparse arm still answers, the caller
-        still gets the client's own approved words, and the operator gets the log line.
+        `retrieval/embedding.embed_query_vector` is the one implementation for every search
+        surface, and this method is now the thin place where THIS surface names itself. The
+        price gate, the leg, the metering and the width check moved there when a second and
+        third surface needed the identical four steps — three copies would have been three
+        places to get hard rule 7 right. What is unchanged is the contract this adapter
+        depends on: None on every failure, so the dense arm is skipped and the sparse arm
+        still answers the client's own approved words.
         """
-        if not embedding_price_is_billable():
-            log.info("kb_search_embedding_unpriced", extra={"model": EMBEDDING_MODEL})
-            return None
-        leg = embedding_leg()
-        if leg is None:
-            log.info("kb_search_embedding_no_provider")
-            return None
-        try:
-            outcome = await chat.embed(
-                leg, [request.question], dimensions=EMBEDDING_DIMS, timeout_s=EMBED_TIMEOUT_S
-            )
-        except (httpx.HTTPError, TimeoutError) as failure:
-            # `type(failure).__name__` and nothing else: a provider's error body quotes the
-            # request, and the request is a client's own question (hard rule 6).
-            log.warning("kb_search_embedding_failed", extra={"error": type(failure).__name__})
-            return None
-
-        # METERED WHETHER OR NOT THE VECTOR IS USABLE. We paid for the turn; a refused width
-        # is our problem, not a discount. `tokens_out=0` is the truth about an embedding
-        # rather than a default — the vendor's `usage` block has no output half at all.
-        if outcome.usage is not None:
-            await record_ai_assist_usage(
-                self._session,
-                tenant_id=request.tenant_id,
-                ref=new_assist_ref(),
-                tokens_in=outcome.usage.prompt_tokens,
-                tokens_out=0,
-                model=EMBEDDING_MODEL,
-                feature=ASSIST_FEATURE_KB_SEARCH,
-            )
-        vector = outcome.vectors[0] if outcome.vectors else None
-        if vector is None or len(vector) != EMBEDDING_DIMS:
-            log.warning(
-                "kb_search_embedding_width",
-                extra={"want": EMBEDDING_DIMS, "got": 0 if vector is None else len(vector)},
-            )
-            return None
-        return list(vector)
+        return await embed_query_vector(
+            self._session,
+            tenant_id=request.tenant_id,
+            question=request.question,
+            feature=ASSIST_FEATURE_KB_SEARCH,
+        )
 
     async def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
         """Hybrid RRF over this tenant's published chunks.
@@ -326,10 +285,10 @@ class PgVectorRetriever:
                     "tid": request.tenant_id,
                     "aid": request.agent_id,
                     "question": request.question,
-                    # psycopg renders a Python list as a Postgres array, which `vector`
-                    # will not accept; the type's own text form is the bracketed literal,
-                    # and the statement casts it.
-                    "qvec": None if vector is None else "[" + ",".join(map(repr, vector)) + "]",
+                    # The bracketed text form the `vector` type accepts —
+                    # `embedding.vector_literal`, spelled once for every adapter that
+                    # passes a question vector into a `text()` statement.
+                    "qvec": vector_literal(vector),
                     "k": request.k,
                 },
             )

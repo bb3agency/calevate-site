@@ -160,6 +160,10 @@ function leadList(items: Lead[], over: Partial<LeadList> = {}): LeadList {
     limit: 100,
     offset: 0,
     status_counts_matching_search: { new: 0, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+    // FALSE by default because the ordinary page is not a ranking: `semantic_truncated`
+    // is only ever true under a semantic question (D-504), and a fixture that defaulted
+    // it true would make every filtered page claim there might be more.
+    semantic_truncated: false,
     ...over,
   };
 }
