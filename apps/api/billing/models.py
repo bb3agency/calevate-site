@@ -453,6 +453,22 @@ class CreditLedgerEntry(PKMixin, Base):
     the real writers cannot mint a duplicate key. What the index adds is protection from
     a FUTURE writer that forgets the lock — which is the failure mode an advisory lock
     can never cover, since it is only as good as every caller remembering it.
+
+    **`refund` HAS THAT BACKSTOP GAP TODAY, AND IT IS NAMED HERE RATHER THAN LEFT TO BE
+    REDISCOVERED.** Five reasons exist; three are covered by the index above and `bonus`
+    by `ux_credit_ledger_bonus_ref` (migration c3a9f1e6b820, partial on
+    `reason = 'bonus'`). `refund` is covered by NEITHER, and it is not keyless — a
+    `payments.credit_refund` row carries the PROVIDER'S REFUND ID as its `ref`, which is
+    a perfectly good unique key (partial refunds carry different refund ids, so they
+    separate exactly as two top-ups do). The reason for the gap is chronological, not
+    principled: `f9c2b41a8e57` predates the refund writer. Nothing is loose today —
+    `credit_refund` takes `lock_tenant_credits` BEFORE its `find_entry_by_ref` and is the
+    only writer of the reason — so the exposure is precisely the one the paragraph above
+    says the index exists for, and no more. Closing it is a partial unique index on
+    `(tenant_id, ref) WHERE reason = 'refund' AND ref IS NOT NULL`, in its own migration.
+    `tests/credit_ledger_unique_index_test.py` carries both halves: the pin that refund is
+    absent from the older predicate, and the pin that its rows really do carry a ref — the
+    fact whose earlier denial is what let this look harmless.
     """
 
     __tablename__ = "credit_ledger"
