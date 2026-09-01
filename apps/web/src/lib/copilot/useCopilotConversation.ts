@@ -122,6 +122,33 @@ export interface CopilotConversation {
 }
 
 /** The one code the server uses for the allowance ceiling; `AssistCard` reads the same. */
+/**
+ * `CopilotAskIn.history`'s ceiling, from `apps/api/copilot/schemas.py::MAX_HISTORY`.
+ *
+ * Retyped rather than generated because the OpenAPI schema carries `maxItems` on the
+ * ARRAY and the generated client does not surface it as a value — so this is the one
+ * place the number is written on this side, and `copilotHistory.test.ts` reads the
+ * Python constant and fails if the two drift.
+ */
+export const MAX_HISTORY = 10;
+
+/**
+ * The last whole EXCHANGES that fit under the ceiling, oldest first.
+ *
+ * Pairs, not turns. A plain `slice(-MAX_HISTORY)` can start the window on an assistant
+ * turn whose question fell off the front, and a model given an answer with no question
+ * reads it as its own earlier assertion — which is how an assistant starts defending a
+ * claim nobody made. Dropping the orphan costs one turn of context and removes that
+ * failure entirely.
+ *
+ * Not a conversation summary and deliberately not: nothing here is persisted, and
+ * summarising would mean a second model call on the latency path of every question.
+ */
+export function recentTurns(turns: readonly CopilotTurn[]): CopilotTurn[] {
+  const window = turns.slice(-MAX_HISTORY);
+  return window.length > 0 && window[0].role === "assistant" ? window.slice(1) : window;
+}
+
 export const AI_CEILING_CODE = "ai_quota_exceeded";
 
 export function useCopilotConversation(
@@ -217,7 +244,22 @@ export function useCopilotConversation(
         fields: pass.fields,
         facts: pass.facts,
         // The REDACTED half of what has already been said. See `CopilotTurn`.
-        history: turns.map((turn) => ({ role: turn.role, content: turn.wire })),
+        //
+        // TRIMMED TO THE SERVER'S CEILING, and this used to send the whole conversation.
+        // `CopilotAskIn.history` is `max_length=MAX_HISTORY`, so the sixth exchange in one
+        // open panel was a 422 that read "history: List should have at most 10 items" —
+        // shown to the person as a validation error about a field they cannot see, in the
+        // middle of a conversation that was working a moment earlier. The bound is not the
+        // bug: nothing is persisted, this list IS the conversation's whole memory, and
+        // replaying an unbounded one would grow every request until the model's context
+        // decided where to truncate instead of us.
+        //
+        // The LAST turns, not the first: the recent exchange is what a follow-up question
+        // refers to. Sliced on PAIRS so the window never opens on an assistant turn whose
+        // question was dropped — a model handed an answer with no question treats it as
+        // its own prior assertion, which is how a copilot starts insisting on something
+        // nobody asked.
+        history: recentTurns(turns).map((turn) => ({ role: turn.role, content: turn.wire })),
       };
 
       // Both halves of the answer, built in step: `answer` is what is shown, `answerWire`
