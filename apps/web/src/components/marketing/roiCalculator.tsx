@@ -131,7 +131,23 @@ function Control({
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={label}
         aria-valuetext={unit ? `${value} ${unit}` : String(value)}
-        className="mt-3 w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-line [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-line [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong focus-visible:outline-none dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright"
+        /*
+         * A 24px THUMB UNDER A COARSE POINTER, and the number is derived rather than
+         * chosen. A 16px thumb is a comfortable mouse target and a poor thumb target: it
+         * is under WCAG 2.2 SC 2.5.8's 24px AA minimum, and this is the one control on the
+         * page a phone user is expected to DRAG rather than tap.
+         *
+         * The webkit thumb is positioned by a negative top margin against a 6px runnable
+         * track, so the offset is not free: it is −(thumb − track) / 2, which is where the
+         * existing −5px comes from (16 − 6) / 2. At 24px it is (24 − 6) / 2 = 9. Firefox
+         * centres `::-moz-range-thumb` itself and needs no offset, which is why only the
+         * webkit rule has one.
+         *
+         * The 44px path to the same value still exists and is the one to reach for if a
+         * finger cannot manage this: every slider on this surface is paired with the
+         * labelled number field above it, which carries `touch:min-h-11`.
+         */
+        className="mt-3 w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-line [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-line [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong focus-visible:outline-none touch:[&::-moz-range-thumb]:h-6 touch:[&::-moz-range-thumb]:w-6 touch:[&::-webkit-slider-thumb]:-mt-[9px] touch:[&::-webkit-slider-thumb]:h-6 touch:[&::-webkit-slider-thumb]:w-6 dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright"
       />
       {hint && <p className="mt-1.5 text-xs text-ink-faint">{hint}</p>}
     </div>
@@ -164,7 +180,14 @@ function RadioCards<T extends string | number>({
         role="radiogroup"
         aria-label={legend}
         className={
-          "mt-3 grid gap-2 " + (columns === 3 ? "grid-cols-3" : "grid-cols-1 sm:grid-cols-2")
+          // THREE COLUMNS ONLY WHERE THREE COLUMNS FIT. Unprefixed `grid-cols-3` gave each
+          // option about 75px inside this panel on a 360px phone, and the options are
+          // "Business hours" / "Into the evening" / "Around the clock" with a caption under
+          // each — every one of them broke to three or four lines, at three different
+          // heights. Stacked below `sm` they are three full-width rows, which is also the
+          // shape the two-option group above already uses.
+          "mt-3 grid gap-2 " +
+          (columns === 3 ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2")
         }
       >
         {options.map((option) => {
@@ -400,10 +423,10 @@ export function RoiCalculator() {
     // over the rest of the page.
     <div
       data-roi-calculator
-      className="mt-12 grid gap-6 lg:grid-cols-[1fr_1.05fr] lg:items-start"
+      className="mt-10 grid gap-6 sm:mt-12 lg:grid-cols-[1fr_1.05fr] lg:items-start"
     >
       {/* --- Inputs -------------------------------------------------------------- */}
-      <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8">
+      <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
         <h3 className="text-lg font-semibold text-ink">Your call volume</h3>
         <p className="mt-1.5 text-sm text-ink-muted">
           Two numbers and how long the phone must be covered. Everything else is pre-filled
@@ -564,7 +587,7 @@ export function RoiCalculator() {
         {twoStageMode ? (
           <>
             {/* Option A — the whole list, by people, at the full conversation length. */}
-            <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8">
+            <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
               <p className="text-sm text-ink-muted">
                 If your people work the whole list — all{" "}
                 <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>{" "}
@@ -616,7 +639,7 @@ export function RoiCalculator() {
             </div>
 
             {/* Option B — triage by Calevate, closing by people. */}
-            <div className="rounded-2xl border border-brand/40 bg-brand-soft/40 p-6 sm:p-8 dark:bg-brand-strong/10">
+            <div className="rounded-2xl border border-brand/40 bg-brand-soft/40 p-5 sm:p-8 dark:bg-brand-strong/10">
               <p className="flex items-center gap-2.5 text-sm font-medium text-brand-strong dark:text-brand-bright">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-strong text-white">
                   <Filter aria-hidden className="h-5 w-5" />
@@ -659,7 +682,7 @@ export function RoiCalculator() {
           </>
         ) : (
           <>
-            <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8">
+            <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
               <p className="text-sm text-ink-muted">
                 To take{" "}
                 <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>{" "}
@@ -712,7 +735,7 @@ export function RoiCalculator() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-brand/40 bg-brand-soft/40 p-6 sm:p-8 dark:bg-brand-strong/10">
+            <div className="rounded-2xl border border-brand/40 bg-brand-soft/40 p-5 sm:p-8 dark:bg-brand-strong/10">
               <p className="flex items-center gap-2.5 text-sm font-medium text-brand-strong dark:text-brand-bright">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-strong text-white">
                   <Bot aria-hidden className="h-5 w-5" />
@@ -735,7 +758,7 @@ export function RoiCalculator() {
             grow a friendlier rule than the other. */}
         <div
           className={
-            "rounded-2xl border p-6 " +
+            "rounded-2xl border p-5 sm:p-6 " +
             (cheaper && !close
               ? "border-brand/40 bg-surface"
               : "border-line bg-surface/60")
@@ -855,7 +878,7 @@ export function RoiCalculator() {
           Also weigh the value of the leads at stake (optional)
         </label>
         {leadOpen && (
-          <div className="mt-4 grid gap-6 rounded-2xl border border-line bg-surface p-6 sm:grid-cols-2 sm:p-8">
+          <div className="mt-4 grid gap-6 rounded-2xl border border-line bg-surface p-5 sm:grid-cols-2 sm:p-8">
             <Control
               label="Value of a converted lead"
               bounds={LEAD_VALUE.convertedLeadInr}
@@ -903,7 +926,7 @@ export function RoiCalculator() {
             script at all, and closed by default so it never renders as a wall of text.
             The summary carries an <h3> and the body a <p>, the shape the landing tests
             require of every disclosure on the page. */}
-        <details className="group rounded-2xl border border-line bg-surface/60 p-6">
+        <details className="group rounded-2xl border border-line bg-surface/60 p-5 sm:p-6">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
             <h3 className="text-[15px] font-semibold text-ink">
               How we calculate this, and where the numbers come from
