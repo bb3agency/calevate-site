@@ -82,11 +82,32 @@ function source(over: Partial<KbSource> = {}): KbSource {
   };
 }
 
+/**
+ * A HOLE IN THE PREMISE THAT COULD NOT ANNOUNCE ITSELF, and the flake it caused.
+ *
+ * `harness.tsx` throws on an unrouted endpoint precisely so a missing route reads as a
+ * broken test rather than as a screen quietly rendering an error state. That guarantee
+ * has one gap and this file sat in it: the throw happens inside a `queryFn`, so React
+ * Query catches it and turns it into `isError` — and `StaffCurationSwitch` renders any
+ * failed read as a `ProblemNotice`, which is `role="alert"`.
+ *
+ * `/v1/kb/staff-curation` was not routed, so this screen carried a PERMANENT second
+ * alert about the fixture. The two tests below that await `findByRole("alert")` — one
+ * alert, singular — then failed with "Found multiple elements" whenever that second
+ * refusal had painted by the time the query polled, and passed when it had not. Two
+ * runs in six, on a race between two unrelated queries.
+ *
+ * Routing it is the fix, not a relaxation: every assertion below is unchanged, and
+ * `findByRole("alert")` now finds the refusal each test is actually about.
+ */
+const STAFF_CURATION = { staff_may_curate_knowledge: false };
+
 async function renderKnowledge(sources: KbSource[] | ProblemResponse, over: Routes = {}) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
     "/v1/kb/sources": sources,
+    "/v1/kb/staff-curation": STAFF_CURATION,
     ...over,
   });
 }
