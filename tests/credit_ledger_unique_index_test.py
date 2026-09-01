@@ -253,16 +253,20 @@ def test_the_key_carries_reason_and_the_predicate_carries_all_three() -> None:
         # it separates two top-ups.
         #
         # So refund is absent from this predicate because THIS MIGRATION PREDATES THE
-        # REFUND WRITER, not because the key would be wrong. Widening it is its own
-        # migration (a partial unique index on `reason = 'refund'`, the shape
-        # `ux_credit_ledger_bonus_ref` already took for the sibling reason), and until
-        # that lands the residual is named rather than implied: the refund path's
-        # idempotency rests ENTIRELY on `lock_tenant_credits` + `find_entry_by_ref`, with
-        # no database backstop for the future writer who forgets the lock — which is the
-        # one failure mode `CreditLedgerEntry`'s docstring says this index exists for.
+        # REFUND WRITER, not because the key would be wrong.
+        #
+        # THAT RESIDUAL IS NOW CLOSED, and this comment used to end by naming it as open.
+        # `ux_credit_ledger_refund_ref` (migration `817842cf3b97`) is the partial unique
+        # index this paragraph asked for, in the exact shape `ux_credit_ledger_bonus_ref`
+        # took for the sibling reason. This assertion still holds and still should: it is
+        # about THIS migration's predicate, and the widening correctly went into a
+        # migration of its own rather than an edit of a shipped one (hard rule 8).
+        # `test_the_refund_key_is_enforced_by_the_database` below is what proves the new
+        # index actually bites, rather than merely existing.
         "refund is absent from this migration's predicate because the migration predates "
-        "the refund writer, NOT because the key would be wrong — see the comment above "
-        "before adding it here rather than in a migration of its own"
+        "the refund writer, NOT because the key would be wrong — it is covered by "
+        "`ux_credit_ledger_refund_ref` in migration 817842cf3b97, which is where a "
+        "widening belongs (hard rule 8), never an edit of this shipped one"
     )
 
 
