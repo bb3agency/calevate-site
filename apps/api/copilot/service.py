@@ -28,9 +28,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 import httpx
 from calevate_shared.engine import (
@@ -39,17 +40,23 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
 )
 
+from apps.api.copilot import admin_prompt as admin_prompt_module
+from apps.api.copilot import admin_tools, write_tools
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import tools as tools_module
-from apps.api.copilot import write_tools
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import (
+    CopilotActionEvent,
     CopilotAskIn,
     CopilotField,
     CopilotFillItem,
     CopilotProposalEvent,
+    CopilotRealm,
+    CopilotStepEvent,
 )
 from apps.api.copilot.tools import ToolContext
+from apps.api.core.context import Principal
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -149,6 +156,30 @@ TOTAL_BUDGET_S: Final = 90.0
 #: in it, never a spinner that stops.
 EXHAUSTED_MESSAGE: Final = "I couldn't finish within the turn limit — please narrow the request."
 
+#: How many TIER 1 actions one question may perform. D-500.
+#:
+#: **THREE, AND IT IS A BLAST-RADIUS BOUND RATHER THAN A COST ONE.** `MAX_TURNS` already
+#: bounds the round trips and `TOTAL_BUDGET_S` the wall clock; neither bounds the number of
+#: things that CHANGED, and a Tier 1 action changes the database without anybody clicking.
+#: A person asking for one agent gets one; a person asking for "an inbound and an outbound
+#: agent" gets two and a sentence; a model that has decided to create seven is a model whose
+#: run should end with an explanation rather than with seven rows. The cap is per ANSWER and
+#: not per turn, because the thing worth bounding is what one question did.
+#:
+#: What happens at the cap is a refusal fed back to the model, not a silent stop: it still
+#: gets to tell the person what it did and what it did not.
+MAX_ACTIONS_PER_RUN: Final = 3
+
+#: The longest a step frame's `args` or `detail` preview may be, in characters.
+#:
+#: A DISPLAY bound, not a safety one. The safety properties are elsewhere — the request was
+#: already refused if it carried an unredacted personal value (`sanitize.assert_redacted`),
+#: and none of this is logged or stored. What this bounds is a panel row: a tool result is
+#: prose written for a model and can run to thousands of characters, and a step list that
+#: rendered all of it would push the answer off the screen. 200 characters is about two
+#: lines at the panel's width.
+MAX_STEP_CHARS: Final = 200
+
 #: Appended to `AssistCapability.disclosure` when the fallback leg answered.
 #:
 #: The fallback CANNOT FILL FIELDS (see `_answer_via_sarvam`), and a person who asked it to
@@ -237,7 +268,7 @@ class CopilotSpend:
 
 @dataclass(frozen=True, slots=True)
 class CopilotEvent:
-    """One step of an answer. Exactly one of the four is set.
+    """One step of an answer. Exactly one of the members is set.
 
     `spend` is emitted exactly once, last, on every path that reached a provider — the
     route needs it whether the answer was good, refused or exhausted, because a completed
@@ -253,6 +284,17 @@ class CopilotEvent:
     text: str | None = None
     fill: tuple[CopilotFillItem, ...] | None = None
     proposal: CopilotProposalEvent | None = None
+    #: One tool call, as it happens (D-500). TWO of these per call — `running`, then a
+    #: terminal one — and they are the only member of this union that is not exactly one
+    #: per answer. Purely observational: a `step` changes nothing and the browser may drop
+    #: every one of them without losing an outcome, which is what makes it safe to emit for
+    #: reads as well as for actions.
+    step: CopilotStepEvent | None = None
+    #: A TIER 1 action that HAS ALREADY RUN. Beside `proposal` rather than inside it,
+    #: because the two are opposite promises: a proposal is an offer with nothing behind it
+    #: yet, this is a receipt for a database write. The browser must never render them the
+    #: same way, so the wire does not let it confuse them.
+    action: CopilotActionEvent | None = None
     spend: CopilotSpend | None = None
 
 
@@ -446,7 +488,11 @@ def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
 
 
 async def _answer_via_sarvam(
-    payload: CopilotAskIn, capability: AssistCapability, *, live: str = ""
+    payload: CopilotAskIn,
+    capability: AssistCapability,
+    *,
+    live: str = "",
+    realm: CopilotRealm = "client",
 ) -> AsyncIterator[CopilotEvent]:
     """The disclosed fallback: one non-streamed answer, in prose, with NO tools.
 
@@ -481,7 +527,7 @@ async def _answer_via_sarvam(
         # LAST rather than into the shared prompt, so the cacheable prefix stays byte
         # identical for the leg that has a cache (`prompt.py`, point 1).
         [
-            *prompt_module.build_messages(payload, live),
+            *build_messages(payload, live, realm),
             {"role": "system", "content": _NO_TOOL_NOTE},
         ],
         timeout_s=STREAM_IDLE_S,
@@ -501,31 +547,102 @@ async def _answer_via_sarvam(
 # --- the loop -------------------------------------------------------------------------
 
 
-def tool_array() -> list[dict[str, Any]]:
-    """Every tool the model is offered, in a FIXED order, IDENTICAL ON EVERY REQUEST.
+def build_messages(payload: CopilotAskIn, live: str, realm: CopilotRealm) -> list[Any]:
+    """This realm's message list. THE ONE PLACE the realm picks a prompt (D-499).
 
-    ONE COMPOSER, so there is one answer to "what tools exist" and the cacheable prefix has
-    one definition. `set_fields` comes first because it was first and because moving it
-    would change the prefix for no gain; the read tools follow in `READ_TOOLS` order, and
-    the proposing write tools last in registration order.
+    Two prompts, two prefixes, two caches — `prompt.SYSTEM_PROMPT` for a business owner and
+    `admin_prompt.ADMIN_SYSTEM_PROMPT` for an operator. The ORDER inside each is identical
+    and is argued once, in `prompt.py`'s module docstring; neither builder re-decides where
+    untrusted content sits.
 
-    NOTHING IS GATED OUT OF THIS ARRAY — not by screen, not by tenant, not by role. Azure's
-    prompt caching keys on a leading run of byte-identical tokens (`prompt.py`, point 1),
-    and an array that dropped the tools a caller may not use would differ per role, giving
-    every non-`owner` caller a cache miss on every request. A caller who may not use a read
-    tool is refused INSIDE it by `tools.run_read_tool`, which is where the check has to
-    exist anyway: a schema the model was never shown is obscurity, not an access control.
-    `copilot/tools_test.py` pins the byte-identity across two differing requests.
+    A branch here rather than a `realm` parameter on `prompt.build_messages`, because the
+    two differ in their CONSTANTS and in nothing else: a single function reading one of two
+    module-level strings would put the realm switch inside the file whose whole subject is
+    the client prompt, where the next reader would not look for it.
+    """
+    if realm == "admin":
+        return admin_prompt_module.build_admin_messages(payload, live)
+    return prompt_module.build_messages(payload, live)
+
+
+def realm_read_tools(realm: CopilotRealm) -> tuple[tools_module.ReadTool, ...]:
+    """The read tools of ONE realm, in a FIXED order. The single enumeration (D-499).
+
+    `tool_array` shows these to the model and `_read_tool_registry` runs them, and both go
+    through this function so the schema list and the executable set cannot disagree about
+    what exists — the property `tools.py` argues for being a registry at all, now held
+    across two realms.
+
+    THE ADMIN REALM GETS BOTH SETS, and the order is platform-first. An operator's own
+    tools (roster, triage board, ops state, runbooks) answer the questions that have no
+    account behind them; the client tools then answer about the ONE account whose page is
+    open, under that account's own RLS, and refuse with a sentence when none is
+    (`run_read_tool`'s tenant-scope guard). Giving the admin realm a strict superset is
+    what makes "the tenant currently being viewed" a real capability rather than a second
+    implementation of six tools that already exist.
+    """
+    if realm == "admin":
+        return (*admin_tools.ADMIN_READ_TOOLS, *tools_module.READ_TOOLS)
+    return tools_module.READ_TOOLS
+
+
+def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTool]:
+    """This realm's read tools by name, for `tools.run_read_tool`.
+
+    NOT ONE FLAT NAMESPACE ACROSS BOTH REALMS. A client caller naming `platform_tenants`
+    must be told there is no such tool, not that they may not use it: the second sentence
+    tells them the admin console has one, which is an information leak with no upside, and
+    the permission check that would produce it exists for callers who could plausibly hold
+    the permission.
+    """
+    return {tool.name: tool for tool in realm_read_tools(realm)}
+
+
+def tool_array(realm: CopilotRealm) -> list[dict[str, Any]]:
+    """Every tool the model is offered, in a FIXED order, IDENTICAL ON EVERY REQUEST OF
+    THIS REALM.
+
+    ONE COMPOSER FOR BOTH REALMS, so there is still one answer to "what tools exist" and
+    the cacheable prefix has one definition per realm. `set_fields` comes first because it
+    was first and because moving it would change the prefix for no gain; the read tools
+    follow in `realm_read_tools` order, and the proposing write tools last in registration
+    order.
+
+    **THE RULE IS NOT "NEVER VARY", IT IS "BYTE-IDENTICAL WITHIN A REALM", AND D-499 IS
+    WHERE THAT DISTINCTION HAD TO BE MADE.** Prompt caching keys on a leading run of
+    identical tokens: *"A minimum of 1,024 tokens in length"*, *"The first 1,024 tokens in
+    the prompt must be identical"*, over *"both the messages array and tool definitions"*
+    (MicrosoftDocs/azure-ai-docs, `articles/foundry/openai/includes/
+    how-to-prompt-caching-content.md` @ main, read 1 Sep 2026). A REALM is a stable
+    partition of requests — every admin request gets one array, every client request gets
+    the other — so it is two caches, each hit by its own population. A per-SCREEN or
+    per-ROLE array is the thing that destroys caching, because it partitions the traffic
+    into slices too small and too numerous to keep warm.
+
+    NOTHING IS GATED OUT OF EITHER ARRAY — not by screen, not by tenant, not by role. A
+    caller who may not use a read tool is refused INSIDE it by `tools.run_read_tool`, which
+    is where the check has to exist anyway: a schema the model was never shown is
+    obscurity, not an access control. `copilot/tools_test.py` pins the byte-identity across
+    two differing requests, per realm, and that the two realms differ.
     """
     return [
         prompt_module.set_fields_tool(),
-        *tools_module.read_tool_schemas(),
+        *[
+            prompt_module.function_tool(
+                name=tool.name, description=tool.description, parameters=tool.parameters
+            )
+            for tool in realm_read_tools(realm)
+        ],
         *write_tools.write_tool_schemas(),
     ]
 
 
 async def _run_read_tools(
-    calls: Sequence[chat.ToolCall], *, context: ToolContext | None
+    calls: Sequence[chat.ToolCall],
+    *,
+    context: ToolContext | None,
+    registry: Mapping[str, tools_module.ReadTool],
+    steps: list[CopilotStepEvent],
 ) -> list[dict[str, object]]:
     """Every read call of ONE turn, executed, as the `role: "tool"` messages that answer them.
 
@@ -543,11 +660,32 @@ async def _run_read_tools(
     """
     permitted = calls[: tools_module.MAX_CALLS_PER_TURN]
     refused = calls[tools_module.MAX_CALLS_PER_TURN :]
+    # PER-CALL TIMING, NOT PER-BATCH. These run concurrently, so one `gather` boundary would
+    # report every call as taking as long as the slowest — which is precisely the number a
+    # person watching the steps is trying to find out. `run_read_tool` never raises, so the
+    # wrapper needs no exception arm and `gather` needs no `return_exceptions`.
+    started = {call.id: time.monotonic() for call in permitted}
     results = await asyncio.gather(
         *(
-            tools_module.run_read_tool(call.name, call.arguments, context=context)
+            tools_module.run_read_tool(
+                call.name, call.arguments, context=context, registry=registry
+            )
             for call in permitted
         )
+    )
+    steps.extend(
+        _step_end(
+            call,
+            # A REFUSAL FROM A READ TOOL IS STILL A `done` STEP HERE, and that is honest
+            # rather than lazy: `run_read_tool` answers a permission refusal, an unknown
+            # tool and an empty result with the same kind of sentence, and this function
+            # cannot tell them apart without parsing our own prose. The sentence itself is
+            # in `detail`, where the person reads it.
+            status="done",
+            detail=result,
+            started_at=started[call.id],
+        )
+        for call, result in zip(permitted, results, strict=True)
     )
     messages: list[dict[str, object]] = [
         {"role": "tool", "tool_call_id": call.id, "content": result}
@@ -674,6 +812,78 @@ def _with_tool_result(
     ]
 
 
+def _preview(value: str) -> str:
+    """One string, safe to put in a step frame and short enough to render as a row.
+
+    Stripped of invisible characters (`sanitize`'s egress half — this reaches the DOM), then
+    collapsed to one line, then truncated with an ellipsis so a reader can see that there
+    was more. NOT redacted here and deliberately: `routes.assert_redacted` has already
+    refused the whole request if the payload carried a personal value, and this text is the
+    caller's own account data going back to the caller's own screen.
+    """
+    flat = " ".join(strip_invisible(value).split())
+    return flat if len(flat) <= MAX_STEP_CHARS else flat[: MAX_STEP_CHARS - 1] + "…"
+
+
+def _step_start(call: chat.ToolCall) -> CopilotStepEvent:
+    """The frame that says a tool call has STARTED, emitted before it runs.
+
+    The provider's own `tool_call_id` is the step id: it is unique within the response, it
+    is already the key the message plumbing uses to pair a call with its result, and
+    inventing a second identifier would be a second way to name one thing.
+    """
+    return CopilotStepEvent(
+        id=call.id, tool=call.name, status="running", args=_preview(call.arguments or "")
+    )
+
+
+def _step_end(
+    call: chat.ToolCall,
+    *,
+    status: Literal["done", "refused", "failed"],
+    detail: str,
+    started_at: float,
+) -> CopilotStepEvent:
+    """The terminal frame for one call, carrying what came back and how long it took.
+
+    `time.monotonic` rather than the wall clock: this is a DURATION, and a wall clock can
+    step backwards under NTP and report a negative one.
+    """
+    return CopilotStepEvent(
+        id=call.id,
+        tool=call.name,
+        status=status,
+        args=_preview(call.arguments or ""),
+        detail=_preview(detail),
+        elapsed_ms=int((time.monotonic() - started_at) * 1000),
+    )
+
+
+def _problem_result(problem: ProblemError) -> str:
+    """A platform refusal, as the tool result the model reads. D-500.
+
+    **THE FOUNDER'S RULE IN ONE FUNCTION: "if the gate refuses, the assistant reports the
+    refusal and its remediation — it never retries around it."** A compliance gate that
+    said no is not an error to recover from, it is the answer, and the person needs the
+    reasons and the next step rather than an apology. `title`, `detail` and `remediation`
+    are the three fields every `ProblemError` in this platform already carries and the same
+    three the console renders through `ProblemNotice`, so the assistant and the screen say
+    the same thing about the same refusal.
+
+    THE `code` IS DELIBERATELY NOT INCLUDED. It is an internal identifier a person cannot
+    act on, and a model handed one will repeat it. Nothing here is a value from the object
+    either — every string is authored by this repository (hard rule 6).
+    """
+    parts = [f"REFUSED, and NOTHING was changed. {problem.title}: {problem.detail}"]
+    if problem.remediation:
+        parts.append(f"What would fix it: {problem.remediation}")
+    parts.append(
+        "Tell the person this, in your own words, including what would fix it. Do NOT call "
+        "the tool again and do NOT look for another way to do it."
+    )
+    return " ".join(parts)
+
+
 async def _run_tool_loop(
     payload: CopilotAskIn,
     capability: AssistCapability,
@@ -681,9 +891,12 @@ async def _run_tool_loop(
     leg: chat.ChatLeg,
     turn: _TurnRunner,
     model: str | None,
+    realm: CopilotRealm = "client",
     tool_context: ToolContext | None = None,
     live: str = "",
-    actor: write_tools.ToolActor | None = None,
+    principal: Principal | None = None,
+    seed: str = "",
+    ip: str | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
@@ -710,14 +923,46 @@ async def _run_tool_loop(
     change is the "second chance to change what they were shown" that
     `test_a_valid_set_fields_stops_the_loop_immediately` exists to forbid.
 
-    `actor` is who the write tools may propose FOR, and `None` is a legitimate value that
-    the tools refuse rather than a state this function branches on — see
+    **THE LOOP NOW DISPATCHES ON THE ACTION'S TIER, AND THAT IS D-500's LOAD-BEARING LINE.**
+    An action tool is either `confirm` — plan it, sign it, emit a proposal, END, exactly as
+    every write tool did before — or `immediate`, which RUNS and then goes round again so
+    the model can tell the person what it did and where to find it. Which of the two is read
+    from `write_tools.tier_of`, i.e. from the registry, and from nothing else: not from the
+    arguments, not from the object, and above all not from anything the model said. A
+    mis-tiered action is a campaign launched with no click, so there is exactly one source
+    for the answer and it is a required field with no default.
+
+    A `confirm` action ENDS the loop for the same reason a fill does: one act per turn, so
+    the person has one thing in front of them to decide about. An `immediate` action does
+    NOT end it, and that asymmetry is the whole point of the tier — the change has already
+    happened, so there is nothing to decide and everything to explain, and a run that
+    stopped at the write would leave somebody with a receipt and no sentence.
+
+    `principal` is who the actions run AS. It replaced a narrowed `ToolActor` because a Tier
+    1 action writes an `audit_log` row in the same transaction as its change and
+    `write_audit` names the actor from a `Principal`; passing both would have been one fact
+    in two shapes that a caller could get out of step. `None` is a legitimate value that the
+    tools refuse rather than a state this function branches on — see
     `write_tools.write_tool_schemas`, which is the same list for every caller precisely so
-    that the cacheable prefix cannot become a function of who is asking."""
-    messages: list[chat.ChatMessage] = list(prompt_module.build_messages(payload, live))
-    # ONE LIST, SAME BYTES, EVERY REQUEST — see `tool_array`, which is the only composer.
-    tools = tool_array()
+    that the cacheable prefix cannot become a function of who is asking.
+
+    `seed` is `write_tools.conversation_seed(...)`: what makes a Tier 1 action's idempotency
+    key stable across a retry of the same question. `""` means "nobody named this
+    conversation", which still produces a deterministic key for a given tool and arguments —
+    the same conversation, unnamed, is still one conversation for the length of a run."""
+    messages: list[chat.ChatMessage] = list(build_messages(payload, live, realm))
+    # ONE LIST, SAME BYTES, EVERY REQUEST OF THIS REALM — see `tool_array`, which is the
+    # only composer, and which argues why a realm is a partition caching survives and a
+    # screen or a role is not.
+    tools = tool_array(realm)
     turns: list[chat.ChatOutcome] = []
+    # THE NARROWING HAPPENS ONCE, HERE. `actor_for` is the only place a `Principal` becomes
+    # a `ToolActor`, and it refuses rather than defaults, so a principal with no tenant
+    # cannot reach a tool as a `None` id.
+    actor = None if principal is None else write_tools.actor_for(principal)
+    #: How many TIER 1 actions this ANSWER has performed. See `MAX_ACTIONS_PER_RUN` — the
+    #: bound is on what one question changed, so it lives outside the turn loop.
+    actions_run = 0
     #: The LAST refusal fed back to the model, kept so the out-of-turns message can name
     #: it. One tuple for both tool families: "narrow the request" is unhelpful advice to
     #: somebody whose real problem is that the field is read-only OR that their role may
@@ -757,6 +1002,13 @@ async def _run_tool_loop(
             call for call in outcome.tool_calls if call.name == prompt_module.SET_FIELDS_TOOL_NAME
         ]
         write_calls = [call for call in outcome.tool_calls if write_tools.is_write_tool(call.name)]
+        # THE TIER SPLIT, READ FROM THE REGISTRY. `tier_of` is the one reader; a call whose
+        # name is in `write_calls` always has a tier, so the `== "confirm"` test is total
+        # and the `immediate` list is its complement rather than a second lookup.
+        confirm_calls = [
+            call for call in write_calls if write_tools.tier_of(call.name) == "confirm"
+        ]
+        immediate_calls = [call for call in write_calls if call not in confirm_calls]
         # WHATEVER IS LEFT IS A LOOKUP. Derived by elimination rather than by asking the
         # read registry, so a tool the model invents lands here and is answered by
         # `_run_read_tools` with "no such tool" instead of vanishing into a turn that
@@ -787,7 +1039,7 @@ async def _run_tool_loop(
         if fill_calls and write_calls:
             call = fill_calls[0]
             reasons = (
-                "you filled fields and proposed a change in the same turn, "
+                "you filled fields and asked for a change in the same turn, "
                 "which this app cannot apply as one act",
             )
             messages = _with_tool_result(
@@ -835,17 +1087,24 @@ async def _run_tool_loop(
             )
             return
 
-        # THE WRITE PATH, AND IT WRITES NOTHING. `plan_write` reads, describes and signs;
-        # the only thing that reaches the person is a proposal they can refuse by doing
-        # nothing. The loop ENDS here for the same reason a fill ends it: one act per turn,
-        # so the person has one thing in front of them to decide about.
+        # TIER 2 — THE PROPOSING PATH, AND IT WRITES NOTHING. `plan_write` reads, describes
+        # and signs; the only thing that reaches the person is a proposal they can refuse by
+        # doing nothing. The loop ENDS here for the same reason a fill ends it: one act per
+        # turn, so the person has one thing in front of them to decide about.
         #
         # GUARDED, because a read-only turn now reaches this line. Before the read tools
         # existed the prose exit above guaranteed a write call was present by the time
         # control got here, and this was an unconditional `write_calls[0]`; a lookup-only
         # turn would have made that an IndexError.
-        if write_calls:
-            call = write_calls[0]
+        #
+        # CHECKED BEFORE THE IMMEDIATE PATH, so a turn that somehow asks for both resolves
+        # towards the one that needs a person: the proposal is shown, the run ends, and
+        # nothing has happened. The opposite order would perform a write and then ask about
+        # another one in the same breath.
+        if confirm_calls:
+            call = confirm_calls[0]
+            started_at = time.monotonic()
+            yield CopilotEvent(step=_step_start(call))
             try:
                 proposal = await write_tools.plan_write(call.name, call.arguments, actor=actor)
             except write_tools.WriteRefusedError as refused:
@@ -857,6 +1116,11 @@ async def _run_tool_loop(
                     # cheapest place for a value to end up by accident (hard rule 6).
                     extra={"turn": turn_index, "tool": call.name},
                 )
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="refused", detail=refused.reason, started_at=started_at
+                    )
+                )
                 messages = _with_tool_result(
                     messages,
                     outcome,
@@ -866,12 +1130,127 @@ async def _run_tool_loop(
                     + ". Fix it and call the tool once more, or tell the user what you need.",
                 )
                 continue
+            except ProblemError as problem:
+                # A FACT ABOUT THE WORLD THE MODEL CANNOT ARGUE WITH — a 404 agent, a
+                # campaign this account cannot see. It used to end the stream through
+                # `routes.py`'s generic arm, which is the right shape for a button and the
+                # wrong one for a conversation: the person asked a question and got "the
+                # assistant stopped part-way". Handing it back as a tool result lets the
+                # model say what the platform said, which is also the founder's rule for a
+                # refused gate — report it, do not retry around it.
+                refusal_reasons = (problem.title,)
+                log.info(
+                    "copilot_write_problem",
+                    extra={"turn": turn_index, "tool": call.name, "code": problem.code},
+                )
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="refused", detail=problem.detail, started_at=started_at
+                    )
+                )
+                messages = _with_tool_result(messages, outcome, call, _problem_result(problem))
+                continue
 
+            yield CopilotEvent(
+                step=_step_end(call, status="done", detail=proposal.summary, started_at=started_at)
+            )
             yield CopilotEvent(proposal=proposal)
             yield CopilotEvent(
                 spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
             )
             return
+
+        # TIER 1 — IT RUNS, AND THEN THE LOOP GOES ROUND. D-500. The change has already
+        # happened by the time the event is emitted, so there is nothing for the person to
+        # decide and everything for the model to explain: the outcome goes back as a tool
+        # result naming what was done and WHERE IT LIVES, and the next turn is the sentence
+        # they read. That is also the founder's cross-screen rule — act from wherever they
+        # are, then say where the result is, rather than navigating them.
+        if immediate_calls:
+            call = immediate_calls[0]
+            if actions_run >= MAX_ACTIONS_PER_RUN:
+                # A REFUSAL FED BACK, NOT A SILENT STOP. The model still has turns and still
+                # owes the person an account of what it did and did not do.
+                refusal_reasons = (
+                    f"you have already made {MAX_ACTIONS_PER_RUN} changes answering this "
+                    "one question, which is the limit",
+                )
+                log.warning("copilot_action_cap", extra={"turn": turn_index, "tool": call.name})
+                yield CopilotEvent(
+                    step=_step_end(
+                        call,
+                        status="refused",
+                        detail=refusal_reasons[0],
+                        started_at=time.monotonic(),
+                    )
+                )
+                messages = _with_tool_result(
+                    messages,
+                    outcome,
+                    call,
+                    "NOTHING was done. " + refusal_reasons[0] + ". Tell the person what "
+                    "you have already changed and ask them to confirm the rest in a new "
+                    "message.",
+                )
+                continue
+            started_at = time.monotonic()
+            yield CopilotEvent(step=_step_start(call))
+            try:
+                action = await write_tools.run_immediate(
+                    call.name, call.arguments, principal=principal, seed=seed, ip=ip
+                )
+            except write_tools.WriteRefusedError as refused:
+                refusal_reasons = (refused.reason,)
+                log.info("copilot_action_refused", extra={"turn": turn_index, "tool": call.name})
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="refused", detail=refused.reason, started_at=started_at
+                    )
+                )
+                messages = _with_tool_result(
+                    messages,
+                    outcome,
+                    call,
+                    "NOTHING was changed. "
+                    + refused.reason
+                    + ". Fix it and call the tool once more, or tell the user what you need.",
+                )
+                continue
+            except ProblemError as problem:
+                # The platform refused: a closed account, an archived agent, an engine that
+                # would not take the publish. Same treatment as the Tier 2 arm above and for
+                # the same reason.
+                refusal_reasons = (problem.title,)
+                log.info(
+                    "copilot_action_problem",
+                    extra={"turn": turn_index, "tool": call.name, "code": problem.code},
+                )
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="failed", detail=problem.detail, started_at=started_at
+                    )
+                )
+                messages = _with_tool_result(messages, outcome, call, _problem_result(problem))
+                continue
+
+            actions_run += 1
+            yield CopilotEvent(
+                step=_step_end(call, status="done", detail=action.detail, started_at=started_at)
+            )
+            yield CopilotEvent(action=action)
+            messages = _with_tool_result(
+                messages,
+                outcome,
+                call,
+                # THE SERVER'S OWN SENTENCE, handed back verbatim. The model is being told
+                # what happened rather than being asked to remember what it asked for, which
+                # is the difference between "I created it" and "I created it, and it is a
+                # draft under Agents".
+                f"DONE. {action.detail} The person will find it {action.where}. "
+                "Tell them in one or two sentences what you did and where it is. Do not "
+                "call this tool again for the same thing.",
+            )
+            continue
 
         # A LOOKUP, NOT AN ANSWER, and the only branch that goes round again. It sits
         # AFTER the fill and write paths because both of those END the turn: a turn that
@@ -879,10 +1258,25 @@ async def _run_tool_loop(
         # the person will see wins, and the lookup is dropped rather than answered into a
         # turn that has already shown them something. Anything the model said alongside
         # the calls has already been streamed; only the tool plumbing is added here.
+        # THE STEP FRAMES ARE EMITTED AROUND the batch: every `running` first, so the
+        # panel shows all of them at once (they run concurrently and a person should see
+        # that), then the terminal frames `_run_read_tools` collected with their own
+        # per-call timings.
+        for call in read_calls[: tools_module.MAX_CALLS_PER_TURN]:
+            yield CopilotEvent(step=_step_start(call))
+        read_steps: list[CopilotStepEvent] = []
+        read_messages = await _run_read_tools(
+            read_calls,
+            context=tool_context,
+            registry=_read_tool_registry(realm),
+            steps=read_steps,
+        )
+        for step in read_steps:
+            yield CopilotEvent(step=step)
         messages = [
             *messages,
             _assistant_tool_message(outcome, read_calls),
-            *await _run_read_tools(read_calls, context=tool_context),
+            *read_messages,
         ]
         log.info("copilot_read_tools", extra={"turn": turn_index, "calls": len(read_calls)})
         continue
@@ -906,9 +1300,12 @@ async def run_copilot(
     *,
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
+    realm: CopilotRealm = "client",
     tool_context: ToolContext | None = None,
     live: str = "",
-    actor: write_tools.ToolActor | None = None,
+    principal: Principal | None = None,
+    seed: str = "",
+    ip: str | None = None,
 ) -> AsyncIterator[CopilotEvent]:
     """Answer one copilot question. THE RUN of SUBJECT → GATE → RUN → METER.
 
@@ -943,10 +1340,26 @@ async def run_copilot(
     the same reason: this module holds no connection across a provider call and is not about
     to open one. `""` — the default, and what a degraded snapshot produces — means the model
     sees the screen alone, which is exactly what it saw before that module existed.
-    `actor` arrives the same way again: it is the PRINCIPAL, narrowed, and this module must
-    not go looking for one. `None` defaults to "this run may propose nothing", which the
-    write tools enforce themselves — see `write_tools.plan_write`. It is deliberately NOT a
-    switch that changes the tool list (`write_tools.write_tool_schemas`).
+    `principal` arrives the same way again: it is WHO IS ASKING, and this module must not go
+    looking for one. `None` defaults to "this run may propose nothing and change nothing",
+    which the action tools enforce themselves — see `write_tools.plan_write` and
+    `write_tools.run_immediate`, both of which refuse an actorless call rather than assuming
+    one. It is deliberately NOT a switch that changes the tool list
+    (`write_tools.write_tool_schemas`).
+
+    ⚠ **IT WAS A NARROWED `ToolActor` UNTIL D-500 AND IS NOW THE `Principal` ITSELF.** The
+    narrowing did not disappear — `write_tools.actor_for` still performs it, once, inside
+    the loop — it MOVED, because a Tier 1 action writes an `audit_log` row in the same
+    transaction as its change and `write_audit` names the actor from a `Principal`. Passing
+    both would have been one fact in two shapes, which a caller can get out of step; passing
+    the narrowed one and reconstructing a principal from it would have been a fabricated
+    auth object. This is the smaller of the three.
+
+    `seed` and `ip` belong to the same act: the first is what makes a Tier 1 action's
+    idempotency key stable across a retry of the same question
+    (`write_tools.conversation_seed`), the second is the audit row's fourth field
+    (SEC-COMP §5). Both are composed by the ROUTE, which is the only layer that has a
+    request.
     """
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
@@ -977,9 +1390,12 @@ async def run_copilot(
                     leg=leg,
                     turn=turn,
                     model=model,
+                    realm=realm,
                     tool_context=tool_context,
                     live=live,
-                    actor=actor,
+                    principal=principal,
+                    seed=seed,
+                    ip=ip,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
@@ -997,7 +1413,7 @@ async def run_copilot(
         if not capability.available:
             raise assist_unavailable(capability)
 
-    async for event in _answer_via_sarvam(payload, capability, live=live):
+    async for event in _answer_via_sarvam(payload, capability, live=live, realm=realm):
         yield event
 
 

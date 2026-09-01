@@ -104,6 +104,21 @@ Permission = Literal[
     # and can still only COMPLETE the changes their own role (plus, for knowledge, their
     # owner's switch) already admits.
     "copilot:use",
+    # OPENING THE ADMIN-REALM ASSISTANT — `POST /v1/admin/copilot/ask` and
+    # `POST /v1/admin/copilot/confirm`, and nothing else (D-499).
+    #
+    # A SEPARATE NAME FROM `copilot:use`, AND THE SPLIT IS LOAD-BEARING RATHER THAN
+    # TIDY. The two copilots have different tools, different memories, different knowledge
+    # and — the half that decides this — DIFFERENT PAYERS: the client assistant spends the
+    # account's own AI allowance, the admin assistant spends ours (`billing/platform_ai.py`,
+    # `platform_ai_usage`). One permission over both would have meant one D-22 answer over
+    # both, and the two need opposite ones (see `IMPERSONATION_PERMITTED_MUTATIONS`).
+    #
+    # HELD BY ADMIN ROLES ONLY. Every route declaring it is `realm="admin"`, so a client
+    # `owner` could not reach one anyway (`ADMIN_REALM_PREFIXES` is what keeps them out,
+    # never the permission) — but a client role that HELD it would read, in the schema and
+    # in the generated client, as a client-facing capability, which it is not.
+    "copilot:admin",
     "admin:tenants",
     "admin:impersonate",
     # THE OPERATOR ALLOWLIST ITSELF — creating an operator account, changing its role,
@@ -294,14 +309,23 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "agents:write",
             "calls:read",
             "calls:read_raw",
-            # HELD, AND UNREACHABLE, AND BOTH ARE CORRECT. The tier boundary is exactly
-            # `SUPERADMIN_ONLY_PERMISSIONS` and `copilot:use` is not in it, so withholding
-            # it here would be a bug in this file by the equation the docstring states.
-            # It opens no request an admin can send: `copilot/routes.py` argues at length
-            # that the admin realm gets no copilot because it has no PAYER
-            # (`principal.tenant_id is None`), and reaching the client-realm route means
-            # impersonating, which `MUTATING_PERMISSIONS` refuses.
+            # HELD, AND STILL UNREACHABLE, AND BOTH ARE STILL CORRECT — but the reason
+            # changed with D-499 and this comment used to give the old one. The tier
+            # boundary is exactly `SUPERADMIN_ONLY_PERMISSIONS` and `copilot:use` is not in
+            # it, so withholding it here would be a bug in this file by the equation the
+            # docstring states. It opens no request an admin can send: the admin realm now
+            # HAS a copilot, but it is `copilot:admin` on `/v1/admin/copilot/ask`, and
+            # reaching the CLIENT route means impersonating — which `MUTATING_PERMISSIONS`
+            # refuses for this permission and deliberately does not exempt, because a
+            # client's own AI allowance is what that route spends.
             "copilot:use",
+            # THE ADMIN ASSISTANT, and unlike `copilot:use` above this one is REACHABLE
+            # (D-499): `/v1/admin/copilot/ask` is an admin-realm route whose payer is the
+            # platform. It is not superadmin-only by the equation the module docstring
+            # states — asking an assistant about platform state is not one of the four
+            # vital authorities — and an operator who cannot use the console's own
+            # assistant is the tier boundary drawn in the wrong place.
+            "copilot:admin",
             "leads:read",
             "leads:write",
             "leads:dispatch",
@@ -334,6 +358,14 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         # refusal silently — the route would still have looked guarded, and the only
         # visible symptom would have been a client's bill.
         "copilot:use",
+        # ASKING THE ADMIN ASSISTANT SPENDS OUR OWN AI CREDENTIAL — `platform_ai_usage` is
+        # an append-only money row and the platform brake moves — so it is a mutation for
+        # the same reason `copilot:use` is, and the sweep over the route table
+        # (`tests/authz_audit_test.py`) states that rule rather than trusting a habit.
+        # It is then named in `IMPERSONATION_PERMITTED_MUTATIONS`, which is where the D-22
+        # question is answered for it; read that constant before reading this line as a
+        # licence to act inside a client's session.
+        "copilot:admin",
         "ops:manage",
         "admin:tenants",
         # Creating, promoting, demoting and revoking an operator account. Listed for the
@@ -357,6 +389,40 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         "platform:secrets",
     }
 )
+
+
+# THE ONE HOLE IN THE D-22 LINE, NAMED RATHER THAN LEFT AS AN `or` IN `requires()` (D-499).
+#
+# `requires()` refuses an impersonating principal every permission in `MUTATING_PERMISSIONS`
+# — "no acting-as, ever". That rule is unchanged and this set does not weaken it, because
+# what it exempts is not an ACT inside the client's account: it is the operator asking their
+# OWN assistant a question while a client's screen is on the monitor.
+#
+# WHY IT IS SAFE IS A PROPERTY, NOT A PROMISE, and the property is the payer. `copilot:use`
+# is in `MUTATING_PERMISSIONS` because asking spends THE CLIENT'S included allowance, and
+# an operator burning it from the client's own screen is the exact hazard that listing
+# exists for. `copilot:admin` spends `platform_ai_usage` — ours — on every path, whether the
+# operator is impersonating or not (`billing/platform_ai.py`; the founder: *"You never
+# charge a client for your own support work"*). So the hazard the listing protects against
+# cannot occur on this permission: there is no client balance for it to move.
+#
+# WHAT AN IMPERSONATING OPERATOR STILL CANNOT DO, and none of it relies on this set:
+#
+#   * CHANGE ANYTHING. The admin assistant's write tools are refused at the point of use by
+#     `write_tools._may`, which is `requires()`'s own ladder asked from a non-route caller —
+#     the same `MUTATING_PERMISSIONS` membership, the same D-22 clause, one implementation.
+#     `leads:write`, `leads:dispatch`, `org:manage` and `kb:write` are all in that set, so
+#     every write tool refuses to PROPOSE and `write_tools.confirm` refuses again to APPLY.
+#   * CONFIRM A PROPOSAL. `copilot:admin` is not `copilot:use`, and it is deliberately not
+#     the permission on either confirm route; both stay refused by the ordinary D-22 line.
+#   * SPEND THE CLIENT'S ALLOWANCE. `copilot:use` is NOT in this set and never will be —
+#     that is the sentence to check if this constant is ever edited.
+#
+# A SET RATHER THAN A SPECIAL CASE IN `requires()`, so the exemption is a value a test can
+# walk (`tests/admin_copilot_billing_test.py` pins its membership) rather than a branch a
+# reader has to find.
+IMPERSONATION_PERMITTED_MUTATIONS: frozenset[Permission] = frozenset({"copilot:admin"})
+
 
 # Routes exempt from the boot assertion: unauthenticated by design.
 #

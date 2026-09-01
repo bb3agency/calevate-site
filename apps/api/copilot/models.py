@@ -120,4 +120,74 @@ class CopilotMemory(PKMixin, TimestampMixin, Base):
     )
 
 
-__all__ = ["MAX_CONTENT_CHARS", "MEMORY_KINDS", "SEARCH_CONFIG", "CopilotMemory"]
+class AdminCopilotMemory(PKMixin, TimestampMixin, Base):
+    """One thing the ADMIN copilot remembers, for one operator (D-499, `f2c81a4d05e7`).
+
+    A SECOND TABLE RATHER THAN A WIDENED FIRST ONE, and the reason is a foreign key.
+    `Principal.user_id` is a `users.id` on the client realm and an `admin_users.id` on the
+    admin realm; `copilot_memories.user_id` references `users`. So an operator's memory
+    written there is a constraint violation at best and a cross-realm leak at worst — a
+    client asking their own copilot a question would get an operator's notes about their
+    account recalled back into the answer, because recall's only predicate is `user_id`
+    and two id spaces would be sharing one column.
+
+    Widening the client table instead (nullable `tenant_id`, a realm discriminator, the FK
+    dropped) was considered and rejected in the migration: a tenant-scoped table with a
+    nullable `tenant_id` is one whose RLS policy cannot be written, and it puts two
+    populations behind one predicate where a bug is a cross-realm read.
+
+    NO `tenant_id` AND NO RLS POLICY. These rows are the platform's own — an operator's
+    questions about platform state — so there is no tenant whose row this could be.
+    `viewing_tenant_id` records which account was on screen when the memory formed, so a
+    fact learned on one client's page is not recalled as a fact about the platform; it is
+    context, and `copilot/admin_memory.py::recall` scopes on it.
+
+    NO `distilled_at` and no pending-distillation index: there is no admin distillation
+    worker, and a column nothing writes is the defect CLAUDE.md names by hand. `kind` still
+    admits `semantic` because a future distiller writes rows, not DDL.
+    """
+
+    __tablename__ = "admin_copilot_memories"
+    __table_args__ = (
+        CheckConstraint("kind IN ('episodic', 'semantic')", name="kind_enum"),
+        CheckConstraint("length(btrim(content)) > 0", name="content_not_blank"),
+        CheckConstraint(f"length(content) <= {MAX_CONTENT_CHARS}", name="content_cap"),
+        CheckConstraint(
+            "kind <> 'semantic' OR screen_route IS NULL", name="semantic_has_no_screen"
+        ),
+        Index(
+            "ix_admin_copilot_memories_user_recent",
+            "admin_user_id",
+            text("created_at DESC"),
+        ),
+        Index("ix_admin_copilot_memories_search", "search", postgresql_using="gin"),
+    )
+
+    #: CASCADE for `CopilotMemory.user_id`'s reason: a removed operator's console memories
+    #: have no subject left, and RESTRICT would make this row block the deletion of the
+    #: person it is about.
+    admin_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    screen_route: Mapped[str | None] = mapped_column(String(200))
+    #: SET NULL, not RESTRICT: an offboarded tenant must be deletable, and an operator's
+    #: memory of supporting them is platform state that outlives the account.
+    viewing_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+    meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    search: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(f"to_tsvector('{SEARCH_CONFIG}'::regconfig, content)", persisted=True),
+    )
+
+
+__all__ = [
+    "MAX_CONTENT_CHARS",
+    "MEMORY_KINDS",
+    "SEARCH_CONFIG",
+    "AdminCopilotMemory",
+    "CopilotMemory",
+]

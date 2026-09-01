@@ -421,6 +421,15 @@ class TestRlsCoverage:
             "platform_dashboard_data_use",
             "platform_state",
             "platform_ai_spend",
+            # D-499: the ADMIN copilot's own AI spend, and the operator memories that go
+            # with it. Platform state for `platform_ai_spend`'s reason with one extra turn
+            # of the screw — the payer is CALEVATE, never a client, so there is not merely
+            # no tenant whose row this could be, there is a decision that it must not be a
+            # client's. `viewing_tenant_id` on both tables is CONTEXT (which account was on
+            # screen) and is nullable and SET NULL on delete; nothing prices it and no
+            # client-facing figure reads it.
+            "platform_ai_usage",
+            "admin_copilot_memories",
             # The state behind `engine_error_spike` (OPERATIONS §4): one row per
             # (engine, minute) of vendor server errors. Platform state for the same
             # reason `platform_state` is — the engine is answering or it is not, for

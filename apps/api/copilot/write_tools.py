@@ -86,27 +86,43 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal
 from uuid import UUID
 
 import jwt
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot.prompt import function_tool
+from apps.api.copilot.actions import (
+    PROPOSES_ONLY,
+    ActionTier,
+    ActionTool,
+    Executed,
+    Plan,
+    ToolActor,
+    WriteRefusedError,
+    action_schema,
+    actor_for,
+    may_act,
+    parse_args,
+)
+from apps.api.copilot.agent_actions import AGENT_ACTIONS
 from apps.api.copilot.sanitize import strip_invisible
-from apps.api.copilot.schemas import CopilotConfirmOut, CopilotProposalEvent
+from apps.api.copilot.schemas import (
+    CopilotActionEvent,
+    CopilotConfirmOut,
+    CopilotProposalEvent,
+)
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.crm import service as crm_service
@@ -115,11 +131,19 @@ from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
 from apps.api.kb import proposals as kb_proposals
+from apps.api.reliability.service import (
+    claim_idempotency,
+    complete_idempotency,
+    fail_idempotency,
+    scope_key,
+)
 
-# The one predicate for "may this person curate knowledge" — the role table PLUS the
-# owner's per-account switch. Imported rather than re-derived so the assistant and the
-# Add-Knowledge form cannot come to disagree about one person (see `_may`).
-from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
+#: **`WriteTool` IS `actions.ActionTool` AND THE OLD NAME IS KEPT ON PURPOSE.** The type
+#: moved to `actions.py` when the registry grew a second leaf module (`agent_actions.py`)
+#: and a shared vocabulary had to live somewhere neither could import in a cycle. Renaming
+#: it at the same time would have made one change read as two; the alias is what keeps
+#: `copilot/service.py`, the tests and every reader's `grep` pointing at one thing.
+WriteTool = ActionTool
 
 log = get_logger(__name__)
 
@@ -163,102 +187,14 @@ _REQUIRED_CLAIMS: Final = ("exp", "iat", "jti", "sub", "aud", ACTOR_CLAIM, "tool
 _JTI_KEY: Final = "calevate:copilot:proposal:used:{jti}"
 
 
-class WriteRefusedError(Exception):
-    """The model asked for a proposal this request cannot mint, in a way it could FIX.
-
-    Sibling of `service.FillRefusedError` and it exists for the same reason: the refusal
-    is handed BACK to the model as a tool result so it can correct itself inside the turn
-    cap, rather than surfacing to a person as a dead end. A `ProblemError` raised by a
-    service function underneath (a 404 lead, a 409 campaign) is NOT this — that is a fact
-    about the world the model cannot argue with, and it reaches the person.
-
-    `reason` names ids and shapes, never a value (hard rule 6): it reaches a log line and
-    a prompt.
-    """
-
-    def __init__(self, reason: str) -> None:
-        self.reason = reason
-        super().__init__(reason)
-
-
-@dataclass(frozen=True, slots=True)
-class ToolActor:
-    """Who a proposal is minted for. Ids only (hard rule 6).
-
-    A narrowed `Principal`: the two fields the copilot cannot work without are Optional on
-    that dataclass (an admin-realm principal has no tenant), and threading `UUID | None`
-    into a signing function is how a `None` ends up in a `sub` claim. `actor_for` is the
-    one place the narrowing happens and it refuses rather than defaults.
-    """
-
-    tenant_id: UUID
-    user_id: UUID
-    role: str
-    impersonating: bool
-
-
-def actor_for(principal: Principal) -> ToolActor | None:
-    """The copilot actor behind this principal, or None if there is not one.
-
-    None is not an error here: `service.run_copilot` is reachable in tests and from callers
-    that hold no principal, and a tool that cannot name an actor simply refuses (see
-    `plan_write`). Refusing INSIDE the tool rather than by dropping the tool from the
-    schema is deliberate — the tool list is the cacheable prompt prefix (`prompt.py`,
-    point 1) and must be byte-identical on every request.
-    """
-    if principal.tenant_id is None or principal.user_id is None or principal.role is None:
-        return None
-    return ToolActor(
-        tenant_id=principal.tenant_id,
-        user_id=principal.user_id,
-        role=principal.role,
-        impersonating=principal.impersonating,
-    )
-
-
-def _actor_realm(actor: ToolActor) -> str:
-    """Which realm this actor came from, DERIVED rather than assumed.
-
-    `actor_for` refuses a principal with no tenant, and an ADMIN principal carries a tenant
-    only inside a D-22 view-as session — so an actor is admin-realm precisely when it is
-    impersonating. Returning `"client"` unconditionally would have been one word and would
-    have handed a client-writable column (`organizations.staff_may_curate_knowledge`) the
-    power to widen an ADMIN principal.
-    """
-    return "admin" if actor.impersonating else "client"
-
-
-async def _may(session: AsyncSession, actor: ToolActor, permission: Permission) -> bool:
-    """`core/auth.requires`'s ladder, in a form a non-route caller can ask.
-
-    NOT a re-derivation: the role table is `rbac.role_has` and the D-22 clause is
-    `MUTATING_PERMISSIONS`, both imported. A second copy of either would be a second
-    answer to "may this person do this", and the two would diverge on the day one of
-    them was updated.
-
-    **AND `kb:write` IS DELEGATED RATHER THAN ANSWERED HERE, FOR THAT SAME REASON.** Since
-    the founder's "give the staff perms allowing option to owner", who may curate knowledge
-    is the role table PLUS one per-account switch an owner controls, and
-    `kb/curation.may_curate_knowledge` is the one predicate that knows it — the same one
-    `POST /v1/kb/sources` spends. Answering `kb:write` from `role_has` alone here would
-    have made the assistant and the Add-Knowledge form disagree about one person in one
-    account: an owner switches staff curation on, the form opens, and the copilot keeps
-    refusing to complete the sentence it just offered.
-
-    THIS IS WHY THE FUNCTION TOOK A SESSION AND BECAME ASYNC. Both callers already had one
-    (`plan_write` opens its own short `tenant_session`; `confirm` uses the route's), so the
-    cost is a parameter rather than a connection.
-    """
-    if permission == CURATE_PERMISSION:
-        return await may_curate_knowledge(
-            session,
-            realm=_actor_realm(actor),
-            role=actor.role,
-            impersonating=actor.impersonating,
-        )
-    if not role_has(actor.role, permission):
-        return False
-    return not (actor.impersonating and permission in MUTATING_PERMISSIONS)
+# THE TYPES THAT USED TO BE DEFINED HERE NOW LIVE IN `copilot/actions.py`:
+# `WriteRefusedError`, `ToolActor`, `actor_for`, `may_act` (which was `_may`), `Plan`,
+# `Executed`, `Planner`, `Executor`, `ActionTool` (which was `WriteTool`), `parse_args`
+# (which was `_parse`) and `action_schema` (which was `_tool_schema`). They moved unchanged
+# apart from `Plan.cost` / `Plan.reversal` and `ActionTool.tier`, because a SECOND leaf
+# module of actions (`agent_actions.py`) now shares them and two leaves cannot import each
+# other. Nothing about the mechanism changed with the address; this file still owns the
+# token, the burn, the confirm door and the four tools that shipped first.
 
 
 # --- the signing key -------------------------------------------------------------------
@@ -318,86 +254,6 @@ def _signing_key() -> bytes:
     return hmac.new(parent, _KDF_INFO + b"\x01", hashlib.sha256).digest()
 
 
-# --- what a tool produces ---------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class Plan:
-    """A described intent. Produced by a READ, and by nothing else.
-
-    `current` and `proposed` are the pair the whole design turns on: a person confirming
-    "set this to hot" without being shown that it is already hot, or that it is currently
-    won, is not making an informed decision, and a proposal that omitted them would be a
-    button with a label instead of a description.
-
-    `args` is the CANONICAL argument dict — normalised by the tool, not the model's raw
-    JSON — and it is what gets signed. So what executes is what was described, not what
-    was asked for.
-    """
-
-    object_id: str
-    title: str
-    summary: str
-    current: str | None
-    proposed: str
-    args: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class Executed:
-    """What one confirmed proposal did.
-
-    `applied` is False when the world was ALREADY in the requested state — a real outcome
-    and not a failure, the same distinction `set_campaign_status` and `set_lead_status`
-    make (D-65). It is reported rather than smoothed over because "I did nothing because
-    it was already done" and "I did it" are different answers to the person who asked.
-    """
-
-    applied: bool
-    detail: str
-    audit_summary: dict[str, Any]
-
-
-#: A tool's read half: session (tenant-scoped, read-only by construction) → described plan.
-Planner = Callable[[AsyncSession, "ToolActor", Mapping[str, Any]], Awaitable[Plan]]
-#: A tool's write half, reached ONLY from `confirm`.
-Executor = Callable[[AsyncSession, "ToolActor", Mapping[str, Any]], Awaitable[Executed]]
-
-
-@dataclass(frozen=True, slots=True)
-class WriteTool:
-    """One proposable action.
-
-    The `permission` is the one the HUMAN's route already declares for the same act, read
-    off that route rather than chosen here: `PATCH /v1/leads/{id}` is `leads:write`,
-    `POST /v1/dnc` and `POST /v1/campaigns/{id}/pause` are both `leads:dispatch`. Picking
-    a different one would be this feature quietly disagreeing with the console about who
-    may do what.
-    """
-
-    name: str
-    permission: Permission
-    object_type: str
-    audit_action: str
-    schema: Mapping[str, Any]
-    plan: Planner
-    execute: Executor
-
-
-def _parse[M: BaseModel](model: type[M], args: Mapping[str, Any]) -> M:
-    """Tool arguments as a typed object, or a refusal the model can act on.
-
-    Pydantic's own message is not forwarded: it names internal field paths and can quote
-    the offending VALUE, and this string becomes both a log line and a prompt.
-    """
-    try:
-        return model.model_validate(dict(args))
-    except ValidationError as exc:
-        fields = sorted({str(error["loc"][0]) for error in exc.errors() if error["loc"]})
-        named = ", ".join(f"`{field}`" for field in fields) or "the arguments"
-        raise WriteRefusedError(f"{named} was missing or the wrong shape") from exc
-
-
 # --- tool 1: lead_set_status ------------------------------------------------------------
 
 
@@ -432,7 +288,7 @@ async def _plan_lead_status(
     leaks (hard rule 6, `sanitize.py`'s whole subject).
     """
     del actor
-    parsed = _parse(_LeadStatusArgs, args)
+    parsed = parse_args(_LeadStatusArgs, args)
     lead = await crm_service.get_lead(session, parsed.lead_id)
     current = _LEAD_STATUS_LABELS[lead.status]
     proposed = _LEAD_STATUS_LABELS[parsed.status]
@@ -445,6 +301,11 @@ async def _plan_lead_status(
         ),
         current=current,
         proposed=proposed,
+        # A CRM label move: nothing is dialled, nothing is billed, and the previous status
+        # is on the card the person just read, which is what makes the reversal exact
+        # rather than a reassurance.
+        cost=None,
+        reversal=f"Set it back to {current} on the lead's own screen at any time.",
         args={"lead_id": str(parsed.lead_id), "status": parsed.status},
     )
 
@@ -461,7 +322,7 @@ async def _execute_lead_status(
     boolean directly, and calling IT instead was the tempting shortcut — it would have
     skipped `update_lead`'s `lead.updated` emission, which is the CRM's own change feed.
     """
-    parsed = _parse(_LeadStatusArgs, args)
+    parsed = parse_args(_LeadStatusArgs, args)
     before = await crm_service.get_lead(session, parsed.lead_id)
     after = await crm_service.update_lead(
         session,
@@ -511,7 +372,7 @@ async def _plan_dnc_add(session: AsyncSession, actor: ToolActor, args: Mapping[s
     changes anything — and it mirrors the dispatch gate's own query by construction, so
     the sentence a person approves agrees with the gate that will enforce it.
     """
-    parsed = _parse(_DncAddArgs, args)
+    parsed = parse_args(_DncAddArgs, args)
     phone, _name = await crm_service.lead_phone(session, parsed.lead_id)
     check = await dnc.check_number(session, tenant_id=actor.tenant_id, raw=phone)
     current = "Already on your do-not-call list" if check.suppressed else "Not suppressed"
@@ -525,6 +386,14 @@ async def _plan_dnc_add(session: AsyncSession, actor: ToolActor, args: Mapping[s
         ),
         current=current,
         proposed="On your do-not-call list",
+        cost=None,
+        # HONEST IN THE NEGATIVE DIRECTION. A suppression is removable, but the dials it
+        # pulls back are gone from the queue, and a person told simply "reversible" would
+        # believe a paused campaign resumes where it stopped.
+        reversal=(
+            "You can take the number off your do-not-call list from the Do not call "
+            "screen. Calls it pulled out of the queue are not put back."
+        ),
         args={"lead_id": str(parsed.lead_id), "reason": parsed.reason},
     )
 
@@ -540,7 +409,7 @@ async def _execute_dnc_add(
     exists. A hand-written INSERT would have been three lines and would have silently
     dropped it.
     """
-    parsed = _parse(_DncAddArgs, args)
+    parsed = parse_args(_DncAddArgs, args)
     phone, _name = await crm_service.lead_phone(session, parsed.lead_id)
     result = await dnc.add_numbers(
         session,
@@ -587,7 +456,7 @@ async def _plan_campaign_pause(
     rendered sentence and the signed intent different things.
     """
     del actor
-    parsed = _parse(_CampaignPauseArgs, args)
+    parsed = parse_args(_CampaignPauseArgs, args)
     row = (
         await session.execute(
             text("SELECT name, status FROM campaigns WHERE id = :cid"),
@@ -608,6 +477,13 @@ async def _plan_campaign_pause(
         ),
         current=status,
         proposed="paused",
+        # Pausing SAVES money rather than costing it, and saying "no cost" would be the
+        # wrong half of that. `None` is "nothing is charged for doing this", which is true.
+        cost=None,
+        reversal=(
+            "You can start it again from the campaign screen. Calls already placed cannot "
+            "be recalled."
+        ),
         args={"campaign_id": str(parsed.campaign_id)},
     )
 
@@ -625,7 +501,7 @@ async def _execute_campaign_pause(
     machine.
     """
     del actor
-    parsed = _parse(_CampaignPauseArgs, args)
+    parsed = parse_args(_CampaignPauseArgs, args)
     applied = await campaigns_service.set_campaign_status(
         session,
         campaign_id=parsed.campaign_id,
@@ -694,7 +570,7 @@ async def _plan_propose_knowledge(
     the person is about to own; the body is up to 4,000 characters and belongs in the card
     the browser renders from `proposed`, not in a sentence that is also logged.
     """
-    parsed = _parse(_ProposeKnowledgeArgs, args)
+    parsed = parse_args(_ProposeKnowledgeArgs, args)
     if parsed.origin == "gap_digest" and parsed.topic_key is None:
         raise WriteRefusedError(
             "a suggestion presented as something the agent noticed must name the topic "
@@ -723,6 +599,11 @@ async def _plan_propose_knowledge(
         # to fill the field.
         current=None,
         proposed=name,
+        cost=None,
+        reversal=(
+            "Nothing reaches a caller until somebody approves it. Whoever reviews it can "
+            "reject it, and you can edit or remove it under Knowledge afterwards."
+        ),
         args={
             "agent_id": str(parsed.agent_id),
             "name": name,
@@ -749,7 +630,7 @@ async def _execute_propose_knowledge(
     `WriteRefusedError`: no model is listening at confirm time, and the person needs a
     sentence rather than the loop needing a retry.
     """
-    parsed = _parse(_ProposeKnowledgeArgs, args)
+    parsed = parse_args(_ProposeKnowledgeArgs, args)
     refusal = kb_proposals.proposable_refusal(parsed.name, parsed.body)
     if refusal is not None:  # pragma: no cover - the signature proves this ran at propose
         raise ProblemError(
@@ -797,58 +678,26 @@ async def _execute_propose_knowledge(
 # --- the registry -----------------------------------------------------------------------
 
 
-def _tool_schema(name: str, description: str, properties: dict[str, Any]) -> dict[str, Any]:
-    """One tool definition in the subset openai-python's `to_strict_json_schema` preserves
-    (`prompt.set_fields_tool` argues the subset; this is the same shape so that a reader
-    comparing the two finds one convention).
-
-    A FUNCTION rather than three dict literals so the envelope — `strict`, every property
-    required, `additionalProperties: false` — cannot drift between the tools. The ORDER of
-    keys is insertion order and is pinned by `write_tools_test.py`, because the tool block
-    is part of the cacheable prompt prefix and a reordering is a cache miss on every
-    request.
-
-    WHAT IS THIS MODULE'S AND WHAT IS THE PACKAGE'S: the ENVELOPE is
-    `prompt.function_tool`, spelled once for `set_fields`, for the read tools and for
-    these. What stays here is the PARAMETERS object, because "every property is REQUIRED"
-    is a fact about the write tools specifically — and it is a statement about the
-    `required` array, not about optionality. `propose_knowledge.topic_key` is genuinely
-    optional and is spelled `anyOf: [string, null]` AND listed in `required`, which is the
-    same shape a read tool uses and the only one `to_strict_json_schema` accepts: strict
-    mode has no way to say "may be absent", so an absent argument is a null one.
-    """
-    return function_tool(
-        name=name,
-        description=description,
-        parameters={
-            "type": "object",
-            "properties": properties,
-            "required": list(properties),
-            "additionalProperties": False,
-        },
-    )
-
-
-#: Said at the end of every write tool's description. The confirmation trigger is in code
-#: — this sentence is not what makes it true — but a model that believes it has ACTED will
-#: tell the person it has, and that lie is the one thing the code cannot prevent.
-_PROPOSES_ONLY: Final = (
-    " This does NOT do it. It shows the person exactly what would change and waits for "
-    "them to confirm. Say that you have suggested it, never that you have done it."
-)
-
 LEAD_SET_STATUS: Final = WriteTool(
     name="lead_set_status",
+    # TIER 2, AND IT IS THE ONE OF THE FOUR WHERE THAT IS A JUDGEMENT RATHER THAN A
+    # DEDUCTION. Moving a lead to `lost` reaches no caller and spends nothing, so the
+    # tier rule alone would admit `immediate`. It stays `confirm` because the founder's
+    # instruction was to keep the existing confirmable ones confirmable: people have
+    # already learned that this assistant asks before it touches their leads, and quietly
+    # taking the click away is a promise withdrawn without anybody being told.
+    tier="confirm",
     permission="leads:write",
     object_type="lead",
     # A new action name, in `number.dlt_status_set`'s spelling. The human `PATCH
     # /v1/leads/{id}` writes NO audit row at all — a gap this path does not inherit,
     # because an action a machine proposed needs a record naming the person who agreed.
     audit_action="lead.status_set",
-    schema=_tool_schema(
+    where="on the lead's own screen",
+    schema=action_schema(
         "lead_set_status",
         "Propose changing one lead's status (new, contacted, interested, hot, won, lost)."
-        + _PROPOSES_ONLY,
+        + PROPOSES_ONLY,
         {
             "lead_id": {
                 "type": "string",
@@ -867,14 +716,18 @@ LEAD_SET_STATUS: Final = WriteTool(
 
 DNC_ADD: Final = WriteTool(
     name="dnc_add",
+    # TIER 2 — it stops dials that are already queued at the vendor, which is a change to
+    # what happens on a phone line.
+    tier="confirm",
     permission="leads:dispatch",
     object_type="lead",
     audit_action="dnc.added",
-    schema=_tool_schema(
+    where="on the Do not call screen",
+    schema=action_schema(
         "dnc_add",
         "Propose adding one lead's phone number to this business's do-not-call list, so "
         "the platform stops calling them. Identify the lead by id — you are never told a "
-        "phone number and must never ask for one." + _PROPOSES_ONLY,
+        "phone number and must never ask for one." + PROPOSES_ONLY,
         {
             "lead_id": {
                 "type": "string",
@@ -899,12 +752,17 @@ DNC_ADD: Final = WriteTool(
 
 CAMPAIGN_PAUSE: Final = WriteTool(
     name="campaign_pause",
+    # TIER 2 — a stop button on live dialling. It is the SAFE direction, and it is still a
+    # click, because a campaign somebody is watching must not stop because a sentence was
+    # read a certain way.
+    tier="confirm",
     permission="leads:dispatch",
     object_type="campaign",
     audit_action="campaign.paused",
-    schema=_tool_schema(
+    where="on the campaign's own screen",
+    schema=action_schema(
         "campaign_pause",
-        "Propose pausing a running campaign, so it stops dialling." + _PROPOSES_ONLY,
+        "Propose pausing a running campaign, so it stops dialling." + PROPOSES_ONLY,
         {
             "campaign_id": {
                 "type": "string",
@@ -918,6 +776,12 @@ CAMPAIGN_PAUSE: Final = WriteTool(
 
 PROPOSE_KNOWLEDGE: Final = WriteTool(
     name="propose_knowledge",
+    # TIER 2, AND THE FOUNDER'S TIER 1 LIST SAYS "draft knowledge". The two are reconciled
+    # by the sentence in the same instruction that says to keep the existing confirmable
+    # ones confirmable: this tool shipped confirmable, and what it drafts is words a
+    # business owner OWNS and a reviewer will read as theirs. Re-tiering it is a decision
+    # somebody can take later in one line; taking it here, off an inference, is not.
+    tier="confirm",
     # `kb:write` — what the "Add knowledge" form already declares. Deciding what the agent
     # knows is ONE permission (D-21), and the gate is the PERMISSION rather than a role
     # name, so widening who may curate is one line in `rbac.py` and never a line here.
@@ -927,13 +791,14 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
     # instead, so the row still answers "which source did this produce".
     object_type="agent",
     audit_action="kb.source_proposed",
-    schema=_tool_schema(
+    where="under Knowledge, in the review queue",
+    schema=action_schema(
         "propose_knowledge",
         "Propose adding a fact to one agent's knowledge, so it can answer that question in "
         "future. Only for something the person has just told you about their own business "
         "— never invent a price, a policy or an opening time, and never repeat something a "
         "caller said. Confirming puts it in the review queue; it is NOT live until "
-        "somebody approves it." + _PROPOSES_ONLY,
+        "somebody approves it." + PROPOSES_ONLY,
         {
             "agent_id": {
                 "type": "string",
@@ -979,11 +844,18 @@ PROPOSE_KNOWLEDGE: Final = WriteTool(
 
 #: Registration order is wire order and is therefore part of the cacheable prefix. New
 #: tools APPEND; they never insert.
-WRITE_TOOLS: Final[tuple[WriteTool, ...]] = (
+WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     LEAD_SET_STATUS,
     DNC_ADD,
     CAMPAIGN_PAUSE,
     PROPOSE_KNOWLEDGE,
+    # D-500's build/publish/launch actions, appended in their own registration order. They
+    # live in `agent_actions.py` because they are about agents and campaigns rather than
+    # about tokens, and they join THIS tuple rather than a second one: `service.tool_array`
+    # composes from `write_tool_schemas()`, `plan_write`, `run_immediate` and `confirm` all
+    # resolve through `_BY_NAME`, and a second registry would be a second answer to "what
+    # may the assistant do".
+    *AGENT_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -1006,6 +878,26 @@ def is_write_tool(name: str) -> bool:
     return name in _BY_NAME
 
 
+def tier_of(name: str) -> ActionTier | None:
+    """Which gate this action stands behind, or `None` if there is no such action.
+
+    **THE ONE PLACE THE TIER IS READ, AND IT IS READ FROM THE REGISTRY.** `service.py`
+    dispatches on this and on nothing else: not on a flag in the arguments, not on a
+    property of the object, and above all not on anything the model said. A mis-tiered
+    action is a campaign launched without a click, so the answer has exactly one source and
+    that source is a required field with no default (`actions.ActionTier`).
+    """
+    tool = _BY_NAME.get(name)
+    return None if tool is None else tool.tier
+
+
+def immediate_tool_names() -> frozenset[str]:
+    """The Tier 1 actions, derived. For tests and for `service.py`'s own assertions — a
+    hand-kept list of "the ones that run without a click" is the drift this function
+    exists to make impossible."""
+    return frozenset(tool.name for tool in WRITE_TOOLS if tool.tier == "immediate")
+
+
 # --- proposing ---------------------------------------------------------------------------
 
 
@@ -1021,10 +913,19 @@ async def plan_write(
 
     THE PERMISSION CHECK HERE IS ADVISORY (module docstring). It exists so the person is
     not shown a proposal they will be refused at the door; `confirm` is the gate.
+
+    **AND IT MINTS A TOKEN ONLY FOR A `confirm` TOOL.** The loop already dispatches on the
+    tier, so the guard below is unreachable through it — which is exactly why it is here.
+    It is the second of the two halves that keep the tiers from leaking into each other,
+    and it fails in the safe direction: a Tier 1 action mis-routed to this function
+    produces no token and no change, where the reverse mistake would produce a change with
+    no click.
     """
     tool = _BY_NAME.get(name)
     if tool is None:  # pragma: no cover - the loop only routes registered names here
         raise WriteRefusedError(f"`{name}` is not a tool you have")
+    if tool.tier != "confirm":  # pragma: no cover - `service.py` dispatches on the tier
+        raise WriteRefusedError(f"`{name}` is not something this app asks you to propose")
     if actor is None:
         raise WriteRefusedError(
             f"`{name}` needs a signed-in account and this session has none, "
@@ -1043,7 +944,7 @@ async def plan_write(
         # is a row). It is still the FIRST thing that happens under the session and still
         # runs before `tool.plan` reads anything, so the order the refusals arrive in is
         # unchanged — only where the connection is opened moved.
-        if not await _may(session, actor, tool.permission):
+        if not await may_act(session, actor, tool.permission):
             raise WriteRefusedError(
                 f"this person's role may not do what `{name}` proposes, so do not offer it"
             )
@@ -1077,7 +978,273 @@ async def plan_write(
         object_id=plan.object_id,
         current=plan.current,
         proposed=plan.proposed,
+        # STRIPPED LIKE THE SUMMARY, for the same egress reason: a person approves the
+        # string they can SEE, and a tag-block character would make the rendered sentence
+        # and the signed intent different things.
+        cost=None if plan.cost is None else strip_invisible(plan.cost),
+        reversal=strip_invisible(plan.reversal),
         expires_at=expires_at,
+    )
+
+
+# --- running, without a click (TIER 1) ---------------------------------------------------
+
+
+#: The `route` an immediate action's idempotency record is filed under. Not an HTTP route
+#: and deliberately not shaped like one: `idempotency_records` is keyed on
+#: `(scope_key, route, method, idempotency_key)`, and filing an action under a path that
+#: also exists in the API would put two different mechanisms in one namespace.
+_ACTION_ROUTE: Final = "copilot:action/{tool}"
+
+#: The `method` column's value for every one of them. `POST` would have been a lie: nothing
+#: here arrives over HTTP.
+_ACTION_METHOD: Final = "ACTION"
+
+
+def conversation_seed(question: str, history: Sequence[str]) -> str:
+    """A stable fingerprint of WHICH CONVERSATION this is, for the idempotency key.
+
+    **THE KEY MUST BE DERIVED FROM THINGS THAT DO NOT CHANGE ON RETRY, AND THIS IS THE
+    HARD HALF OF THAT.** The obvious ingredients are wrong in both directions: the metering
+    ref (`billing/ai_quota.new_assist_ref`) is minted per ATTEMPT, so a retry gets a new one
+    and the guard protects nothing; a bare `uuid4` is worse. A turn INDEX is wrong too — the
+    model may reach the same action on a different turn of an otherwise identical run, and
+    a key that moved with the turn would let the second run create a second agent.
+
+    What genuinely does not change when a person re-asks the same thing is the CONVERSATION:
+    the question they typed and the turns the browser replayed with it. So the key is
+    `(this conversation, this tool, these canonical arguments)`, which is content-derived in
+    the sense the pattern requires — the same request produces the same key however many
+    times it is sent, and a genuinely new request (a new question, or a different argument)
+    produces a different one and is allowed through.
+
+    IT IS NOT A UNIVERSAL DUPLICATE GUARD AND MUST NOT BE READ AS ONE. A person who asks
+    "create an outbound agent" twice, an hour apart, in two conversations, gets two agents —
+    which is correct, because that is two decisions. What it stops is the mechanical
+    duplicate: a dropped stream re-asked, a double submit, the same run re-entered.
+    `_plan_agent_create`'s name check is what stops the human duplicate, and the two are
+    deliberately different mechanisms because they are different failures.
+
+    HASHED RATHER THAN CARRIED. The question is a person's own words and the history is a
+    conversation; neither belongs in a column, and `scope_key` already establishes that this
+    table stores fingerprints rather than content (§4).
+    """
+    digest = hashlib.sha256()
+    for part in (question, *history):
+        # LENGTH-PREFIXED, so ("ab", "c") and ("a", "bc") are different conversations. A
+        # plain concatenation is the classic way a digest over a list stops being injective.
+        encoded = part.encode()
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return digest.hexdigest()
+
+
+def _action_key(seed: str, tool: WriteTool, args: Mapping[str, Any]) -> str:
+    """`(conversation, tool, arguments)` as one hex key.
+
+    THE ARGUMENTS AS THE MODEL SENT THEM, key-sorted — not the planner's canonical ones, and
+    that ordering is the whole reason this works. The claim has to come BEFORE the plan: a
+    planner READS, and `_plan_agent_create`'s read is a duplicate-NAME check that the first
+    attempt's own agent would fail on the retry. Keying on the canonical arguments would
+    have meant planning first, which means the replay path for a create is unreachable and
+    a re-asked question answers "you already have an agent called that" instead of "that is
+    already done".
+
+    The cost is exact and small: two spellings of one request (`"  Reception "` and
+    `"Reception"`) are two keys. A retry replays the same tool call, so the spelling does
+    not change on the path this guards; and if a model does re-word it, the planner's own
+    duplicate check catches it and tells the model. Two mechanisms, each covering what the
+    other cannot — the mechanical duplicate and the human one.
+
+    `sort_keys` because dict order is not part of the intent.
+    """
+    digest = hashlib.sha256()
+    digest.update(seed.encode())
+    digest.update(b"\x00")
+    digest.update(tool.name.encode())
+    digest.update(b"\x00")
+    digest.update(json.dumps(args, sort_keys=True, default=str).encode())
+    return digest.hexdigest()
+
+
+async def run_immediate(
+    name: str,
+    raw_arguments: str,
+    *,
+    principal: Principal | None,
+    seed: str,
+    ip: str | None,
+) -> CopilotActionEvent:
+    """One TIER 1 action: describe it, claim it, do it, record it. IN THAT ORDER.
+
+    **THIS IS THE FUNCTION THE FOUNDER'S RISK TIERING BUYS, AND EVERY CONTROL A TIER 2
+    ACTION HAS IS STILL HERE EXCEPT THE CLICK.** Spelled out, because "runs without
+    confirmation" reads like "runs without checks" and it is not:
+
+    * The PERMISSION is checked, against the same `may_act` ladder `confirm` uses and
+      against the permission the equivalent button declares. A staff member without
+      `org:manage` is refused here, inside the tool, exactly as `run_read_tool` refuses.
+    * D-22 still holds: `org:manage` is in `MUTATING_PERMISSIONS`, so an impersonating
+      operator in a read-only view-as session cannot create anything.
+    * RLS still holds: the executor runs in a `tenant_session` for the actor's own tenant.
+    * The PLANNER still runs first, and it still only READS. So the arguments that execute
+      are the canonical ones it returned, not the model's, and its refusals (a blank name,
+      a name already taken) happen before anything is written.
+    * An `audit_log` row is written IN THE SAME TRANSACTION as the change. No click does
+      not mean no record; `via: copilot` and `tier: immediate` are what tell a later reader
+      which of the two paths it came down.
+    * An idempotency record is claimed BEFORE the executor runs, so a retry cannot
+      double-create.
+
+    What is NOT here is a token, and it is not missing — it would be meaningless. A
+    proposal token exists to survive the gap between the description and the click, and
+    there is no gap: this is one call inside one request the person already authenticated.
+
+    **THE SESSION IS THIS FUNCTION'S OWN AND IT WRAPS EVERYTHING.** `copilot/routes.py` holds
+    no pooled connection across a provider round trip, and this call happens BETWEEN two of
+    them. The claim, the execution and the audit row are one transaction: an action that
+    could not be recorded is one SEC-COMP §5 does not permit, and a claim that committed
+    without its execution would burn the key for a change that never happened.
+
+    Raises `WriteRefusedError` for anything the model can fix and lets a `ProblemError` from
+    the service function underneath through untouched — `service.py` reports both back to
+    the model so it can relay the refusal and its remediation rather than retrying around it.
+    """
+    tool = _BY_NAME.get(name)
+    if tool is None:  # pragma: no cover - the loop only routes registered names here
+        raise WriteRefusedError(f"`{name}` is not a tool you have")
+    if tool.tier != "immediate":
+        # THE HALF THAT MATTERS. `plan_write`'s mirror image, and this is the direction in
+        # which a mistake would be an incident: a `confirm` tool reaching this function
+        # would be a campaign launched with no click. The loop dispatches on the tier and
+        # can never route one here; this is the guard that makes that a property of the
+        # code rather than of the loop's control flow.
+        raise WriteRefusedError(
+            f"`{name}` is a change this app asks a person to confirm, so it cannot be run "
+            "directly — propose it instead"
+        )
+    actor = None if principal is None else actor_for(principal)
+    if actor is None or principal is None:
+        raise WriteRefusedError(
+            f"`{name}` needs a signed-in account and this session has none, so nothing was done"
+        )
+    try:
+        parsed_arguments = json.loads(raw_arguments or "")
+    except ValueError as exc:
+        raise WriteRefusedError("the tool call was not valid JSON") from exc
+    if not isinstance(parsed_arguments, dict):
+        raise WriteRefusedError("the tool call was not an object")
+
+    async with tenant_session(actor.tenant_id) as session:
+        if not await may_act(session, actor, tool.permission):
+            raise WriteRefusedError(
+                f"this person's role may not do what `{name}` does, so tell them rather "
+                "than trying it another way"
+            )
+        # THE CLAIM COMES FIRST, BEFORE THE PLANNER READS ANYTHING. See `_action_key`: a
+        # planner's read can itself be a duplicate check that the first attempt's own row
+        # would fail, so planning ahead of the claim makes the replay path unreachable.
+        # It also means a replay costs one indexed read rather than a plan.
+        key = _action_key(seed, tool, parsed_arguments)
+        claim = await claim_idempotency(
+            session,
+            scope=scope_key(tenant_id=actor.tenant_id, user_id=actor.user_id),
+            route=_ACTION_ROUTE.format(tool=tool.name),
+            method=_ACTION_METHOD,
+            key=key,
+            # THE KEY IS ALREADY THE BODY'S DIGEST, so the "same key, different body" 409
+            # `claim_idempotency` raises is unreachable from here by construction. Passing
+            # the same value is the honest spelling of that rather than an unrelated
+            # constant that would look like a second fact.
+            request_hash=key,
+        )
+        if claim.state == "replay":
+            # EVERYTHING THE RECEIPT NEEDS IS IN THE STORED PAYLOAD, which is why the
+            # completion below writes four keys rather than two: this arm has no plan to
+            # read a title or a reversal sentence off, and composing fresh ones from
+            # today's world would be a second account of one act.
+            stored = claim.response_payload or {}
+            log.info("copilot_action_replayed", extra={"tool": tool.name})
+            return CopilotActionEvent(
+                tool=tool.name,
+                title=str(stored.get("title", "")) or tool.name,
+                detail=str(stored.get("detail", "")) or "That was already done.",
+                object_type=tool.object_type,
+                object_id=str(stored.get("object_id", "")),
+                # FALSE, ALWAYS, ON A REPLAY. `applied` answers "did THIS call change
+                # anything", and this one did not: the first one did.
+                applied=False,
+                reversal=str(stored.get("reversal", "")),
+                where=tool.where,
+            )
+
+        # READ, DESCRIBE, NORMALISE — and only now, with the key held.
+        try:
+            plan = await tool.plan(session, actor, parsed_arguments)
+        except Exception:
+            # A REFUSED PLAN MUST NOT BURN THE KEY. The commonest one is a
+            # `WriteRefusedError` the model is about to fix and call again with different
+            # arguments — but a blank name corrected to a real one is a DIFFERENT key, and
+            # the same arguments retried after a transient read failure must still be
+            # allowed through. Releasing here costs one CAS and removes a class of
+            # "nothing happened and it will not let me try again".
+            await fail_idempotency(session, record_id=claim.record_id)
+            raise
+
+        try:
+            executed = await tool.execute(session, actor, plan.args)
+        except Exception:
+            # RELEASE THE KEY so the person's own retry is not refused by a claim that
+            # holds nothing. `fail_idempotency` is a CAS on `processing` and never raises;
+            # the original exception carries on to `service.py` untouched.
+            await fail_idempotency(session, record_id=claim.record_id)
+            raise
+        object_id = executed.object_id or plan.object_id
+        await write_audit(
+            session,
+            action=tool.audit_action,
+            actor=principal,
+            tenant_id=actor.tenant_id,
+            object_type=tool.object_type,
+            object_id=object_id or None,
+            ip=ip,
+            # Ids, names and counts (hard rule 6). `via` separates this row from the same
+            # act performed by a click, and `tier` says which of the assistant's two paths
+            # it came down — the difference between "a person clicked Confirm" and "a
+            # person asked and this ran", which is the first question an auditor has.
+            summary={
+                "via": "copilot",
+                "tier": tool.tier,
+                "tool": tool.name,
+                **executed.audit_summary,
+            },
+        )
+        await complete_idempotency(
+            session,
+            record_id=claim.record_id,
+            response_status=200,
+            response_payload={
+                "detail": executed.detail,
+                "object_id": object_id,
+                "title": plan.title,
+                "reversal": plan.reversal,
+            },
+        )
+    log.info(
+        "copilot_action_ran",
+        # The tool and the outcome. Never the arguments and never the detail: both can
+        # carry a client's own business copy (hard rule 6).
+        extra={"tool": tool.name, "applied": executed.applied, "tier": tool.tier},
+    )
+    return CopilotActionEvent(
+        tool=tool.name,
+        title=plan.title,
+        detail=executed.detail,
+        object_type=tool.object_type,
+        object_id=object_id,
+        applied=executed.applied,
+        reversal=plan.reversal,
+        where=tool.where,
     )
 
 
@@ -1132,7 +1299,12 @@ def _verify(token: str, *, actor: ToolActor) -> _VerifiedProposal:
         ) from exc
 
     tool = _BY_NAME.get(str(claims.get("tool")))
-    if tool is None:
+    if tool is None or tool.tier != "confirm":
+        # **THE TIER IS RE-READ HERE, FROM THE REGISTRY, AT CONFIRM TIME.** A token minted
+        # while a tool was `confirm` must not survive that tool being re-tiered, and the
+        # direction of the refusal is the point: this endpoint's whole job is to be the
+        # click, so an action that no longer needs one has no business arriving through it.
+        # Same body as an unknown tool, deliberately — see `_refused`.
         raise _refused(
             "copilot_proposal_invalid",
             "This suggestion refers to something the assistant can no longer do.",
@@ -1245,7 +1417,7 @@ async def confirm(
             "Sign in to the account the suggestion was made for.",
         )
     proposal = _verify(token, actor=actor)
-    if not await _may(session, actor, proposal.tool.permission):
+    if not await may_act(session, actor, proposal.tool.permission):
         # `ProblemError.forbidden` carries NO `remediation`, and every failure a person can
         # reach owes them one (BACKEND-PATTERNS §3). This one is reachable by two ordinary
         # routes — a member demoted while the assistant was talking, and a D-22 view-as
@@ -1301,6 +1473,8 @@ __all__ = [
     "PROPOSAL_TTL",
     "PROPOSE_KNOWLEDGE",
     "WRITE_TOOLS",
+    "ActionTier",
+    "ActionTool",
     "Executed",
     "Plan",
     "ToolActor",
@@ -1308,7 +1482,11 @@ __all__ = [
     "WriteTool",
     "actor_for",
     "confirm",
+    "conversation_seed",
+    "immediate_tool_names",
     "is_write_tool",
     "plan_write",
+    "run_immediate",
+    "tier_of",
     "write_tool_schemas",
 ]

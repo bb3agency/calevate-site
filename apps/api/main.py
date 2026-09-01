@@ -123,6 +123,7 @@ def _mount_routers(application: FastAPI) -> None:
         admin_router as whatsapp_optin_admin_router,
     )
     from apps.api.compliance.whatsapp_optin_routes import router as whatsapp_optin_router
+    from apps.api.copilot.admin_routes import router as admin_copilot_router
     from apps.api.copilot.routes import router as copilot_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.flags.routes import router as feature_flags_router
@@ -213,10 +214,15 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(crm_router)
     # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
     # which collides with nothing above, so mount order is not load-bearing here — unlike
-    # `voice_router`, whose literal segment lives under `/v1/agents/`. CLIENT REALM ONLY:
-    # `copilot/routes.py` argues at length why the admin realm gets no twin (it has no
-    # tenant to meter against, and hard rule 7 does not allow an unmetered model call).
+    # `voice_router`, whose literal segment lives under `/v1/agents/`.
+    #
+    # ⚠ **THIS USED TO SAY "CLIENT REALM ONLY", AND THE ADMIN TWIN NOW EXISTS (D-499).**
+    # The reason there was none was that the admin realm had no PAYER, not that nobody had
+    # written it; `billing/platform_ai.py` and `platform_ai_usage` are that payer, so
+    # `copilot/admin_routes.py` mounts beside this one under `/v1/admin/copilot`. Two
+    # routes, two realms, two tool arrays, two memories, two ledgers — one service.
     application.include_router(copilot_router)
+    application.include_router(admin_copilot_router)
     # Knowledge gaps — the urgent "what the agents couldn't answer" surface. Its own
     # literal `/v1/knowledge-gaps` prefix collides with nothing above, so mount order is
     # not load-bearing here.

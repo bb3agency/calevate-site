@@ -277,6 +277,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/copilot/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the admin console's assistant — streamed, metered to the platform
+         * @description The admin console's own assistant. Answers about the screen the operator is on, about
+         *     PLATFORM state (the client roster, the triage board, whether outbound dialling is halted,
+         *     whether our telemarketer registration is live, how much of this month's AI budget is
+         *     spent), about the ONE account named in `tenant_id` when one is open, and about Calevate's
+         *     own runbooks — every one of those by calling a read tool, never from memory.
+         *
+         *     `tenant_id` is the account whose admin page is open, or null. It scopes the account tools,
+         *     the live-state block and memory recall. Inside a view-as session it is ignored in favour of
+         *     the impersonated account, which is proven by the grant rather than claimed in a body.
+         *
+         *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
+         *     `text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this
+         *     realm today, will not be offered: the write tools need an account-scoped identity that an
+         *     admin session does not carry, and inside a view-as session they are refused outright
+         *     because impersonation is read-only.
+         *
+         *     **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
+         *     platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
+         *     platform-wide AI brake, which pauses this console's assistant exactly as it pauses every
+         *     client's.
+         *
+         *     Requires `copilot:admin` — held by operators and superadmins.
+         */
+        post: operations["ask_admin_copilot_v1_admin_copilot_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/impersonation-grants": {
         parameters: {
             query?: never;
@@ -3481,11 +3522,26 @@ export interface paths {
          *       highlight them, and offer one Undo; nothing is saved until the user presses Save.
          *     * `event: proposal` · `data: {"token": "...", "tool": "...", "title": "...",
          *       "summary": "...", "object_type": "...", "object_id": "...", "current": "...",
-         *       "proposed": "...", "expires_at": "..."}` — at most one per response, and it is NOT a
-         *       change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` → `proposed`
-         *       pair, and a Confirm button that posts `token` back, unchanged, to
+         *       "proposed": "...", "cost": null|"...", "reversal": "...", "expires_at": "..."}` — at most
+         *       one per response, and it is NOT a change. NOTHING HAS HAPPENED. This is a **Tier 2**
+         *       action: one that reaches a caller or spends money, and therefore needs a person. Show
+         *       `title`, `summary`, the `current` → `proposed` pair, `cost` when it is non-null and
+         *       `reversal` always, and a Confirm button that posts `token` back, unchanged, to
          *       `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world
          *       untouched; the token stops working at `expires_at`.
+         *     * `event: action` · `data: {"tool": "...", "title": "...", "detail": "...",
+         *       "object_type": "...", "object_id": "...", "applied": true, "reversal": "...",
+         *       "where": "..."}` — a **Tier 1** action that **has already happened**: reversible, reaching
+         *       no caller, spending nothing. Render it as a RECEIPT and never as an offer — there is no
+         *       token and no button. `reversal` says whether and how it can be taken back and `where`
+         *       says where the result now lives; both are the server's own words. `applied: false` means
+         *       the world was already in that state.
+         *     * `event: step` · `data: {"id": "...", "tool": "...", "status":
+         *       "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
+         *       "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
+         *       `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely
+         *       observational — dropping every one of them loses no outcome — and safe to render live so
+         *       a person can see which of their data was read and how long it took.
          *     * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
          *       non-null when a substitute model answered and MUST be shown.
          *     * `event: error` · `data: {problem+json}` — a refusal that happened after the stream
@@ -5256,6 +5312,50 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * AdminCopilotAskIn
+         * @description `POST /v1/admin/copilot/ask` — the client body plus WHICH ACCOUNT IS OPEN (D-499).
+         *
+         *     `tenant_id` is the account whose admin page the operator is looking at, or null on a
+         *     platform screen. It scopes three things and nothing else: which tenant the account read
+         *     tools run under, which tenant's live business state is composed, and which memories are
+         *     eligible for recall (`copilot/admin_memory.py`).
+         *
+         *     **IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the
+         *     platform ledger — an operator never spends a client's allowance (D-499) — so no body
+         *     field here can move anyone's bill. And it widens nothing: every route serving this
+         *     permission is admin-realm, and both admin roles hold `admin:tenants`, so an operator
+         *     naming an account here reaches exactly what the console's own tenant page would show
+         *     them. It is still validated to be a real, undeleted account before it is used, because
+         *     a silently-ignored id would let a screen believe it had scoped the assistant when it
+         *     had not.
+         *
+         *     **INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an
+         *     impersonation grant is proven by a second factor and audited; this field is a claim in a
+         *     body. The route takes the principal's when there is one and never reconciles the two.
+         */
+        AdminCopilotAskIn: {
+            /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["CopilotFact"][];
+            /**
+             * Fields
+             * @default []
+             */
+            fields: components["schemas"]["CopilotField"][];
+            /**
+             * History
+             * @default []
+             */
+            history: components["schemas"]["CopilotTurn"][];
+            /** Question */
+            question: string;
+            screen: components["schemas"]["CopilotScreen"];
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /**
          * AdminMeOut
@@ -13513,6 +13613,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeldTenantOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    ask_admin_copilot_v1_admin_copilot_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCopilotAskIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
             /** @description RFC-9457 problem+json */

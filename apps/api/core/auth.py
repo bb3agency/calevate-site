@@ -83,7 +83,12 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import ImpersonationGrant, verify_grant
 from apps.api.core.logging import get_logger
 from apps.api.core.ratelimit import consume, profile_for, too_many_requests
-from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
+from apps.api.core.rbac import (
+    IMPERSONATION_PERMITTED_MUTATIONS,
+    MUTATING_PERMISSIONS,
+    Permission,
+    role_has,
+)
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, user_session
@@ -1043,8 +1048,16 @@ def requires(
         )
         if principal.role is None or not role_has(principal.role, permission):
             raise ProblemError.forbidden("You do not have permission to do this.")
-        if principal.impersonating and permission in MUTATING_PERMISSIONS:
-            # D-22 in one line: read-only keeps the audit trail unambiguous.
+        if (
+            principal.impersonating
+            and permission in MUTATING_PERMISSIONS
+            and permission not in IMPERSONATION_PERMITTED_MUTATIONS
+        ):
+            # D-22 in one line: read-only keeps the audit trail unambiguous. The one
+            # exemption is NAMED in `rbac.IMPERSONATION_PERMITTED_MUTATIONS` and argued
+            # there — it covers a permission whose spend can only ever land on the
+            # PLATFORM's ledger, so there is no client balance for a view-as session to
+            # move and nothing in the client's account it can change.
             raise ProblemError.forbidden(
                 "Impersonation is read-only. Perform this action from the admin console."
             )

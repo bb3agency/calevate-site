@@ -50,7 +50,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Final, get_args
+from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,7 +65,7 @@ from apps.api.crm import service as crm_service
 from apps.api.crm.models import CALL_STATUSES
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import LeadStatus
-from apps.api.db.session import tenant_session
+from apps.api.db.session import admin_session, tenant_session
 from apps.api.retrieval.service import look_up
 from apps.workers.redaction import redact
 
@@ -116,7 +116,12 @@ class ToolContext:
     refuses every tool, because `role_has` has nothing to answer with.
     """
 
-    tenant_id: UUID
+    #: `None` IS A REAL STATE SINCE D-499, not an oversight. An operator on the admin
+    #: console's own screens has no tenant at all, and the admin copilot's platform tools
+    #: are answered from an `admin_session()` that needs none. A `tenant`-scoped tool asked
+    #: with `None` refuses with a sentence saying no account is open — it never falls back
+    #: to some default tenant, which is the one failure mode this Optional could have.
+    tenant_id: UUID | None
     role: str | None
 
 
@@ -156,6 +161,22 @@ class ReadTool:
     #: would be a way around that screen.
     permission: Permission
     run: _Executor
+    #: WHICH SESSION `run_read_tool` opens for this tool, and it is on the TOOL rather than
+    #: inferred from the realm because it is a property of the query, not of the caller
+    #: (D-499):
+    #:
+    #: * `tenant` — a `tenant_session(context.tenant_id)`. Tenancy is RLS and never a
+    #:   `WHERE` clause (module docstring, property 1). Refused when no tenant is in scope.
+    #: * `platform` — an `admin_session()`, the only session that can enumerate tenants
+    #:   (migration `b57e2f9c4a13`). Every such tool reads either the directory or a
+    #:   `platform_*` table that carries no policy; none reads a tenant table cross-tenant.
+    #:
+    #: THERE IS NO `local` SCOPE, and `search_runbooks` — which reads a process-local index
+    #: and needs no database — is `platform` anyway. A nullable session threaded through
+    #: `_Executor` would put an `AsyncSession | None` in front of every executor that DOES
+    #: use one, to save one `set_config` round trip on a tool an operator calls during an
+    #: incident. One calling convention, stated cost.
+    scope: Literal["tenant", "platform"] = "tenant"
 
 
 # --- rendering helpers ----------------------------------------------------------------
@@ -189,7 +210,12 @@ def _cap(limit: object, *, default: int = 10) -> int:
 
 
 def _listing(
-    rows: list[str], *, total: int | None = None, shown_of: str = "rows", cap: int = MAX_ROWS
+    rows: list[str],
+    *,
+    total: int | None = None,
+    shown_of: str = "rows",
+    cap: int = MAX_ROWS,
+    nothing: str = _NOTHING,
 ) -> str:
     """Rows as lines, with the truncation note when the cap bit.
 
@@ -205,7 +231,10 @@ def _listing(
     as complete when it is not. Hard-coding `MAX_ROWS` here is what made that silent.
     """
     if not rows:
-        return _NOTHING
+        # `nothing` is a PARAMETER since D-499 because the empty sentence is realm-specific:
+        # "this account has none yet" is right on a client's screen and wrong in the admin
+        # console, where the population is every account on the platform.
+        return nothing
     if total is not None and total > len(rows):
         head = f"Showing {len(rows)} of {total} {shown_of}:"
     elif total is None and len(rows) == cap:
@@ -513,6 +542,12 @@ async def _search_knowledge(
     question = strip_invisible(str(args.get("question") or "")).strip()[:_MAX_QUESTION_CHARS]
     if not question:
         return _NOTHING_PUBLISHED
+    # NOT-NONE BY `run_read_tool`'s SCOPE GUARD: this is a `tenant`-scoped tool, so it is
+    # never reached without an account open (D-499 made `ToolContext.tenant_id` Optional so
+    # the admin realm's platform tools could exist). An assert rather than a second refusal
+    # sentence — the refusal belongs where the guard is, and duplicating it here would be a
+    # second answer to one question.
+    assert context.tenant_id is not None
     # ONE MORE THAN WE WILL SHOW, so a truncation is a fact rather than a guess: `_listing`
     # reports "there may be more" exactly when the page came back full.
     decision, result = await look_up(
@@ -729,7 +764,29 @@ def read_tool_schemas() -> list[dict[str, Any]]:
     ]
 
 
-async def run_read_tool(name: str, arguments: str, *, context: ToolContext | None) -> str:
+async def _run_scoped(tool: ReadTool, context: ToolContext, parsed: Mapping[str, Any]) -> str:
+    """One tool, under the session ITS scope calls for. See `ReadTool.scope`.
+
+    Written as a dispatch rather than as an `if` inside `run_read_tool` so the session
+    decisions sit together and a third scope has one place to be added. The
+    `tenant` arm's `context.tenant_id` is not-None by the guard in the caller — asserting
+    it here instead would put a second copy of that rule where a refusal sentence belongs.
+    """
+    if tool.scope == "platform":
+        async with admin_session() as session:
+            return await tool.run(session, context, parsed)
+    assert context.tenant_id is not None  # guarded by the caller
+    async with tenant_session(context.tenant_id) as session:
+        return await tool.run(session, context, parsed)
+
+
+async def run_read_tool(
+    name: str,
+    arguments: str,
+    *,
+    context: ToolContext | None,
+    registry: Mapping[str, ReadTool] | None = None,
+) -> str:
     """Run one read tool and return what the model should be told. NEVER RAISES.
 
     A tool result is a message in a conversation, so every failure here has to be a
@@ -745,7 +802,14 @@ async def run_read_tool(name: str, arguments: str, *, context: ToolContext | Non
     prose reaches the screen, and a log line takes the exception through the ordinary path
     where an operator can see it.
     """
-    tool = _BY_NAME.get(name)
+    # THE REGISTRY IS A PARAMETER SINCE D-499, defaulting to the client one. The admin
+    # realm has its own tools (`copilot/admin_tools.py`) and the two must not be one flat
+    # namespace: a client caller must not be able to name a platform tool even to be
+    # refused by it, because "there is no such tool" and "you may not use that tool" are
+    # different sentences and only the first is true for them. `service.tool_array` and
+    # `service._read_tool_registry` are the one place a realm's set is composed, so the
+    # array the model is SHOWN and the registry that RUNS cannot disagree.
+    tool = (registry if registry is not None else _BY_NAME).get(name)
     if tool is None:
         return f"There is no tool called `{name}`. Answer without it or use another tool."
     if context is None or context.role is None or not role_has(context.role, tool.permission):
@@ -765,12 +829,19 @@ async def run_read_tool(name: str, arguments: str, *, context: ToolContext | Non
     if not isinstance(parsed, dict):
         return f"The arguments for `{name}` were not an object. Call it again."
 
+    if tool.scope == "tenant" and context.tenant_id is None:
+        # AN OPERATOR WITH NO ACCOUNT OPEN, which is the ordinary state of the admin
+        # console. A sentence the model can act on — "open the account" — rather than a
+        # refusal that reads as a permission problem, and never a fallback to some tenant.
+        return (
+            f"Refused: `{name}` reads one account's own data and no account is open in "
+            "this session. Tell the operator to open a client's page first."
+        )
     try:
         # ONE SESSION PER CALL, OPENED HERE AND CLOSED BEFORE THIS RETURNS. See the module
         # docstring: the streaming route holds no pooled connection across a provider round
         # trip, and this is what keeps that true while the loop can now touch the database.
-        async with tenant_session(context.tenant_id) as session:
-            result = await tool.run(session, context, parsed)
+        result = await _run_scoped(tool, context, parsed)
     except Exception:
         # Ids only (hard rule 6) — never the arguments, which the model composed from
         # screen content, and never the result.

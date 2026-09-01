@@ -22,8 +22,8 @@ import pytest
 from sqlalchemy import text
 
 from apps.api.admin import service as admin_service
+from apps.api.copilot import admin_tools, tools, write_tools
 from apps.api.copilot import service as copilot_service
-from apps.api.copilot import tools, write_tools
 from apps.api.copilot.schemas import CopilotAskIn
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -569,10 +569,72 @@ def test_the_whole_tool_array_is_byte_identical_across_two_different_requests() 
             "question": "why is this lead red?",
         }
     )
-    # The array takes no request at all, which is the property — driving it from two
-    # payloads is how the test would catch somebody giving it one.
-    assert json.dumps(copilot_service.tool_array()) == json.dumps(copilot_service.tool_array())
+    # The array takes no request at all — only a REALM — which is the property; driving it
+    # from two payloads is how the test would catch somebody giving it one.
+    assert json.dumps(copilot_service.tool_array("client")) == json.dumps(
+        copilot_service.tool_array("client")
+    )
     assert first.screen.route != second.screen.route
+
+
+def test_each_realm_is_byte_identical_and_the_two_realms_differ() -> None:
+    """D-499's version of the rule, and the rule is NOT "never vary".
+
+    Prompt caching keys on a leading run of identical tokens — *"The first 1,024 tokens in
+    the prompt must be identical"*, over *"both the messages array and tool definitions"*
+    (MicrosoftDocs/azure-ai-docs, `articles/foundry/openai/includes/
+    how-to-prompt-caching-content.md` @ main, read 1 Sep 2026). A REALM is a stable
+    partition of the traffic: every admin request gets one array and every client request
+    the other, so it is two warm caches rather than one. A per-screen or per-role array is
+    what destroys caching, and that is what the test above forbids.
+
+    FAILS IF: somebody makes either array a function of anything but the realm, or collapses
+    the two back into one (which would put the admin console's platform tools in front of
+    every client, and the client array's tenant tools alone in front of an operator).
+    """
+    for realm in ("client", "admin"):
+        assert json.dumps(copilot_service.tool_array(realm)) == json.dumps(
+            copilot_service.tool_array(realm)
+        )
+    assert json.dumps(copilot_service.tool_array("client")) != json.dumps(
+        copilot_service.tool_array("admin")
+    )
+
+
+def test_the_admin_array_is_a_strict_superset_of_the_client_read_tools() -> None:
+    """The operator gets the platform tools AND the account tools (D-499).
+
+    "The tenant currently being viewed" is answered by the tools that already answer it for
+    that tenant's own owner, under that tenant's own RLS — not by six new admin copies. So
+    the admin realm's read set is the platform tools followed by `READ_TOOLS` verbatim, and
+    the platform tools come first because the questions with no account behind them are the
+    ones an operator asks from a console screen.
+
+    FAILS IF: an admin tool is added to `READ_TOOLS` (which would show it to every client),
+    or a client tool is dropped from the admin realm (which would silently remove the
+    operator's ability to answer about the account they are looking at).
+    """
+    client_names = [tool.name for tool in copilot_service.realm_read_tools("client")]
+    admin_names = [tool.name for tool in copilot_service.realm_read_tools("admin")]
+    assert client_names == [tool.name for tool in tools.READ_TOOLS]
+    assert admin_names[-len(client_names) :] == client_names
+    assert set(admin_names[: -len(client_names)]) == admin_tools.ADMIN_READ_TOOL_NAMES
+    # Disjoint namespaces: a name in both registries would make `_read_tool_registry`'s
+    # dict silently drop one of them.
+    assert not admin_tools.ADMIN_READ_TOOL_NAMES & tools.READ_TOOL_NAMES
+
+
+def test_a_client_realm_caller_cannot_even_name_a_platform_tool() -> None:
+    """Two registries, not one namespace with a permission in front of it (D-499).
+
+    "There is no tool called `platform_tenants`" is the truthful answer for a client, and
+    "you may not use that tool" is not — the second one tells them the admin console has
+    one, which is a disclosure with no upside. The permission check exists for callers who
+    could plausibly hold the permission.
+    """
+    registry = copilot_service._read_tool_registry("client")
+    assert set(registry) == tools.READ_TOOL_NAMES
+    assert "platform_tenants" not in registry
 
 
 def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool() -> None:
@@ -583,7 +645,7 @@ def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool(
     THE ORDER IS PINNED, NOT JUST THE MEMBERSHIP, because the array is the tail of the
     cacheable prefix — a reordering costs a cache miss on every request and no test that
     only compared sets would notice."""
-    names = [schema["function"]["name"] for schema in copilot_service.tool_array()]
+    names = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
     read_names = [tool.name for tool in tools.READ_TOOLS]
     write_names = [schema["function"]["name"] for schema in write_tools.write_tool_schemas()]
     assert names == ["set_fields", *read_names, *write_names]

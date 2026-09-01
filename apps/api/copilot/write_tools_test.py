@@ -184,7 +184,20 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
     second = json.dumps(write_tools.write_tool_schemas(), sort_keys=False)
     assert first == second
     names = [schema["function"]["name"] for schema in write_tools.write_tool_schemas()]
-    assert names == ["lead_set_status", "dnc_add", "campaign_pause", "propose_knowledge"]
+    # REGISTRATION ORDER IS WIRE ORDER and is part of the cacheable prefix, so this list is
+    # spelled out rather than derived: a reordering is a cache miss on every request and an
+    # insertion in the middle is the same thing, and neither is visible from a diff of the
+    # registry alone. D-500's four APPEND.
+    assert names == [
+        "lead_set_status",
+        "dnc_add",
+        "campaign_pause",
+        "propose_knowledge",
+        "agent_create",
+        "agent_rename",
+        "agent_publish",
+        "campaign_launch",
+    ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
         assert function["strict"] is True
@@ -766,6 +779,10 @@ def test_the_proposal_event_model_is_the_shape_the_browser_is_told_about() -> No
         "object_id",
         "current",
         "proposed",
+        # D-500: what it costs and whether it can be taken back. The two an approval card
+        # could not state before, and the two a person most needs in front of a launch.
+        "cost",
+        "reversal",
         "expires_at",
     }
 
@@ -859,7 +876,9 @@ async def test_a_write_tool_call_becomes_a_proposal_event_and_ends_the_turn(
 
     events = [
         event
-        async for event in service.run_copilot(_ask(), actor=_actor(tenant_id, _user_of(token)))
+        async for event in service.run_copilot(
+            _ask(), principal=_principal(tenant_id, _user_of(token))
+        )
     ]
 
     assert sent, "the provider was never called"
@@ -898,7 +917,7 @@ async def test_a_refused_write_goes_back_to_the_model_and_not_to_the_person(
     events = [
         event
         async for event in service.run_copilot(
-            _ask(), actor=_actor(tenant_id, _user_of(token), role="staff")
+            _ask(), principal=_principal(tenant_id, _user_of(token), role="staff")
         )
     ]
 
@@ -939,7 +958,9 @@ async def test_a_turn_that_fills_and_proposes_at_once_is_refused_back_to_the_mod
 
     events = [
         event
-        async for event in service.run_copilot(_ask(), actor=_actor(tenant_id, _user_of(token)))
+        async for event in service.run_copilot(
+            _ask(), principal=_principal(tenant_id, _user_of(token))
+        )
     ]
 
     assert [event.fill for event in events if event.fill is not None] == []
@@ -994,8 +1015,12 @@ async def test_the_proposal_reaches_the_browser_as_its_own_sse_event(
                 frames.append((name, json.loads(line[len("data:") :].strip())))
                 name = None
 
-    assert [frame for frame, _ in frames] == ["proposal", "done"]
-    proposal = frames[0][1]
+    # THE STEP FRAMES ARE INTERLEAVED AND ARE NOT PART OF THE OUTCOME (D-500): a `running`
+    # frame when `plan_write` starts and a terminal one when it returns. They are filtered
+    # out here rather than pinned in sequence, because this test is about the PROPOSAL
+    # reaching the browser as its own event — `actions_test.py` pins the step contract.
+    assert [frame for frame, _ in frames if frame != "step"] == ["proposal", "done"]
+    proposal = next(data for frame, data in frames if frame == "proposal")
     assert proposal["tool"] == "campaign_pause"
     assert proposal["object_id"] == str(campaign_id)
     assert proposal["token"]

@@ -297,10 +297,23 @@ def test_a_missing_number_sends_the_model_to_a_tool_not_to_an_apology() -> None:
         assert tool.name in prompt_module.SYSTEM_PROMPT
 
 
-def test_the_prompt_says_the_copilot_cannot_save_dial_launch_or_spend() -> None:
-    """The capability the tool does not have, stated so the model does not claim it."""
-    for phrase in ("save", "publish", "dial", "campaign", "spend money"):
+def test_the_prompt_names_the_money_capabilities_the_copilot_still_does_not_have() -> None:
+    """The capabilities the assistant does NOT have, stated so the model does not claim them.
+
+    ⚠ **THIS TEST USED TO ASSERT "cannot save, publish, dial, launch or spend", AND HALF OF
+    THAT STOPPED BEING TRUE AT D-500.** The founder approved publishing an agent live and
+    launching a campaign, both behind an explicit confirmation, so a prompt that still told
+    the model it could not do them would be a prompt disagreeing with its own tool array —
+    which is how a model comes to apologise for something it has just been handed a tool
+    for. What is unchanged is the BILLING boundary, which the same instruction explicitly
+    withheld: no buying credits, no plan changes, no raising a spend cap. That is what is
+    pinned now, plus the sentence that keeps a suggestion from being reported as a done
+    thing."""
+    for phrase in ("buy credits", "change a plan", "raise a spending limit"):
         assert phrase in prompt_module.SYSTEM_PROMPT
+    assert "never say it is only suggested when it has already happened" in (
+        prompt_module.SYSTEM_PROMPT
+    )
 
 
 # --- the fence cannot be forged from inside the screen --------------------------------

@@ -165,6 +165,13 @@ TENANT_TABLES = [
     "outbound_webhooks",
     "kb_sources",
     "kb_documents",
+    # The retrieval projection (D-502, migration `dc1aaeeeff02`): one row per published
+    # chunk, holding a tsvector and an embedding and no content of its own. Tenant-scoped
+    # and FORCE-RLS'd like every other derivative of a client's knowledge — and RLS is
+    # load-bearing here rather than belt-and-braces, because a vector similarity query has
+    # no natural key to get wrong: without the policy, forgetting the tenant predicate
+    # returns a NEIGHBOUR'S nearest chunk and looks like a working search.
+    "kb_chunks",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
     # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the
@@ -315,6 +322,28 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "credential, no tenant data. Append-only (see APPEND_ONLY_TABLES): a correction is "
         "a new effective-dated row, never an edit, so a re-rendered invoice resolves the "
         "price that was live in the month it is re-rendering."
+    ),
+    "platform_ai_usage": (
+        "platform-scoped, admin realm only (D-499). The ADMIN copilot's AI spend — an "
+        "operator asking the assistant about platform state, or asking it while viewing a "
+        "client. The payer is Calevate, never the client, so there is no tenant whose row "
+        "this could be and it carries no tenant_id. `viewing_tenant_id` is CONTEXT and not "
+        "a payer: nothing prices it, it is nullable, and it is SET NULL on tenant delete. "
+        "Holds unit types, NUMERIC token quantities and INR unit costs, an operator id, a "
+        "model name and a feature name — no prompt, no answer, no PII. Append-only (see "
+        "APPEND_ONLY_TABLES): it is the ledger `platform_ai_spend` counts, so hard rule 4 "
+        "binds it exactly as it binds usage_events."
+    ),
+    "admin_copilot_memories": (
+        "platform-scoped, admin realm only (D-499). What the ADMIN copilot remembers for "
+        "one OPERATOR — the admin-realm twin of `copilot_memories`, which is tenant-scoped "
+        "and whose `user_id` is a foreign key to `users`. An operator is a row in "
+        "`admin_users` and the memory is about platform state, so there is no tenant whose "
+        "row this could be. `viewing_tenant_id` records which account was on screen when "
+        "the memory formed so a fact learned on one client's page is not recalled as a "
+        "fact about the platform; it is nullable and SET NULL on tenant delete. Content is "
+        "redacted on the way in by the same `copilot/memory.redacted_content` the client "
+        "table uses, and CASCADEs away with the operator's account."
     ),
     "platform_ai_spend": (
         "platform-scoped, admin realm only. The dashboard AI's monthly spend against the "
@@ -470,6 +499,11 @@ APPEND_ONLY_TABLES = [
     # answerable after the fact, and a row somebody could edit answers it with today's belief.
     "platform_dashboard_data_use",
     "platform_model_prices",
+    # The ADMIN copilot's own AI spend (D-499). Append-only for `usage_events`' reason
+    # rather than `platform_model_prices`': it is a LEDGER of money already paid to a
+    # provider, and `platform_ai_spend` is the counter derived from it. A row somebody
+    # could edit would let this month's platform brake be talked down after the fact.
+    "platform_ai_usage",
     # Acceptance of a legal document is CONTRACT FORMATION, not consent: there is no
     # withdrawal row and no status column, because a client who ends the engagement does
     # not un-accept the terms they operated under last month. An UPDATE could only ever

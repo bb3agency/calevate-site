@@ -555,4 +555,64 @@ class PlatformAiSpend(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
+class PlatformAiUsage(PKMixin, Base):
+    """One metered unit of AI spend the PLATFORM paid for, with no tenant behind it (D-499).
+
+    THE SECOND AI LEDGER, and it exists because the first one has a tenant in its primary
+    key. `usage_events` is FORCE RLS'd and tenant-scoped; an operator asking the admin
+    copilot a question has no tenant at all, so their spend has exactly three possible
+    homes and two of them are wrong — a client's ledger (which is charging somebody for our
+    own support work), nowhere (hard rule 7, in as many words), or here.
+
+    SAME UNITS, SAME SCALE, SAME `ref` DISCIPLINE as the tenant ledger, deliberately:
+    `AI_ASSIST_UNIT_TYPES` on both, `MONEY` on both, and a server-minted `assist:<uuid>`
+    key on both — enforced HERE by `ck_platform_ai_usage_ref_shape` in the database as
+    well as by `ai_quota._ASSIST_REF_RE` in Python, because `ref` is the meter's off
+    switch and a caller-chosen key is a way to spend our credential for free.
+
+    `admin_user_id` is the attribution `usage_events` has no equivalent for. A tenant's
+    assist is the tenant's, whichever member clicked; here the payer is the platform, so
+    the operator is the only answer to "who spent this" worth recording.
+
+    `viewing_tenant_id` IS NOT A PAYER and nothing prices it. It records the account an
+    operator had open — a tenant admin page, or a D-22 view-as session — so "what did we
+    spend supporting this client" is a query rather than an archaeology. SET NULL on
+    delete: platform accounting outlives the account it was about.
+
+    Append-only (migration `f2c81a4d05e7`, `db/registry.APPEND_ONLY_TABLES`). Unlike
+    `PlatformAiSpend` above — which is a COUNTER and re-derivable — this is the ledger the
+    counter is derived from, so hard rule 4 binds it exactly as it binds `usage_events`.
+    """
+
+    __tablename__ = "platform_ai_usage"
+
+    admin_user_id: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    viewing_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+    unit_type: Mapped[str] = mapped_column(Text, nullable=False)
+    qty: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    unit_cost_paid: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    ref: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: Ids, a model name and a feature name. Never a prompt and never an answer (rule 6).
+    meta: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("qty >= 0", name="qty_not_negative"),
+        CheckConstraint("unit_cost_paid >= 0", name="cost_not_negative"),
+        CheckConstraint(
+            "ref ~ '^assist:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
+            name="ref_shape",
+        ),
+        Index("ux_platform_ai_usage_unit_ref", "unit_type", "ref", unique=True),
+        Index(
+            "ix_platform_ai_usage_occurred",
+            text("occurred_at DESC"),
+            "admin_user_id",
+        ),
+    )
+
+
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

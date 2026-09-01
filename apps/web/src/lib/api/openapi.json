@@ -278,6 +278,66 @@
         "title": "AdjustmentOut",
         "type": "object"
       },
+      "AdminCopilotAskIn": {
+        "additionalProperties": false,
+        "description": "`POST /v1/admin/copilot/ask` \u2014 the client body plus WHICH ACCOUNT IS OPEN (D-499).\n\n`tenant_id` is the account whose admin page the operator is looking at, or null on a\nplatform screen. It scopes three things and nothing else: which tenant the account read\ntools run under, which tenant's live business state is composed, and which memories are\neligible for recall (`copilot/admin_memory.py`).\n\n**IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the\nplatform ledger \u2014 an operator never spends a client's allowance (D-499) \u2014 so no body\nfield here can move anyone's bill. And it widens nothing: every route serving this\npermission is admin-realm, and both admin roles hold `admin:tenants`, so an operator\nnaming an account here reaches exactly what the console's own tenant page would show\nthem. It is still validated to be a real, undeleted account before it is used, because\na silently-ignored id would let a screen believe it had scoped the assistant when it\nhad not.\n\n**INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an\nimpersonation grant is proven by a second factor and audited; this field is a claim in a\nbody. The route takes the principal's when there is one and never reconciles the two.",
+        "properties": {
+          "facts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CopilotFact"
+            },
+            "maxItems": 50,
+            "title": "Facts",
+            "type": "array"
+          },
+          "fields": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CopilotField"
+            },
+            "maxItems": 200,
+            "title": "Fields",
+            "type": "array"
+          },
+          "history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CopilotTurn"
+            },
+            "maxItems": 10,
+            "title": "History",
+            "type": "array"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "screen": {
+            "$ref": "#/components/schemas/CopilotScreen"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "screen",
+          "question"
+        ],
+        "title": "AdminCopilotAskIn",
+        "type": "object"
+      },
       "AdminMeOut": {
         "additionalProperties": false,
         "description": "The admin realm's own identity document.\n\n`MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There\nis no `organization`, because an admin principal resolved without\n`X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console\nscreen that had to enter a client to ask who it was is precisely the shape this\nroute removes. What is left \u2014 the role and the permission set \u2014 is the whole of what\nthe console legitimately needs to preview its own gates.",
@@ -19286,6 +19346,60 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/admin/copilot/ask": {
+      "post": {
+        "description": "The admin console's own assistant. Answers about the screen the operator is on, about\nPLATFORM state (the client roster, the triage board, whether outbound dialling is halted,\nwhether our telemarketer registration is live, how much of this month's AI budget is\nspent), about the ONE account named in `tenant_id` when one is open, and about Calevate's\nown runbooks \u2014 every one of those by calling a read tool, never from memory.\n\n`tenant_id` is the account whose admin page is open, or null. It scopes the account tools,\nthe live-state block and memory recall. Inside a view-as session it is ignored in favour of\nthe impersonated account, which is proven by the grant rather than claimed in a body.\n\nStreams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents \u2014\n`text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this\nrealm today, will not be offered: the write tools need an account-scoped identity that an\nadmin session does not carry, and inside a view-as session they are refused outright\nbecause impersonation is read-only.\n\n**BILLING: this never touches a client's AI allowance.** Operator spend is metered to the\nplatform's own ledger under the cost name `admin_copilot`. It is still bounded by the\nplatform-wide AI brake, which pauses this console's assistant exactly as it pauses every\nclient's.\n\nRequires `copilot:admin` \u2014 held by operators and superadmins.",
+        "operationId": "ask_admin_copilot_v1_admin_copilot_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminCopilotAskIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask the admin console's assistant \u2014 streamed, metered to the platform",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
+      }
+    },
     "/v1/admin/impersonation-grants": {
       "post": {
         "description": "Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation \u2014 an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.\n\nSTARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not \u2014 send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.",
@@ -26692,7 +26806,7 @@
     },
     "/v1/copilot/ask": {
       "post": {
-        "description": "Answers a question about the screen the caller is on, answers questions about the\naccount's own business by reading it (calls, leads, campaigns, agents, performance \u2014\nread-only, under the caller's own permissions and RLS scope), and can fill that screen's\nform fields. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: proposal` \u00b7 `data: {\"token\": \"...\", \"tool\": \"...\", \"title\": \"...\",\n  \"summary\": \"...\", \"object_type\": \"...\", \"object_id\": \"...\", \"current\": \"...\",\n  \"proposed\": \"...\", \"expires_at\": \"...\"}` \u2014 at most one per response, and it is NOT a\n  change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` \u2192 `proposed`\n  pair, and a Confirm button that posts `token` back, unchanged, to\n  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world\n  untouched; the token stops working at `expires_at`.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\n`history` is what the browser replays and it still dies with the request \u2014 the server keeps\nno thread. What IS kept is one redacted, capped memory row per answered question\n(`copilot_memories`), which the assistant recalls on later questions from the same person;\nit expires on the account's own `copilot_memory` retention policy and is destroyed by\noffboarding. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `copilot:use` \u2014 held by owners and staff.",
+        "description": "Answers a question about the screen the caller is on, answers questions about the\naccount's own business by reading it (calls, leads, campaigns, agents, performance \u2014\nread-only, under the caller's own permissions and RLS scope), and can fill that screen's\nform fields. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: proposal` \u00b7 `data: {\"token\": \"...\", \"tool\": \"...\", \"title\": \"...\",\n  \"summary\": \"...\", \"object_type\": \"...\", \"object_id\": \"...\", \"current\": \"...\",\n  \"proposed\": \"...\", \"cost\": null|\"...\", \"reversal\": \"...\", \"expires_at\": \"...\"}` \u2014 at most\n  one per response, and it is NOT a change. NOTHING HAS HAPPENED. This is a **Tier 2**\n  action: one that reaches a caller or spends money, and therefore needs a person. Show\n  `title`, `summary`, the `current` \u2192 `proposed` pair, `cost` when it is non-null and\n  `reversal` always, and a Confirm button that posts `token` back, unchanged, to\n  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world\n  untouched; the token stops working at `expires_at`.\n* `event: action` \u00b7 `data: {\"tool\": \"...\", \"title\": \"...\", \"detail\": \"...\",\n  \"object_type\": \"...\", \"object_id\": \"...\", \"applied\": true, \"reversal\": \"...\",\n  \"where\": \"...\"}` \u2014 a **Tier 1** action that **has already happened**: reversible, reaching\n  no caller, spending nothing. Render it as a RECEIPT and never as an offer \u2014 there is no\n  token and no button. `reversal` says whether and how it can be taken back and `where`\n  says where the result now lives; both are the server's own words. `applied: false` means\n  the world was already in that state.\n* `event: step` \u00b7 `data: {\"id\": \"...\", \"tool\": \"...\", \"status\":\n  \"running\"|\"done\"|\"refused\"|\"failed\", \"args\": \"...\", \"detail\": null|\"...\",\n  \"elapsed_ms\": null|123}` \u2014 one tool call as it happens, two frames per call sharing an\n  `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely\n  observational \u2014 dropping every one of them loses no outcome \u2014 and safe to render live so\n  a person can see which of their data was read and how long it took.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\n`history` is what the browser replays and it still dies with the request \u2014 the server keeps\nno thread. What IS kept is one redacted, capped memory row per answered question\n(`copilot_memories`), which the assistant recalls on later questions from the same person;\nit expires on the account's own `copilot_memory` retention policy and is destroyed by\noffboarding. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `copilot:use` \u2014 held by owners and staff.",
         "operationId": "ask_copilot_v1_copilot_ask_post",
         "requestBody": {
           "content": {

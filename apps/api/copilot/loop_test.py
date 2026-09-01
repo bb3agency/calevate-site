@@ -587,8 +587,13 @@ def _fake_tools(monkeypatch: pytest.MonkeyPatch, answers: dict[str, str]) -> lis
     """Replace the tool runner with a lookup table, recording every invocation."""
     seen: list[dict[str, Any]] = []
 
-    async def _run(name: str, arguments: str, *, context: Any) -> str:
-        seen.append({"name": name, "arguments": arguments, "context": context})
+    async def _run(name: str, arguments: str, *, context: Any, registry: Any = None) -> str:
+        # `registry` is the REALM's read-tool set (D-499). Recorded rather than ignored so a
+        # test that cares which realm the loop ran under can assert on it; the substitution
+        # itself does not need one, because this fake IS the lookup table.
+        seen.append(
+            {"name": name, "arguments": arguments, "context": context, "registry": registry}
+        )
         return answers.get(name, f"no answer scripted for {name}")
 
     monkeypatch.setattr(tools_module, "run_read_tool", _run)

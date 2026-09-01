@@ -662,6 +662,35 @@ RETURNING spend_inr
 """
 
 
+async def bump_platform_ai_spend(
+    session: AsyncSession, *, month: str, amount: Decimal, requests: int = 1
+) -> Decimal:
+    """Add one answer's cost to the month's platform total and announce a crossed line.
+
+    PUBLIC and shared by both meters (D-499): the tenant meter below and
+    `billing/platform_ai.record_platform_ai_usage`. ONE counter and ONE brake, because it
+    is one vendor key and one bill — an admin surface counting against a ceiling of its own
+    would be spend on our credential that the only ceiling we have cannot see.
+
+    One statement, so two answers landing at the same instant cannot both read a
+    pre-increment total and both write it back (BACKEND-PATTERNS §5 — the guard is IN the
+    write). Returns the total AFTER this addition, which is what makes "under before, over
+    after" decidable with no second table.
+    """
+    spend_after = Decimal(
+        str(
+            (
+                await session.execute(
+                    text(_BUMP_PLATFORM_SQL),
+                    {"month": month, "amount": amount, "requests": requests},
+                )
+            ).scalar_one()
+        )
+    )
+    _announce_platform_headroom(month=month, spend_after=spend_after, added=amount)
+    return spend_after
+
+
 def _announce_platform_headroom(*, month: str, spend_after: Decimal, added: Decimal) -> None:
     """Tell an operator on the bump that CROSSES a line, and only then.
 
@@ -784,6 +813,18 @@ def new_assist_ref() -> str:
     return f"{ASSIST_REF_PREFIX}:{uuid7()}"
 
 
+def is_assist_ref(ref: str) -> bool:
+    """Did this key come from `new_assist_ref()`?
+
+    PUBLIC because there are now two meters asking it — this module's tenant meter and
+    `billing/platform_ai.py`'s platform one (D-499) — and the answer must be the same
+    string shape for both. A second regex in the second meter is the drift class hard
+    rule 4's ledgers cannot afford: the two would agree until one of them was edited, and
+    the failure is silent (a key the other meter would have refused becomes a free assist).
+    """
+    return bool(_ASSIST_REF_RE.match(ref))
+
+
 @dataclass(frozen=True, slots=True)
 class AssistMetered:
     """What `record_ai_assist_usage` did.
@@ -844,7 +885,7 @@ async def record_ai_assist_usage(
     for every assist. Deriving the price from the model makes that row unrepresentable,
     which is the only guarantee worth having on a ledger that cannot be corrected in place.
     """
-    if not _ASSIST_REF_RE.match(ref):
+    if not is_assist_ref(ref):
         # A programming error, not a user's: raised rather than refused politely, because
         # every reachable caller mints its key from `new_assist_ref()` and one that did
         # not is a caller that has invented its own idempotency scheme.
@@ -900,17 +941,7 @@ async def record_ai_assist_usage(
         )
         return AssistMetered(recorded=False, cost_inr=Decimal("0"))
 
-    spend_after = Decimal(
-        str(
-            (
-                await session.execute(
-                    text(_BUMP_PLATFORM_SQL),
-                    {"month": landed_month, "amount": landed, "requests": 1},
-                )
-            ).scalar_one()
-        )
-    )
-    _announce_platform_headroom(month=landed_month, spend_after=spend_after, added=landed)
+    await bump_platform_ai_spend(session, month=landed_month, amount=landed)
     log.info(
         "ai_assist_metered",
         # Ids, a model name and a rupee total. No tenant name, no prompt, no output.
@@ -1215,6 +1246,8 @@ __all__ = [
     "ExtraPurchase",
     "PlatformAiSpend",
     "assist_nominal_inr",
+    "bump_platform_ai_spend",
+    "is_assist_ref",
     "ktok",
     "month_is_ending",
     "new_assist_ref",

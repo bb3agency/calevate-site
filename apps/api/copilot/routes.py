@@ -87,11 +87,26 @@ form fields. Streams `text/event-stream`:
   highlight them, and offer one Undo; nothing is saved until the user presses Save.
 * `event: proposal` · `data: {"token": "...", "tool": "...", "title": "...",
   "summary": "...", "object_type": "...", "object_id": "...", "current": "...",
-  "proposed": "...", "expires_at": "..."}` — at most one per response, and it is NOT a
-  change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` → `proposed`
-  pair, and a Confirm button that posts `token` back, unchanged, to
+  "proposed": "...", "cost": null|"...", "reversal": "...", "expires_at": "..."}` — at most
+  one per response, and it is NOT a change. NOTHING HAS HAPPENED. This is a **Tier 2**
+  action: one that reaches a caller or spends money, and therefore needs a person. Show
+  `title`, `summary`, the `current` → `proposed` pair, `cost` when it is non-null and
+  `reversal` always, and a Confirm button that posts `token` back, unchanged, to
   `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world
   untouched; the token stops working at `expires_at`.
+* `event: action` · `data: {"tool": "...", "title": "...", "detail": "...",
+  "object_type": "...", "object_id": "...", "applied": true, "reversal": "...",
+  "where": "..."}` — a **Tier 1** action that **has already happened**: reversible, reaching
+  no caller, spending nothing. Render it as a RECEIPT and never as an offer — there is no
+  token and no button. `reversal` says whether and how it can be taken back and `where`
+  says where the result now lives; both are the server's own words. `applied: false` means
+  the world was already in that state.
+* `event: step` · `data: {"id": "...", "tool": "...", "status":
+  "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
+  "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
+  `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely
+  observational — dropping every one of them loses no outcome — and safe to render live so
+  a person can see which of their data was read and how long it took.
 * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
   non-null when a substitute model answered and MUST be shown.
 * `event: error` · `data: {problem+json}` — a refusal that happened after the stream
@@ -150,21 +165,30 @@ async def ask_copilot(
     itself, and it still does not: `billing:read` is an owner's, and this is a permission
     whose whole content is "may open the assistant".
 
-    **THE ADMIN REALM IS REFUSED, AND THE REASON IS THAT IT HAS NO PAYER — not that
-    nobody picked a permission.** Every AI surface in this repository is metered per
-    TENANT: `require_ai_assist` takes a `tenant_id`, `record_ai_assist_usage` writes
-    `usage_events` (a tenant-scoped RLS table), and the platform brake is bumped only for
-    rows that landed. An operator on `/v1/ops/config` or `/v1/admin/operators` has
-    `principal.tenant_id is None`, so an admin-realm copilot would either spend the
-    founder's Azure credential with no ledger row — which hard rule 7 forbids in as many
-    words, "costs recorded per usage_event with our unit_cost_paid" — or charge whichever
-    client's page happened to be open for an operator's typing. Neither is acceptable and
-    neither is fixable inside this package: what closes it is a platform-payer AI ledger in
-    `billing/`, which is a money surface with its own migration and its own append-only
-    rules. **The admin console's copilot button is therefore unserved by this change and
-    this sentence is the record of that, not a silence.** An operator inside a view-as
-    session reaches this route and is correctly refused by the line above, exactly as they
-    are refused `POST /v1/calls/{call_id}/assist`.
+    ⚠ **THE ADMIN-REALM DEFERRAL RECORDED HERE IS CLOSED (D-499), AND THIS ROUTE IS STILL
+    THE CLIENT'S.** What it said, and what was true when it said it: every AI surface in
+    this repository is metered per TENANT — `require_ai_assist` takes a `tenant_id`,
+    `record_ai_assist_usage` writes `usage_events` (a tenant-scoped RLS table) — so an
+    operator with `principal.tenant_id is None` would have meant either spending the
+    founder's Azure credential with no ledger row (hard rule 7 forbids it in as many words)
+    or charging whichever client's page happened to be open for an operator's typing.
+
+    **BOTH HALVES WERE ANSWERED, AND THE SECOND ONE WAS ANSWERED THE WAY THIS PARAGRAPH
+    WAS ARGUING.** The ledger is `platform_ai_usage` (migration `f2c81a4d05e7`), written by
+    `billing/platform_ai.py` under the cost name `admin_copilot`; and the founder settled
+    who pays with one sentence — *"You never charge a client for your own support work"* —
+    so an operator's copilot spend lands on the platform ledger on EVERY path, including
+    inside a D-22 view-as session. No client's allowance can be moved by an operator, which
+    is exactly the outcome the objection above wanted.
+
+    THE ADMIN REALM IS SERVED BY `POST /v1/admin/copilot/ask` (`copilot/admin_routes.py`)
+    AND NOT BY THIS ROUTE, for a mechanical reason and not a policy one: this route is
+    `realm="any"`, and `current_any` resolves the admin realm only when an impersonation
+    header is present, so an operator on `/admin/ops` is invisible to it. An operator
+    INSIDE a view-as session still reaches this line and is still refused here —
+    `copilot:use` is in `MUTATING_PERMISSIONS` and is deliberately NOT in
+    `rbac.IMPERSONATION_PERMITTED_MUTATIONS` — because a client's own allowance is what
+    this route spends. Their assistant is the admin one, on the admin route, on our money.
 
     **NO `Idempotency-Key`, WHERE `assist_call` REQUIRES ONE, AND THE DIFFERENCE IS WHAT A
     REPLAY WOULD HAVE TO BE.** That route's key works because its answer is one JSON object
@@ -185,7 +209,13 @@ async def ask_copilot(
     after the last one. That is why `crm/assist.py`'s connection-holding departure is not
     inherited here.
     """
-    assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
+    # Guaranteed by the dependency: a client principal always carries one, and the only
+    # admin principal that reaches a `realm="any"` route is an impersonating one (which
+    # carries the impersonated tenant) — and that one is refused a line earlier by
+    # `copilot:use` being a mutating permission. There is therefore no reachable branch to
+    # write here, and an unreachable `if` would be a coverage-excluded arm on a money path
+    # (hard rule 10's note on suppressions).
+    assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
 
     try:
@@ -294,6 +324,7 @@ async def ask_copilot(
     spend: service.CopilotSpend | None = None
     filled: tuple[str, ...] = ()
     proposed: str | None = None
+    acted: list[str] = []
     # THE ANSWER, KEPT ONLY LONG ENOUGH TO REMEMBER IT. Accumulated rather than re-read,
     # because a stream has no "the answer" to read back; bounded by
     # `service.MAX_ANSWER_TOKENS` * `service.MAX_TURNS`, which is the same ceiling the
@@ -323,11 +354,23 @@ async def ask_copilot(
             # another account's knowledge.
             tool_context=service.ToolContext(tenant_id=tenant_id, role=principal.role),
             live=live,
-            # WHO THE WRITE TOOLS MAY PROPOSE FOR, narrowed from the principal the
-            # dependency already verified — never from the body. `write_tools.actor_for`
-            # is the one place that narrowing happens, so a `None` tenant cannot reach a
-            # `sub` claim.
-            actor=write_tools.actor_for(principal),
+            # WHO THE ACTIONS RUN AS, and it is the verified principal itself rather than
+            # a narrowing of it (D-500). `write_tools.actor_for` still performs that
+            # narrowing, once, inside the loop — what changed is that a TIER 1 action also
+            # writes an `audit_log` row in its own transaction, and `write_audit` names the
+            # actor from a `Principal`. Never from the body: `payload.screen` is a
+            # caller-composed description and is used for the prompt and the audit row,
+            # never for authorization.
+            principal=principal,
+            # WHAT MAKES A TIER 1 ACTION'S IDEMPOTENCY KEY STABLE ACROSS A RETRY. The
+            # QUESTION and the replayed history — see `write_tools.conversation_seed` for
+            # why the metering `ref` above would have been exactly the wrong ingredient
+            # (it is minted per attempt, so a retry gets a new one and the guard protects
+            # nothing). Composed here because this is the layer that has the request.
+            seed=write_tools.conversation_seed(
+                payload.question, [turn.content for turn in payload.history]
+            ),
+            ip=client_request_ip(request),
         ):
             if event.text is not None:
                 answer_parts.append(event.text)
@@ -338,6 +381,20 @@ async def ask_copilot(
             if event.proposal is not None:
                 proposed = event.proposal.tool
                 yield ServerSentEvent(event="proposal", data=event.proposal)
+            if event.step is not None:
+                # PURELY OBSERVATIONAL and deliberately NOT accumulated: a step is a frame
+                # the panel renders live, not an outcome, and nothing downstream of this
+                # route — not the meter, not the audit summary, not the memory row — is
+                # allowed to depend on one. It carries a bounded preview of a tool's
+                # arguments and result, so it is also the one frame that must never be
+                # logged or stored (hard rule 6); it is neither.
+                yield ServerSentEvent(event="step", data=event.step)
+            if event.action is not None:
+                # A TIER 1 ACTION THAT HAS ALREADY HAPPENED (D-500). Its `audit_log` row was
+                # written inside `run_immediate`, in the same transaction as the change, so
+                # the record does not depend on this route reaching its meter.
+                acted.append(event.action.tool)
+                yield ServerSentEvent(event="action", data=event.action)
             if event.spend is not None:
                 spend = event.spend
     except ProblemError as refusal:
@@ -412,6 +469,17 @@ async def ask_copilot(
                     "metered": metered,
                     "ref": ref,
                     "filled_field_count": len(filled),
+                    # A COUNT AND THE NAMES of the TIER 1 actions this answer performed
+                    # (D-500). Each already wrote its own `audit_log` row naming the person
+                    # and the object it touched, inside `run_immediate`'s transaction; this
+                    # is what the `copilot.ask` row says about the ANSWER, so a reader of
+                    # one row can tell that a question changed something. Names only — the
+                    # ids are in the rows the actions wrote. `redact_mapping` collapses any
+                    # sequence to "[N items]" on the way to the log stream, which is why
+                    # the count is stated separately rather than left to be derived from a
+                    # field that will not be there.
+                    "action_count": len(acted),
+                    "actions": sorted(set(acted)),
                     # WHICH TOOL WAS PROPOSED, or None. A NAME and not the arguments: this
                     # row records that the assistant offered a change, and the row that
                     # records the change itself is written by `POST /v1/copilot/confirm`

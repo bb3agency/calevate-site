@@ -99,6 +99,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import record_ai_assist_usage
+from apps.api.billing.platform_ai import record_platform_ai_usage
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -156,6 +157,23 @@ ASSIST_FEATURE_COPILOT_MEMORY: Final = "copilot_memory_distillation"
 #: quantity is a function of how much knowledge a client UPLOADS rather than of how much
 #: they USE, which is a different curve and one an operator will want to see on its own.
 ASSIST_FEATURE_KB_GLOSS: Final = "kb_gloss"
+
+#: `platform_ai_usage.meta.feature` for the ADMIN-REALM COPILOT (D-499) — the assistant an
+#: operator or superadmin uses inside the admin console, and inside a D-22 view-as session.
+#:
+#: A SIXTH name, and the FIRST one that is not a `usage_events.meta.feature` at all: this is
+#: the only surface here whose payer is the PLATFORM rather than a tenant, so its rows land
+#: in `platform_ai_usage` (`billing/platform_ai.py`) and no client's ceiling moves. The
+#: founder's sentence is the whole of the reason — *"You never charge a client for your own
+#: support work"* — and it is why an operator asking the assistant while VIEWING a client
+#: files under this name too, not under `copilot`.
+#:
+#: The name says the realm rather than the screen, deliberately. `copilot` already names
+#: "the floating assistant that answers about a screen", and the question an operator asks
+#: the ledger is not "which admin screen" but "what did the admin console cost us this
+#: month, and who spent it" — which is `admin_user_id` + this one feature name, not a family
+#: of per-screen names nobody would keep in step.
+ASSIST_FEATURE_ADMIN_COPILOT: Final = "admin_copilot"
 
 
 class MeterableAssist(Protocol):
@@ -449,7 +467,110 @@ async def meter_assist(
     return AssistMetering(metered=metered.recorded, cost_inr=metered.cost_inr)
 
 
+async def meter_platform_assist(
+    session: AsyncSession,
+    *,
+    admin_user_id: UUID,
+    viewing_tenant_id: UUID | None,
+    ref: str,
+    result: MeterableAssist,
+    feature: str = ASSIST_FEATURE_ADMIN_COPILOT,
+    model: str | None = None,
+) -> AssistMetering:
+    """`meter_assist` for the surface whose payer is the PLATFORM (D-499).
+
+    THE SAME THREE OUTCOMES, decided the same way and for the same reasons — read
+    `meter_assist` above for the arguments, which are not restated here because restating
+    them is how two meters come to disagree about what a missing `usage` block means:
+
+    * **Sarvam** — D-36 prices the leg at zero, so there is no quantity to state and
+      nothing is written. A `qty = 0` row would be a FABRICATED quantity on an append-only
+      ledger (D-140), indistinguishable from a real one.
+    * **A paid leg that returned no `usage`** — a METERING OUTAGE. Alerted, never
+      estimated. It matters MORE here than on the tenant ledger, not less: the platform
+      brake is the ONLY ceiling this surface has (`platform_ai.require_platform_ai`), so
+      spend it cannot see is spend with no bound at all.
+    * **An unrecognised provider** — recorded as free, loudly. The closed set is closed
+      for `meter_assist`'s reason and the hole opens on the same day, in the same file.
+
+    WHAT IS DIFFERENT IS ONLY THE PAYER, and that is the whole point of it being a separate
+    function rather than a flag on `meter_assist`: the tenant meter's signature REQUIRES a
+    `tenant_id` and writes a table whose RLS depends on one, so "the same function with the
+    tenant left out" is not a shape that exists. The alerts carry `admin_user_id` in the
+    tenant's place so an operator reading either alarm knows immediately which bill is
+    affected.
+
+    Never raises for an ordinary outcome, for `meter_assist`'s reason: it runs after the
+    provider has been paid, and a metered answer undone by a failure to talk about it is a
+    money hole rather than a tidy rollback.
+    """
+    model = model or get_settings().azure_openai_model
+    usage = result.usage
+    if usage is None:
+        if result.capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
+            alert(
+                "CORE_LOGIC",
+                "admin_ai_assist_unmeterable",
+                detail=(
+                    "A paid ADMIN-console assist carried no usage block, so it could not be "
+                    "metered: this is spend on our own key that the platform brake cannot "
+                    "see, and the admin realm has no other ceiling. Nothing was estimated. "
+                    "Check whether the provider has stopped sending the block before the "
+                    "month's real spend outruns PLATFORM_AI_BRAKE_INR."
+                ),
+                provider=str(result.capability.provider),
+                # Ids, a model name and a feature name. No operator name, no question, no
+                # answer — and never the key (hard rule 6).
+                admin_user_id=str(admin_user_id),
+                ref=ref,
+                model=model,
+                feature=feature,
+            )
+        elif result.capability.provider == SARVAM_PROVIDER:
+            log.info(
+                "admin_ai_assist_unmetered_fallback",
+                extra={
+                    "admin_user_id": str(admin_user_id),
+                    "ref": ref,
+                    "provider": result.capability.provider,
+                    "fallback_reason": result.capability.fallback_reason,
+                    "feature": feature,
+                },
+            )
+        else:
+            alert(
+                "CORE_LOGIC",
+                "admin_ai_assist_unknown_provider",
+                detail=(
+                    "An ADMIN-console assist was answered by a provider this meter does not "
+                    "know how to price, so it was recorded as free. If that provider is "
+                    "paid, this is spend on our own key invisible to the platform brake. "
+                    "Teach crm/assist.py::meter_platform_assist about it, or confirm it "
+                    "belongs in the free bucket."
+                ),
+                admin_user_id=str(admin_user_id),
+                ref=ref,
+                model=model,
+                feature=feature,
+                provider=str(result.capability.provider),
+            )
+        return AssistMetering(metered=False, cost_inr=Decimal("0"))
+
+    metered = await record_platform_ai_usage(
+        session,
+        admin_user_id=admin_user_id,
+        viewing_tenant_id=viewing_tenant_id,
+        ref=ref,
+        tokens_in=usage.prompt_tokens,
+        tokens_out=usage.output_tokens,
+        model=model,
+        feature=feature,
+    )
+    return AssistMetering(metered=metered.recorded, cost_inr=metered.cost_inr)
+
+
 __all__ = [
+    "ASSIST_FEATURE_ADMIN_COPILOT",
     "ASSIST_FEATURE_COPILOT",
     "ASSIST_FEATURE_COPILOT_MEMORY",
     "ASSIST_FEATURE_KB_GLOSS",
@@ -460,5 +581,6 @@ __all__ = [
     "MeterableAssist",
     "load_assist_source",
     "meter_assist",
+    "meter_platform_assist",
     "transcript_for_model",
 ]
