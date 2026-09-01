@@ -577,19 +577,28 @@ export default function Home() {
                   to a call you couldn&apos;t take.
                 </h1>
                 {/*
-                 * WHAT IT IS *AND WHO IT IS FOR*, IN ONE PARAGRAPH ABOVE THE BUTTON.
+                 * WHAT IT IS, THEN WHO IT IS FOR — BOTH ABOVE THE BUTTON.
                  *
                  * The audience sentence used to be the LAST thing in the hero, below the
-                 * button and below the three-item list — so on a phone the one reader this
-                 * page is written for ("I run a clinic in Guntur") had to scroll past the
-                 * call to action to find out the page was addressed to them. Nothing was
-                 * added: the two sentences were already on the page and are now in the
-                 * order a stranger reads them in.
+                 * call to action and below the three-item list, so on a phone the one
+                 * reader this page is written for ("I run a clinic in Guntur") had to
+                 * scroll past the button to find out the page was addressed to them.
+                 * Nothing was added and nothing was reworded: the two sentences were
+                 * already here, in the wrong order.
+                 *
+                 * They stay TWO paragraphs at two sizes rather than one merged one. Merged
+                 * at `text-lg` the pair ran to six lines on a 360px screen and pushed the
+                 * button to the fold; split, the value proposition keeps the large type
+                 * and the audience reads as the supporting line it is — which is also the
+                 * honest hierarchy, since one is the offer and the other is a qualifier.
                  */}
                 <p data-hero-item className="mt-5 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl">
-                  An AI receptionist for clinics, property offices and coaching centres in
-                  Andhra Pradesh and Telangana. It answers your callers and chases your
-                  leads — in Telugu, Hindi or English.
+                  An AI receptionist that answers your callers and chases your leads — in
+                  Telugu, Hindi or English.
+                </p>
+                <p data-hero-item className="mt-3 max-w-2xl text-sm text-pretty text-ink-faint">
+                  Built Telugu-first for clinics, property offices and coaching centres across
+                  Andhra Pradesh and Telangana.
                 </p>
                 <div data-hero-item className="mt-7 flex flex-wrap items-center gap-3">
                   <Link href="/signup" className={CTA_PRIMARY}>

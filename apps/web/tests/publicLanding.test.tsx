@@ -635,6 +635,55 @@ describe("the page's structure asks for one thing, once", () => {
   });
 });
 
+/**
+ * THE PHONE IS THE DESIGN TARGET HERE, not a breakpoint — UX-DOCTRINE §8.6 — and this is
+ * the marketing surface's half of `tests/responsive.test.ts`.
+ *
+ * That file's header states the trade this one inherits: the defects were found by
+ * MEASUREMENT in a real browser, the gate is a SOURCE check, and what a source check buys
+ * is that a fix cannot be silently undone. It does not claim the page is still measured.
+ * The rule below is the one class of defect this page actually had — a multi-column grid
+ * with no breakpoint under it, which does not overflow the viewport (so no overflow rule
+ * catches it) but divides a 320px content box into three 75px columns of wrapped words.
+ *
+ * The calculator's coverage picker was exactly that: `grid-cols-3` unprefixed, holding
+ * "Business hours" / "Into the evening" / "Around the clock" with a caption under each.
+ */
+describe("nothing on this page lays out in columns a phone cannot hold", () => {
+  const MARKETING_SOURCES = [
+    "app/page.tsx",
+    "components/marketing/roiCalculator.tsx",
+    "components/marketing/callDemo.tsx",
+    "components/marketing/faq.tsx",
+  ];
+
+  it("every multi-column grid waits for a breakpoint", () => {
+    const offenders: string[] = [];
+    for (const file of MARKETING_SOURCES) {
+      const lines = readFileSync(
+        resolve(process.cwd(), "src", ...file.split("/")),
+        "utf8",
+      ).split("\n");
+      lines.forEach((line, i) => {
+        // Comments talk about these utilities; only a class string applies one.
+        if (/^\s*(\*|\/\/)/.test(line)) return;
+        for (const match of line.matchAll(/(^|[\s"'`(])(grid-cols-([2-9]|\[[^\]]+\]))/g)) {
+          const before = line.slice(0, match.index! + match[1].length);
+          // `sm:grid-cols-3` and friends read as a `:` immediately before the utility.
+          if (/[a-z0-9\]]:$/.test(before)) continue;
+          offenders.push(`src/${file}:${i + 1} — ${match[2]}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `these grids split a 320px content box into columns at every width:\n  ` +
+        `${offenders.join("\n  ")}\n` +
+        `Prefix the utility (e.g. \`grid-cols-1 sm:grid-cols-3\`) so a phone gets rows.`,
+    ).toEqual([]);
+  });
+});
+
 describe("the footer's legal links", () => {
   /**
    * THE ONE SURFACE A PAYMENT AGGREGATOR'S REVIEWER LOOKS FOR.

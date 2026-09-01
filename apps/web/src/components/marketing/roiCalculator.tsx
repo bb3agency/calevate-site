@@ -758,7 +758,7 @@ export function RoiCalculator() {
             grow a friendlier rule than the other. */}
         <div
           className={
-            "rounded-2xl border p-6 " +
+            "rounded-2xl border p-5 sm:p-6 " +
             (cheaper && !close
               ? "border-brand/40 bg-surface"
               : "border-line bg-surface/60")
@@ -926,7 +926,7 @@ export function RoiCalculator() {
             script at all, and closed by default so it never renders as a wall of text.
             The summary carries an <h3> and the body a <p>, the shape the landing tests
             require of every disclosure on the page. */}
-        <details className="group rounded-2xl border border-line bg-surface/60 p-6">
+        <details className="group rounded-2xl border border-line bg-surface/60 p-5 sm:p-6">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
             <h3 className="text-[15px] font-semibold text-ink">
               How we calculate this, and where the numbers come from
