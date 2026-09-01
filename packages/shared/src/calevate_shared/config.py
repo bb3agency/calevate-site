@@ -670,6 +670,42 @@ class Settings(BaseSettings):
     #
     # 512 characters is far above the two entries the allow-list can produce and far below
     # the megabyte a jsonb-replicated string could otherwise carry.
+    # THE EMBEDDING DEPLOYMENT — a THIRD deployment field, and it has to be one (D-502).
+    #
+    # An embedding model is served under its own Azure deployment, distinct from every chat
+    # deployment above however it is named: posting `POST /embeddings` input at a chat
+    # deployment is a 400, and posting chat messages at an embedding deployment is a 400 the
+    # other way. It therefore cannot be derived from `azure_openai_deployment` and must not
+    # be guessed from it — the same argument that gave the chat deployment its own field,
+    # applied to a different endpoint on the same resource.
+    #
+    # SAME RESOURCE, SAME REGION, SAME CREDENTIAL, so this adds NO sub-processor: it is the
+    # East US 2 resource D-449 already settled, reached through the one builder
+    # `calevate_shared.engine.azure_openai_base_url`.
+    #
+    # None until an operator creates the deployment — an EXTERNAL step, so knowledge search
+    # degrades to its sparse arm and to T0 rather than half-working
+    # (`apps/api/retrieval/service.get_retriever` says so at ERROR). Bounded to the same
+    # character class and 64-character ceiling as every other Azure deployment id here.
+    azure_openai_embedding_deployment: str | None = Field(
+        default=None, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    )
+    # WHICH RETRIEVAL STORE ANSWERS A COLD LOOKUP (D-502). `compiled-facts` is T0 alone —
+    # what shipped while the D-28 bake-off was open — and `pgvector` adds the T3 hybrid
+    # store in the Postgres we already run.
+    #
+    # A SETTING RATHER THAN A CONSTANT because it is the seam the founder's exit clause
+    # depends on: moving to a managed vendor is a third value here plus one adapter module,
+    # with no caller touched. It is also the switch that turns the store OFF in one poll if
+    # it misbehaves, without a deploy.
+    #
+    # ⚠ IT DOES NOT TOUCH THE CALL. In-call retrieval is T0 and the engine's own KB whatever
+    # this says (`docs/evidence/kb-retrieval-bakeoff.md` §5.1, `tests/kb_tiers_test.py`).
+    #
+    # A closed `Literal` rather than a bounded string: a typo must be refused at the console
+    # and at boot, not resolved to a silent fallback, and a new store is a decision-log entry
+    # rather than a value somebody typed.
+    retrieval_provider: Literal["compiled-facts", "pgvector"] = "compiled-facts"
     azure_openai_deployments: str = Field(
         default="",
         max_length=512,

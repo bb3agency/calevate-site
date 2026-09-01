@@ -768,10 +768,48 @@ this is exactly the sentence someone writes when they are about to run a vector 
 
 ---
 
-## 6. Proposed ROADMAP row — NOT added by this lane
+## 6. The ROADMAP row — **WRITTEN. THE FOUNDER DECIDED ON 1 SEPTEMBER 2026.**
 
-The decision is the founder's, so no row was written. Proposed text, to be added only if
-and when the founder decides:
+⚠ **THIS SECTION'S HEADING USED TO READ "Proposed ROADMAP row — NOT added by this lane",
+and the decision is no longer pending.** The founder adopted option 2 in these words:
+*"go ahead with the pgvector thing currently and use it as our KB in the best way and
+implement it perfectly end to end without any bugs at all. And if at all the compute load
+increases when we get clients we will move to pinecone or weaviate."* The exit clause is
+part of the decision and is what `calevate_shared.retrieval.RetrievalProvider` and
+`apps/api/retrieval/service.get_retriever` exist to honour.
+
+**The row is `docs/ROADMAP.md` D-502**, and it is not the draft below: implementing it
+changed three things this lane's draft could not have known, all of them measured while
+building rather than argued.
+
+1. **`halfvec` and `hnsw.iterative_scan` are BOTH unavailable here, and the second one
+   fails DANGEROUSLY.** `halfvec` needs pgvector 0.7.0 and iterative scans need 0.8.0
+   (VERIFIED-VENDOR-DOCS, pgvector `CHANGELOG.md` @ master, re-fetched 1 Sep 2026); this
+   server has the 0.6.0 §2.3 measured on and Ubuntu noble packages nothing newer. But on
+   0.6.0 `SET hnsw.iterative_scan = 'relaxed_order'` **succeeds and does nothing** — an
+   unvalidated GUC placeholder, exactly as `SET hnsw.total_nonsense = 'banana'` is (both
+   MEASURED-HERE, 1 Sep 2026). §2.5's conclusion — that the upgrade is the durable answer
+   and not a blocker — survives; what it now also has to say is that the intermediate
+   "just set the GUC" is a control that reads as applied and is not.
+2. **The dimension is 1536 and it is REQUESTED, not assumed.** §2.1 measured `vector(1024)`
+   as a stand-in. The shipped column is `vector(1536)` because the request carries the
+   vendor's own `dimensions` field (VERIFIED-VENDOR-SPEC, openai/openai-openapi
+   `openapi.yaml` @ master, `CreateEmbeddingRequest`, read 1 Sep 2026), so the width is one
+   we chose rather than a default this repository has read a page for. The same field makes
+   a later narrowing to 512/768 a re-request rather than a re-embedding.
+3. **The table stores NO CONTENT.** §2.1's schema carried `content TEXT`; the shipped table
+   does not, and reaches `kb_documents` through `document_id` instead. That halves the
+   bytes, leaves one copy for a DPDP erasure to find, and makes the migration lossless to
+   reverse. It does not affect the measurement: the scope predicate, the two arms and the
+   fusion are unchanged, and the extra join is over rows already in scope.
+
+**§2.4's two open items are still open.** The engine→endpoint hop is still unmeasured
+(gate 8), and the question-embedding call is now BUILT but still unmeasured against a live
+Azure deployment — no embedding deployment exists yet, which is an operator step. Neither
+blocks this adoption, because neither is on the dashboard path this store serves.
+
+The lane's original draft follows, kept because the reasoning in it is what the decision was
+taken on:
 
 > | D-XXX | **The D-28 bake-off was finally run, and it found that the store was never the binding constraint on in-call retrieval** | **In-call retrieval stays T0 and nothing else**; `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` stays as written. The retrieval store is chosen for the **dashboard copilot, CRM semantic search and H3 caller memory only**, where the budget is seconds. On those paths, `kb_chunks` + pgvector in the Postgres we already run is [ADOPTED / REFUSED]; embeddings come from [an Azure OpenAI deployment on the existing resource / TBD], which adds no new sub-processor. The preview-and-approve gate is unchanged and binds the agent write-back path: proposed knowledge lands as an unapproved `kb_source` and reaches the store only through `publish_source`. | **MEASURED-HERE** (`docs/evidence/kb-retrieval-bakeoff.md` §2, `scripts/spike/kb_pgvector_latency.py`, 31 Aug 2026): hybrid RRF top_k=3 on the DATA-MODEL contingency schema measures p95 12.1ms at 500 rows, 41.8ms at 2,000 and 29.7ms on a 100,000-row multi-tenant table, against a 100ms budget — on an untuned server, on a contended 4-core host, with a synthetic corpus that makes the sparse arm a worst case. The dense arm alone is 1.8-7.2ms p95. Two secondary results outrank the headline: on the multi-tenant table the planner serves the query by EXACT search behind the (tenant_id, agent_id, is_active) btree, never entering the HNSW graph, so recall is perfect and the pre-0.8.0 filtered-scan hazard did not occur in 500 trials at any size — a prediction this lane made and its own measurement disproved; and the real operating costs are an 11.3-minute index build and 1,597 MB per 100k chunks, neither of which appears in a latency table. The 100ms in-call budget is not threatened by the store: it is threatened by (a) a voice pipeline that already misses its 500ms target by 100ms with zero retrieval in it (`latency_budget_composes()` is `False`, `voice_to_voice_gap_ms()` is `+100.0`, evaluated 31 Aug 2026), (b) an engine→endpoint hop that is India↔us-east-1 and **has never been measured** (gate 8's `custom_function_tool_call_budget`, still `not_run`), and (c) a question-embedding call that does not exist yet. Both (b) and (c) are IDENTICAL for a managed vendor, so they do not discriminate. Option 3 stays closed: Bolna's `POST /knowledgebase` takes a PDF or URL with no text field (`create.md:33,40-52`) and its `Knowledgebase` object carries no agent id (`get_knowledgebases.md:63-126`), while Cartesia Line's `knowledge_base` built-in — re-verified at source at `c79c1c4`, newer than the commit the TRD cites — is a **query client with no document write path anywhere in the SDK**, so it solves the retrieval half and leaves ingestion exactly as unproven. Three further facts bear on the engine arm if it is ever reopened, all VERIFIED-VENDOR-DOCS: `POST /knowledgebase` returns `rag_id` and **not** `vector_id` (`create.md:86-124`) while the agent attaches by `vector_ids` (`update.md:1220-1237`), so create → GET → PATCH is imposed by the vendor's spec; the vendor **re-chunks server-side** (`chunk_size`/`overlapping`, `create.md:53-70`), which drops our approval granularity from the CHUNK to the DOCUMENT and, on a URL source, to the ADDRESS alone — a deliberate weakening of what `kb/__init__.py` calls a product property; and the KB exposes **no search route**, so it cannot serve the dashboard copilot and is a complement to this decision rather than a substitute for it. **Giving Bolna our LLM key does not give Bolna a knowledge base**: BYOK is shipped (`bolna.py:363-365`) and `BOLNA_CAPABILITIES.knowledge_base` is `False` (`:2484`). Isolation is what decides between the two live options: RLS makes forgetting the tenant filter return zero rows, whereas the only managed configuration that avoids the hop puts the namespace in a parameter the model fills in. ⚠ **This entry reverses D-28 on the store and contradicts CLAUDE.md's "Do NOT self-host vector infrastructure" as written** — taken deliberately, on the reading that an extension in an existing database is not a deployable; if that reading is rejected, the whole entry falls and option 1 is the answer. |
 

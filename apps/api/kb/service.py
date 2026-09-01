@@ -1425,6 +1425,14 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
             ),
         )
 
+    # THE RETRIEVAL PROJECTION (D-502), between the activation flip and the T0 recompile
+    # and for the flip's own reason: it reads what the flip just decided. Same transaction
+    # as the publish, which is the property `docs/evidence/kb-retrieval-bakeoff.md` §5.2
+    # picked pgvector for — with a store across a network boundary, "our tables say
+    # published" and "the store says otherwise" are two commits and D-41 is the record of
+    # what that divergence costs.
+    await project_chunks(session, tenant_id=tenant_id, agent_id=agent_id, source_id=source_id)
+
     # T0 recompilation (FLOWS §7, TRD §6). LAST, and after the activation flip, because
     # `active_knowledge` reads exactly what the flip just decided — computing it earlier
     # would compile the set this publish is replacing. `recompile_t0` mints a NEW prompt
@@ -1445,6 +1453,78 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         },
     )
     return int(version)
+
+
+#: The sparse retrieval key, built from the chunk's own text AND its English gloss. It MUST
+#: spell the same text-search configuration as migration `dc1aaeeeff02.TS_CONFIG` and
+#: `retrieval/pgvector.TS_CONFIG`: lexemes stored under one configuration do not match a
+#: `tsquery` built under another, and the symptom is an empty sparse arm rather than an
+#: error. `coalesce` because most chunks have no gloss and `||` with NULL erases the vector.
+_TSV_SQL = "to_tsvector('english', d.content) || to_tsvector('english', coalesce(d.gloss, ''))"
+
+#: Insert or refresh one source's projection. `ON CONFLICT (document_id)` is what makes a
+#: republish idempotent in the DATABASE rather than in a read-then-write, and it is also
+#: what makes a rollback correct: reactivating an archived version finds its rows already
+#: there and flips them back rather than minting duplicates that would each take a slot in
+#: the top-k.
+#:
+#: **`tsv` IS RECOMPUTED ON CONFLICT AND `embedding` IS NOT TOUCHED.** The text a chunk
+#: holds cannot change under it (`kb_documents.content` is written once at submission), but
+#: its GLOSS can arrive hours later on the sweep's clock, and a projection written before
+#: the gloss would carry only half its sparse key for ever. The vector is left alone because
+#: re-embedding costs money and nothing about the text moved — the sweep re-reaches a row
+#: only when `embed_state` says so.
+_PROJECT_SQL = f"""
+INSERT INTO kb_chunks (id, tenant_id, agent_id, source_id, document_id, tsv, version, is_active)
+SELECT gen_random_uuid(), d.tenant_id, s.agent_id, s.id, d.id, {_TSV_SQL}, s.version, s.is_active
+FROM kb_documents d JOIN kb_sources s ON s.id = d.source_id
+WHERE s.id = :sid AND s.tenant_id = :tid
+ON CONFLICT (document_id) DO UPDATE
+SET tsv = EXCLUDED.tsv, version = EXCLUDED.version, is_active = EXCLUDED.is_active,
+    agent_id = EXCLUDED.agent_id, updated_at = now()
+"""
+
+#: Every OTHER version of this agent's knowledge goes inactive in the projection, mirroring
+#: the `kb_sources` flip immediately above. Written as its own statement over the AGENT
+#: rather than as a join from the archived source, so a version archived by any path — this
+#: publish, a rollback, an operator — converges on the next publish instead of leaving a
+#: superseded price list answering questions.
+_DEACTIVATE_SQL = """
+UPDATE kb_chunks c SET is_active = s.is_active, updated_at = now()
+FROM kb_sources s
+WHERE s.id = c.source_id AND c.tenant_id = :tid AND c.agent_id = :aid
+  AND c.is_active <> s.is_active
+"""
+
+
+async def project_chunks(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, source_id: UUID
+) -> int:
+    """Mirror this agent's published knowledge into `kb_chunks`. Returns rows projected.
+
+    THE ONE WRITER of the projection's SHAPE (the sweep writes only vectors and states), and
+    it lives in `kb/service.py` rather than in `retrieval/` on purpose: what is retrievable
+    is defined by what was APPROVED and PUBLISHED, and that is this module's subject. A
+    projection written from the retrieval side would be a second answer to "what is live",
+    which is the drift CLAUDE.md calls a defect even while both copies agree.
+
+    IT RUNS IN THE CALLER'S TRANSACTION and takes no lock of its own: `publish_source` is
+    already inside `_lock_agent_publishes`, so two publishes of one agent cannot interleave
+    here, and the unique index on `document_id` is what makes it safe against everything
+    else.
+
+    `tenant_id` is re-stated on both statements on top of RLS — belt over braces, defending
+    the one mistake RLS cannot see: a caller passing tenant A's id on tenant B's session.
+    """
+    projected = await session.execute(text(_PROJECT_SQL), {"sid": source_id, "tid": tenant_id})
+    await session.execute(text(_DEACTIVATE_SQL), {"tid": tenant_id, "aid": agent_id})
+    count = rowcount_of(projected)
+    # Ids and counts (hard rule 6). Never a chunk, never a source name.
+    log.info(
+        "kb_chunks_projected",
+        extra={"source_id": str(source_id), "agent_id": str(agent_id), "chunks": count},
+    )
+    return count
 
 
 async def list_sources(
@@ -1506,6 +1586,7 @@ __all__ = [
     "chunk_text",
     "list_sources",
     "preview",
+    "project_chunks",
     "publish_lock_key",
     "publish_source",
     "recorded_handles_of_agent",

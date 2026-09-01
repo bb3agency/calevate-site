@@ -495,6 +495,20 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # model the deployment does not run prices something nobody is calling, which is a
     # wrong invoice rather than an outage and therefore the failure that hides longest.
     "azure_openai_model": AppliesRule(LIVE),
+    # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
+    # deployment fields above, this value is never published into an agent's engine record —
+    # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the
+    # ingestion sweep, so a correction takes effect within one poll interval with nothing to
+    # re-publish. Pointing it at a deployment that does not serve an embedding model is a
+    # 400 on every embedding call, visible at once in `kb_embed_provider_failed`.
+    "azure_openai_embedding_deployment": AppliesRule(LIVE),
+    # Which retrieval store answers a cold lookup (D-502). LIVE because
+    # `retrieval/service.get_retriever` is called per request and holds no state — which is
+    # what makes this the OFF SWITCH for the store: an operator who sees knowledge search
+    # misbehaving sets it back to `compiled-facts` and the next request is served from the
+    # compiled block, with no deploy and nothing to unwind. It does not touch the call path
+    # under any value.
+    "retrieval_provider": AppliesRule(LIVE),
     # A MARKED ASSUMPTION, live on purpose (D-404's mechanism, D-410's provider). It names
     # which entry in the engine's credential store the LLM key is written to; our default
     # is derived from the vendor's naming rule rather than read from their docs, and the

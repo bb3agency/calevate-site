@@ -878,13 +878,32 @@ The ThinnestAI integration surface documented in v1.0 of this section was retire
 D-31 (vendor due diligence failed: no verifiable customers, no SLA, unresponsive);
 it remains in git history. Its adapter was never built.
 
-## 6. RAG Subsystem (per-client knowledge) — REVISED per D-28
+## 6. RAG Subsystem (per-client knowledge) — REVISED per D-28, **SETTLED BY D-502**
 
-Strategy (D-28 supersedes D-08's self-hosted pgvector plan): per-client knowledge and
-call memory live in a **managed RAG/memory service consumed via API** — one shared
-layer serving BOTH the engine voice pipeline AND the client CRM (semantic search
-over calls/leads, caller memory, and future CRM features). We do not operate vector
-infrastructure; provider is selected by the D-28 bake-off gate (below).
+**THE BAKE-OFF HAS RUN AND THE STORE IS DECIDED, AND THE FINDING THAT MATTERS IS THAT THE
+TWO PATHS GET DIFFERENT ANSWERS** (`docs/evidence/kb-retrieval-bakeoff.md`, 31 Aug 2026;
+adopted as D-502 on 1 Sep 2026):
+
+* **In-call retrieval is UNCHANGED — T0 and the engine's own KB, and nothing else.** Not
+  because the store is slow (it is not, §2.3 of the evidence file) but because it was never
+  the binding constraint: the voice pipeline already misses its own target by 100ms with
+  ZERO retrieval in it, the engine→endpoint hop is India↔us-east-1 and has never been
+  measured, and both of those are identical for every candidate store.
+  `tests/kb_tiers_test.py` pins voice-runtime's route inventory as an equality so this
+  cannot drift.
+* **The dashboard copilot, CRM semantic search and H3 caller memory are served by
+  `kb_chunks` + pgvector in the Postgres we already run** (migration `dc1aaeeeff02`,
+  `apps/api/retrieval/pgvector.py`). Hybrid: a dense arm fused with a `tsvector` arm by
+  Reciprocal Rank Fusion, behind FORCEd RLS. Embeddings come from `text-embedding-3-small`
+  on the EXISTING Azure OpenAI resource in East US 2 — **no new sub-processor**.
+* **This is not "we operate vector infrastructure".** It adds no deployable, no backup unit,
+  no restore drill, no region and no vendor — it adds an extension to a database this repo
+  already runs. What is still refused is a separate vector service, self-hosted or managed.
+* **The exit stays cheap, by construction and by the founder's condition.** Retrieval is
+  behind `calevate_shared.retrieval.RetrievalProvider`; a managed vendor is one adapter
+  module plus one branch in `retrieval/service.get_retriever`, with no caller touched.
+  Vectors are stored at full precision and `text-embedding-3-small` is truncatable to 512
+  or 768 dimensions without re-embedding, so an export is not a re-ingest.
 
 ### 6.1 Memory horizons (three; do not conflate them with RAG)
 
@@ -894,7 +913,7 @@ Only H3 touches the retrieval layer. H1 is orchestration, H2 is our existing pip
 |---|---|---|---|---|---|
 | **H1** | In-call working memory — the running dialogue the agent reasons over | the call only; **discarded at hangup** | the ENGINE's orchestrator (the LLM message array) | no line item — LLM input tokens, already inside the ₹0.10–0.24/min LLM leg (§10.1) | 0ms (nothing is retrieved) |
 | **H2** | Call-level durable memory — transcript, AI summary, extraction fields, sentiment, resolved/needs-follow-up | retention policy (90-day recording floor) | OURS — Postgres, written by the post-call pipeline (§8) | ⚠ Sarvam extraction is **NOT ₹0.00/call** — `sarvam-105b` is priced per token (₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out, §10.1's correction note). The pass has never run on a NON-Sarvam vendor (`GEMINI_EXTRACTION_DEFAULT is False`), which is a different statement from free, and it currently meters nothing | n/a (post-call) |
-| **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | forever | managed RAG/memory service (D-28) | provider unit cost | injected **pre-call** via the context webhook (~5s budget), never mid-call |
+| **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | forever | `kb_chunks` + pgvector, in our own Postgres (D-502 supersedes D-28) — ⚠ **the KB scope is built; the caller-memory scope is NOT, and must not ship without its DPDP erasure arm, because an embedding of a caller's words is a derived copy of those words** | Azure embedding tokens, metered per usage_event | injected **pre-call** via the context webhook (~5s budget), never mid-call |
 
 H1 is not a component we build, buy, or key: the engine holds the conversation for the
 duration of the call and drops it at hangup. The hand-off from H1 to H2 is the post-call
@@ -1042,8 +1061,19 @@ written before the D-28 bake-off and given to whichever store wins. The preview-
 not poison live calls, whichever store serves it. Resolved-call transcripts are
 indexed into the managed service as the per-client corpus (compounding, uncopyable).
 
-D-28 bake-off gate (blocks provider commitment; run with M2, before any CRM feature
-depends on the provider): candidates in two classes — vector-cloud (Qdrant Cloud,
+⚠ **THE GATE BELOW IS CLOSED (D-502) AND IS KEPT AS THE SCORECARD A RE-OPENING WOULD BE
+SCORED AGAINST.** It was run on 31 Aug 2026 and the result is in
+`docs/evidence/kb-retrieval-bakeoff.md`; the winner is pgvector for the dashboard/CRM paths
+and T0 for the call. Criterion (a) "measured retrieval p50/p95 from Mumbai" is the one the
+run reframed: the store component is 12–42ms p95 and the terms that actually threaten the
+budget — the US↔India hop and the question-embedding call — are IDENTICAL for every
+candidate, so they do not discriminate. If the compute load ever forces the move the
+founder's exit clause contemplates, this is the list to score against, and (b) and (f) are
+the two that decide it: RLS gives us namespace isolation a forgotten predicate cannot defeat
+and deletion proof with no second copy to prove anything about, and a managed vendor has to
+match both.
+
+D-28 bake-off gate (CLOSED by D-502; original text follows): candidates in two classes — vector-cloud (Qdrant Cloud,
 Pinecone serverless [Singapore], Turbopuffer, Weaviate Cloud) and memory-API (Mem0,
 Supermemory, Zep). Score: (a) measured retrieval p50/p95 from Mumbai; (b) hard
 per-tenant namespace isolation; (c) hybrid (dense+sparse) search; (d) ingestion API

@@ -669,6 +669,92 @@ async def stream(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class EmbeddingOutcome:
+    """One `POST /embeddings` turn: the vectors, in request order, and what it cost.
+
+    `usage is None` means the provider did not tell us, never that it was free — the rule
+    `ChatOutcome` states and `crm/assist.py::meter_assist` enforces.
+
+    THE VENDOR'S USAGE BLOCK HERE HAS NO OUTPUT HALF, and that is a fact rather than an
+    omission: `CreateEmbeddingResponse.usage` carries `prompt_tokens` and `total_tokens`
+    and nothing else (VERIFIED-VENDOR-SPEC: `openai/openai-openapi` `openapi.yaml` @
+    `master`, lines 34395-34400, fetched 1 September 2026). So the `TokenUsage` this
+    returns always has `output_tokens=0`, which is the truth about an embedding rather than
+    a default — and it is why the `ai_assist_ktok_out` row a caller writes is always qty 0.
+    """
+
+    vectors: tuple[tuple[float, ...], ...]
+    usage: TokenUsage | None = None
+
+
+async def embed(
+    leg: ChatLeg,
+    inputs: Sequence[str],
+    *,
+    dimensions: int,
+    timeout_s: float,
+    client: httpx.AsyncClient | None = None,
+) -> EmbeddingOutcome:
+    """Vectors for `inputs`, in the SAME ORDER. RAISES `httpx.HTTPStatusError` on non-2xx.
+
+    IN THIS MODULE AND NOT IN A SECOND CLIENT, because everything that made `complete`
+    worth consolidating is true again here: the credential header is per-DIALECT and got
+    that wrong once already (`_AUTH_HEADER`), the endpoint is built elsewhere and arrives
+    addressed, and `usage` may be absent. A separate `httpx.post` for embeddings would be
+    the fourth copy of the four facts this file exists to hold once.
+
+    **THE ORDER IS RE-ESTABLISHED FROM `index`, NEVER ASSUMED FROM THE ARRAY.** The
+    vendor's `Embedding` object carries its own `index` field, and a caller that zips the
+    response array against its inputs is trusting an ordering the schema does not promise.
+    Getting that wrong stores each chunk's neighbour's vector — a corpus that retrieves
+    confidently and wrongly, with no error anywhere. Sorting by `index` costs nothing and
+    makes the failure unrepresentable.
+
+    `dimensions` is SENT rather than left to the model's default: the width is ours to
+    choose (see `retrieval/embedding.EMBEDDING_DIMS`) and a request that names it cannot
+    silently return a width the column will not hold.
+
+    `follow_redirects=False` and the client-ownership rule are `complete`'s, verbatim and
+    for its reasons.
+    """
+    owns_client = client is None
+    http = client or httpx.AsyncClient(timeout=timeout_s, follow_redirects=False)
+    try:
+        response = await http.post(
+            leg.url,
+            headers=_headers(leg),
+            json={"model": leg.wire_model, "input": list(inputs), "dimensions": dimensions},
+        )
+    finally:
+        if owns_client:
+            await http.aclose()
+    response.raise_for_status()
+    body = response.json()
+    if not isinstance(body, dict):  # pragma: no cover - a provider that is not this API
+        return EmbeddingOutcome(vectors=())
+    rows = body.get("data")
+    if not isinstance(rows, list):
+        # The provider answered 2xx with a shape this API does not have. Empty rather than
+        # an exception, for `_message_of`'s reason: the caller decides what an empty answer
+        # means, and here it means "nothing was stored and the chunk stays pending".
+        return EmbeddingOutcome(vectors=(), usage=usage_from_body(body))
+    ordered: list[tuple[int, tuple[float, ...]]] = []
+    for row in rows:
+        if not isinstance(row, dict):  # pragma: no cover - defensive on a vendor shape
+            continue
+        values = row.get("embedding")
+        if not isinstance(values, list):  # pragma: no cover - defensive on a vendor shape
+            continue
+        index = row.get("index")
+        position = int(index) if isinstance(index, int) else len(ordered)
+        ordered.append((position, tuple(float(v) for v in values)))
+    ordered.sort(key=lambda item: item[0])
+    return EmbeddingOutcome(
+        vectors=tuple(vector for _, vector in ordered), usage=usage_from_body(body)
+    )
+
+
 __all__ = [
     "CHUNK_OBJECT",
     "STREAM_OPTIONS",
@@ -676,10 +762,12 @@ __all__ = [
     "ChatLeg",
     "ChatMessage",
     "ChatOutcome",
+    "EmbeddingOutcome",
     "StreamEvent",
     "TokenUsage",
     "ToolCall",
     "complete",
+    "embed",
     "stream",
     "usage_from_body",
 ]

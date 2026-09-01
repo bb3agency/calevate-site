@@ -523,9 +523,22 @@ decision-log entry.
 
 ## Do NOT
 
-- Self-host vector infrastructure (RAG/memory is a managed API service per D-28 —
-  the old "no vector DB" rule now means: don't run one), add a message broker, or a
-  second backend language.
+- Run a SEPARATE vector service, add a message broker, or a second backend language.
+  ⚠ **D-502 (1 Sep 2026) REVERSED D-28 ON THE STORE, AND THIS BULLET USED TO READ
+  "self-host vector infrastructure (RAG/memory is a managed API service per D-28)".**
+  What the rule protects is "no new deployable, no new backup unit, no new restore drill,
+  no new region, no new vendor" — and `pgvector` is an EXTENSION in the Postgres this repo
+  already runs, backs up and drills, so `kb_chunks` adds none of those. A managed vector
+  cloud, a self-hosted Qdrant/Weaviate container, or a second database still do, and are
+  still refused. The bake-off (`docs/evidence/kb-retrieval-bakeoff.md` §5.2) took that
+  reading deliberately; if it is ever rejected, the whole of D-502 falls and option 1 is
+  the answer. **The founder's condition is part of the decision**: adopt it now, and move
+  to Pinecone or Weaviate if the compute load makes it necessary once there are clients —
+  which is what `calevate_shared.retrieval.RetrievalProvider` and
+  `apps/api/retrieval/service.get_retriever` exist to keep to one adapter.
+  ⚠ **IN-CALL RETRIEVAL DID NOT CHANGE AND MUST NOT**: it is T0 and the engine's own KB,
+  `tests/kb_tiers_test.py` pins voice-runtime's route inventory as an equality, and this
+  store serves the dashboard copilot and the CRM paths only.
 - Call model providers directly from request handlers (workers or engine only), except the
   in-call RAG tool endpoint which has a 100ms budget — measure it.
 - Store secrets in DB/env-committed files; use the secrets manager references.

@@ -108,7 +108,9 @@ Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location h
 ## 2. VPS baseline (once per VPS — raghava §2 verbatim)
 
 Packages: Docker Engine + Compose plugin (v2.24+ for `!reset`), **nginx ≥1.25.1**, certbot,
-PostgreSQL 16 (pgvector optional — D-28 contingency), Node 22 **plus pnpm via corepack**
+PostgreSQL 16 **with pgvector, which is no longer optional** — migration `dc1aaeeeff02` does
+`CREATE EXTENSION vector` and REFUSES with the statement to run if the role may not (the extension
+is not `trusted`, so it needs a superuser once per database). Node 22 **plus pnpm via corepack**
 (for web builds + pm2; see §7a — prefer building in CI), ~~Python is NOT needed on the
 host (api/workers run containerized; builds happen in Docker)~~ — **struck by D-188, see
 below**, jq, `systemd-timesyncd`

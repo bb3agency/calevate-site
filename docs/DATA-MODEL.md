@@ -1,4 +1,4 @@
-# Calevate — Data Model (Postgres 16; pgvector is a D-28 contingency, not the plan)
+# Calevate — Data Model (Postgres 16 + pgvector; the `vector` extension is REQUIRED since D-502)
 
 Version 1.0 · Conventions: snake_case; every table has id UUID PK (uuid_v7), created_at,
 updated_at; every tenant-scoped table has tenant_id UUID NOT NULL REFERENCES organizations(id)
@@ -345,15 +345,37 @@ kb_documents(id, tenant_id, source_id, idx INT, title, content TEXT, meta JSONB,
   -- hangs off its first chunk. Without it a published version cannot be withdrawn
   -- (D-41); it is cleared on detach, because a handle left behind after the engine copy
   -- is gone would make the NEXT publish refuse for a reason that is no longer true.
-kb_chunks(id, tenant_id, agent_id, document_id, content TEXT, tsv tsvector,
-  embedding vector(1024), embed_model TEXT, embed_version TEXT,
-  chunk_meta JSONB, version INT, is_active BOOL)
--- INDEX: HNSW ON kb_chunks USING hnsw(embedding vector_cosine_ops); GIN(tsv);
---        (tenant_id, agent_id, is_active) btree.
+kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
+  embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,
+  chunk_meta JSONB, version INT, is_active BOOL)   -- BUILT (D-502, migration dc1aaeeeff02)
+-- INDEX: HNSW ON kb_chunks USING hnsw(embedding vector_cosine_ops) WITH (m=16,
+--        ef_construction=64), built CONCURRENTLY; GIN(tsv);
+--        (tenant_id, agent_id, is_active) btree; (tenant_id) WHERE embed_state='pending'.
+-- FORCEd RLS `tenant_isolation`, in the same migration (hard rule 1).
+-- FOUR DELTAS FROM THE CONTINGENCY SPEC ABOVE, each with a reason:
+--  * NO `content` COLUMN. The client's prose lives once, on kb_documents, reached through
+--    document_id. A second copy doubles what retention and backups pay for, gives a DPDP
+--    erasure two rows to find, and lets a correction to one diverge from the other. What is
+--    stored here is DERIVED and reconstructible, which is what makes the migration
+--    reversible without loss.
+--  * `vector(1536)` NOT `vector(1024)`: the width text-embedding-3-small is ASKED for
+--    (`retrieval/embedding.EMBEDDING_DIMS`, sent as the request's `dimensions`), not a
+--    vendor default anyone here has read. Not `halfvec`: that type needs pgvector 0.7.0 and
+--    this server has 0.6.0 — and quantisation belongs in the INDEX (pgvector's own
+--    half-precision indexing) rather than in a lossy column, which is also what keeps an
+--    export to a managed vendor full-fidelity.
+--  * `embed_state` replaces `embed_version`: it is the ingestion sweep's IDEMPOTENCY KEY
+--    (pending/ready/refused), and `embedding IS NULL` cannot say "we asked and the answer
+--    was unusable" — kb_documents.gloss_state's argument, one table over.
+--  * `source_id` is denormalised beside `document_id`, because provenance on a result is
+--    the SOURCE's own name — what the client called the thing they uploaded.
 kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
   top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
-  -- `top_ids UUID[]` was specified here and is NOT in the shipped table: it would point
-  -- at kb_chunks rows, which D-28 made contingency. Add it with the chunks, or not at all.
+  -- `top_ids UUID[]` was specified here and is NOT in the shipped table. Its stated
+  -- condition — "add it with the chunks" — is now MET (D-502), but the blocker was never
+  -- the chunks: this table still has no producer and cannot have one (see
+  -- `apps/api/kb/models.py::KbRetrievalLog`), because the retrieval whose outcome it would
+  -- log happens inside the engine. Add it with a PRODUCER, or not at all.
 ```
 
 ## 8. Billing & Metering (append-only)

@@ -37,9 +37,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.alerting import record_retrieval_ms
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.retrieval import cache
 from apps.api.retrieval.compiled_facts import CompiledFactsRetriever
+from apps.api.retrieval.embedding import embedding_leg, embedding_price_is_billable
+from apps.api.retrieval.pgvector import PROVIDER_NAME as PGVECTOR_PROVIDER
 from apps.api.retrieval.routing import RouteDecision, classify
+from apps.api.retrieval.tiered import KnowledgeRetriever
 
 log = get_logger(__name__)
 
@@ -47,13 +51,34 @@ log = get_logger(__name__)
 def get_retriever(session: AsyncSession) -> RetrievalProvider:
     """THE selector. Every caller asks this; nothing constructs an adapter directly.
 
-    One implementation today, and the selector exists anyway for `engine_capabilities`'
-    reason: the day the D-28 bake-off names a winner, the branch that chooses it is written
-    HERE and every caller is untouched. A `Settings` field naming the provider is what that
-    branch will read; there is no such field yet and inventing one now would be a config
-    key whose only value is the one thing we have.
+    THE BRANCH THE PORT WAS BUILT FOR (D-502). `Settings.retrieval_provider` names it:
+    `compiled-facts` is T0 alone (what shipped before the bake-off ran) and `pgvector` adds
+    the T3 store in the Postgres we already run. Adding a managed vendor later is a third
+    branch here and a new module beside `pgvector.py` — no caller changes, because every
+    caller holds a `RetrievalProvider` and nothing above this line knows a store exists.
+
+    **A MISCONFIGURED `pgvector` FALLS BACK RATHER THAN FAILING, and the fallback is loud.**
+    The store is useless without an embedding leg (no vector for the question, and nothing
+    filling the column either), so a deployment that names the provider without configuring
+    the credential would serve every t3 question out of an empty dense arm. Tolerant boot
+    (BACKEND-PATTERNS §2) says a deployment missing one credential runs everything else, so
+    it degrades to T0 — which is a strictly working system — and says so at ERROR, because
+    unlike a missing credential this is a CONTRADICTION between two settings an operator set
+    and only they can resolve it.
     """
-    return CompiledFactsRetriever(session)
+    if get_settings().retrieval_provider != PGVECTOR_PROVIDER:
+        return CompiledFactsRetriever(session)
+    if embedding_leg() is None or not embedding_price_is_billable():
+        log.error(
+            "retrieval_pgvector_unconfigured",
+            # Which precondition failed, and never the credential itself.
+            extra={
+                "leg": embedding_leg() is not None,
+                "priced": embedding_price_is_billable(),
+            },
+        )
+        return CompiledFactsRetriever(session)
+    return KnowledgeRetriever(session)
 
 
 async def look_up(
