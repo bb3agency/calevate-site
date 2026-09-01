@@ -110,6 +110,17 @@ _INHERENT: tuple[tuple[str, str], ...] = (
     ("When the call happened and how long it lasted", "call times, duration and outcome"),
 )
 
+#: WHAT CROSS-CALL MEMORY ADDS TO THE ITEMISATION (D-506), included only for a tenant that
+#: has it switched on somewhere. Written in the caller's words and not ours: "a short note
+#: of what you asked about" is what a distilled fact IS, and a caller reading "caller
+#: memory" would learn nothing. It is listed BESIDE the inherent items rather than inside
+#: them because it is precisely NOT inherent — it is the one collection on this list that a
+#: business chooses, which is why `_open_questions` also puts it in front of their counsel.
+_MEMORY_ITEM: tuple[str, str] = (
+    "A short note of what you asked about, kept after the call ends",
+    "so that if you call us again, the assistant knows what you asked about last time",
+)
+
 #: Retention categories, in the words a caller reads. A category with no row for this
 #: tenant is omitted rather than defaulted: the draft states what THIS client's settings
 #: say, and a period nobody configured is not a period we may print.
@@ -163,6 +174,10 @@ class CallerNoticeDraft:
     ai_disclosure_off: list[str] = field(default_factory=list)
     #: Same for the recording notice.
     recording_notice_off: list[str] = field(default_factory=list)
+    #: Agents that REMEMBER CALLERS ACROSS CALLS (D-506), by name. Named rather than
+    #: counted for `ai_disclosure_off`'s reason: the client's notice has to carry it, and
+    #: an operator reading "1 agent" cannot tell which conversation they are agreeing to.
+    caller_memory_on: list[str] = field(default_factory=list)
     #: What only the client can answer, each as a sentence they can act on.
     open_questions: list[str] = field(default_factory=list)
     #: The rendered document. NAMED `markdown` and never `text`: `text` is this
@@ -188,7 +203,7 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
         await session.execute(
             text(
                 "SELECT a.id, a.name, a.ai_disclosure_enabled, a.recording_notice_enabled, "
-                "a.direction, s.fields "
+                "a.direction, a.caller_memory_enabled, s.fields "
                 "FROM agents a LEFT JOIN extraction_schemas s ON s.id = a.extraction_schema_id "
                 "WHERE a.status IN ('live', 'paused') AND a.deleted_at IS NULL "
                 "ORDER BY a.name, a.id"
@@ -202,7 +217,12 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             "ai_disclosure_enabled": bool(row[2]),
             "recording_notice_enabled": bool(row[3]),
             "direction": str(row[4]),
-            "fields": row[5] or [],
+            # D-506. A caller who is REMEMBERED ACROSS CALLS is a materially different
+            # privacy proposition from one who is not, so the itemisation Rule 3 asks for
+            # has to say it. Defaults FALSE, so for every client today this is False and
+            # the draft reads exactly as it did before.
+            "caller_memory_enabled": bool(row[5]),
+            "fields": row[6] or [],
         }
         for row in rows
     ]
@@ -221,6 +241,8 @@ def _collected(agents: list[dict[str, Any]]) -> list[CollectedItem]:
     the defect this whole module exists to avoid.
     """
     items = [CollectedItem(what=what, why=why) for what, why in _INHERENT]
+    if any(agent["caller_memory_enabled"] for agent in agents):
+        items.append(CollectedItem(what=_MEMORY_ITEM[0], why=_MEMORY_ITEM[1]))
     seen: set[str] = set()
     for agent in agents:
         for raw in agent["fields"]:
@@ -301,6 +323,36 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
     return "\n".join(lines)
 
 
+def _memory_paragraph(draft: CallerNoticeDraft) -> str:
+    """The cross-call memory sentence, or "" when this client does not remember callers.
+
+    EMPTY BY DEFAULT AND FOR EVERY CLIENT TODAY, which is why it is a whole section rather
+    than a clause bolted onto another one: a notice that mentions memory when there is none
+    over-discloses, and one that stays silent when there IS memory under-discloses, which
+    is the direction Rule 3 is about. The switch decides, so the document can only say what
+    the configuration does.
+
+    It names the agents, like `_disclosure_paragraph` does, because a business running a
+    receptionist that remembers and a campaign that does not is telling their callers two
+    different things and the draft must not flatten them into one.
+    """
+    if not draft.caller_memory_on:
+        return ""
+    named = ", ".join(draft.caller_memory_on)
+    return (
+        "## If you have called us before\n\n"
+        f"Some of our assistants keep a short note of what you asked about, so that the "
+        f"next time you call they already know ({named}). It is a note of the SUBJECT — "
+        '"asked about prices", not a recording or a transcript of what you said — and it '
+        "is kept for the same period as the transcript above. You can ask us to erase it "
+        'with everything else, using the contact under "Your rights".\n\n'
+        "{{YOUR ADVOCATE MUST CHECK THIS SECTION BEFORE YOU PUBLISH IT. Keeping notes "
+        "about a caller between calls is a decision you have made, not something a phone "
+        "call inherently does, and it is the part of this notice a caller is least likely "
+        "to expect.}}\n"
+    )
+
+
 def _render(draft: CallerNoticeDraft) -> str:
     collected = "\n".join(f"- **{item.what}** — {item.why}" for item in draft.collected)
     retention = (
@@ -328,6 +380,7 @@ only on our instructions.
 
 {collected}
 
+{_memory_paragraph(draft)}
 ## Why we collect it
 
 To answer your enquiry, to do what you asked us to do on the call, to keep a record of
@@ -377,6 +430,7 @@ async def build_caller_notice(session: AsyncSession, *, tenant_id: UUID) -> Call
         retention=await _retention(session),
         ai_disclosure_off=[a["name"] for a in agents if not a["ai_disclosure_enabled"]],
         recording_notice_off=[a["name"] for a in agents if not a["recording_notice_enabled"]],
+        caller_memory_on=[a["name"] for a in agents if a["caller_memory_enabled"]],
         open_questions=_open_questions(agents),
     )
     log.info(
@@ -392,6 +446,7 @@ async def build_caller_notice(session: AsyncSession, *, tenant_id: UUID) -> Call
         retention=draft.retention,
         ai_disclosure_off=draft.ai_disclosure_off,
         recording_notice_off=draft.recording_notice_off,
+        caller_memory_on=draft.caller_memory_on,
         open_questions=draft.open_questions,
         markdown=_render(draft),
     )
@@ -416,6 +471,20 @@ def _open_questions(agents: list[dict[str, Any]]) -> list[str]:
         "Have your advocate check this before you publish it. Calevate generated the "
         "facts; the wording and the legal basis are yours.",
     ]
+    if any(agent["caller_memory_enabled"] for agent in agents):
+        # FIRST, ahead of the standing four, because it is the only one on this list that
+        # is about a collection the caller does not expect at all. The other questions ask
+        # a business to fill in facts about itself; this one asks whether they may lawfully
+        # do a thing they have already switched on (D-506).
+        questions.insert(
+            0,
+            "Your assistants keep notes about callers BETWEEN calls. Have your advocate "
+            "confirm you may: it is a purpose your notice has to state before you collect "
+            "for it, and it is not something a caller expects from a phone call. Ask them "
+            "specifically whether telling people in writing is enough for someone who "
+            "simply rings you and never sees this page, and whether any of the notes could "
+            "amount to health or other sensitive information.",
+        )
     if any(not agent["ai_disclosure_enabled"] for agent in agents):
         questions.insert(
             0,

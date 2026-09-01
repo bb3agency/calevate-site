@@ -471,6 +471,11 @@ def test_a_schema_row_this_version_cannot_read_is_skipped_rather_than_crashing()
     agents = [
         {
             "id": uuid.uuid4(),
+            # Spelled out rather than omitted: `_collected` reads it with `[]` and not
+            # `.get(..., False)` on purpose, because a KeyError is a loud bug and a
+            # defaulted False is a notice that silently omits a real collection — the
+            # under-disclosure direction Rule 3 is about (D-506).
+            "caller_memory_enabled": False,
             "fields": [
                 "a bare string where a field object belongs",  # 201->202: not a dict
                 {"label": "No key at all", "type": "text"},  # ExtractionField rejects it
@@ -500,8 +505,8 @@ def test_the_same_field_asked_for_by_two_agents_is_listed_once() -> None:
     restated = dict(FIELDS[1], label="When suits you", reason="a different sentence")
     items = _collected(
         [
-            {"id": uuid.uuid4(), "fields": [FIELDS[1]]},
-            {"id": uuid.uuid4(), "fields": [restated]},
+            {"id": uuid.uuid4(), "caller_memory_enabled": False, "fields": [FIELDS[1]]},
+            {"id": uuid.uuid4(), "caller_memory_enabled": False, "fields": [restated]},
         ]
     )
 
@@ -510,3 +515,84 @@ def test_the_same_field_asked_for_by_two_agents_is_listed_once() -> None:
     ]
     assert len(matches) == 1, "one key, one line"
     assert matches[0].what == FIELDS[1]["label"], "first spelling wins"
+
+
+# ─────────────────── cross-call caller memory (D-506) ───────────────────
+#
+# The notice question this whole feature turns on: a caller who is REMEMBERED ACROSS CALLS
+# is a materially different privacy proposition from one who is not, and DPDP §5 with
+# Rule 3 wants the itemised list BEFORE the processing. The draft is the only channel this
+# product has that can say it — the two spoken sentences are about being an AI and being
+# recorded — so the draft has to say it exactly when it is true and never when it is not.
+
+
+async def _remember_callers(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET caller_memory_enabled = true WHERE id = :a"), {"a": agent_id}
+        )
+
+
+async def test_a_client_who_does_not_remember_callers_says_nothing_about_it() -> None:
+    """THE DEFAULT, and the one every client is on today. A notice that mentioned memory
+    where there is none would over-disclose, which is its own defect: a caller reading it
+    would decline something that is not happening."""
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+
+    draft = await _draft(tenant_id)
+
+    assert draft.caller_memory_on == []  # type: ignore[attr-defined]
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    assert "If you have called us before" not in markdown
+    assert "keeps a short note" not in markdown
+
+
+async def test_remembering_callers_is_itemised_and_named() -> None:
+    """Rule 3 asks for an ITEMISED list, so the note joins the list — and the agent is
+    NAMED, like a switched-off disclosure is, because a business running a receptionist
+    that remembers and a campaign that does not is telling its callers two different
+    things."""
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id)
+
+    draft = await _draft(tenant_id)
+
+    assert len(draft.caller_memory_on) == 1  # type: ignore[attr-defined]
+    labels = [item.what for item in draft.collected]  # type: ignore[attr-defined]
+    assert any("kept after the call ends" in label for label in labels)
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    assert "If you have called us before" in markdown
+    assert draft.caller_memory_on[0] in markdown  # type: ignore[attr-defined]
+
+
+async def test_the_draft_says_it_is_a_note_of_the_subject_and_not_a_transcript() -> None:
+    """The distinction the whole privacy argument rests on. A caller told "we keep notes"
+    imagines a recording; the honest sentence says which of the two it is, and the store
+    is built so the sentence stays true (`caller_memories.fact` is capped at a short
+    sentence and holds a distilled subject, never a quote)."""
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id)
+
+    markdown = (await _draft(tenant_id)).markdown  # type: ignore[attr-defined]
+
+    assert "not a recording or a transcript of what you said" in markdown
+
+
+async def test_remembering_callers_puts_a_question_in_front_of_counsel_first() -> None:
+    """The one open question on this list that is not "fill in a fact about yourself" — it
+    asks whether the client may lawfully do a thing they have already switched on, which is
+    why it goes FIRST. It names the two sub-questions the founder's own decision (D-506)
+    turns on: whether writing it down is enough for an inbound caller who never saw the
+    page, and whether a note could be sensitive information."""
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id)
+
+    questions = (await _draft(tenant_id)).open_questions  # type: ignore[attr-defined]
+
+    assert "BETWEEN calls" in questions[0]
+    assert "never sees this page" in questions[0]
+    assert "sensitive" in questions[0]
