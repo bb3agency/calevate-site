@@ -5,13 +5,15 @@ than its own code cannot report what it failed to do.
 
 * **The walks.** `qa_sampling.draw_qa_samples` and `kb_aggregation.send_agent_knowledge_
   digests` walk the whole client directory one `tenant_session` at a time, with no bound
-  of any kind. `WorkerSettings.job_timeout` is 300 seconds; past it arq cancels the job
-  and `CancelledError` is one of the three exceptions it RETRIES, so the tick restarts
-  from the top of the same ordering. The tail is never reached on any attempt — and for
-  the digest sweep, whose per-tenant step is an EMAIL, every client in the head of the
-  ordering is mailed again on every retry. `dispatcher.report_overdue_erasures` was
-  bounded for exactly this in D-369; `fleet_walk.WalkBudget` is that one mechanism, and
-  these tests drive it on all three.
+  of any kind. `WorkerSettings.job_timeout` is 300 seconds; past it `run_job` cancels the
+  task and sees `TimeoutError` (arq 0.28.0, `arq/worker.py:594-634`), which is none of the
+  three exceptions `retry_jobs` honours — so the tick is finished on its first attempt, the
+  tail of the fleet is never walked, and the log line it leaves is not one
+  `ARQ_TERMINAL_MESSAGES` alerts on. The retried case is a DEPLOY (`CancelledError`), and
+  there the pass restarts from the top of the same ordering: for the digest sweep, whose
+  per-tenant step is an EMAIL, that re-mails everyone already reached.
+  `dispatcher.report_overdue_erasures` was bounded for exactly this in D-369;
+  `fleet_walk.WalkBudget` is that one mechanism, and these tests drive it on all three.
 * **The ladder.** `action_audit.record_action_invocation` raised on failure, and a plain
   raise is terminal under arq 0.28 (`retry_jobs` honours `Retry`, `RetryJob` and
   `CancelledError` and nothing else). One lock timeout and the audit row for a tool the
@@ -148,10 +150,10 @@ async def test_an_unreached_tenant_is_not_read_as_the_whole_draw_failing(
 async def test_a_digest_sweep_that_runs_out_of_time_stops_before_it_mails_anyone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The sweep's per-tenant step is an EMAIL, so being cancelled mid-pass and retried
-    is not a late digest — it is the same client mailed again, up to `WORKER_MAX_TRIES`
-    times, while the tail gets nothing. The budget is what keeps the cancellation from
-    happening at all."""
+    """The sweep's per-tenant step is an EMAIL, so a pass that is cut short is either a
+    fleet silently under-served (the timeout, which arq does not retry) or the same client
+    mailed again (a deploy's `CancelledError`, which it does). The budget is what keeps
+    either cancellation from happening at all."""
     alerts = _Alerts()
     sent: list[str] = []
 

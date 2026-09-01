@@ -7,20 +7,26 @@ than with the data: `retention._due_tenants` records the measurement for exactly
 shape on the development database — ~16k organizations, ~3 minutes of round-trips.
 
 `WorkerSettings.job_timeout` is 300 seconds, and what happens past it is the part that
-matters. arq cancels the job, and `CancelledError` is one of the three exceptions it
-RETRIES — so the tick is re-run from the top, cancelled again, re-run, and the ladder
-ends at `job_try > max_tries` with a generic "max retries exceeded" notice. Three
-consequences, and the third is the one that made this a shared instrument rather than
-one job's constant:
+matters. READ OFF THE INSTALLED SOURCE (arq 0.28.0, `arq/worker.py:594-634`), because the
+obvious guess is wrong in the direction that matters: `run_job` awaits the job as
+`asyncio.wait_for(task, timeout_s)`, so a job that overruns is cancelled and the WORKER
+sees `TimeoutError` — which is none of `Retry`, `RetryJob` or `CancelledError`, the three
+`retry_jobs` honours. The job is therefore FINISHED ON ITS FIRST ATTEMPT, whatever
+`max_tries` says, and the only trace is `logger.exception('%6.2fs ! %s failed, ...')` —
+a template `settings.ARQ_TERMINAL_MESSAGES` does not carry, so no alert fires either.
 
-* the tail of the walk is never reached, on any attempt, and grows worse as the fleet
-  grows — the failure repairs in the wrong direction;
-* the notice says the JOB failed. It cannot say that the alarm or the obligation the job
-  CARRIES has gone dark, which is the fact an operator needs;
-* a walk with a SIDE EFFECT per tenant re-does the side effect on every retry.
-  `kb_aggregation` is that case: a cancelled digest sweep re-mails every client it had
-  already reached, so the head of the ordering is mailed up to `WORKER_MAX_TRIES` times
-  and the tail never.
+Three consequences, and the third is the one that made this a shared instrument rather
+than one job's constant:
+
+* the tail of the walk is never reached, and grows worse as the fleet grows — the failure
+  repairs in the wrong direction;
+* nothing says so. A weekly job whose pass is cut in half looks exactly like a quiet week,
+  and the ladder its `cron()` registration carries is not even walked;
+* a walk with a SIDE EFFECT per tenant re-does the side effect whenever the tick IS
+  retried, which is the other half of the same story: a worker cancelled by a deploy past
+  `job_completion_wait` raises `CancelledError`, which arq DOES retry, and the pass then
+  restarts from the top of the same ordering. `kb_aggregation` is that case — the head of
+  the ordering is re-mailed while the tail has still never been reached.
 
 So a walk stops itself, deliberately and while it can still say so, rather than being
 stopped by arq. A truncated pass ALERTS — silence would read exactly like a healthy fleet

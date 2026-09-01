@@ -126,12 +126,18 @@ DIGEST_MINUTE = 12
 #: ALSO CARRIES A CLOCK.** "Under half an hour, comfortably inside a weekly interval" is
 #: true and does not save this job: the binding limit is `WorkerSettings.job_timeout`, 300
 #: SECONDS, and at this ceiling the worst case is five times it. Past the timeout arq
-#: cancels the tick and `CancelledError` is one of the three exceptions it RETRIES, so the
-#: sweep restarts FROM THE TOP of the same ordering — and every client it had already
-#: reached is mailed the same digest again, up to `WORKER_MAX_TRIES` times, while the tail
-#: is never reached on any attempt. That is the one failure this module's own docstring
-#: says it must not have (`_digest_one`: "re-mails every client already reached in this
-#: pass"), arrived at through the clock instead of through an exception.
+#: cancels the tick — and, read off the installed source rather than assumed, does NOT
+#: retry it (`fleet_walk` cites the lines): the worker sees `TimeoutError`, which is not
+#: one of the three exceptions `retry_jobs` honours, so the sweep is finished on its first
+#: attempt with a log line nothing alerts on. The tail of the fleet simply never gets a
+#: digest, and a half-finished sweep reads exactly like a quiet week.
+#:
+#: The DUPLICATE half is real too and arrives by the other door: a worker cancelled by a
+#: deploy past `job_completion_wait` raises `CancelledError`, which arq DOES retry, and the
+#: sweep then restarts FROM THE TOP of the same ordering — re-mailing every client it had
+#: already reached. That is the one failure this module's own docstring says it must not
+#: have (`_digest_one`: "re-mails every client already reached in this pass"), arrived at
+#: through the clock instead of through an exception.
 #:
 #: So the ceiling bounds the QUERY and `fleet_walk.WalkBudget` bounds the PASS. Both are
 #: needed and they answer different questions: the ceiling keeps one SELECT bounded, the

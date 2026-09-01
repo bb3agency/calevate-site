@@ -286,15 +286,20 @@ ERASURE_OVERDUE_AFTER = timedelta(hours=1)
 #: sweep. This job reinstated the same walk on an HOURLY schedule without anyone
 #: reconciling the two, and `WorkerSettings.job_timeout` is 300 seconds.
 #:
-#: What happens past that timeout is the part that matters. arq cancels the job, and
-#: `CancelledError` is one of the three exceptions it RETRIES — so the tick is re-run,
-#: cancelled again, re-run, cancelled again, and the ladder ends at `job_try > max_tries`
-#: with `install_arq_terminal_alerter`'s notice. That notice says the JOB failed; it
-#: cannot say that the alarm the job carries has gone dark. And the alarm it carries is
-#: the one watching a STATUTORY right (DPDP §12) that this docstring already says cannot
-#: self-heal. So the failure mode is: the fleet grows past the walk's budget, and the
-#: only mechanism that notices a forgotten erasure stops running — permanently, and
-#: growing worse rather than better.
+#: What happens past that timeout is the part that matters, and THIS PARAGRAPH USED TO GET
+#: IT WRONG in the direction that flatters us. It said arq cancels the job and retries it
+#: until `job_try > max_tries`, ending at `install_arq_terminal_alerter`'s notice. Read off
+#: the installed source (arq 0.28.0, `arq/worker.py:594-634`, checked rather than recalled):
+#: `run_job` awaits the job as `asyncio.wait_for(task, timeout_s)`, so an overrun surfaces
+#: in the worker as `TimeoutError` — which is NOT one of `Retry`, `RetryJob` or
+#: `CancelledError`, the three `retry_jobs` honours. The job is finished on its FIRST
+#: attempt, `max_tries` never applies, and the trace is `logger.exception('... failed ...')`
+#: — a template `ARQ_TERMINAL_MESSAGES` does not carry, so the terminal alerter says
+#: nothing either. There is no notice at all, generic or otherwise. And the alarm this job
+#: carries is the one watching a STATUTORY right (DPDP §12) that this docstring already
+#: says cannot self-heal. So the failure mode is: the fleet grows past the walk's budget,
+#: and the only mechanism that notices a forgotten erasure stops running — permanently,
+#: growing worse rather than better, and in silence.
 #:
 #: A TIME budget, not a tenant COUNT — the opposite of `pipeline.OUTSTANDING_PROBE_BUDGET`
 #: and for a stated reason. That one bounds VENDOR REQUESTS, whose cost per item is
@@ -427,8 +432,11 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     shape P6.2 removed from the nightly retention sweep after measuring it at ~3 minutes
     on ~16k organizations. `WorkerSettings.job_timeout` is 300s, and past it arq cancels
     and retries and cancels, so the alarm watching a statutory right would have gone dark
-    on fleet growth alone, with only a generic job-failure notice to show for it.
-    `ERASURE_PROBE_DEADLINE` argues the number and why it is a clock rather than a count.
+    on fleet growth alone, with nothing but a log line to show for it.
+    `ERASURE_PROBE_DEADLINE` argues the number and why it is a clock rather than a count,
+    and corrects what this docstring's next-door paragraph used to claim about arq: an
+    overrun is NOT retried, so "cancels and retries and cancels" below is the shape a
+    deploy produces, not the shape the timeout does.
     """
     del ctx
     cutoff = datetime.now(UTC) - ERASURE_OVERDUE_AFTER

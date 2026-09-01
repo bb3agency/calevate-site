@@ -38,11 +38,12 @@ AND THE WALK IS BOUNDED, which it was not. `_DIRECTORY` is EVERY organization an
 costs a `tenant_session` plus one draw per week in `_WEEKS_BACK` — the same cost shape
 `dispatcher.report_overdue_erasures` was bounded for (D-369) and the same one P6.2 took out
 of the nightly retention sweep after measuring it at ~3 minutes on ~16k organizations. Past
-`WorkerSettings.job_timeout` (300s) arq cancels the tick and RETRIES it, so an unbounded
-walk does not sample more of the fleet on the second attempt — it re-walks the same head of
-the ordering, is cancelled again, and the ladder ends with the tail undrawn on every
-attempt and only a generic job-failure notice to show for it. `fleet_walk.WalkBudget` stops
-the pass while it can still SAY so.
+`WorkerSettings.job_timeout` (300s) arq cancels the tick, and — read off the installed
+source rather than assumed (`fleet_walk` cites the lines) — does not retry it: the worker
+sees `TimeoutError`, which is none of the three exceptions `retry_jobs` honours, so the
+draw is finished on its first attempt with a log line nothing alerts on. The tenants past
+the cut are never drawn and the week reads as quiet. `fleet_walk.WalkBudget` stops the pass
+while it can still SAY so.
 """
 
 from __future__ import annotations
