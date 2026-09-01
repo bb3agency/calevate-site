@@ -3,7 +3,7 @@
 import { API_BASE, ApiProblem, TimeoutProblem, problemFrom, type Session } from "@/lib/api/client";
 
 import { createSseParser } from "./sse";
-import type { CopilotFillItem, CopilotProposal } from "./types";
+import type { CopilotAction, CopilotFillItem, CopilotProposal, CopilotStep } from "./types";
 import type { WireFact, WireField } from "./redaction";
 
 /**
@@ -59,6 +59,22 @@ export interface CopilotStreamHandlers {
    * would be lost.
    */
   onProposal: (proposal: CopilotProposal) => void;
+  /**
+   * A TIER 1 action that HAS ALREADY HAPPENED — reversible, reaching no caller, spending
+   * nothing (D-500). A SEPARATE handler from `onProposal` for the same reason `onProposal`
+   * is separate from `onFill`: these are three different promises, and one callback taking
+   * two of them is the seam where a receipt gets rendered as an offer.
+   */
+  onAction: (action: CopilotAction) => void;
+  /**
+   * One tool call as it happens. Called TWICE per call — `running`, then a terminal frame
+   * sharing the same `id`.
+   *
+   * OBSERVATIONAL ONLY: a consumer may ignore every one of these and lose no outcome. That
+   * is what makes it safe for the panel to render them live while the answer is still
+   * arriving, and it is why nothing downstream keys off them.
+   */
+  onStep: (step: CopilotStep) => void;
   /** The stream finished properly. `disclosure` is rendered VERBATIM when present. */
   onDone: (done: { disclosure: string | null; metered: boolean }) => void;
 }
@@ -100,6 +116,29 @@ export class StreamDroppedProblem extends ApiProblem {
 export const COPILOT_HEADERS_TIMEOUT_MS = 30_000;
 
 export const COPILOT_ASK_PATH = "/v1/copilot/ask";
+
+/**
+ * The ADMIN realm's own assistant (D-499). A SECOND PATH, not a flag on the first.
+ *
+ * The two are different endpoints because they are different assistants with different
+ * payers: `/v1/copilot/ask` spends the account's own AI allowance and is `realm: "any"` —
+ * which resolves an admin identity ONLY when an impersonation header is present, so an
+ * operator on `/admin/ops` is invisible to it and would be answered with a 401 rather than
+ * a refusal anyone could act on. `/v1/admin/copilot/ask` is `realm: "admin"` and its spend
+ * lands on the platform's own ledger: an operator never spends a client's allowance, on
+ * any path, including inside a view-as session.
+ */
+export const ADMIN_COPILOT_ASK_PATH = "/v1/admin/copilot/ask";
+
+/**
+ * WHICH ENDPOINT THIS REALM ASKS. Derived from the realm the dock was mounted with
+ * (`CopilotDock`'s `realm` prop), never from the pathname and never from the screen
+ * declaration in the body — the two normally agree, and the one that decides is the one
+ * that also decided which session module minted the credential.
+ */
+export function copilotAskPath(realm: "client" | "admin"): string {
+  return realm === "admin" ? ADMIN_COPILOT_ASK_PATH : COPILOT_ASK_PATH;
+}
 
 async function authHeaders(session: Session): Promise<Record<string, string>> {
   const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "text/event-stream" };
@@ -144,7 +183,7 @@ export async function askCopilot(
   try {
     let response: Response;
     try {
-      response = await fetch(`${API_BASE}${COPILOT_ASK_PATH}`, {
+      response = await fetch(`${API_BASE}${copilotAskPath(body.screen.realm)}`, {
         method: "POST",
         headers,
         // The credential, in the deployed case (D-177): the realm's HttpOnly `__Host-`
@@ -196,6 +235,23 @@ export async function askCopilot(
           const payload = JSON.parse(event.data) as CopilotProposal;
           if (typeof payload.token === "string" && payload.token !== "") {
             handlers.onProposal(payload);
+          }
+        } else if (event.event === "action") {
+          // Guarded on `tool`, which is what a renderer cannot do without. Nothing else is
+          // checked: every other field is the server's own prose about something it has
+          // ALREADY done, so there is no decision here for the browser to second-guess and
+          // no token to validate — unlike a proposal, this one is not an offer.
+          const payload = JSON.parse(event.data) as CopilotAction;
+          if (typeof payload.tool === "string" && payload.tool !== "") {
+            handlers.onAction(payload);
+          }
+        } else if (event.event === "step") {
+          // Guarded on `id`, because the id is what pairs the terminal frame with its own
+          // `running` one. A frame without it could only ever append a second row for one
+          // call, which is worse than dropping it.
+          const payload = JSON.parse(event.data) as CopilotStep;
+          if (typeof payload.id === "string" && payload.id !== "") {
+            handlers.onStep(payload);
           }
         } else if (event.event === "done") {
           const payload = JSON.parse(event.data) as {
