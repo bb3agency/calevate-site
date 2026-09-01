@@ -11,7 +11,6 @@ coordination: whoever wins the row publishes it, everyone else moves on.
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -34,6 +33,7 @@ from apps.api.reliability.service import (
     record_outbox_metrics,
     sweep_idempotency,
 )
+from apps.workers.fleet_walk import FLEET_WALK_DEADLINE, WalkBudget
 from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER, callable_tenants
 
 log = get_logger(__name__)
@@ -269,6 +269,13 @@ ERASURE_OVERDUE_AFTER = timedelta(hours=1)
 
 #: How long the probe below may spend walking the fleet before it stops and SAYS SO.
 #:
+#: **THE REASONING NOW LIVES IN `fleet_walk.py`, WHICH IS WHERE THE BUDGET IS SPENT.**
+#: This walk was the first to get one (D-369) and the argument turned out to be about the
+#: SHAPE rather than about erasures: two more crons (`qa_sampling.draw_qa_samples`,
+#: `kb_aggregation.send_agent_knowledge_digests`) walk the same directory the same way and
+#: had the same unbounded pass. `WalkBudget` is that one mechanism; this constant stays
+#: because the number is still this job's to choose, and it is the module's default.
+#:
 #: **IT WAS THE ONE FLEET-WIDE WALK IN THIS TREE WITH NO BOUND (D-369)**, and its cost
 #: shape is the most expensive one there is: `deletion_requests` is FORCE-RLS'd, so every
 #: organization costs a `tenant_session` — a connection checkout, a `set_config`, a
@@ -279,15 +286,20 @@ ERASURE_OVERDUE_AFTER = timedelta(hours=1)
 #: sweep. This job reinstated the same walk on an HOURLY schedule without anyone
 #: reconciling the two, and `WorkerSettings.job_timeout` is 300 seconds.
 #:
-#: What happens past that timeout is the part that matters. arq cancels the job, and
-#: `CancelledError` is one of the three exceptions it RETRIES — so the tick is re-run,
-#: cancelled again, re-run, cancelled again, and the ladder ends at `job_try > max_tries`
-#: with `install_arq_terminal_alerter`'s notice. That notice says the JOB failed; it
-#: cannot say that the alarm the job carries has gone dark. And the alarm it carries is
-#: the one watching a STATUTORY right (DPDP §12) that this docstring already says cannot
-#: self-heal. So the failure mode is: the fleet grows past the walk's budget, and the
-#: only mechanism that notices a forgotten erasure stops running — permanently, and
-#: growing worse rather than better.
+#: What happens past that timeout is the part that matters, and THIS PARAGRAPH USED TO GET
+#: IT WRONG in the direction that flatters us. It said arq cancels the job and retries it
+#: until `job_try > max_tries`, ending at `install_arq_terminal_alerter`'s notice. Read off
+#: the installed source (arq 0.28.0, `arq/worker.py:594-634`, checked rather than recalled):
+#: `run_job` awaits the job as `asyncio.wait_for(task, timeout_s)`, so an overrun surfaces
+#: in the worker as `TimeoutError` — which is NOT one of `Retry`, `RetryJob` or
+#: `CancelledError`, the three `retry_jobs` honours. The job is finished on its FIRST
+#: attempt, `max_tries` never applies, and the trace is `logger.exception('... failed ...')`
+#: — a template `ARQ_TERMINAL_MESSAGES` does not carry, so the terminal alerter says
+#: nothing either. There is no notice at all, generic or otherwise. And the alarm this job
+#: carries is the one watching a STATUTORY right (DPDP §12) that this docstring already
+#: says cannot self-heal. So the failure mode is: the fleet grows past the walk's budget,
+#: and the only mechanism that notices a forgotten erasure stops running — permanently,
+#: growing worse rather than better, and in silence.
 #:
 #: A TIME budget, not a tenant COUNT — the opposite of `pipeline.OUTSTANDING_PROBE_BUDGET`
 #: and for a stated reason. That one bounds VENDOR REQUESTS, whose cost per item is
@@ -299,7 +311,31 @@ ERASURE_OVERDUE_AFTER = timedelta(hours=1)
 #: 180s leaves two full minutes under `job_timeout` for the alert, the last tenant session
 #: to close and the pool to settle — the same "strictly under, with headroom" reasoning
 #: `job_completion_wait` uses against the compose grace.
-ERASURE_PROBE_DEADLINE = timedelta(seconds=180)
+ERASURE_PROBE_DEADLINE = FLEET_WALK_DEADLINE
+
+#: The minute the overdue-erasure walk fires on.
+#:
+#: **IT WAS :25, WHICH IS `copilot_memory.DISTILL_MINUTE`** — so the two heaviest hourly
+#: fan-outs in the tree started in the same minute, every hour, on the same worker fleet
+#: and the same connection pool. That is not a style point: this walk opens one
+#: `tenant_session` per ORGANIZATION and is already bounded by a wall clock
+#: (`ERASURE_PROBE_DEADLINE`) it must finish inside, so a neighbour holding pooled
+#: connections for the same minute spends this walk's budget on waiting and shortens the
+#: fleet it reaches — an alarm on a statutory right going quiet because an unrelated
+#: feature was scheduled on the same number. The distillation cron's own comment argued
+#: at length that :25 was "clear of the poller, `report_stalled_pipeline` and
+#: `reconcile_outstanding_calls`, so no two O(tenants) fan-outs share a minute", which was
+#: true when it was written and false the moment this job was registered on the same
+#: minute without anyone re-reading it.
+#:
+#: :55 is the free slot: :00 to :50 in tens is the execution poller, :05/:35 the stall alarm,
+#: :07/:37 the engine drift sweep, :15/:45 the outstanding-call sweep, :23 the KB drift
+#: sweep, :25 the distillation and :50 the violations sweep. Only `pull_fx_rate` also
+#: fires at :55, and that is one HTTP GET for one number.
+#:
+#: `tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute` is
+#: what keeps this true — a comment could not, as this minute's history shows.
+ERASURE_PROBE_MINUTE = 55
 
 #: Open erasure requests past the bound, for ONE tenant. Counts only — never the number,
 #: never `subject_ref`, which is a hash of the number and is exactly what an alert body
@@ -396,8 +432,11 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     shape P6.2 removed from the nightly retention sweep after measuring it at ~3 minutes
     on ~16k organizations. `WorkerSettings.job_timeout` is 300s, and past it arq cancels
     and retries and cancels, so the alarm watching a statutory right would have gone dark
-    on fleet growth alone, with only a generic job-failure notice to show for it.
-    `ERASURE_PROBE_DEADLINE` argues the number and why it is a clock rather than a count.
+    on fleet growth alone, with nothing but a log line to show for it.
+    `ERASURE_PROBE_DEADLINE` argues the number and why it is a clock rather than a count,
+    and corrects what this docstring's next-door paragraph used to claim about arq: an
+    overrun is NOT retried, so "cancels and retries and cancels" below is the shape a
+    deploy produces, not the shape the timeout does.
     """
     del ctx
     cutoff = datetime.now(UTC) - ERASURE_OVERDUE_AFTER
@@ -414,16 +453,11 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     unasked = 0
     unanswered = 0
     processor_tenants = 0
-    truncated = False
-    # The wall clock, not a counter — see `ERASURE_PROBE_DEADLINE`. `monotonic` because
-    # this measures an ELAPSED interval and `now()` is subject to NTP steps; a clock that
-    # jumped backwards mid-walk would extend the budget past the job timeout it exists to
-    # stay under, which is the one outcome the deadline may not have.
-    deadline = time.monotonic() + ERASURE_PROBE_DEADLINE.total_seconds()
+    # The wall clock, not a counter — see `fleet_walk.WalkBudget`.
+    budget = WalkBudget(ERASURE_PROBE_DEADLINE)
     tenants = await _all_tenants()
     for tenant_id in tenants:
-        if time.monotonic() >= deadline:
-            truncated = True
+        if budget.spent():
             break
         probed += 1
         try:
@@ -482,7 +516,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                 "runbooks/processor-erasure.md"
             ),
         )
-    if truncated:
+    if budget.exhausted:
         # A SEPARATE ALERT, and the reason is that it says something the count above
         # cannot: `overdue_erasures=0` from a walk that only reached part of the fleet is
         # not "no erasure is stuck", it is "no erasure is stuck among the tenants we got
@@ -509,6 +543,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
 
 __all__ = [
     "ERASURE_PROBE_DEADLINE",
+    "ERASURE_PROBE_MINUTE",
     "_OVERDUE_PROCESSOR_TASKS",
     "dispatch_outbox",
     "report_overdue_erasures",

@@ -91,6 +91,7 @@ from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
+    ERASURE_PROBE_MINUTE,
     dispatch_outbox,
     report_overdue_erasures,
     report_stalled_pipeline,
@@ -278,7 +279,17 @@ CRON_JOBS = [
     # is enqueued once, in the request's own transaction, with no poller behind it — so
     # the alarm going quiet on a transient database error is the whole failure, not a
     # delay in reporting it.
-    cron(traced_job(report_overdue_erasures), minute={25}, max_tries=WORKER_MAX_TRIES),
+    #
+    # THE MINUTE COMES FROM THE MODULE (`ERASURE_PROBE_MINUTE`) and is no longer :25,
+    # which is `DISTILL_MINUTE`: the two heaviest hourly fan-outs were starting together
+    # every hour, and this one has a wall-clock budget that a neighbour competing for the
+    # pool spends on waiting. `dispatcher.ERASURE_PROBE_MINUTE` carries the argument and
+    # `tests/job_registration_test.py` is the guard that keeps it true.
+    cron(
+        traced_job(report_overdue_erasures),
+        minute={ERASURE_PROBE_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE FIVE-MINUTE FX PULL. The rate every dollar of vendor cost is converted at, kept
     # current without a restart (`apps/workers/fx_pull.py` argues the source, the cadence
     # and the failure ladder). Registered from the job's own `PULL_MINUTES` so the schedule
