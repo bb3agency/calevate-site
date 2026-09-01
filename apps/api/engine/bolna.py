@@ -1796,6 +1796,67 @@ def _agent_system_prompt(agent: dict[str, Any]) -> str | None:
     return prompt if isinstance(prompt, str) and prompt else None
 
 
+def _agent_alternate_prompts(agent: dict[str, Any]) -> tuple[str, ...]:
+    """Every OTHER system prompt this agent will run, read at the documented path.
+
+    **THE SECOND PROMPT BYPASS, AND UNLIKE THE SEMANTIC ROUTES THIS ONE IS SCORABLE.**
+    `_agent_body` sends `multilingual_config: None` on every write and the comment there
+    explains why — a per-language prompt carries none of `TRUTHFUL_ANSWER_DIRECTIVE`, so
+    an agent with multilingual on would run, for every language but the base one, a prompt
+    with no compliance floor in it. That defends the WRITE. It does nothing about the
+    console, which ships **+ Add Language** as one click on the Agent Tab with a prompt
+    editor per language (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/agent-setup/
+    agent-tab.md:5,41-70`) — and a console edit is precisely what a read-back sees and a
+    request body cannot.
+
+    Until this function existed, that click was invisible to every instrument in this
+    repository: `_agent_system_prompt` reads `agent_prompts.task_1.system_prompt`,
+    `verification.judge` scored the floor off exactly that, and both the publish read-back
+    and the half-hourly drift sweep answered `truthful_answer_applied=True` about a prompt
+    that is not the one in use for the language the caller switched into. A caller
+    speaking Telugu to an agent whose Telugu tab was written in the console could be told
+    it is a human, with every gate green.
+
+    THE PATH IS THE VENDOR'S OWN: `tasks[].tools_config.multilingual_config`, whose
+    `languages` maps a language code to a `MultilingualLanguageEntry` carrying
+    `system_prompt` — *"Prompt activated while the agent speaks this language"*
+    (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:229-237,589-660,1064-1120`).
+
+    **`enabled` GATES IT, because the vendor says it does**: *"Must be `true` for
+    multilingual to take effect. When `false` or omitted, the agent runs single-language
+    and this object is ignored"* (`get.md:594-599`). A stored-but-disabled config is not a
+    running prompt, and convicting an agent over one would be a refusal an operator cannot
+    act on.
+
+    RETURNS ONLY WHAT WAS POSITIVELY FOUND, with no `readable` twin: an empty tuple means
+    "no other prompt is in the path", which is the true answer for every agent this tree
+    publishes. An entry with no `system_prompt` of its own falls back to the base prompt
+    on their side, so it is not a gap and is not reported.
+    """
+    root = agent.get("agent_config") if isinstance(agent.get("agent_config"), dict) else agent
+    tasks = root.get("tasks") if isinstance(root, dict) else None
+    if not isinstance(tasks, list):
+        return ()
+    prompts: list[str] = []
+    for task in tasks:
+        tools = task.get("tools_config") if isinstance(task, dict) else None
+        block = tools.get("multilingual_config") if isinstance(tools, dict) else None
+        if not isinstance(block, dict) or block.get("enabled") is not True:
+            continue
+        languages = block.get("languages")
+        if not isinstance(languages, dict):
+            continue
+        # Sorted by language code so the tuple is stable across read-backs: it reaches a
+        # verdict and a log line, and a dict-order-dependent one would make two identical
+        # sweeps look like a change.
+        for code in sorted(languages):
+            entry = languages[code]
+            prompt = entry.get("system_prompt") if isinstance(entry, dict) else None
+            if isinstance(prompt, str) and prompt.strip():
+                prompts.append(prompt)
+    return tuple(prompts)
+
+
 def _agent_greeting(agent: dict[str, Any]) -> tuple[str | None, bool]:
     """`(greeting, readable)` — the welcome message the engine holds.
 
@@ -3369,6 +3430,10 @@ class BolnaEngine:
             name=_agent_name(agent),
             system_prompt=prompt,
             system_prompt_readable=prompt is not None,
+            # The prompts a CONSOLE-added language would run beside it — see
+            # `_agent_alternate_prompts`. Empty for every agent this tree publishes,
+            # because `_agent_body` sends `multilingual_config: None`.
+            alternate_prompts=_agent_alternate_prompts(agent),
             greeting=greeting,
             greeting_readable=greeting_readable,
             knowledge_base_refs=kb_refs,

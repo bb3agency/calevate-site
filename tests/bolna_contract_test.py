@@ -1044,3 +1044,85 @@ def test_the_adapter_is_fully_migrated_off_the_deprecated_v1_agent_surface() -> 
         "TRD §3 says never to call the legacy unversioned agent paths; the v2 equivalents "
         "are `/v2/agent`, `/v2/agent/all`, `/v2/agent/{id}` and `/v2/agent/{id}/executions`."
     )
+
+
+# --- the per-language prompts a console click adds (D-494) -----------------------------
+#
+# `_agent_body` sends `multilingual_config: None` on every write and says why. That
+# defends the WRITE. The console defends nothing: `+ Add Language` on the Agent Tab is one
+# click and gives each language its own prompt editor
+# (`bolna-findings/mirror/pages/agent-setup/agent-tab.md:5,41-70`), and the platform
+# switches "the active system prompt" to it mid-call
+# (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:589-599,1064-1120`). Those
+# prompts carry no `TRUTHFUL_ANSWER_DIRECTIVE`, because nothing in this tree wrote them.
+
+
+def _multilingual_agent(*, enabled: bool, te_prompt: str | None = "మీరు ఒక మనిషి.") -> dict[str, Any]:
+    """A read-back exactly as `AgentV2` declares it, with a Telugu language tab added."""
+    entry: dict[str, Any] = {"synthesizer": {"provider": "sarvam", "provider_config": {}}}
+    if te_prompt is not None:
+        entry["system_prompt"] = te_prompt
+    return {
+        "agent_id": "a1",
+        "agent_prompts": {"task_1": {"system_prompt": "base. marker-truthful"}},
+        "tasks": [
+            {
+                "task_type": "conversation",
+                "tools_config": {
+                    "llm_agent": {"llm_config": {"model": "gpt-4o-mini"}},
+                    "multilingual_config": {
+                        "enabled": enabled,
+                        "active_language": "en",
+                        "languages": {"en": {"synthesizer": {}}, "te": entry},
+                    },
+                },
+            }
+        ],
+    }
+
+
+async def test_a_console_added_language_prompt_is_read_back_as_a_running_prompt() -> None:
+    """The floor's read-back must see EVERY prompt the engine will run.
+
+    Before `_agent_alternate_prompts`, this agent read back with a perfect
+    `system_prompt` and nothing else — so `verification.judge` scored
+    `truthful_answer_applied=True` about a string that is not in the path the moment the
+    caller speaks Telugu, and the half-hourly drift sweep agreed with it forever.
+    """
+    engine = _engine(lambda request: httpx.Response(200, json=_multilingual_agent(enabled=True)))
+    snapshot = await engine.get_agent("a1")
+
+    assert snapshot.alternate_prompts == ("మీరు ఒక మనిషి.",), (
+        "the per-language prompt the platform switches to mid-call was not read back, so "
+        "nothing in this repository can see that the agent runs a prompt with no floor"
+    )
+    assert snapshot.carries_prompt_marker("marker-truthful") is True
+    assert snapshot.every_prompt_carries("marker-truthful") is False, (
+        "the floor is absent from a prompt this agent WILL run and the verdict said yes"
+    )
+
+
+async def test_a_disabled_multilingual_config_is_not_a_running_prompt() -> None:
+    """`enabled: false` ⇒ *"the agent runs single-language and this object is ignored"*
+    (VERIFIED-VENDOR-DOCS: `.../agent/v2/get.md:594-599`).
+
+    Convicting an agent over a stored-but-disabled config would be a refusal an operator
+    cannot act on — and it is the shape that teaches people to ignore the verdict.
+    """
+    engine = _engine(lambda request: httpx.Response(200, json=_multilingual_agent(enabled=False)))
+    snapshot = await engine.get_agent("a1")
+
+    assert snapshot.alternate_prompts == ()
+    assert snapshot.every_prompt_carries("marker-truthful") is True
+
+
+async def test_a_language_tab_with_no_prompt_of_its_own_is_not_a_gap() -> None:
+    """`MultilingualLanguageEntry.system_prompt` is nullable: an entry without one falls
+    back to the base prompt on their side, so it carries the floor and is not reported."""
+    engine = _engine(
+        lambda request: httpx.Response(200, json=_multilingual_agent(enabled=True, te_prompt=None))
+    )
+    snapshot = await engine.get_agent("a1")
+
+    assert snapshot.alternate_prompts == ()
+    assert snapshot.every_prompt_carries("marker-truthful") is True

@@ -2611,6 +2611,35 @@ class AgentSnapshot(BaseModel):
     system_prompt: str | None = None
     #: True only when the adapter positively read a prompt out of the engine's answer.
     system_prompt_readable: bool = False
+    #: **THE OTHER PROMPTS THE ENGINE WILL RUN ON THIS CALL**, besides `system_prompt`.
+    #:
+    #: WHY A SECOND PROMPT FIELD EXISTS AT ALL. `system_prompt` above is the ONE prompt
+    #: our publish writes and the one every instrument scores, and that was sound only
+    #: while an engine ran exactly one. Bolna's `MultilingualConfig` keeps a
+    #: `system_prompt` PER LANGUAGE and, in the vendor's own words, *"switches them, along
+    #: with the active system prompt, during the call"* (VERIFIED-VENDOR-DOCS:
+    #: `bolna-findings/mirror/pages/api-reference/agent/v2/get.md:589-660,1064-1120`,
+    #: `ToolsConfigV2.multilingual_config` → `MultilingualLanguageEntry.system_prompt`,
+    #: *"Prompt activated while the agent speaks this language"*). Their console ships it
+    #: as a one-click **+ Add Language** on the Agent Tab, each language getting its own
+    #: prompt editor (`bolna-findings/mirror/pages/agent-setup/agent-tab.md:5,41-70`).
+    #:
+    #: So an operator clicking that button once puts a SECOND running prompt on a live
+    #: agent — one that carries none of `TRUTHFUL_ANSWER_DIRECTIVE`, because nothing in
+    #: this tree wrote it — while `system_prompt` still reads back perfect. Without this
+    #: field the publish read-back and the half-hourly drift sweep both score
+    #: `truthful_answer_applied=True` off a prompt that is not the one in use, and a
+    #: caller who speaks the other language can be told the agent is a human. That is hard
+    #: rule 5's exact prohibition: a config row withdrawing the truthful answer.
+    #:
+    #: EMPTY IS THE HONEST DEFAULT AND MEANS "ONE PROMPT", not "we did not look": an
+    #: adapter whose engine has no such concept (the fake, Cartesia) leaves it empty and
+    #: `every_prompt_carries` then reduces to `carries_prompt_marker`. It needs no
+    #: `*_readable` twin for that reason — this is a list of prompts POSITIVELY FOUND, and
+    #: the readability of the base prompt is what already gates the verdict.
+    #:
+    #: Not a log target, for `system_prompt`'s reason.
+    alternate_prompts: tuple[str, ...] = ()
     #: The GREETING as the engine holds it — Bolna's `agent_welcome_message`, Cartesia's
     #: `introduction`. Both adapters send the opening line here AS WELL AS prepending
     #: it to the prompt, and the two are not interchangeable: only the greeting is the
@@ -2678,6 +2707,35 @@ class AgentSnapshot(BaseModel):
         if not self.system_prompt_readable or self.system_prompt is None:
             return None
         return marker in self.system_prompt
+
+    def every_prompt_carries(self, marker: str) -> bool | None:
+        """Is `marker` in EVERY prompt this engine will run — not just the base one?
+
+        THE FLOOR'S ACCESSOR (hard rule 5). `carries_prompt_marker` asks about the prompt
+        we published; this asks about the prompt the CALLER will hear, which on an engine
+        holding per-language prompts is not the same question. `alternate_prompts` argues
+        the case above: one console click adds a running prompt that nothing in this tree
+        wrote, so a floor scored against the base prompt alone is scored against a string
+        that is not in the path for the language the caller switched to.
+
+        A SEPARATE ACCESSOR rather than a flag on `carries_prompt_marker`, for the reason
+        `carries_greeting_marker` is separate: a caller able to pass the wrong argument is
+        a caller able to report one prompt's verdict under another's name, and the two
+        questions have different right answers. The SCRIPT check deliberately keeps asking
+        `carries_prompt_marker` — a per-language prompt is written in that language and
+        cannot be expected to contain the client's base script, so requiring it there
+        would refuse every legitimately translated agent for a reason that is not a
+        compliance failure. The FLOOR is different: it is ours, it is a `Final`, and it
+        belongs in every prompt or the agent can lie in one language.
+
+        `None` propagates from the base prompt exactly as before — an unreadable prompt is
+        not evidence either way, and an alternate found beside a base we could not read is
+        not something to convict on.
+        """
+        base = self.carries_prompt_marker(marker)
+        if base is not True:
+            return base
+        return all(marker in prompt for prompt in self.alternate_prompts)
 
     def carries_greeting_marker(self, marker: str) -> bool | None:
         """Is `marker` in the live GREETING? `None` = the greeting could not be read.
