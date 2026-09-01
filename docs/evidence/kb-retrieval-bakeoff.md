@@ -479,6 +479,54 @@ read, list, delete, and **no search route**. Retrieval happens inside the vendor
 during a call and is not exposed to us. So option 3 is not a substitute for
 options 1 or 2, it is a **complement to one of them**. Choosing it means:
 
+#### 3.1e — ADDENDUM: what the engine's in-call retrieval actually does, and the one thing about it that is UNKNOWN
+
+Added 1 Sep 2026 after the founder challenged a claim made in conversation. The claim was
+*"Bolna does no retrieval for us at all"*. **That was wrong, and it was an inference stated
+as a finding.** This document was right — §3.1d already says retrieval "happens inside the
+vendor's pipeline during a call" — but the summary given to the founder collapsed "their
+API exposes no search route to US" into "their agent does not retrieve", which does not
+follow: an engine-internal behaviour leaves no trace in the API surface we call.
+
+**The vendor documents the in-call mechanism explicitly** (VERIFIED-VENDOR-DOCS, mirror):
+
+* *"Knowledge Base allows you to upload documents and add URLs that your AI agent can
+  reference during conversations. Using RAG (Retrieval-Augmented Generation), your agent
+  retrieves relevant information and provides accurate, context-aware responses"*
+  (`getting-started/knowledge-base.md`).
+* *"On each turn the latest user message retrieves the most relevant chunks, which are
+  added to the prompt before the response is generated"* (`graph-agent/tools-and-rag.md`) —
+  i.e. **per-turn retrieval**, not a one-shot prompt stuffing.
+* `rag_config.vector_store.provider_config.vector_id` is settable **globally or per node**,
+  and `vector_ids` searches several collections at once (same page).
+
+**So in-call KB retrieval is a capability the engine HAS and our adapter does not use.**
+`BOLNA_CAPABILITIES.knowledge_base = False` is a statement about OUR integration — the
+attach half was never correctly implemented (create returns `rag_id`, the agent attaches by
+`vector_id`, `list_kb` filtered on an `agent_id` the row does not carry) — not a statement
+about the vendor. Nothing in §3.1d's costs changes: PDF-or-URL with no text field, and
+server-side re-chunking that drops approval granularity from CHUNK to DOCUMENT. Those remain
+the reasons to be careful, and they are now the ONLY reasons.
+
+**A capability this document had not recorded, which bears on a Telugu-first product:** the
+KB supports a **Multilingual** mode chosen at upload time, for *"cross-lingual retrieval
+(e.g., query in English, retrieve from Hindi documents)"*, and it **cannot be changed
+afterwards** — *"Existing knowledge bases cannot be switched between default and
+multilingual — you'll need to create a new one"* (`getting-started/knowledge-base.md`). That
+addresses, on the engine leg, the same cross-script problem the English-gloss work addresses
+on ours.
+
+⚠ **AND THE OPEN QUESTION THAT DECIDES WHETHER ANY OF IT IS USABLE HERE: the KB's
+multilingual mode names "Hindi, Tamil, etc." and "(Hindi, Spanish, French, etc.). TELUGU IS
+NAMED NOWHERE IN THE KB DOCUMENTATION.** Telugu appears repeatedly elsewhere in the mirror —
+Sarvam transcriber and voices, ElevenLabs voices, the Indian-language marketing copy — but
+those are the SPEECH subsystem, a different thing. Tamil being Dravidian is encouraging and
+is not evidence. **UNKNOWN**, and not closable from this container: it needs one check in the
+vendor console or one question to their support. Until it is answered, option 3's value for
+this market is unquantified, and a Telugu KB that silently retrieves badly is worse than no
+KB at all, because the failure is invisible on a call.
+
+
 * running **two** knowledge stores with two ingestion paths over the same corpus, which is
   the "two ways to do one thing" defect this repo's quality bar names explicitly;
 * keeping the dual-push ingestion TRD §6 already describes, with the divergence risk D-41
