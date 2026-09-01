@@ -29,6 +29,8 @@ import {
   type Spend,
 } from "@/lib/api/spend";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * WHERE THE MONEY WENT — this month's calling charge, per agent and per call.
@@ -94,6 +96,90 @@ export default function ClientSpendPage({ params }: { params: Promise<{ slug: st
    * While `/v1/me` is in flight nothing is refused, so the screen never flashes an
    * explanation it is about to withdraw.
    */
+  /*
+   * THIS MONTH'S BREAKDOWN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * THE MONTH PICKER IS WRITABLE and is the one control here: "show me July" is what a
+   * person opens this screen to do, and moving it changes nothing but which month is
+   * read. `apply` accepts only a `YYYY-MM` string, because the `<input type="month">`
+   * below renders blank for anything else and a blank picker reads as a broken screen.
+   *
+   * THE PER-CALL TABLE IS NOT DECLARED. `top_calls` rows carry a call id and a start
+   * time, which are safe — but they are also a long list that grows the prompt on every
+   * question for a total the assistant is already told. The per-AGENT split is sent
+   * because it is short and is the shape of the question ("which agent is costing me
+   * this"); agent names are the client's own labels, not a person's.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/spend",
+    title: "Where the money went",
+    realm: "client",
+    fields: [
+      {
+        id: "spend-month",
+        label: "Billing month",
+        type: "text",
+        value: month,
+        help: "YYYY-MM, in Indian Standard Time.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value:
+          me.data !== undefined && !me.data.permissions.includes("billing:read")
+            ? "a refusal — this session may not read billing, so no figure is shown"
+            : spend.data
+              ? "the breakdown below has loaded"
+              : spend.error
+                ? "the breakdown failed to load"
+                : "still loading",
+      },
+      ...(spend.data
+        ? [
+            { key: "month", label: "Month shown (IST)", value: spend.data.month },
+            { key: "calls", label: "Calls charged this month", value: String(spend.data.calls) },
+            { key: "minutes_used", label: "Minutes charged", value: spend.data.minutes_used },
+            { key: "period_charge_inr", label: "Charge for the period (INR)", value: spend.data.period_charge_inr },
+            { key: "retainer_inr", label: "Plan retainer (INR)", value: spend.data.retainer_inr ?? "none" },
+            { key: "itemised_charge_inr", label: "Of that, itemised against calls (INR)", value: spend.data.itemised_charge_inr },
+            {
+              key: "itemisation_residual_inr",
+              label: "Left over after itemisation (INR)",
+              value: `${spend.data.itemisation_residual_inr}${spend.data.residual_reason ? ` — ${spend.data.residual_reason}` : ""}`,
+            },
+            {
+              key: "charge_basis",
+              label: "How the charge is booked",
+              value: spend.data.charge_basis,
+            },
+            {
+              key: "by_agent",
+              label: "Charge per agent (INR), for the agents that made calls",
+              value:
+                spend.data.by_agent
+                  .map((row) => `${row.agent_name ?? "unattributed"}: ${row.charged_inr} over ${row.calls} call(s)`)
+                  .join("; ") || "no agent has been charged this month",
+            },
+            {
+              key: "top_calls_listed",
+              label: "Rows in the dearest-calls table",
+              value: `${spend.data.top_calls.length}${spend.data.top_calls_truncated ? " (truncated)" : ""}`,
+            },
+          ]
+        : []),
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        const wanted = asText(item.value);
+        if (item.field_id === "spend-month" && /^\d{4}-(0[1-9]|1[0-2])$/.test(wanted)) {
+          setMonth(wanted);
+        }
+      }
+    },
+  });
+
   const refused = me.data !== undefined && !me.data.permissions.includes("billing:read");
   if (refused) {
     return (

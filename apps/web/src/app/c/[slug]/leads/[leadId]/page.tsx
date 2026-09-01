@@ -33,10 +33,12 @@ import {
 } from "@/lib/api/leads";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import { LoadMore } from "@/components/interior/load-more";
 
 import { AssigneeSelect } from "../AssigneeSelect";
-import { StatusSelect } from "../StatusSelect";
+import { STATUSES, StatusSelect } from "../StatusSelect";
 
 /**
  * One lead, and the thing this product could not previously show anybody: its HISTORY.
@@ -125,6 +127,103 @@ export default function LeadDetailPage({
     .filter((event) => (seen.has(event.id) ? false : (seen.add(event.id), true)));
   // The server restates the whole history's size on every page; the newest answer wins.
   const timelineTotal = timeline.data?.pages.at(-1)?.total;
+
+  /*
+   * THIS LEAD, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * A LEAD IS A PERSON, so the only thing about them that leaves this browser is their
+   * ID. Not `name`, not `phone_e164`, not `assigned_to_name`, and not one line of the
+   * timeline — a timeline entry quotes what was said on a call. What IS declared is the
+   * case around them: which stage, which source, how many calls, whether it is a repeat
+   * caller, how much history there is. That is the vocabulary of "should I chase this
+   * one", which is the question this screen is opened with.
+   *
+   * The STAGE is the one writable control: it is a fixed enum (`STATUSES`), it is what the
+   * screen's own select writes, and moving a lead to "won" is exactly the small act a
+   * person wants done while they read. `apply` goes through the SAME `editLead` mutation
+   * the select does — never a DOM write — so the optimistic update, the failure toast and
+   * the permission refusal all behave identically whoever pressed it.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/leads/{leadId}",
+    title: "Lead",
+    realm: "client",
+    fields: [
+      {
+        id: "lead-status",
+        label: "Stage",
+        type: "select",
+        value: lead.data?.status ?? "",
+        options: STATUSES.map((stage) => ({ value: stage, label: stage })),
+        writable: lead.data !== undefined && mayAssign.allowed,
+        help: "Saves immediately — this control has no separate Save button.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: lead.data
+          ? "the lead below has loaded"
+          : lead.error
+            ? "the lead failed to load"
+            : "still loading",
+      },
+      { key: "lead_id", label: "Lead id", value: leadId },
+      ...(lead.data
+        ? [
+            { key: "status", label: "Stage", value: lead.data.status },
+            { key: "source", label: "Where the lead came from", value: lead.data.source },
+            { key: "call_count", label: "Calls with this lead", value: String(lead.data.call_count) },
+            {
+              key: "is_repeat_caller",
+              label: "Has this person called before?",
+              value: lead.data.is_repeat_caller ? "yes" : "no",
+            },
+            { key: "created_at", label: "First seen (UTC)", value: lead.data.created_at },
+            { key: "updated_at", label: "Last changed (UTC)", value: lead.data.updated_at },
+            {
+              key: "captured_fields",
+              label: "Captured detail names on file (the field names, never their values)",
+              value: Object.keys(lead.data.data ?? {}).join(", ") || "none",
+            },
+            {
+              key: "assigned",
+              label: "Does this lead have an owner?",
+              value: lead.data.assigned_to == null ? "no" : "yes, one team member",
+            },
+            {
+              key: "last_call_id",
+              label: "Most recent call id",
+              value: lead.data.last_call_id ?? "none",
+            },
+          ]
+        : []),
+      { key: "timeline_shown", label: "History entries loaded", value: String(events.length) },
+      {
+        key: "timeline_total",
+        label: "History entries in total",
+        value: timelineTotal === undefined ? "not known yet" : String(timelineTotal),
+      },
+      {
+        key: "may_edit",
+        label: "May this session change the stage or the owner?",
+        value: mayAssign.allowed ? "yes" : "no",
+      },
+    ],
+    apply: (fills) => {
+      for (const item of fills) {
+        if (item.field_id !== "lead-status" || !mayAssign.allowed) continue;
+        // `find`, not `some`: it NARROWS the model's opaque string to the enum the
+        // mutation takes, so an unrecognised stage is dropped by the type system rather
+        // than cast past it.
+        const next = STATUSES.find((stage) => stage === asText(item.value));
+        if (next !== undefined && next !== lead.data?.status) {
+          editLead.mutate({ leadId, edit: { status: next } });
+        }
+      }
+    },
+  });
 
   return (
     <div className="space-y-4 pb-12">

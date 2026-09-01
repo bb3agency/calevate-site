@@ -17,6 +17,8 @@ import {
 } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 import { useCallsLog } from "@/lib/api/hooks";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import { LoadMore } from "@/components/interior/load-more";
 import { lookup } from "@/lib/lookup";
 
@@ -98,6 +100,62 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
   const rows = (calls.data?.pages ?? [])
     .flatMap((page) => page)
     .filter((call) => (seen.has(call.id) ? false : (seen.add(call.id), true)));
+
+  /*
+   * THE CALL LOG, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * THE FILTER IS THE ONLY WRITABLE THING ON THIS SCREEN, and it is worth writing: "show
+   * me the ones nobody answered" is the question this log is opened with. Its options are
+   * the SAME `STATUS_FILTERS` the chips render from plus the "all" chip, so the assistant
+   * cannot select a status this screen has no chip for, and `apply` ignores anything else.
+   *
+   * NOT ONE ROW OF THE LOG IS DECLARED. Every row carries a caller's number (hard rule 6),
+   * and the number of rows loaded plus whether more remain is the whole of what a reader
+   * can see that a copilot read tool cannot fetch for itself under the caller's own RLS.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/calls",
+    title: "Call log",
+    realm: "client",
+    fields: [
+      {
+        id: "calls-status",
+        label: "Show only calls with this outcome",
+        type: "select",
+        value: status ?? "",
+        options: [
+          { value: "", label: "All" },
+          ...STATUS_FILTERS.map((filter) => ({ value: filter.value, label: filter.label })),
+        ],
+        help: "Empty means every call. Filtering re-reads the log from the server.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: calls.data
+          ? "the log below has loaded"
+          : calls.error
+            ? "the log failed to load, so no call is listed"
+            : "still loading",
+      },
+      { key: "rows_loaded", label: "Call rows loaded so far", value: String(rows.length) },
+      {
+        key: "more_pages",
+        label: "Are there older calls behind this page?",
+        value: calls.hasNextPage ? "yes — the count above is this page, not the total" : "no — the count above is the total",
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id !== "calls-status") continue;
+        const wanted = asText(item.value);
+        if (wanted === "") setStatus(undefined);
+        else if (STATUS_FILTERS.some((filter) => filter.value === wanted)) setStatus(wanted);
+      }
+    },
+  });
 
   return (
     <div className="space-y-4 pb-12">

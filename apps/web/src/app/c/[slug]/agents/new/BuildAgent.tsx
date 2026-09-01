@@ -26,7 +26,7 @@ import { hasKey } from "@/lib/lookup";
 
 import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
 import { useCopilotSurface } from "@/lib/copilot/registry";
-import { asText } from "@/lib/copilot/types";
+import { asText, noFill } from "@/lib/copilot/types";
 import { CallCapField, ComplianceFloor } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
 
@@ -100,12 +100,43 @@ export function BuildAgent({ slug }: { slug: string }) {
    * string into a closed union, so a model naming a language this build does not ship
    * changes nothing instead of putting an unsubmittable value in the control.
    *
-   * `null` once the agent exists — the success panel has no form on it, and a launcher
-   * over a screen with nothing to fill in is the failure the dock refuses to ship.
+   * ## ONCE THE AGENT EXISTS THIS DECLARES THE SUCCESS PANEL, AND IT USED TO DECLARE
+   * `null`
+   *
+   * The old reasoning was that "a launcher over a screen with nothing to fill in is the
+   * failure the dock refuses to ship". That is right about a launcher over a screen the
+   * assistant cannot SEE, and wrong about this one: the success panel is precisely where
+   * a first-time owner asks "so what happens now" — the gap between "created" and "able
+   * to take calls" is the thing this component's own docstring says needs explaining —
+   * and the copilot answers that from its read tools plus the facts below. A button that
+   * vanishes at the moment of a person's first question teaches the same "it is broken"
+   * lesson the dock was avoiding, from the other end.
+   *
+   * The FIELDS still go away with the form, which is the half that was actually load
+   * bearing: nothing is offered to fill, because there is nothing on screen to fill.
    */
   useCopilotSurface(
     created !== null
-      ? null
+      ? {
+          route: `/c/${slug}/agents/new`,
+          title: "Agent created",
+          realm: "client",
+          fields: [],
+          facts: [
+            { key: "just_created", label: "An agent was just created on this screen", value: "yes" },
+            { key: "agent_id", label: "Its id", value: created.id },
+            { key: "agent_name", label: "Its name", value: created.name },
+            { key: "agent_direction", label: "What it does", value: created.direction },
+            { key: "agent_language", label: "What it speaks", value: created.language_primary },
+            { key: "agent_status", label: "Its status", value: created.status },
+            {
+              key: "agent_published",
+              label: "Is it on the calling system yet?",
+              value: created.published ? "yes" : "no — it has not been published",
+            },
+          ],
+          apply: noFill,
+        }
       : {
           route: `/c/${slug}/agents/new`,
           title: "Build an agent",

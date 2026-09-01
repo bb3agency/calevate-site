@@ -18,6 +18,8 @@ import {
 import { useMe } from "@/lib/api/hooks";
 import { usePerformance, type Performance } from "@/lib/api/performance";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * How the phone agent is doing (SURFACES §2), in the console's design language.
@@ -68,6 +70,104 @@ export default function PerformancePage() {
    * an explanation it is about to withdraw. If `/v1/me` itself failed we do not know, so
    * the request goes out and the API's own answer is what renders.
    */
+  /*
+   * THE REPORT, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * THE PERIOD IS WRITABLE — "how did last quarter go" is a re-filter, and it is the only
+   * control on the screen. Its options are `DAY_OPTIONS`, which is what the chips render
+   * from, so the assistant cannot ask for a window this screen has no chip for.
+   *
+   * EVERY FIGURE IS THE SERVER'S, and `data.days` rather than `days` names the period the
+   * numbers actually cover: the two differ for as long as a switch is in flight, which is
+   * exactly when a reader — or an assistant quoting one — would be misled.
+   *
+   * `null` IS SENT AS "no calls to measure", never as 0. The server draws that
+   * distinction on purpose (`PerformanceOut`), and collapsing it here would have the
+   * assistant tell a brand-new client their agent is failing before it has rung once.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/performance",
+    title: "How your agent is doing",
+    realm: "client",
+    fields: [
+      {
+        id: "performance-days",
+        label: "Period, in days",
+        type: "select",
+        value: String(days),
+        options: DAY_OPTIONS.map((option) => ({ value: String(option), label: `${option} days` })),
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value:
+          me.data !== undefined && !me.data.permissions.includes("calls:read")
+            ? "a refusal — this session may not read call records, so no figure is shown"
+            : perf.data
+              ? "the figures below have loaded"
+              : perf.error
+                ? "the figures failed to load"
+                : "still loading",
+      },
+      ...(perf.data
+        ? [
+            { key: "days_measured", label: "Days the figures actually cover", value: String(perf.data.days) },
+            { key: "calls", label: "Calls in the period", value: String(perf.data.funnel.calls) },
+            { key: "connected", label: "Of those, connected", value: String(perf.data.funnel.connected) },
+            { key: "qualified", label: "Leads qualified (lead-level, not call-level)", value: String(perf.data.funnel.qualified) },
+            {
+              key: "connect_rate_pct",
+              label: "Connect rate (%)",
+              value: perf.data.connect_rate_pct === null ? "no calls to measure" : String(perf.data.connect_rate_pct),
+            },
+            {
+              key: "qualify_rate_pct",
+              label: "Qualify rate (%)",
+              value: perf.data.qualify_rate_pct === null ? "no calls to measure" : String(perf.data.qualify_rate_pct),
+            },
+            {
+              key: "avg_duration_s",
+              label: "Average call length (seconds)",
+              value: perf.data.avg_duration_s === null ? "no completed calls to measure" : String(perf.data.avg_duration_s),
+            },
+            { key: "inbound", label: "Inbound calls", value: String(perf.data.inbound) },
+            { key: "outbound", label: "Outbound calls", value: String(perf.data.outbound) },
+            {
+              key: "outcomes",
+              label: "How calls ended",
+              value:
+                Object.entries(perf.data.outcomes)
+                  .map(([outcome, count]) => `${outcome}: ${count}`)
+                  .join(", ") || "nothing recorded",
+            },
+            {
+              key: "busiest_hour_ist",
+              label: "Busiest hour, IST (24 buckets, index = hour)",
+              // The empty-array case is handled BEFORE the spread rather than after it:
+              // `Math.max()` of nothing is -Infinity, which `indexOf` then misses and
+              // renders as "undefined call(s)". The endpoint documents 24 buckets always;
+              // a declaration must not be the thing that crashes or lies if it sends none.
+              value: (() => {
+                const hours = perf.data.busiest_hours_ist;
+                const busiest = hours.length === 0 ? 0 : Math.max(...hours);
+                if (busiest === 0) return "no calls in any hour";
+                return `${hours.indexOf(busiest)}:00 with ${busiest} call(s)`;
+              })(),
+            },
+          ]
+        : []),
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id !== "performance-days") continue;
+        const wanted = DAY_OPTIONS.find((option) => String(option) === asText(item.value));
+        if (wanted !== undefined) setDays(wanted);
+      }
+    },
+  });
+
   const refused = me.data !== undefined && !me.data.permissions.includes("calls:read");
   if (refused) {
     return (

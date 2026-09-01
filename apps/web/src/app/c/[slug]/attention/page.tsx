@@ -17,6 +17,8 @@ import { useAttention, type AttentionKind } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * Per-kind copy, colour and icon. Plain words, not system nouns: the reader is a
@@ -110,6 +112,57 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
    * Nothing is refused while `/v1/me` is in flight, and nothing is refused if it failed —
    * we do not know, so the request goes out and the API's own answer renders.
    */
+  const queueCounts: Record<string, number> = queue.data?.counts ?? {};
+
+  /*
+   * THE TRIAGE QUEUE, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * Declared ABOVE the permission refusal below, because a hook cannot be called
+   * conditionally — and the `state` fact says which of the three screens is really on
+   * show, so an assistant on the refusal screen does not describe a queue nobody can see.
+   *
+   * COUNTS ONLY, never an item. Each row of this queue names the thing that was stopped —
+   * a blocked call carries the number it would have rung, an undelivered alert carries who
+   * it was for — so the items are exactly what hard rule 6 keeps out of a prompt. The
+   * per-kind tally is what the reader scans first anyway, and it is what makes "why are
+   * eleven of my calls blocked" a question the copilot's read tools can then answer.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/attention",
+    title: "Needs your attention",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value:
+          me.data !== undefined && !me.data.permissions.includes("leads:read")
+            ? "a refusal — this session may not read leads, so the queue is not shown"
+            : queue.data
+              ? "the queue below has loaded"
+              : queue.error
+                ? "the queue failed to load, so nothing is listed"
+                : "still loading",
+      },
+      ...(queue.data
+        ? [
+            { key: "total", label: "Things waiting", value: String(queue.data.total) },
+            {
+              key: "by_kind",
+              label: "What kind of thing is waiting, and how many of each",
+              value:
+                Object.entries(queueCounts)
+                  .map(([kind, count]) => `${kind}: ${count}`)
+                  .join(", ") || "nothing is waiting",
+            },
+            { key: "items_listed", label: "Rows rendered in the list", value: String(queue.data.items.length) },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
+
   const refused = me.data !== undefined && !me.data.permissions.includes("leads:read");
   if (refused) {
     return (

@@ -137,6 +137,30 @@ export function asText(value: CopilotFillItem["value"]): string {
 }
 
 /**
+ * The `apply` a READ-ONLY screen declares — a dashboard, a log, a statement.
+ *
+ * Most screens in the client console hold no writable control at all: they render counts,
+ * statuses and a filter or two. They still declare themselves, because a launcher that is
+ * absent on nineteen screens out of thirty teaches a person the assistant does not exist,
+ * and because the copilot's read tools can answer "why is this campaign held" perfectly
+ * well from a screen whose only contribution is "you are on the campaign-review screen and
+ * the verdict says pending".
+ *
+ * A named export rather than `apply: () => {}` written out at each of those call sites:
+ * one spelling means a reader can tell "this screen has nothing to fill" from "this screen
+ * forgot to wire its setters", which two dozen anonymous empty arrows cannot.
+ *
+ * It takes NO parameter, which is what TypeScript wants of a function used where one
+ * taking `CopilotFillItem[]` is expected — a narrower parameter list is assignable, and
+ * naming an argument this body cannot use is an unused binding the linter is right about.
+ * Nothing reaches it in any case: the panel filters fills to DECLARED ids, and a screen
+ * that declares no writable field has none to be filled.
+ */
+export function noFill(): void {
+  /* Nothing to fill — see above. */
+}
+
+/**
  * A described, server-signed intent — the `proposal` SSE frame, unchanged.
  *
  * **NOTHING HAS HAPPENED WHEN ONE OF THESE ARRIVES.** It is the copilot's write surface,

@@ -34,6 +34,8 @@ import {
   type PendingInvitation,
 } from "@/lib/api/members";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * Team — who has access to this account, and who may change that (ROADMAP M3).
@@ -111,6 +113,85 @@ export default function TeamPage() {
   const people = members.data;
   const pending = invitations.data;
   const myId = me.data?.user_id ?? null;
+
+  /*
+   * THE TEAM, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## Not one colleague's name or address
+   *
+   * Every row on this screen is a real person and their email. The counts and the ROLE
+   * SPLIT are what answer the questions this screen is opened with — "who can change
+   * billing", "why can my receptionist not export leads" — and they name nobody.
+   *
+   * ## The invite address is declared, and is neither writable nor sent
+   *
+   * It is `personal: "email"`, so it leaves as `«EMAIL_1»` (D-127 G-2), and it is
+   * `writable: false` because inviting somebody into a business's account is a decision
+   * about a specific human being; an assistant that invented an address would be handing
+   * a stranger the client's CRM. The ROLE beside it IS writable: it is a two-value enum,
+   * it is the half people actually get wrong, and it grants nothing on its own — nobody
+   * is invited until the owner presses the button.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/settings/team",
+    title: "Who is on this team",
+    realm: "client",
+    fields: [
+      {
+        id: "team-invite-email",
+        label: "Email address to invite",
+        type: "text",
+        value: email,
+        writable: false,
+        personal: "email",
+        help: "Typed by the owner. The assistant is told whether it is filled in, never what it says.",
+      },
+      {
+        id: "team-invite-role",
+        label: "What the invited person may do",
+        type: "select",
+        value: role,
+        options: ROLES.map((value) => ({ value, label: ROLE_COPY[value].label })),
+        help: "Owner can change billing and settings; staff works the leads.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: people
+          ? "the team below has loaded"
+          : members.error
+            ? "the team failed to load, so nobody is listed"
+            : "still loading",
+      },
+      { key: "members", label: "People on the account", value: people ? String(people.length) : "not known" },
+      {
+        key: "role_split",
+        label: "How many hold each role",
+        value: people
+          ? ROLES.map((value) => `${value}: ${people.filter((member) => member.role === value).length}`).join(", ")
+          : "not known",
+      },
+      {
+        key: "pending_invitations",
+        label: "Invitations sent and not yet accepted",
+        value: pending ? String(pending.length) : "not known",
+      },
+      {
+        key: "may_change",
+        label: "May this session invite, re-role or remove anyone?",
+        value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id !== "team-invite-role") continue;
+        const next = ROLES.find((value) => value === asText(item.value));
+        if (next !== undefined) setRole(next);
+      }
+    },
+  });
 
   return (
     <div className="space-y-5 pb-12">

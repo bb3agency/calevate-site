@@ -7,6 +7,9 @@ import { Plus } from "lucide-react";
 import { Card, PRIMARY_BUTTON, ProblemNotice, Skeleton } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { agentGroup } from "@/lib/agentState";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 import { HowChangesTakeEffect } from "./LaneGuide";
 import { Archive, Roster } from "./Roster";
@@ -52,6 +55,61 @@ export default function AgentsPage({ params }: { params: Promise<{ slug: string 
   const session = useClientSession();
   const { href } = useClientRealm();
   const agents = useAgents(session);
+  const roster = agents.data ?? [];
+
+  /*
+   * THE ROSTER, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * The counts, not the rows. `agentGroup` is the same predicate `Roster.tsx` groups by,
+   * so the assistant's "nothing is answering your calls" and the screen's cannot disagree
+   * — a second test here would be the drift this repo treats as a defect even when both
+   * spellings happen to agree today.
+   *
+   * The ARCHIVE is deliberately absent: it is a second request made inside `<Archive/>`,
+   * and a count this component would have to re-fetch to state. A screen describes what it
+   * renders; the copilot's own `agents` read tool is what answers a question about the rest.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/agents",
+    title: "Your agents",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: agents.data
+          ? "the roster below has loaded"
+          : agents.error
+            ? "the roster failed to load, so no agent is listed"
+            : "still loading",
+      },
+      ...(agents.data
+        ? [
+            { key: "agents_total", label: "Agents on the working roster", value: String(roster.length) },
+            {
+              key: "agents_working",
+              label: "Agents working right now (on the calling system and switched on)",
+              value: String(roster.filter((agent) => agentGroup(agent) === "active").length),
+            },
+            {
+              key: "agents_not_working",
+              label: "Agents not working (being built, or switched off)",
+              value: String(roster.filter((agent) => agentGroup(agent) !== "active").length),
+            },
+            {
+              key: "agent_directions",
+              label: "How many answer, call out, or both",
+              value:
+                (["inbound", "outbound", "both"] as const)
+                  .map((direction) => `${direction}: ${roster.filter((agent) => agent.direction === direction).length}`)
+                  .join(", "),
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-5 pb-12">

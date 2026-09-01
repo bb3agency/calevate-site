@@ -28,6 +28,8 @@ import type { Dashboard } from "@/lib/api/client";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 import { KnowledgeGaps } from "./KnowledgeGaps";
@@ -64,6 +66,94 @@ export default function DashboardPage({
   // the one list with a time cost attached to ignoring it (ux-audit D2). Renders
   // nothing until the server answers, and nothing on zero — exactly as the bell does.
   const attention = useAttention(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * DECLARED BEFORE THE §52 BRANCHES BELOW, not inside the happy path: `useCopilotSurface`
+   * is a hook, and the three early returns on this screen would make its call conditional.
+   * The declaration therefore has to describe a screen that may still be loading, which is
+   * what the `state` fact is for — an assistant told "your dashboard says 0 calls today"
+   * while the request is still in flight has been handed the same lie the docstring above
+   * refuses to render.
+   *
+   * NOTHING PERSONAL IS DECLARABLE HERE. Every tile on this screen is a count, a duration
+   * or a rupee total; the only strings that could name a person are inside "Latest calls",
+   * and this surface sends the LENGTH of that list rather than any row of it.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}",
+    title: "Your dashboard",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: dashboard.data
+          ? "the figures below have loaded"
+          : dashboard.error
+            ? "the dashboard failed to load, so no figure is on screen"
+            : "still loading",
+      },
+      ...(dashboard.data
+        ? [
+            { key: "calls_today", label: "Calls today", value: String(dashboard.data.calls_today) },
+            { key: "calls_7d", label: "Calls in the last 7 days", value: String(dashboard.data.calls_7d) },
+            {
+              key: "avg_duration_s_7d",
+              label: "Average completed call length, last 7 days (seconds)",
+              value: dashboard.data.avg_duration_s_7d == null ? "not measurable yet" : String(dashboard.data.avg_duration_s_7d),
+            },
+            { key: "leads_new_7d", label: "New leads in the last 7 days", value: String(dashboard.data.leads_new_7d) },
+            { key: "hot_leads_open", label: "Hot leads waiting", value: String(dashboard.data.hot_leads_open) },
+            {
+              key: "after_hours_captured_7d",
+              label: "Captured after hours, last 7 days",
+              value: String(dashboard.data.after_hours_captured_7d),
+            },
+            {
+              key: "after_hours_basis",
+              label: "How after-hours is decided",
+              value:
+                dashboard.data.after_hours_basis === "business_hours"
+                  ? "the recorded opening hours"
+                  : "the 9am-9pm IST default, because no opening hours are recorded",
+            },
+            {
+              key: "sentiment_split",
+              label: "Sentiment split of scored calls",
+              value:
+                Object.entries(dashboard.data.sentiment_split ?? {})
+                  .map(([mood, count]) => `${mood}: ${count}`)
+                  .join(", ") || "no calls scored yet",
+            },
+          ]
+        : []),
+      ...(attention.data
+        ? [
+            {
+              key: "attention_total",
+              label: "Things waiting on the attention queue",
+              value: String(attention.data.total),
+            },
+          ]
+        : []),
+      ...(usage.data
+        ? [
+            { key: "month_charges_inr", label: "Charges this month (INR)", value: usage.data.month_charges_inr },
+            { key: "minutes_used", label: "Minutes used this month", value: usage.data.minutes_used },
+            { key: "included_minutes", label: "Minutes included in the plan", value: String(usage.data.included_minutes) },
+          ]
+        : []),
+      {
+        key: "recent_calls_shown",
+        label: "Rows in the Latest calls panel",
+        value: recent.data ? String(recent.data.length) : "not loaded",
+      },
+    ],
+    apply: noFill,
+  });
 
   if (dashboard.isLoading) {
     return (

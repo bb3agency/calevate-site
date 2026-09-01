@@ -8,6 +8,8 @@ import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { currentISTMonth, useClientInvoice } from "@/lib/api/invoice";
 import { useClientSession } from "@/lib/api/session";
 import { useMe } from "@/lib/api/hooks";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * The client's own invoice (SLICE AL / BRD §51 — the persona that pays it).
@@ -49,6 +51,54 @@ export default function ClientInvoicePage() {
   const me = useMe(session);
   const [month, setMonth] = useState(currentISTMonth);
   const invoice = useClientInvoice(session, month);
+
+  /*
+   * THE STATEMENT, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * The month picker is the only control, and the only writable field — same rule and
+   * same `YYYY-MM` guard as `/c/{slug}/spend`, which is the screen next door.
+   *
+   * THE INVOICE'S OWN LINES ARE NOT SENT. The document carries the client's registered
+   * business name and address; the assistant is told the totals and how many lines there
+   * are, which is what "why is this month higher" needs, and none of the identity block.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/invoice",
+    title: "Your statement",
+    realm: "client",
+    fields: [
+      {
+        id: "invoice-month",
+        label: "Billing month",
+        type: "text",
+        value: month,
+        help: "YYYY-MM, in Indian Standard Time.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value:
+          me.data !== undefined && !me.data.permissions.includes("billing:read")
+            ? "a refusal — invoices are limited to the account owner, so no statement is shown"
+            : invoice.data
+              ? "the statement below has loaded and can be printed"
+              : invoice.error
+                ? "the statement failed to load — the Print button is disabled"
+                : "still loading",
+      },
+      { key: "month_requested", label: "Month asked for", value: month },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        const wanted = asText(item.value);
+        if (item.field_id === "invoice-month" && /^\d{4}-(0[1-9]|1[0-2])$/.test(wanted)) {
+          setMonth(wanted);
+        }
+      }
+    },
+  });
 
   const refused = me.data !== undefined && !me.data.permissions.includes("billing:read");
   if (refused) {

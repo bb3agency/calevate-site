@@ -22,6 +22,8 @@ import {
 } from "@/lib/api/dltRegistration";
 import type { Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * Business verification — the page somebody opens because their calls stopped.
@@ -112,6 +114,88 @@ const LIST = "space-y-3 text-sm text-ink-muted";
 
 export default function VerificationPage() {
   const session = useClientSession();
+  /*
+   * THE SAME TWO READS THE SECTIONS BELOW MAKE, and not a third round trip: TanStack
+   * dedupes by query key, so calling the hooks here shares the sections' own answers.
+   * Declaring the surface in the page rather than inside the two children is what keeps
+   * the launcher on screen while they are loading and after either has failed — the
+   * child effects commit first, so a child declaration would also shadow the other's.
+   */
+  const kyc = useKycRecord(session);
+  const dlt = usePeRegistration(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * READ-ONLY: nothing on this screen is editable by anyone in the client realm — both
+   * verdicts are recorded by Calevate, which is the point of them.
+   *
+   * `signatory_name` and `document_ref` are on the payload and are NOT declared: the
+   * first names a human being and the second identifies their identity document, which
+   * is the densest personal data this account holds about its own owner. The STATUS of
+   * each is what a person on this screen is asking about, and it identifies nobody.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/verification",
+    title: "Verification",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "kyc_state",
+        label: "Has the business-verification record loaded?",
+        value: kyc.data ? "yes" : kyc.error ? "no — it failed to load" : "still loading",
+      },
+      ...(kyc.data
+        ? [
+            {
+              key: "kyc_verified",
+              label: "Is the business behind this account verified?",
+              value: kyc.data.is_verified ? "yes" : "no",
+            },
+            { key: "kyc_status", label: "Verification status", value: kyc.data.status ?? "nothing submitted" },
+            { key: "kyc_entity_type", label: "Kind of business recorded", value: kyc.data.entity_type ?? "none recorded" },
+            { key: "kyc_document_kind", label: "Kind of document on file", value: kyc.data.document_kind ?? "none" },
+            { key: "kyc_submitted_at", label: "Submitted (UTC)", value: kyc.data.submitted_at ?? "never" },
+            { key: "kyc_verified_at", label: "Verified (UTC)", value: kyc.data.verified_at ?? "not verified" },
+            {
+              key: "kyc_rejection_reason",
+              label: "Why it was rejected, if it was",
+              value: kyc.data.rejection_reason ?? "not rejected",
+            },
+            {
+              key: "number_purchase_available",
+              label: "May this account be given a phone number yet?",
+              value: kyc.data.number_purchase_available ? "yes" : "no",
+            },
+          ]
+        : []),
+      {
+        key: "dlt_state",
+        label: "Has the DLT registration record loaded?",
+        value: dlt.data ? "yes" : dlt.error ? "no — it failed to load" : "still loading",
+      },
+      ...(dlt.data
+        ? [
+            {
+              key: "dlt_recorded",
+              label: "Is a DLT registration on file?",
+              value: dlt.data.recorded ? "yes" : "no",
+            },
+            { key: "dlt_active", label: "Is it active?", value: dlt.data.is_active ? "yes" : "no" },
+            { key: "dlt_status", label: "Registration status", value: dlt.data.status ?? "none" },
+            {
+              key: "dlt_tm_link_status",
+              label: "Is Calevate linked as the telemarketer on it?",
+              value: dlt.data.tm_link_status ?? "not stated",
+            },
+            { key: "dlt_registered_at", label: "Registered (UTC)", value: dlt.data.registered_at ?? "never" },
+            { key: "dlt_verified_at", label: "Verified (UTC)", value: dlt.data.verified_at ?? "not verified" },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-5 pb-12">

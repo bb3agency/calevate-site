@@ -21,6 +21,8 @@ import {
 } from "@/components/ui";
 import { useCallerNotice, type CallerNotice } from "@/lib/api/callerNotice";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * The privacy notice a client owes their OWN callers (LEGAL-SURFACE F-8, D-179).
@@ -67,6 +69,67 @@ import { useClientSession } from "@/lib/api/session";
 export default function CallerNoticePage() {
   const session = useClientSession();
   const notice = useCallerNotice(session);
+
+  /*
+   * THE DRAFT CALLER NOTICE, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * The document itself is NOT sent — `notice_markdown` is a page of prose the server
+   * composed and the copilot has no business rewriting, and sending it would put most of
+   * this account's data map into every question asked from this screen for no gain.
+   * What is declared is its SHAPE: how many items are itemised, how many retention lines,
+   * which agents have an announcement switched off, and what the server flagged as still
+   * open. Those are the four things a person on this screen is actually asking about.
+   *
+   * The agent NAMES in `ai_disclosure_off` are the client's own labels for their own
+   * agents, the same strings the roster and the campaign picker already declare.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/caller-notice",
+    title: "What you tell your callers",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: notice.data
+          ? "the draft notice below has loaded"
+          : notice.isError
+            ? "the draft failed to load, so nothing is shown"
+            : "still loading",
+      },
+      ...(notice.data
+        ? [
+            {
+              key: "collected_items",
+              label: "Details itemised as collected from callers",
+              value: String(notice.data.collected.length),
+            },
+            {
+              key: "retention_lines",
+              label: "Retention lines (how long each kind of record is kept)",
+              value: String(notice.data.retention.length),
+            },
+            {
+              key: "ai_disclosure_off",
+              label: "Agents that do NOT announce they are an AI at the start",
+              value: notice.data.ai_disclosure_off.join(", ") || "none — every agent announces it",
+            },
+            {
+              key: "recording_notice_off",
+              label: "Agents that do NOT announce the call is recorded",
+              value: notice.data.recording_notice_off.join(", ") || "none — every agent announces it",
+            },
+            {
+              key: "open_questions",
+              label: "Things the draft says it cannot answer yet",
+              value: notice.data.open_questions.join("; ") || "none",
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-6">

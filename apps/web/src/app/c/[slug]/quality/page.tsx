@@ -14,6 +14,8 @@ import {
   StatTile,
 } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import {
   BASIS_NOTE,
   renderMeasurement,
@@ -60,6 +62,77 @@ export default function QualityPage() {
   // than an index so a refetch that adds this month's report cannot silently move the
   // selection to a different document under the reader.
   const shown = all.find((report) => report.as_of === month) ?? all[0];
+
+  /*
+   * THE QUALITY REPORT ON SHOW, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * WHICH MONTH is writable, and the options are the months the SERVER actually returned,
+   * so the assistant cannot select a report this account does not have — a value outside
+   * the list is dropped rather than written, exactly as `knowledge/page.tsx` drops an
+   * agent id nobody has.
+   *
+   * Nothing on this screen is personal at all: the suite is a fixed set of recorded
+   * scenarios and the report "contains nothing from any real call", which is the sentence
+   * the screen opens with.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/quality",
+    title: "Quality report",
+    realm: "client",
+    fields: [
+      {
+        id: "quality-month",
+        label: "Which report is on show",
+        type: "select",
+        value: shown?.as_of ?? "",
+        options: all.map((report) => ({ value: report.as_of, label: report.as_of })),
+        writable: all.length > 1,
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: shown
+          ? "the report below has loaded"
+          : reports.error || !reports.data
+            ? "the reports failed to load — this is NOT evidence that the agent has never been tested"
+            : reports.isLoading
+              ? "still loading"
+              : "the server answered, and this account has no report yet",
+      },
+      { key: "reports_available", label: "Reports on file", value: String(all.length) },
+      ...(shown
+        ? [
+            { key: "as_of", label: "Report month", value: shown.as_of },
+            { key: "vertical", label: "Scenario set (trade)", value: shown.vertical },
+            { key: "model", label: "Model tested", value: shown.model },
+            { key: "scenarios_total", label: "Scenarios replayed", value: String(shown.scenarios_total) },
+            { key: "defects", label: "Defects found", value: String(shown.defects) },
+            { key: "red_team", label: "Deliberate attacks in the run", value: String(shown.red_team) },
+            {
+              key: "everything_captured",
+              label: "Scenarios where every required detail was captured",
+              value: `${shown.everything_captured.passed} of ${shown.everything_captured.total} (${shown.everything_captured.basis})`,
+            },
+            {
+              key: "field_left_blank",
+              label: "Scenarios where a required field was left blank",
+              value: `${shown.field_left_blank.passed} of ${shown.field_left_blank.total} (${shown.field_left_blank.basis})`,
+            },
+            { key: "trend", label: "Is there enough history to state a trend?", value: shown.trend },
+            { key: "known_limits", label: "Known limits listed", value: String((shown.known_limits ?? []).length) },
+          ]
+        : []),
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id !== "quality-month") continue;
+        const wanted = asText(item.value);
+        if (all.some((report) => report.as_of === wanted)) setMonth(wanted);
+      }
+    },
+  });
 
   return (
     <div className="space-y-4 pb-12">

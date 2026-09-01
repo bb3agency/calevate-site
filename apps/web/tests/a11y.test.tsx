@@ -1775,19 +1775,24 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <DoNotCallPage />,
     routes: {
       "/v1/me": ME,
-      "/v1/dnc?limit=500": {
-        items: [
-          {
-            id: "dnc-1",
-            phone_e164: "+919876543210",
-            reason: "requested_on_call",
-            source: "call",
-            created_at: "2026-08-11T10:00:00Z",
-            note: null,
-          },
-        ],
-        total: 1,
-      },
+      // A BARE ARRAY, which is what `GET /v1/dnc` actually returns
+      // (`DncEntryOut[]`, schema.d.ts::list_entries_v1_dnc_get) and what `useDncList`
+      // is typed for. This fixture used to wrap the rows in an `{items, total}`
+      // envelope with `reason`/`created_at`/`note` fields the payload does not have, so
+      // the scan rendered the EMPTY list and never saw a row: the screen happened to
+      // survive it because `{}.length` is merely `undefined`. It stopped surviving the
+      // moment anything called an array method on the value, which is the point — a
+      // fixture that does not match the wire is a test of a screen nobody ships.
+      "/v1/dnc?limit=500": [
+        {
+          id: "dnc-1",
+          phone_e164: "+919876543210",
+          added_at: "2026-08-11T10:00:00Z",
+          removable: true,
+          scope: "tenant",
+          source: "call_optout",
+        },
+      ],
     },
   },
   {

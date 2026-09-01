@@ -28,6 +28,8 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import {
   CONSENT_SOURCES,
   CONSENT_VALIDITY_DAYS,
@@ -157,6 +159,129 @@ export default function MessagingConsentPage() {
       : (Object.keys(CONSENT_SOURCES) as ConsentSource[]);
 
   const blocked = answer === "yes" ? grantBlockReason(source, evidence, callId) : null;
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## The two phone boxes leave as placeholders, and neither is writable
+   *
+   * Both hold a customer's number (D-127 G-2), so both are `personal: "phone"`. Neither
+   * is fillable, and here that is the compliance rule rather than caution: recording a
+   * consent is a statement that a NAMED PERSON said something, and an assistant that
+   * could put a number in that box could manufacture an opt-in against somebody who
+   * never gave one. The same argument bars the CALL ID, which is the evidence tying the
+   * statement to the conversation it was made in.
+   *
+   * ## What IS fillable is the shape of the answer
+   *
+   * Yes-or-no, which source, and — on a "no" — which withdrawal status. Those are three
+   * enums describing an answer a person in front of the form already has, they are the
+   * part people get wrong, and none of them is a record until Save is pressed. The source
+   * list offered is `sourceOptions`, the SAME narrowing the form renders from, so the
+   * assistant cannot pick a source that cannot carry the answer being given.
+   *
+   * The EVIDENCE fields are not declared at all: they are per-source free text ("where in
+   * the call", "document reference") and are exactly the place a caller's own words would
+   * land.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/messaging-consent",
+    title: "Messaging consent",
+    realm: "client",
+    fields: [
+      {
+        id: "consent-lookup-phone",
+        label: "Number being looked up",
+        type: "text",
+        value: lookupPhone,
+        writable: false,
+        personal: "phone",
+        help: "Typed by the reader; the assistant is told whether the box is filled in, never what is in it.",
+      },
+      {
+        id: "consent-phone",
+        label: "Number the answer is being recorded against",
+        type: "text",
+        value: phone,
+        writable: false,
+        personal: "phone",
+      },
+      {
+        id: "consent-answer",
+        label: "Did the customer agree to be messaged?",
+        type: "select",
+        value: answer,
+        options: [
+          { value: "yes", label: "Yes — they agreed" },
+          { value: "no", label: "No — they did not, or they withdrew" },
+        ],
+      },
+      {
+        id: "consent-status",
+        label: "How the consent ended, when the answer is no",
+        type: "select",
+        value: status,
+        options: NO_STATUSES.map((value) => ({ value, label: STATUS_COPY[value].label })),
+        help: "Ignored while the answer is yes — a yes is always recorded as granted.",
+      },
+      {
+        id: "consent-source",
+        label: "How they said it",
+        type: "select",
+        value: source,
+        options: sourceOptions.map((value) => ({ value, label: CONSENT_SOURCES[value].label })),
+      },
+      {
+        id: "consent-call-id",
+        label: "Call the statement was made on",
+        type: "text",
+        value: callId,
+        writable: false,
+        help: "The evidence tying the consent to the conversation. A person supplies it, from the call log.",
+      },
+    ],
+    facts: [
+      {
+        key: "status_to_be_recorded",
+        label: "What pressing Save would record",
+        value: effectiveStatus,
+      },
+      {
+        key: "call_id_required",
+        label: "Does the chosen source need a call id?",
+        value: spec.requiresCallId ? "yes" : "no",
+      },
+      {
+        key: "blocked",
+        label: "Is anything stopping this being recorded as a yes?",
+        value: blocked ?? "no",
+      },
+      {
+        key: "lookup_answered",
+        label: "Is there a lookup verdict on screen?",
+        value: consentLookup.data ? "yes — the reader can see it" : "no",
+      },
+      {
+        key: "may_record",
+        label: "May this session record what a customer said?",
+        value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        const value = asText(item.value);
+        if (item.field_id === "consent-answer" && (value === "yes" || value === "no")) {
+          chooseAnswer(value);
+        } else if (item.field_id === "consent-source") {
+          const next = sourceOptions.find((option) => option === value);
+          if (next !== undefined) chooseSource(next);
+        } else if (item.field_id === "consent-status") {
+          const next = NO_STATUSES.find((option) => option === value);
+          if (next !== undefined) setStatus(next);
+        }
+      }
+    },
+  });
 
   const chooseAnswer = (next: "yes" | "no") => {
     setAnswer(next);

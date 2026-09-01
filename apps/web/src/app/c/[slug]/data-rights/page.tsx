@@ -43,6 +43,8 @@ import { lookup } from "@/lib/lookup";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { type Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * Data rights (DPDP §11, SEC-COMP §4) — the screen for the two requests a data principal
@@ -131,6 +133,76 @@ function useSubjectExportAccess(session: Session): { allowed: boolean; reason: s
 
 export default function DataRightsPage() {
   const session = useClientSession();
+  /*
+   * The SAME read `RegisterCard` makes, shared through the query cache rather than
+   * fetched twice. Declared here and not in the card for the reason `settings/models`
+   * gives: child effects commit before their parent's, so the innermost registration
+   * wins — one declaration per screen, and it belongs where the launcher is wanted on
+   * every state including the loading and failed ones.
+   */
+  const requests = useDeletionRequests(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## Nothing here is writable, and nothing personal leaves
+   *
+   * The two boxes on this screen take a phone number, and what they do with it is build a
+   * file containing everything this account holds about that person, or erase them. Those
+   * are the two acts on this console with a statutory clock and no undo, and they are
+   * addressed at a named human being — so neither box is declared at all, and the phrase
+   * ERASE the erasure form makes a person type is the ceremony this deliberately leaves
+   * alone. Filling in either from a model's guess is not a feature.
+   *
+   * ## The register IS declared, because the numbers in it are already one-way hashed
+   *
+   * `subject_ref` is a hash, not a number, and the screen says so — but even that is not
+   * sent: the assistant is told how many requests there are and how they are progressing,
+   * which is what an owner answering a regulator's question needs, and the register
+   * itself stays on the screen.
+   *
+   * §52 IS CARRIED INTO THE FACT rather than flattened: "this account has been asked to
+   * erase nobody" is an answer a client could repeat to a regulator, and "we could not
+   * read the register" is not. The assistant must not be able to confuse them either.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/data-rights",
+    title: "Data rights",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: requests.data
+          ? "the erasure register below has loaded"
+          : requests.error
+            ? "the register failed to load — this is NOT evidence that nobody has asked to be erased"
+            : "still loading",
+      },
+      ...(requests.data
+        ? [
+            { key: "requests_total", label: "Erasure requests on the register", value: String(requests.data.length) },
+            {
+              key: "requests_pending",
+              label: "Of those, still running",
+              value: String(requests.data.filter((request) => request.status === "pending").length),
+            },
+            {
+              key: "requests_completed",
+              label: "Of those, completed",
+              value: String(requests.data.filter((request) => request.status === "completed").length),
+            },
+            {
+              key: "requests_with_certificate",
+              label: "Requests with an erasure certificate on file",
+              value: String(requests.data.filter((request) => request.has_certificate).length),
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-5 pb-12">

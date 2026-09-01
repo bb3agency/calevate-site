@@ -32,6 +32,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { applyByPaths } from "@/lib/copilot/paths";
 import { useClientSession } from "@/lib/api/session";
 import {
@@ -64,6 +65,42 @@ const CHAR_BUDGET = 9000;
 export function ScriptBuilder({ agentId }: { agentId: string }) {
   const session = useClientSession();
   const loaded = useScript(session, agentId);
+
+  /*
+   * THE LOADING AND FAILED SCREENS, DECLARED — and `null` the moment `Editor` mounts.
+   *
+   * `Editor` declares the real surface, with every field of the script on it. This one
+   * exists so the launcher does not disappear on the two screens either side of it: a
+   * person whose script did not load is one of the likeliest people in this console to
+   * have a question, and an assistant that is present, says which screen it is on and
+   * answers from its read tools beats a button that is not there.
+   *
+   * `null` while `Editor` is up rather than a second declaration, because the registry is
+   * a STACK whose innermost registration wins and a parent's effect commits AFTER its
+   * child's — so a surface declared here unconditionally would silently shadow the
+   * script's own fields for the whole of the time they matter.
+   */
+  useCopilotSurface(
+    loaded.data
+      ? null
+      : {
+          route: "/c/{slug}/agents/{id}/script",
+          title: "Call script",
+          realm: "client",
+          fields: [],
+          facts: [
+            { key: "agent_id", label: "Agent id", value: agentId },
+            {
+              key: "state",
+              label: "What is on screen",
+              value: loaded.error
+                ? "the script failed to load, so nothing of it is on screen"
+                : "still loading",
+            },
+          ],
+          apply: noFill,
+        },
+  );
 
   return (
     <div className="space-y-5 pb-16">

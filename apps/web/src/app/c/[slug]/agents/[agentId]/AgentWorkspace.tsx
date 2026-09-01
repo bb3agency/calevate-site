@@ -62,6 +62,8 @@ import { STATUS_COPY, humanise } from "@/lib/agentState";
 import { useAgent, type Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 import { KnowledgeGaps } from "../../KnowledgeGaps";
 import { Actions } from "../actions/Actions";
@@ -79,6 +81,38 @@ import { ScriptCallout } from "./ScriptCallout";
 export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: string }) {
   const session = useClientSession();
   const agent = useAgent(session, agentId);
+
+  /*
+   * THE LOADING AND FAILED SCREENS, DECLARED — and `null` once the agent arrives.
+   *
+   * The panels below carry the real surface (`panels/extraction.tsx` for a working agent,
+   * its archived twin for a retired one), and the registry is a stack whose innermost
+   * registration wins with the PARENT committing last — so declaring here
+   * unconditionally would shadow theirs and take the capture columns away from the
+   * assistant. `null` the moment `agent.data` exists is what keeps the launcher present
+   * on the two screens either side without displacing anything.
+   */
+  useCopilotSurface(
+    agent.data
+      ? null
+      : {
+          route: "/c/{slug}/agents/{id}",
+          title: "Agent",
+          realm: "client",
+          fields: [],
+          facts: [
+            { key: "agent_id", label: "Agent id", value: agentId },
+            {
+              key: "state",
+              label: "What is on screen",
+              value: agent.error
+                ? "the agent failed to load, so none of its settings are on screen"
+                : "still loading",
+            },
+          ],
+          apply: noFill,
+        },
+  );
 
   return (
     <>

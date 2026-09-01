@@ -28,6 +28,8 @@ import {
   type OrganizationLlmDefaults,
 } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * THE AI MODEL A CLIENT'S AGENTS THINK WITH — the organisation-wide default.
@@ -73,6 +75,71 @@ export default function ModelsPage({ params }: { params: Promise<{ slug: string 
   const { slug } = use(params);
   const session = useClientSession();
   const state = useOrganizationLlmDefaults(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## Declared HERE and not in `OrganizationDefault`, where the picker lives
+   *
+   * `registry.ts` keeps a stack and the innermost registration wins — and child effects
+   * commit before their parent's, so a surface declared in the child would be shadowed by
+   * one declared here. One of the two, therefore, and it is this one: the child renders
+   * only after the read lands, so a declaration down there would leave the launcher
+   * missing on the loading screen and on the failed one, which are the two screens a
+   * person is most likely to be asking a question from.
+   *
+   * ## And nothing is writable
+   *
+   * Choosing the model is a per-minute CHARGE on every call this account makes
+   * (`client_surcharge_inr_per_minute`, D-455). It is one click behind an explicit Save,
+   * and it is not an act to hand to an assistant. The catalogue IS declared, with each
+   * option's surcharge, so "which of these is cheaper" is answerable without the
+   * assistant being able to act on the answer.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/settings/models",
+    title: "Which AI model your agents use",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: state.data
+          ? "the model settings below have loaded"
+          : state.error != null
+            ? "the settings failed to load, so no model is named on screen"
+            : "still loading",
+      },
+      ...(state.data
+        ? [
+            {
+              key: "account_choice",
+              label: "The model this account has chosen",
+              value: state.data.default_llm_model ?? "none — it follows the Calevate default",
+            },
+            {
+              key: "effective_default",
+              label: "The model agents actually run on unless given their own",
+              value: state.data.effective_default,
+            },
+            {
+              key: "options",
+              label: "Models on offer, and what each adds per minute (INR)",
+              value: state.data.available
+                .map(
+                  (option) =>
+                    `${option.model} (${option.provider}): ${option.client_surcharge_inr_per_minute} per minute${
+                      option.is_platform_default ? ", the Calevate default" : ""
+                    }${option.is_available ? "" : ` — unavailable: ${option.unavailable_reason ?? "no reason given"}`}`,
+                )
+                .join("; "),
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="max-w-2xl space-y-5 pb-12">

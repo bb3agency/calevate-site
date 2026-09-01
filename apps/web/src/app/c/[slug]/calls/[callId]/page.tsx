@@ -36,6 +36,8 @@ import { apiRequest, type CallDetail, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 import { useCall, useCallBack, useCallbackEligibility, useMe, useWriteAccess } from "@/lib/api/hooks";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * One call, end to end — and the single most sensitive screen in the product, because
@@ -128,6 +130,95 @@ export default function CallDetailPage({
   const [playhead, setPlayhead] = useState<number | null>(null);
   const seekToMs = useCallback((ms: number) => playerRef.current?.seekTo(ms / 1000), []);
   const audioLoaded = recording.data != null;
+
+  /*
+   * THIS CALL, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ABOVE THE §52 BRANCHES because a hook cannot be called conditionally, which is also
+   * why every fact below is guarded on `call.data` and the `state` fact says which of the
+   * three screens the reader is actually looking at.
+   *
+   * WHAT IS DELIBERATELY NOT HERE IS MOST OF THIS SCREEN. `caller_e164` is rendered in
+   * full at the top (D-436) and does not leave the browser; neither does a single
+   * transcript turn, redacted or raw, nor the summary, nor any extracted field value —
+   * those are a caller's own words and details, and hard rule 6 plus D-127 G-2 put them
+   * out of reach of a US provider whatever the redaction pass would have made of them.
+   * What is left is the SHAPE of the call: how long, which way, how it ended, how much
+   * transcript there is, and whether the raw view is open. That is enough for "why does
+   * this call have no recording" and nowhere near enough to identify anybody.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/calls/{callId}",
+    title: "Call detail",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: call.data
+          ? "the call below has loaded"
+          : call.error
+            ? "the call failed to load"
+            : "still loading",
+      },
+      { key: "call_id", label: "Call id", value: callId },
+      ...(call.data
+        ? [
+            { key: "agent_id", label: "Agent id that handled it", value: call.data.agent_id },
+            { key: "direction", label: "Direction", value: call.data.direction },
+            { key: "status", label: "Status", value: call.data.status },
+            {
+              key: "duration_s",
+              label: "Length in seconds",
+              value: call.data.duration_s == null ? "not recorded" : String(call.data.duration_s),
+            },
+            { key: "outcome_tag", label: "Outcome tag", value: call.data.outcome_tag ?? "none" },
+            { key: "sentiment", label: "Sentiment", value: call.data.sentiment ?? "not scored" },
+            {
+              key: "disclosure_played",
+              label: "Was the AI disclosure played at the start?",
+              value:
+                call.data.disclosure_played == null
+                  ? "not known for this call"
+                  : call.data.disclosure_played
+                    ? "yes"
+                    : "no",
+            },
+            { key: "has_recording", label: "Is there a recording?", value: call.data.has_recording ? "yes" : "no" },
+            { key: "lead_id", label: "Lead id this call belongs to", value: call.data.lead_id ?? "none" },
+            {
+              key: "extraction_valid",
+              label: "Did the captured details pass validation?",
+              value: call.data.extraction_valid ? "yes" : "no",
+            },
+            {
+              key: "extraction_needs_review",
+              label: "Captured fields flagged for review",
+              value: String(Object.keys(call.data.extraction_needs_review ?? {}).length),
+            },
+            { key: "moments", label: "Marked moments on the timeline", value: String(call.data.moments.length) },
+          ]
+        : []),
+      {
+        key: "transcript_turns",
+        label: "Transcript turns on screen",
+        // The same expression the render below narrows to `turns`, not a second one: the
+        // raw view replaces the redacted turns only once the raw read has answered.
+        value: String(((showRaw ? raw.data?.transcript : undefined) ?? call.data?.transcript ?? []).length),
+      },
+      {
+        key: "transcript_view",
+        label: "Which transcript is showing",
+        value:
+          showRaw && raw.data?.transcript !== undefined
+            ? "the raw one, opened deliberately and audited"
+            : "the redacted one",
+      },
+      { key: "recording_loaded", label: "Is the player loaded?", value: audioLoaded ? "yes" : "no" },
+    ],
+    apply: noFill,
+  });
 
   if (call.isLoading) return <Skeleton rows={8} />;
   if (call.error) return <ProblemNotice error={call.error} onRetry={() => void call.refetch()} />;

@@ -22,6 +22,9 @@ import { useClientRealm } from "@/lib/api/session";
 import { useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";
 
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
+
 import { TopUp } from "./TopUp";
 
 /**
@@ -80,6 +83,83 @@ export default function UsagePage() {
    * screen never flashes an explanation it is about to withdraw. If `/v1/me` itself
    * failed we do not know, so the request goes out and the API's answer is what renders.
    */
+  /*
+   * THIS MONTH'S USAGE, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * Money and minutes, all of it the SERVER'S arithmetic — nothing here adds a rupee, and
+   * nothing is re-derived from a figure beside it, so the assistant, this screen and the
+   * invoice cannot disagree about one month.
+   *
+   * THE SPENDING CAP IS NOT DECLARED WRITABLE, and that is a decision rather than an
+   * omission: the cap is the rail that stops outgoing calls, it lives in its own panel
+   * behind `org:manage`, and an assistant that could raise it could talk an account past
+   * the one limit its owner set deliberately.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/usage",
+    title: "Usage and spending",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value:
+          me.data !== undefined && !me.data.permissions.includes("billing:read")
+            ? "a refusal — this session may not read billing, so no figure is shown"
+            : usage.data
+              ? "the figures below have loaded"
+              : usage.error
+                ? "the figures failed to load"
+                : "still loading",
+      },
+      ...(usage.data
+        ? [
+            { key: "month", label: "Billing month (IST)", value: usage.data.month },
+            { key: "plan_tier", label: "Plan", value: usage.data.plan_tier },
+            { key: "calls", label: "Calls this month", value: String(usage.data.calls) },
+            { key: "minutes_used", label: "Minutes used", value: usage.data.minutes_used },
+            { key: "included_minutes", label: "Minutes included in the plan", value: String(usage.data.included_minutes) },
+            {
+              key: "minutes_left",
+              label: "Minutes left in the allowance",
+              value: usage.data.minutes_left === null ? "not applicable to this plan" : String(usage.data.minutes_left),
+            },
+            { key: "month_charges_inr", label: "Total charges so far this month (INR)", value: usage.data.month_charges_inr },
+            { key: "overage_minutes", label: "Minutes beyond the allowance", value: usage.data.overage_minutes },
+            { key: "overage_cost_inr", label: "Cost of those extra minutes (INR)", value: usage.data.overage_cost_inr },
+            {
+              key: "monthly_fee_inr",
+              label: "Plan retainer (INR)",
+              value: usage.data.monthly_fee_inr ?? "none",
+            },
+            { key: "llm_surcharge_inr", label: "AI model upgrade charged this month (INR)", value: usage.data.llm_surcharge_inr },
+            {
+              key: "llm_surcharge_models",
+              label: "Models the upgrade was charged for",
+              value: usage.data.llm_surcharge_models.join(", ") || "none",
+            },
+            {
+              key: "capped",
+              label: "Are outgoing calls paused on the spending cap?",
+              value: usage.data.capped ? "yes — inbound calls still get through" : "no",
+            },
+            {
+              key: "cap_minutes",
+              label: "Minute cap the client set",
+              value: usage.data.cap_minutes === null ? "none set" : String(usage.data.cap_minutes),
+            },
+            {
+              key: "credit_balance_inr",
+              label: "Prepaid credit balance (INR)",
+              value: usage.data.credit_balance_inr ?? "not a prepaid account",
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
+
   const refused = me.data !== undefined && !me.data.permissions.includes("billing:read");
   if (refused) {
     return (

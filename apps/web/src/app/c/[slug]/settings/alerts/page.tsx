@@ -16,6 +16,8 @@ import { ActionButton } from "@/components/actionButton";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * WhatsApp alerts for hot leads — the client's own opt-in.
@@ -69,6 +71,66 @@ export default function AlertsPage() {
   const write = useWriteAccess(session, "org:manage", "turn WhatsApp alerts on or off");
 
   const current = state.data;
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * NOTHING IS WRITABLE, and on this screen that is a rule rather than a shrug: the one
+   * act here is a CONSENT, recorded against a person and a notice version, and "the
+   * subject of an opt-in is the only person who can give it" is the sentence the
+   * permission comment above already makes. An assistant that could flip it would be
+   * manufacturing consent on somebody's behalf.
+   *
+   * The consent NOTICE TEXT is not sent either — it is a versioned legal string, and the
+   * version identifier says everything an answer here needs.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/settings/alerts",
+    title: "Hot-lead alerts",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: current
+          ? "the alert settings below have loaded"
+          : state.error != null
+            ? "the settings failed to load — this is NOT evidence that alerts are off"
+            : "still loading",
+      },
+      ...(current
+        ? [
+            {
+              key: "messageable",
+              label: "Are hot-lead alerts going to this person's WhatsApp?",
+              value: current.messageable ? "yes" : "no",
+            },
+            { key: "opt_in_status", label: "Recorded consent status", value: current.status },
+            { key: "channel", label: "Channel the consent was given on", value: current.channel ?? "none recorded" },
+            { key: "captured_at", label: "When it was recorded (UTC)", value: current.captured_at ?? "never" },
+            {
+              key: "notice_version",
+              label: "Notice version consented to, against the current one",
+              value: `${current.notice_version ?? "none"} vs current ${current.current_notice_version}`,
+            },
+            {
+              key: "delivery_available",
+              label: "Can we deliver WhatsApp at all right now?",
+              value: current.delivery_available
+                ? "yes"
+                : `no — ${current.delivery_unavailable_reason ?? "no reason given"}`,
+            },
+          ]
+        : []),
+      {
+        key: "may_change",
+        label: "May this session turn alerts on or off?",
+        value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
+      },
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="max-w-2xl space-y-5 pb-12">
