@@ -76,6 +76,34 @@ Permission = Literal[
     "org:read",
     "org:manage",
     "kb:write",
+    # OPENING THE IN-APP ASSISTANT — `POST /v1/copilot/ask` and `POST /v1/copilot/confirm`,
+    # and nothing else.
+    #
+    # A NEW PERMISSION RATHER THAN A REUSE OF `org:manage`, which is what both routes
+    # declared until the founder's decision that staff must be able to use the assistant.
+    # `org:manage` was never chosen for the copilot's sake — it was chosen because the
+    # route SPENDS the account's AI allowance and therefore needed a member of
+    # `MUTATING_PERMISSIONS` (`copilot/routes.py`, `crm/routes.py::assist_call`), and
+    # `org:manage` was the mutating permission a client role happened to hold. Granting
+    # staff `org:manage` to unlock a chat panel would have carried billing, members and
+    # every organization setting with it: the largest possible widening for the narrowest
+    # possible ask.
+    #
+    # **IT IS IN `MUTATING_PERMISSIONS`, AND THAT IS NOT AN ACCIDENT OF COPYING.** The
+    # property `org:manage` was carrying on these two routes is the one that must survive
+    # the swap: a D-22 read-only view-as session must not be able to spend a client's AI
+    # allowance from a client's own screen. Asking the assistant is metered
+    # (`require_ai_assist` → `usage_events`), so it IS a mutation of the account's balance
+    # however read-only the answer looks, and `tests/authz_audit_test.py::
+    # test_every_mutating_route_is_gated_by_a_mutating_permission` states that as a rule
+    # over the whole route table rather than as a habit.
+    #
+    # IT UNLOCKS THE DOOR AND NEVER WHAT IS BEHIND IT. `write_tools.confirm` re-checks the
+    # permission the equivalent BUTTON declares — `leads:write` for a lead's status,
+    # `kb:write` for a knowledge entry — so a staff member may ASK the assistant anything
+    # and can still only COMPLETE the changes their own role (plus, for knowledge, their
+    # owner's switch) already admits.
+    "copilot:use",
     "admin:tenants",
     "admin:impersonate",
     # THE OPERATOR ALLOWLIST ITSELF — creating an operator account, changing its role,
@@ -196,10 +224,18 @@ NORMAL_ADMIN_ROLE: Final = "operator"
 ADMIN_ROLES: Final[tuple[str, str]] = (SUPERADMIN_ROLE, NORMAL_ADMIN_ROLE)
 
 ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
+    # `copilot:use` is here because the founder decided staff must be able to use the
+    # assistant, and it is the ONLY thing this change added. It is deliberately NOT
+    # accompanied by `kb:write`: what a staff member may CURATE is not a role fact at all
+    # but a per-account switch their owner controls
+    # (`organizations.staff_may_curate_knowledge`, `kb/curation.py`), so this dict stays
+    # the answer to "what does every staff member on the platform hold" and the column
+    # stays the answer to "what did THIS owner additionally allow".
     "staff": frozenset(
         {
             "agents:read",
             "calls:read",
+            "copilot:use",
             "leads:read",
             "leads:write",
             "org:read",
@@ -210,6 +246,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "agents:read",
             "calls:read",
             "calls:read_raw",
+            "copilot:use",
             "leads:read",
             "leads:write",
             "leads:dispatch",
@@ -257,6 +294,14 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "agents:write",
             "calls:read",
             "calls:read_raw",
+            # HELD, AND UNREACHABLE, AND BOTH ARE CORRECT. The tier boundary is exactly
+            # `SUPERADMIN_ONLY_PERMISSIONS` and `copilot:use` is not in it, so withholding
+            # it here would be a bug in this file by the equation the docstring states.
+            # It opens no request an admin can send: `copilot/routes.py` argues at length
+            # that the admin realm gets no copilot because it has no PAYER
+            # (`principal.tenant_id is None`), and reaching the client-realm route means
+            # impersonating, which `MUTATING_PERMISSIONS` refuses.
+            "copilot:use",
             "leads:read",
             "leads:write",
             "leads:dispatch",
@@ -280,6 +325,15 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         "leads:dispatch",
         "org:manage",
         "kb:write",
+        # ASKING THE ASSISTANT SPENDS THE ACCOUNT'S AI ALLOWANCE, so it is a mutation of
+        # the balance however read-only the answer looks. Listed here for exactly the
+        # property `org:manage` was carrying on those two routes before `copilot:use`
+        # replaced it: an operator in a D-22 read-only view-as session must not be able to
+        # burn a client's included allowance from the client's own screen. Dropping the
+        # route from a mutating permission to a non-mutating one would have removed that
+        # refusal silently — the route would still have looked guarded, and the only
+        # visible symptom would have been a client's bill.
+        "copilot:use",
         "ops:manage",
         "admin:tenants",
         # Creating, promoting, demoting and revoking an operator account. Listed for the

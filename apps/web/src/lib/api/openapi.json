@@ -15567,6 +15567,36 @@
         "title": "SpendOut",
         "type": "object"
       },
+      "StaffCurationIn": {
+        "additionalProperties": false,
+        "description": "The whole of the resource, which is what makes this a PUT rather than a PATCH \u2014\n`LlmDefaultIn`'s argument, one field further down.",
+        "properties": {
+          "staff_may_curate_knowledge": {
+            "title": "Staff May Curate Knowledge",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "staff_may_curate_knowledge"
+        ],
+        "title": "StaffCurationIn",
+        "type": "object"
+      },
+      "StaffCurationOut": {
+        "additionalProperties": false,
+        "description": "Whether this account's staff may curate knowledge.\n\nA DECLARED model rather than a bare mapping, for the reason `admin/routes.KbReviewOut`\ngives: `scripts/check_redaction_exposure.py` walks response models and is structurally\nblind to a route that declares none, and the generated TS client renders a mapping as\nan index signature the frontend then hand-types.",
+        "properties": {
+          "staff_may_curate_knowledge": {
+            "title": "Staff May Curate Knowledge",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "staff_may_curate_knowledge"
+        ],
+        "title": "StaffCurationOut",
+        "type": "object"
+      },
       "StaffMember": {
         "additionalProperties": false,
         "description": "`pronunciation` is not decoration \u2014 PROMPT-GUIDE \u00a73 requires proper nouns to be\nspelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the\nfirst thing a caller notices.",
@@ -26640,7 +26670,7 @@
     },
     "/v1/copilot/ask": {
       "post": {
-        "description": "Answers a question about the screen the caller is on, and can fill that screen's form\nfields. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: proposal` \u00b7 `data: {\"token\": \"...\", \"tool\": \"...\", \"title\": \"...\",\n  \"summary\": \"...\", \"object_type\": \"...\", \"object_id\": \"...\", \"current\": \"...\",\n  \"proposed\": \"...\", \"expires_at\": \"...\"}` \u2014 at most one per response, and it is NOT a\n  change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` \u2192 `proposed`\n  pair, and a Confirm button that posts `token` back, unchanged, to\n  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world\n  untouched; the token stops working at `expires_at`.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\nNothing is stored. `history` is the whole memory of the conversation and dies with the\nrequest. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `org:manage`.",
+        "description": "Answers a question about the screen the caller is on, answers questions about the\naccount's own business by reading it (calls, leads, campaigns, agents, performance \u2014\nread-only, under the caller's own permissions and RLS scope), and can fill that screen's\nform fields. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: proposal` \u00b7 `data: {\"token\": \"...\", \"tool\": \"...\", \"title\": \"...\",\n  \"summary\": \"...\", \"object_type\": \"...\", \"object_id\": \"...\", \"current\": \"...\",\n  \"proposed\": \"...\", \"expires_at\": \"...\"}` \u2014 at most one per response, and it is NOT a\n  change. NOTHING HAS HAPPENED. Show `title`, `summary` and the `current` \u2192 `proposed`\n  pair, and a Confirm button that posts `token` back, unchanged, to\n  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world\n  untouched; the token stops working at `expires_at`.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\n`history` is what the browser replays and it still dies with the request \u2014 the server keeps\nno thread. What IS kept is one redacted, capped memory row per answered question\n(`copilot_memories`), which the assistant recalls on later questions from the same person;\nit expires on the account's own `copilot_memory` retention policy and is destroyed by\noffboarding. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `copilot:use` \u2014 held by owners and staff.",
         "operationId": "ask_copilot_v1_copilot_ask_post",
         "requestBody": {
           "content": {
@@ -26689,12 +26719,12 @@
         "tags": [
           "copilot"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "copilot:use"
       }
     },
     "/v1/copilot/confirm": {
       "post": {
-        "description": "Carry out the change the assistant proposed, after the person confirmed it.\n\nPost back the `token` from an `event: proposal` frame, **unchanged**. The body carries\nnothing else: the account, the person, the tool and every argument are inside the token's\nsignature, so there is nothing here a browser could edit and nothing a page could invent.\n\nA token works ONCE and only for the account and the person it was minted for, and it stops\nworking five minutes after it was issued. Every refusal is a 403 with the same shape \u2014\nalready confirmed, expired, tampered with, or minted elsewhere are deliberately not told\napart, so this endpoint cannot be used to learn which half of a token is wrong.\n\nThe change runs through exactly the service function the equivalent button on the screen\ncalls, so every refusal that button can get, this can get: `409` when a campaign is not\nrunning, `404` when nothing of yours has that id. `applied: false` with a `200` is a real\nanswer \u2014 the world was already in that state and nothing was written.\n\nEvery change writes an `audit_log` row naming the person who confirmed it.\nRequires `org:manage`, and the tool's own permission on top of it.",
+        "description": "Carry out the change the assistant proposed, after the person confirmed it.\n\nPost back the `token` from an `event: proposal` frame, **unchanged**. The body carries\nnothing else: the account, the person, the tool and every argument are inside the token's\nsignature, so there is nothing here a browser could edit and nothing a page could invent.\n\nA token works ONCE and only for the account and the person it was minted for, and it stops\nworking five minutes after it was issued. Every refusal is a 403 with the same shape \u2014\nalready confirmed, expired, tampered with, or minted elsewhere are deliberately not told\napart, so this endpoint cannot be used to learn which half of a token is wrong.\n\nThe change runs through exactly the service function the equivalent button on the screen\ncalls, so every refusal that button can get, this can get: `409` when a campaign is not\nrunning, `404` when nothing of yours has that id. `applied: false` with a `200` is a real\nanswer \u2014 the world was already in that state and nothing was written.\n\nEvery change writes an `audit_log` row naming the person who confirmed it.\nRequires `copilot:use`, and the tool's own permission on top of it.",
         "operationId": "confirm_copilot_proposal_v1_copilot_confirm_post",
         "requestBody": {
           "content": {
@@ -26728,7 +26758,7 @@
         "tags": [
           "copilot"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "copilot:use"
       }
     },
     "/v1/dashboard": {
@@ -27599,6 +27629,71 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/kb/staff-curation": {
+      "get": {
+        "operationId": "get_staff_curation_v1_kb_staff_curation_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffCurationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this account lets its staff members curate knowledge",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "Off for every account until its owner turns it on. Switching it on lets members with the `staff` role submit knowledge for review and dismiss or teach a knowledge gap \u2014 and nothing else. It does not let them approve or publish anything: a staff-submitted source lands in the same review queue an owner's does, and still needs approval before an agent can say a word of it.",
+        "operationId": "set_staff_curation_v1_kb_staff_curation_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffCurationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffCurationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Let this account's staff curate knowledge, or stop letting them",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/knowledge-gaps": {

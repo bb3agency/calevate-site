@@ -116,6 +116,11 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
 from apps.api.kb import proposals as kb_proposals
 
+# The one predicate for "may this person curate knowledge" — the role table PLUS the
+# owner's per-account switch. Imported rather than re-derived so the assistant and the
+# Add-Knowledge form cannot come to disagree about one person (see `_may`).
+from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
+
 log = get_logger(__name__)
 
 #: The one audience this token is minted for and the only one it is accepted under.
@@ -211,14 +216,46 @@ def actor_for(principal: Principal) -> ToolActor | None:
     )
 
 
-def _may(actor: ToolActor, permission: Permission) -> bool:
+def _actor_realm(actor: ToolActor) -> str:
+    """Which realm this actor came from, DERIVED rather than assumed.
+
+    `actor_for` refuses a principal with no tenant, and an ADMIN principal carries a tenant
+    only inside a D-22 view-as session — so an actor is admin-realm precisely when it is
+    impersonating. Returning `"client"` unconditionally would have been one word and would
+    have handed a client-writable column (`organizations.staff_may_curate_knowledge`) the
+    power to widen an ADMIN principal.
+    """
+    return "admin" if actor.impersonating else "client"
+
+
+async def _may(session: AsyncSession, actor: ToolActor, permission: Permission) -> bool:
     """`core/auth.requires`'s ladder, in a form a non-route caller can ask.
 
     NOT a re-derivation: the role table is `rbac.role_has` and the D-22 clause is
     `MUTATING_PERMISSIONS`, both imported. A second copy of either would be a second
     answer to "may this person do this", and the two would diverge on the day one of
     them was updated.
+
+    **AND `kb:write` IS DELEGATED RATHER THAN ANSWERED HERE, FOR THAT SAME REASON.** Since
+    the founder's "give the staff perms allowing option to owner", who may curate knowledge
+    is the role table PLUS one per-account switch an owner controls, and
+    `kb/curation.may_curate_knowledge` is the one predicate that knows it — the same one
+    `POST /v1/kb/sources` spends. Answering `kb:write` from `role_has` alone here would
+    have made the assistant and the Add-Knowledge form disagree about one person in one
+    account: an owner switches staff curation on, the form opens, and the copilot keeps
+    refusing to complete the sentence it just offered.
+
+    THIS IS WHY THE FUNCTION TOOK A SESSION AND BECAME ASYNC. Both callers already had one
+    (`plan_write` opens its own short `tenant_session`; `confirm` uses the route's), so the
+    cost is a parameter rather than a connection.
     """
+    if permission == CURATE_PERMISSION:
+        return await may_curate_knowledge(
+            session,
+            realm=_actor_realm(actor),
+            role=actor.role,
+            impersonating=actor.impersonating,
+        )
     if not role_has(actor.role, permission):
         return False
     return not (actor.impersonating and permission in MUTATING_PERMISSIONS)
@@ -993,10 +1030,6 @@ async def plan_write(
             f"`{name}` needs a signed-in account and this session has none, "
             "so nothing can be proposed"
         )
-    if not _may(actor, tool.permission):
-        raise WriteRefusedError(
-            f"this person's role may not do what `{name}` proposes, so do not offer it"
-        )
     try:
         parsed_arguments = json.loads(raw_arguments or "")
     except ValueError as exc:
@@ -1005,6 +1038,15 @@ async def plan_write(
         raise WriteRefusedError("the tool call was not an object")
 
     async with tenant_session(actor.tenant_id) as session:
+        # THE PERMISSION CHECK MOVED INSIDE THIS BLOCK when `_may` became session-aware
+        # (see its docstring: `kb:write` is the role table PLUS the owner's switch, which
+        # is a row). It is still the FIRST thing that happens under the session and still
+        # runs before `tool.plan` reads anything, so the order the refusals arrive in is
+        # unchanged — only where the connection is opened moved.
+        if not await _may(session, actor, tool.permission):
+            raise WriteRefusedError(
+                f"this person's role may not do what `{name}` proposes, so do not offer it"
+            )
         plan = await tool.plan(session, actor, parsed_arguments)
 
     issued_at = datetime.now(UTC)
@@ -1203,7 +1245,7 @@ async def confirm(
             "Sign in to the account the suggestion was made for.",
         )
     proposal = _verify(token, actor=actor)
-    if not _may(actor, proposal.tool.permission):
+    if not await _may(session, actor, proposal.tool.permission):
         # `ProblemError.forbidden` carries NO `remediation`, and every failure a person can
         # reach owes them one (BACKEND-PATTERNS §3). This one is reachable by two ordinary
         # routes — a member demoted while the assistant was talking, and a D-22 view-as

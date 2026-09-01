@@ -1797,6 +1797,9 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/agents": [AGENT],
+      // The owner's staff-curation switch (D-487). Without it `StaffCurationSwitch`
+      // renders its ProblemNotice and the scan would cover an error panel.
+      "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
       "/v1/kb/sources": [
         {
           id: "kb-1",

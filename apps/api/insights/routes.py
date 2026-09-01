@@ -32,6 +32,7 @@ from apps.api.insights.schemas import (
     KnowledgeGapListOut,
     KnowledgeGapOut,
 )
+from apps.api.kb.curation import requires_kb_curation
 
 router = APIRouter(prefix="/v1", tags=["insights"])
 
@@ -74,7 +75,11 @@ async def dismiss_knowledge_gap(
     payload: GapDismissIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("kb:write")),
+    # `requires_kb_curation()`, NOT `requires("kb:write")` — additive; see
+    # `kb/curation.py`. Deciding what an agent knows is one capability (D-21), so the
+    # owner's switch reaches the two knowledge-gap writes exactly as it reaches the
+    # Add-Knowledge form, and does not reach anything else.
+    principal: Principal = Depends(requires_kb_curation()),
 ) -> KnowledgeGapOut:
     out = await service.dismiss_gap(session, gap_id, principal=principal, reason=payload.reason)
     await write_audit(
@@ -103,7 +108,11 @@ async def teach_knowledge_gap(
     payload: GapTeachIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("kb:write")),
+    # `requires_kb_curation()`, NOT `requires("kb:write")` — additive; see
+    # `kb/curation.py`. Deciding what an agent knows is one capability (D-21), so the
+    # owner's switch reaches the two knowledge-gap writes exactly as it reaches the
+    # Add-Knowledge form, and does not reach anything else.
+    principal: Principal = Depends(requires_kb_curation()),
 ) -> KnowledgeGapOut:
     out = await service.teach_gap(session, gap_id, principal=principal, payload=payload)
     await write_audit(

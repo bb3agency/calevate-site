@@ -21,10 +21,16 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
-import { useWriteAccess } from "@/lib/api/hooks";
+import { useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/agents";
-import { useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
+import {
+  useKbChunks,
+  useKbSources,
+  useSetStaffCuration,
+  useStaffCuration,
+  useSubmitKnowledge,
+} from "@/lib/api/kb";
 import { lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -61,10 +67,17 @@ import { useVerticalExamples } from "@/lib/useVerticalExamples";
  * The screen renders no `<h1>`: the shell prints the page title from the nav list
  * (layout.tsx), and a second "Knowledge base" beside it is a visible duplicate.
  *
- * Submitting is `kb:write`, which `staff` does not hold and which an impersonating
- * operator is refused (D-22) — so the control is disabled WITH the reason rather than
- * left to answer 403. Reading (`agents:read`) stays open, which is the whole point of
- * "view as client": support can see the knowledge base they are being asked about.
+ * Submitting is `kb:write`, and an impersonating operator is refused it (D-22) — so the
+ * control is disabled WITH the reason rather than left to answer 403. Reading
+ * (`agents:read`) stays open, which is the whole point of "view as client": support can
+ * see the knowledge base they are being asked about.
+ *
+ * **`staff` HOLDING `kb:write` IS NOW AN ACCOUNT-BY-ACCOUNT ANSWER, AND THIS DOCSTRING
+ * USED TO SAY IT NEVER DID.** Since the founder's "give the staff perms allowing option to
+ * owner", a staff member holds it exactly when their own owner has switched staff curation
+ * on (`apps/api/kb/curation.py`), and `/v1/me` reports the EFFECTIVE set — so
+ * `useWriteAccess` enables this form for them with no special case here. The switch itself
+ * is `StaffCurationSwitch` at the foot of this file.
  */
 
 interface StatusCopy {
@@ -116,6 +129,21 @@ export default function KnowledgePage() {
    * being asked about, they just cannot add to it wearing the client's face.
    */
   const write = useWriteAccess(session, "kb:write", "add knowledge to this account");
+
+  /**
+   * THE OWNER'S SWITCH: may this account's `staff` members curate knowledge at all.
+   *
+   * Off for every account until an owner turns it on. Reading it is `org:read` so a staff
+   * member is TOLD why the form above is closed to them; changing it is `org:manage`, so
+   * `curationWrite` disables the control for everyone else — including a view-as operator,
+   * because flipping a permission switch is itself a mutation (D-22).
+   *
+   * NOTE the interaction with `write` above and why nothing here duplicates it: `/v1/me`
+   * reports the EFFECTIVE permission set, so a staff member in a switched-on account
+   * already receives `kb:write` and `useWriteAccess` enables the form on its own. This
+   * control decides the switch; it does not gate the form.
+   */
+  const curationWrite = useWriteAccess(session, "org:manage", "change who may add knowledge");
 
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
@@ -218,6 +246,8 @@ export default function KnowledgePage() {
       </p>
 
       <RestrictionNote reason={write.reason} />
+
+      <StaffCurationSwitch write={curationWrite} />
 
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
       {/* Without this the form simply refused to submit and never said why: no agent
@@ -488,5 +518,61 @@ function SourceBadge({ source }: { source: { status: string; is_active: boolean 
       <Icon className="h-3 w-3" />
       {copy.label}
     </span>
+  );
+}
+
+
+/**
+ * WHO ON THIS TEAM MAY ADD KNOWLEDGE — the owner's switch.
+ *
+ * Rendered where the capability it governs lives rather than buried in account settings,
+ * so the person reading "only owners can add knowledge here" is one control away from
+ * changing it. Shown to everyone (`org:read`) and writable only by an owner
+ * (`org:manage`), which also means a D-22 view-as operator sees it read-only: flipping a
+ * permission switch is itself a mutation.
+ *
+ * **ITS OWN COMPONENT SO THE UNREAD STATES CAN BE THEIR OWN RETURNS.** Written inline it
+ * read `curation.data?.staff_may_curate_knowledge ?? false`, and `surfaceStatesGuard`
+ * failed it for the right reason: that fallback renders "Off" — a definite claim about
+ * this account's permissions — while the request is still in flight or after it has
+ * failed. "Off" and "we could not find out" are different answers, and only one of them
+ * was earned. After the two early returns TypeScript narrows `data`, so the fallback is
+ * gone rather than hidden.
+ */
+function StaffCurationSwitch({ write }: { write: WriteAccess }) {
+  const session = useClientSession();
+  const curation = useStaffCuration(session);
+  const setCuration = useSetStaffCuration(session);
+
+  if (curation.isPending) return <Skeleton rows={1} label="Checking who may add knowledge…" />;
+  if (curation.isError) {
+    return <ProblemNotice error={curation.error} onRetry={() => curation.refetch()} />;
+  }
+
+  const on = curation.data.staff_may_curate_knowledge;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2">
+        <div className="text-sm">
+          <span className="font-medium">Let staff add knowledge</span>
+          <span className="block text-ink-muted">
+            {on
+              ? "Team members with the staff role can add knowledge for review. They still cannot approve it."
+              : "Only owners can add knowledge on this account. Everything added is reviewed before it goes live either way."}
+          </span>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={on}
+            disabled={!write.allowed || setCuration.isPending}
+            onChange={(e) => setCuration.mutate(e.target.checked)}
+          />
+          <span>{on ? "On" : "Off"}</span>
+        </label>
+      </div>
+      <RestrictionNote reason={write.reason} />
+      {setCuration.error && <ProblemNotice error={setCuration.error} />}
+    </div>
   );
 }

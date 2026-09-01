@@ -672,25 +672,72 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
     assert await _lead_status(tenant_id, lead_id) == "interested"
 
 
-async def test_the_confirm_route_refuses_a_caller_who_cannot_open_the_assistant() -> None:
-    """`staff` does not hold `org:manage`, which is `POST /v1/copilot/ask`'s permission —
-    so somebody who cannot ask the assistant cannot complete one of its sentences either.
-    The refusal is problem+json, before the body is even read."""
+async def test_confirm_re_checks_the_tools_permission_against_the_session_in_front_of_it() -> None:
+    """**CONFIRM IS THE GATE AND PROPOSE IS ADVISORY**, driven across a permission that
+    changed in between.
+
+    THIS TEST USED TO SPELL THE SAME PROPERTY WITH `staff` AND `org:manage` — "somebody who
+    cannot open the assistant cannot complete one of its sentences" — and the founder's
+    decision that staff may use the assistant retired that spelling, not the property.
+    `copilot:use` is now held by staff, so the door no longer separates these two callers;
+    what still does is the TOOL's own permission, re-checked here against the session in
+    front of us rather than against the role the person held while the model was talking.
+
+    The knowledge lane is the sharpest case, because its permission is not a role fact
+    alone: `kb:write` for a staff member is the owner's per-account switch
+    (`kb/curation.py`). So the proposal is minted while the switch is ON — legitimately,
+    the assistant really could offer it — the owner then turns it OFF, and the confirm is
+    refused with nothing written. A member demoted mid-conversation takes exactly this path.
+    """
     tenant_id, slug, token = await _make_tenant(role="staff")
-    lead_id = await _lead_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE organizations SET staff_may_curate_knowledge = true"))
+
     proposal = await write_tools.plan_write(
         "lead_set_status",
-        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        json.dumps({"lead_id": str(await _lead_of(tenant_id)), "status": "hot"}),
         actor=_actor(tenant_id, _user_of(token), role="staff"),
     )
-
+    # `leads:write` is a plain role fact and staff hold it, so this one goes through — the
+    # control that proves the refusal below is about the permission and not about the route.
     async with _client() as http:
-        response = await http.post(
+        allowed = await http.post(
             CONFIRM, headers=_headers(token, slug), json={"token": proposal.token}
         )
-    assert response.status_code == 403
-    assert response.headers["content-type"].startswith("application/problem+json")
-    assert await _lead_status(tenant_id, lead_id) == "new"
+    assert allowed.status_code == 200, allowed.text
+
+    async with tenant_session(tenant_id) as session:
+        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()
+    knowledge = await write_tools.plan_write(
+        "propose_knowledge",
+        json.dumps(
+            {
+                "agent_id": str(agent_id),
+                "name": "Consultation fee",
+                "body": "A consultation costs 500 rupees and takes about twenty minutes.",
+                "origin": "copilot",
+                "topic_key": None,
+            }
+        ),
+        actor=_actor(tenant_id, _user_of(token), role="staff"),
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE organizations SET staff_may_curate_knowledge = false"))
+
+    async with _client() as http:
+        refused = await http.post(
+            CONFIRM, headers=_headers(token, slug), json={"token": knowledge.token}
+        )
+    assert refused.status_code == 403, refused.text
+    assert refused.headers["content-type"].startswith("application/problem+json")
+
+    async with tenant_session(tenant_id) as session:
+        landed = (
+            await session.execute(
+                text("SELECT count(*) FROM kb_sources WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+    assert landed == 0, "a refused confirm must have written nothing into kb_sources"
 
 
 async def test_the_confirm_route_takes_the_token_and_nothing_else() -> None:

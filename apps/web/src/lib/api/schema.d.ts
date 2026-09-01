@@ -3468,8 +3468,10 @@ export interface paths {
         put?: never;
         /**
          * Ask the in-app assistant about this screen — streamed, metered, quota-gated
-         * @description Answers a question about the screen the caller is on, and can fill that screen's form
-         *     fields. Streams `text/event-stream`:
+         * @description Answers a question about the screen the caller is on, answers questions about the
+         *     account's own business by reading it (calls, leads, campaigns, agents, performance —
+         *     read-only, under the caller's own permissions and RLS scope), and can fill that screen's
+         *     form fields. Streams `text/event-stream`:
          *
          *     * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
          *     * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
@@ -3490,10 +3492,13 @@ export interface paths {
          *       opened. Permission, rate-limit and request-validation refusals arrive as ordinary
          *       problem+json responses with their real status instead.
          *
-         *     Nothing is stored. `history` is the whole memory of the conversation and dies with the
-         *     request. Metered against the account's AI allowance and refused before a token is spent
+         *     `history` is what the browser replays and it still dies with the request — the server keeps
+         *     no thread. What IS kept is one redacted, capped memory row per answered question
+         *     (`copilot_memories`), which the assistant recalls on later questions from the same person;
+         *     it expires on the account's own `copilot_memory` retention policy and is destroyed by
+         *     offboarding. Metered against the account's AI allowance and refused before a token is spent
          *     when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
-         *     Requires `org:manage`.
+         *     Requires `copilot:use` — held by owners and staff.
          */
         post: operations["ask_copilot_v1_copilot_ask_post"];
         delete?: never;
@@ -3530,7 +3535,7 @@ export interface paths {
          *     answer — the world was already in that state and nothing was written.
          *
          *     Every change writes an `audit_log` row naming the person who confirmed it.
-         *     Requires `org:manage`, and the tool's own permission on top of it.
+         *     Requires `copilot:use`, and the tool's own permission on top of it.
          */
         post: operations["confirm_copilot_proposal_v1_copilot_confirm_post"];
         delete?: never;
@@ -3882,6 +3887,27 @@ export interface paths {
         /** Side-by-side preview of exactly what the agent would learn */
         get: operations["preview_source_v1_kb_sources__source_id__preview_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/staff-curation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether this account lets its staff members curate knowledge */
+        get: operations["get_staff_curation_v1_kb_staff_curation_get"];
+        /**
+         * Let this account's staff curate knowledge, or stop letting them
+         * @description Off for every account until its owner turns it on. Switching it on lets members with the `staff` role submit knowledge for review and dismiss or teach a knowledge gap — and nothing else. It does not let them approve or publish anything: a staff-submitted source lands in the same review queue an owner's does, and still needs approval before an agent can say a word of it.
+         */
+        put: operations["set_staff_curation_v1_kb_staff_curation_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -11840,6 +11866,28 @@ export interface components {
             top_calls_truncated: boolean;
         };
         /**
+         * StaffCurationIn
+         * @description The whole of the resource, which is what makes this a PUT rather than a PATCH —
+         *     `LlmDefaultIn`'s argument, one field further down.
+         */
+        StaffCurationIn: {
+            /** Staff May Curate Knowledge */
+            staff_may_curate_knowledge: boolean;
+        };
+        /**
+         * StaffCurationOut
+         * @description Whether this account's staff may curate knowledge.
+         *
+         *     A DECLARED model rather than a bare mapping, for the reason `admin/routes.KbReviewOut`
+         *     gives: `scripts/check_redaction_exposure.py` walks response models and is structurally
+         *     blind to a route that declares none, and the generated TS client renders a mapping as
+         *     an index signature the frontend then hand-types.
+         */
+        StaffCurationOut: {
+            /** Staff May Curate Knowledge */
+            staff_may_curate_knowledge: boolean;
+        };
+        /**
          * StaffMember
          * @description `pronunciation` is not decoration — PROMPT-GUIDE §3 requires proper nouns to be
          *     spelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the
@@ -19579,6 +19627,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChunkOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_staff_curation_v1_kb_staff_curation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffCurationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_staff_curation_v1_kb_staff_curation_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StaffCurationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffCurationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

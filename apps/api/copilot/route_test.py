@@ -323,19 +323,65 @@ async def test_the_route_is_refused_without_a_session() -> None:
     assert response.status_code == 401
 
 
-async def test_staff_cannot_spend_the_accounts_ai_allowance(
+async def test_staff_may_open_the_assistant(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`org:manage` is owner-only, the same permission the wallet panel and the
-    re-summarise route carry. Gating the thing that SPENDS more loosely than the panel that
-    displays it would be this product disagreeing with itself."""
+    """**THIS TEST USED TO ASSERT THE OPPOSITE, AND THE FOUNDER REVERSED IT:** staff must
+    be able to use the assistant.
+
+    It is re-pointed rather than deleted, because the question it asks — "which roles reach
+    the thing that spends the allowance?" — is still exactly the right question and is now
+    answered by `copilot:use` instead of `org:manage`. Read the old name before reading
+    this as a relaxation: `org:manage` was never picked because opening a chat panel is an
+    owner's business, it was picked because this route SPENDS and therefore needed a
+    MUTATING permission, and it dragged billing, members and every org setting along.
+    `copilot:use` is in `MUTATING_PERMISSIONS` too, so the property that mattered is intact
+    and is pinned one test down.
+    """
     _, slug, token = await _make_tenant(role="staff")
     reached = _fake_provider(monkeypatch)
 
     async with _client() as http:
         response = await http.post(ASK, headers=_headers(token, slug), json=BODY)
 
-    assert response.status_code == 403
+    assert response.status_code == 200, response.text
+    assert reached, "a staff member's question must actually reach the provider"
+
+
+async def test_the_assistant_still_costs_a_mutating_permission(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE PROPERTY THAT HAD TO SURVIVE WIDENING THE POPULATION.
+
+    A role holding none of the client permissions reaches nothing, and — the half that
+    matters — `copilot:use` is in `MUTATING_PERMISSIONS`, so a D-22 read-only view-as
+    session cannot burn a client's included allowance from the client's own screen. The
+    view-as half is driven end to end by `realm_boundary_test::test_no_route_declaring_a_
+    mutating_permission_is_reachable_while_impersonating`, which walks the live route table
+    and therefore picked this route up automatically the moment its permission changed;
+    what is asserted HERE is the registry fact that sweep depends on, because a future
+    edit that quietly dropped `copilot:use` from the list would make that sweep stop
+    covering this route rather than fail.
+    """
+    from apps.api.core.rbac import MUTATING_PERMISSIONS, role_has
+
+    assert "copilot:use" in MUTATING_PERMISSIONS
+    assert role_has("staff", "copilot:use") and role_has("owner", "copilot:use")
+    assert not role_has("staff", "org:manage"), (
+        "staff got the assistant, and must NOT have got billing, members and org settings with it"
+    )
+
+    _, slug, token = await _make_tenant(role="staff")
+    reached = _fake_provider(monkeypatch)
+    async with _client() as http:
+        blocked = await http.put(
+            "/v1/organization/llm-defaults",
+            headers=_headers(token, slug),
+            json={"default_llm_model": "gpt-4o-mini"},
+        )
+    assert blocked.status_code == 403, (
+        "an `org:manage` surface must still refuse the staff member who can now chat"
+    )
     assert reached == []
 
 

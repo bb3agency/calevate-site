@@ -10,7 +10,16 @@ from typing import Any
 from uuid import UUID
 
 from calevate_shared.engine import LLM_MODEL_NAMES
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    false,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -78,6 +87,25 @@ class Organization(PKMixin, TimestampMixin, Base):
     # claim a choice nobody made, and would then have to be kept in step with a live
     # console switch — the D-105 defect with a clock attached.
     default_llm_model: Mapped[str | None] = mapped_column(Text)
+    # MAY THIS ACCOUNT'S `staff` MEMBERS CURATE KNOWLEDGE — the owner-controlled half of
+    # the founder's decision ("give the staff perms allowing option to owner"). FALSE for
+    # every account until that account's own owner turns it on, which is why the migration
+    # needs no backfill and changes nothing in any live account.
+    #
+    # IT GRANTS EXACTLY ONE CAPABILITY AND IS READ IN EXACTLY ONE PLACE:
+    # `kb/curation.py::may_curate_knowledge`, behind `requires_kb_curation()`. It is NOT a
+    # role, NOT a permission and NOT "staff are owners now" — `ROLE_PERMISSIONS["staff"]`
+    # is untouched by it, so every other `requires(...)` in the tree answers for a staff
+    # member exactly as it did before. Grepping that one dependency name shows the whole
+    # reach of this column, which is the property a reader needs and a boolean on a role
+    # table could not have given them.
+    #
+    # Written only by `PUT /v1/kb/staff-curation` (`org:manage`, so owner-only), audited
+    # as `organization.staff_kb_curation_set`. Flipping a permission switch is itself a
+    # mutation, so D-22 refuses an impersonating admin there like any other.
+    staff_may_curate_knowledge: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
 

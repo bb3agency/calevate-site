@@ -24,6 +24,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta
+from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
 from apps.api.tenancy import members as members_service
 
 router = APIRouter(prefix="/v1", tags=["tenancy"])
@@ -83,11 +84,34 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         org = OrganizationOut(
             id=row[0], name=row[1], slug=row[2], status=row[3], vertical_template=row[4]
         )
+    # THE EFFECTIVE SET, NOT THE ROLE'S SET, AND THE DIFFERENCE IS EXACTLY ONE PERMISSION.
+    #
+    # `permissions` is what `useWriteAccess` (apps/web/src/lib/api/hooks.ts) previews every
+    # mutating control against, so a permission this endpoint under-reports is a control
+    # the screen DISABLES on a server that would have allowed it. Since the founder's "give
+    # the staff perms allowing option to owner", `kb:write` is no longer a role fact alone:
+    # a staff member holds it in an account whose owner switched staff curation on
+    # (`kb/curation.py`). Reporting the raw role table would have left that owner's staff
+    # looking at a greyed-out Add-Knowledge form with a tooltip explaining a refusal the
+    # API would not have made.
+    #
+    # ASKED THROUGH THE SAME PREDICATE THE GATE SPENDS, never re-derived from the column:
+    # one answer to "may this person curate", so the preview and the enforcement cannot
+    # drift. The preview stays a preview — the routes still refuse, and every screen keeps
+    # its ProblemNotice as the backstop.
+    permissions = set(ROLE_PERMISSIONS.get(principal.role or "", frozenset()))
+    if await may_curate_knowledge(
+        session,
+        realm=principal.realm,
+        role=principal.role,
+        impersonating=principal.impersonating,
+    ):
+        permissions.add(CURATE_PERMISSION)
     return MeOut(
         realm=principal.realm,
         user_id=principal.user_id,
         role=principal.role,
-        permissions=sorted(ROLE_PERMISSIONS.get(principal.role or "", frozenset())),
+        permissions=sorted(permissions),
         impersonating=principal.impersonating,
         organization=org,
     )

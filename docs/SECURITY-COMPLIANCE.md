@@ -694,6 +694,24 @@ Identity & access
     delivered webhook payload. Six routes, all client-realm, each one reached only through
     an impersonation grant minted behind a second factor (D-210) and each one writing its
     own `audit_log` row. `staff` remains the role that holds none of it.
+  - **THE CLIENT REALM: `staff` HOLDS ONE CAPABILITY MORE THAN THE ROLE TABLE SHOWS, AND
+    ONLY WHERE AN OWNER SAID SO** (D-487). Two separate grants, deliberately not one:
+    - `copilot:use` is a flat role fact — every `owner` and every `staff` member may open
+      the in-app assistant. It replaced `org:manage` on `POST /v1/copilot/ask` and
+      `POST /v1/copilot/confirm` and is itself in `MUTATING_PERMISSIONS`, which is the
+      property the old permission was carrying there: a D-22 view-as session cannot spend
+      a client's AI allowance. The assistant's DOOR is not its contents —
+      `write_tools.confirm` still re-checks each tool's own permission.
+    - `kb:write` for a staff member is a PER-ACCOUNT answer, not a role fact:
+      `organizations.staff_may_curate_knowledge`, `NOT NULL DEFAULT false`, written only by
+      the account's own owner (`PUT /v1/kb/staff-curation`, `org:manage`, audited
+      `organization.staff_kb_curation_set`, refused to an impersonating admin because
+      flipping a permission switch is itself a mutation). `ROLE_PERMISSIONS["staff"]` does
+      not contain `kb:write` and must not: the grant is applied by
+      `kb/curation.requires_kb_curation()`, which runs the ordinary permission ladder first
+      and only then consults the switch, on three routes and no others. A staff member may
+      therefore ASK the assistant about anything while still being unable to put a word in
+      the agent's mouth in an account whose owner has not allowed it.
   - **"There will only be one super admin" is not enforced, deliberately.** There is no
     break-glass path in this repository to mint or restore one — `bootstrap_first_admin`
     refuses once any live operator has a password, `scripts/seed_dev.py` cannot run

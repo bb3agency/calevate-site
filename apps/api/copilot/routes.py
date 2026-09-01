@@ -104,7 +104,7 @@ no thread. What IS kept is one redacted, capped memory row per answered question
 it expires on the account's own `copilot_memory` retention policy and is destroyed by
 offboarding. Metered against the account's AI allowance and refused before a token is spent
 when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
-Requires `org:manage`.\
+Requires `copilot:use` — held by owners and staff.\
 """
 
 
@@ -118,24 +118,37 @@ def _error_event(problem: ProblemError) -> ServerSentEvent:
 @router.post(
     "/copilot/ask",
     response_class=EventSourceResponse,
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("copilot:use"),
     summary="Ask the in-app assistant about this screen — streamed, metered, quota-gated",
     description=_DESCRIPTION,
 )
 async def ask_copilot(
     request: Request,
     payload: Annotated[CopilotAskIn, Body()],
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(requires("copilot:use")),
 ) -> AsyncIterator[ServerSentEvent]:
     """SUBJECT → GATE → RUN → METER, with the meter and the audit in their own transaction.
 
-    **`org:manage`, and the admin realm's answer is that it does not get this route.**
-    `org:manage` is what this console already uses for the whole client AI surface and the
-    argument is `crm/routes.py:255-273`'s, unchanged: it is in `MUTATING_PERMISSIONS`, so a
-    D-22 read-only view-as session cannot spend a client's allowance from a client screen,
-    and gating the thing that SPENDS the allowance more loosely than the panel that
-    displays it (`GET /v1/billing/ai-quota`, `billing:read`) would be this product
-    disagreeing with itself.
+    **`copilot:use`, AND IT SAID `org:manage` UNTIL THE FOUNDER DECIDED STAFF MUST BE ABLE
+    TO USE THE ASSISTANT.** Read what the old permission was actually doing before reading
+    the swap as a relaxation. `org:manage` was never chosen because opening a chat panel is
+    an owner's business — it was chosen because this route SPENDS the account's AI
+    allowance and therefore needed a member of `MUTATING_PERMISSIONS` (the rule
+    `tests/authz_audit_test.py::test_every_mutating_route_is_gated_by_a_mutating_permission`
+    states over the whole table), and `org:manage` was the mutating permission a client
+    role happened to hold. It carried billing, members and every organization setting as
+    passengers.
+
+    **SO THE PROPERTY MOVED WITH THE NAME: `copilot:use` IS ITSELF IN
+    `MUTATING_PERMISSIONS`.** A D-22 read-only view-as session still cannot spend a
+    client's allowance from a client screen — that refusal is the same refusal, from the
+    same list, on the same line of `requires()`. What changed is only WHO ELSE may ask:
+    `staff` now hold `copilot:use`, and hold nothing else they did not hold yesterday.
+
+    Gating the thing that SPENDS the allowance more loosely than the panel that displays it
+    (`GET /v1/billing/ai-quota`, `billing:read`) would be this product disagreeing with
+    itself, and it still does not: `billing:read` is an owner's, and this is a permission
+    whose whole content is "may open the assistant".
 
     **THE ADMIN REALM IS REFUSED, AND THE REASON IS THAT IT HAS NO PAYER — not that
     nobody picked a permission.** Every AI surface in this repository is metered per
@@ -228,7 +241,7 @@ async def ask_copilot(
             # ONLY THE CLIENT REALM WRITES OR READS ONE. `Principal.user_id` is a
             # `users.id` on this realm and an `admin_users.id` on the other, and
             # `copilot_memories.user_id` has a foreign key to `users`. A D-22 view-as
-            # operator is already refused by `org:manage` being in `MUTATING_PERMISSIONS`,
+            # operator is already refused by `copilot:use` being in `MUTATING_PERMISSIONS`,
             # so this guard is unreachable today — and it is the difference between "this
             # cannot happen" and "this cannot happen because of a permission list two
             # modules away", on a path whose failure would be a foreign-key violation
@@ -460,14 +473,14 @@ running, `404` when nothing of yours has that id. `applied: false` with a `200` 
 answer — the world was already in that state and nothing was written.
 
 Every change writes an `audit_log` row naming the person who confirmed it.
-Requires `org:manage`, and the tool's own permission on top of it.\
+Requires `copilot:use`, and the tool's own permission on top of it.\
 """
 
 
 @router.post(
     "/copilot/confirm",
     response_model=CopilotConfirmOut,
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta("copilot:use"),
     summary="Do the change the assistant proposed — once, for the person who confirmed it",
     description=_CONFIRM_DESCRIPTION,
 )
@@ -475,18 +488,26 @@ async def confirm_copilot_proposal(
     payload: Annotated[CopilotConfirmIn, Body()],
     session: Annotated[AsyncSession, Depends(db)],
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(requires("copilot:use")),
 ) -> CopilotConfirmOut:
     """THE HUMAN-IN-THE-LOOP GATE, and it is this route existing at all.
 
-    **`org:manage` AT THE DOOR, AND THE TOOL'S OWN PERMISSION INSIDE.** The door permission
-    is `POST /v1/copilot/ask`'s, for its reason: this is the client AI surface, and a
-    caller who cannot open the assistant must not be able to complete one of its
-    sentences. It is not sufficient on its own and is not treated as such —
-    `write_tools.confirm` re-checks the permission the equivalent BUTTON declares
-    (`leads:write` for a lead's status, `leads:dispatch` for DNC and for pausing), so this
-    route can never be a way to do something the console would refuse. Both are mutating
-    permissions, so a D-22 view-as session is refused at both.
+    **`copilot:use` AT THE DOOR, AND THE TOOL'S OWN PERMISSION INSIDE — and the second
+    half is what makes the first half safe to widen.** The door permission is
+    `POST /v1/copilot/ask`'s, for its reason: a caller who cannot open the assistant must
+    not be able to complete one of its sentences. It is not sufficient on its own and is
+    not treated as such — `write_tools.confirm` re-checks the permission the equivalent
+    BUTTON declares (`leads:write` for a lead's status, `leads:dispatch` for DNC and for
+    pausing, `kb:write` for a knowledge entry), so this route can never be a way to do
+    something the console would refuse.
+
+    THAT SEPARATION IS WHY GIVING `staff` THE DOOR GAVE THEM NOTHING BEHIND IT. A staff
+    member may now ask the assistant anything and may confirm exactly the changes their own
+    role already admits: a lead's status, yes; a knowledge entry, only in an account whose
+    owner switched staff curation on (`kb/curation.py`), because that is the answer
+    `_may` gets for `kb:write` and it is the same answer the Add-Knowledge form gives.
+
+    Both permissions are mutating, so a D-22 view-as session is refused at both.
 
     **`Depends(db)` HERE, WHERE `ask` TAKES NONE, AND THE DIFFERENCE IS THE PROVIDER.**
     `ask` must not hold a pooled connection across a model round trip, so it opens short
