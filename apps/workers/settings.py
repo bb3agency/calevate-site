@@ -426,7 +426,7 @@ CRON_JOBS = [
     # HOURLY rather than the agent sweep's half-hourly, and 15 agents rather than 25,
     # sized against the dearest round trip the PORT allows — an engine whose `list_kb`
     # pulls the whole account's knowledge list and filters it on our side. That is no
-    # longer what the primary adapter does (D-459: it reads the agent's own `vector_ids`,
+    # longer what the primary adapter does (D-488: it reads the agent's own `vector_ids`,
     # one GET, the same price as the agent sweep's), and the bound is deliberately NOT
     # loosened for it: the next adapter may be the dear kind, and a limit relaxed to fit
     # today's cheapest engine is a limit discovered in production by tomorrow's.

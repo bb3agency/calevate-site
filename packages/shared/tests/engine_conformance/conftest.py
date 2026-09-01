@@ -174,7 +174,7 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     """A stub of their API, built fresh per engine so each test gets clean vendor state.
 
     **THE AGENT STORE NOW CARRIES THE KNOWLEDGE REFERENCE, AND THIS DOCSTRING USED TO SAY
-    IT DELIBERATELY DID NOT (D-459).** It read: "Nothing in Bolna's published
+    IT DELIBERATELY DID NOT (D-488).** It read: "Nothing in Bolna's published
     documentation says the agent carries one or what it would be called ... inventing a
     `rag_id` field here would make the suite assert our own guess back at us." The mirror
     says where it lives — `tasks[].tools_config.llm_agent.llm_config.vector_store

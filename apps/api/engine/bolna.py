@@ -1655,7 +1655,7 @@ _AGENT_KB_REF_KEYS = frozenset(
 _AGENT_WALK_MAX_DEPTH = 10
 
 
-# --- the knowledge base's wire constants (D-459) ---------------------------------
+# --- the knowledge base's wire constants (D-488) ---------------------------------
 #
 # EVERY VALUE HERE IS READ FROM THE HASH-PINNED MIRROR, page and line, because each one
 # is either a limit the vendor enforces or a default that silently decides how a client's
@@ -2036,7 +2036,7 @@ def _agent_kb_refs(agent: dict[str, Any]) -> tuple[list[EngineKBRef], bool]:
     recorded as "the reference was cleared" would close the question in the direction that
     adds no work to our code, on no evidence.
 
-    **WHAT COUNTS AS "WE CAN SEE IT" CHANGED WHEN THE LOCATION WAS READ (D-459), AND THIS
+    **WHAT COUNTS AS "WE CAN SEE IT" CHANGED WHEN THE LOCATION WAS READ (D-488), AND THIS
     IS THE HALF THAT MATTERS.** It used to be "some candidate key is present somewhere",
     which meant an agent with NO knowledge — no `vector_store` block at all — read as
     `readable=False`, i.e. "cannot tell". That is exactly the state a successful
@@ -2566,7 +2566,7 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 # finding that Bolna signs nothing, and the vendor names the one address it delivers from.
 #
 # WHAT IS A DELIBERATE *NO* RATHER THAN AN UNKNOWN:
-# * `knowledge_base=True` (D-459). **IT WAS `True`, THEN `False`, AND IT IS NOW `True`
+# * `knowledge_base=True` (D-488). **IT WAS `True`, THEN `False`, AND IT IS NOW `True`
 #   FOR THE FIRST TIME WITH A PATH BEHIND IT — read all three states before trusting any
 #   sentence that survives from an earlier one.**
 #
@@ -3166,7 +3166,7 @@ class BolnaEngine:
             tasks = body["agent_config"]["tasks"]
             tasks[0]["tools_config"]["api_tools"] = api_tools
         # THE KNOWLEDGE LINKAGE, AND IT IS A PARAMETER RATHER THAN A FIELD OF `AgentConfig`
-        # (D-459). What an agent KNOWS is our state; which VECTOR IDS the engine minted for
+        # (D-488). What an agent KNOWS is our state; which VECTOR IDS the engine minted for
         # it is the engine's, and the two are related only by handles this adapter recorded.
         # Threading it through `AgentConfig` would put vendor-minted identifiers into the
         # model every caller builds, and every caller that did not know to populate them
@@ -3192,7 +3192,7 @@ class BolnaEngine:
         """`PUT /v2/agent/{id}` — a FULL REPLACEMENT, which is why it reads first.
 
         **THE READ IS NOT AN OPTIMISATION, IT IS WHAT STOPS EVERY REPUBLISH FROM WIPING
-        THE AGENT'S KNOWLEDGE (D-459).** `PUT` *"replaces the entire agent
+        THE AGENT'S KNOWLEDGE (D-488).** `PUT` *"replaces the entire agent
         configuration"* (`bolna-findings/mirror/pages/api-reference/agent/v2/
         patch_update.md:9`), and `AgentConfig` carries no vector ids — deliberately, see
         `_agent_body`. So a body built from `cfg` alone omits `vector_store`, and this
@@ -3885,7 +3885,7 @@ class BolnaEngine:
         """The agent half of an attach or a detach: one full-replacement PUT.
 
         `cfg` IS THE CALLER'S AND CANNOT BE DERIVED HERE, which is the whole reason the
-        port carries it (D-459). `PATCH` cannot write `tasks` at all (see `update_agent`),
+        port carries it (D-488). `PATCH` cannot write `tasks` at all (see `update_agent`),
         so the write is a `PUT` -- and a `PUT` body assembled from `GET /v2/agent/{id}`
         would drop `agent_welcome_message` and `webhook_url`, neither of which is declared
         on the `AgentV2` response (`.../agent/v2/get.md:54-97`). The first is the sentence
@@ -3938,7 +3938,7 @@ class BolnaEngine:
         """Upload the approved document, wait for it, and make the agent reference it.
 
         **THIS CAPABILITY WAS `False` AND THE IMPLEMENTATION BEHIND IT COULD NEVER HAVE
-        WORKED (D-354). D-459 BUILT THE REAL ONE.** Four steps, and the order is the
+        WORKED (D-354). D-488 BUILT THE REAL ONE.** Four steps, and the order is the
         design:
 
         1. `POST /knowledgebase`, `multipart/form-data`, `file` = the RENDERED DOCUMENT
@@ -4013,6 +4013,17 @@ class BolnaEngine:
             # `files=` not `json=`: the route is `multipart/form-data`. The filename is
             # OURS and carries no caller data -- the vendor echoes it back as `file_name`
             # and shows it in their console, so it names the source, never a client's data.
+            #
+            # THE PART IS `bytes`, NOT A FILE OBJECT, AND THAT IS LOAD-BEARING RATHER THAN
+            # convenient: `vendor_request` retries through the throttle ladder, and a file
+            # object is consumed by the first attempt — the retry would upload ZERO bytes
+            # and the vendor would index an empty document without either side erroring.
+            #
+            # ⚠ WHAT THE LADDER CAN STILL DO, and it has no fix at this layer: a create
+            # that SUCCEEDED and whose response was lost is retried, and the account ends
+            # up with two knowledge bases where one is referenced. There is no idempotency
+            # key on this route to prevent it. The second is an orphan — money, invisible
+            # to `list_kb`, and gate 43e's subject.
             files={"file": (_kb_filename(source), document, "application/pdf")},
             data={
                 "chunk_size": str(KB_CHUNK_SIZE),

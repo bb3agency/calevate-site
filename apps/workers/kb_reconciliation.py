@@ -39,7 +39,7 @@ false the other way: the method opened with `require_capability("knowledge_base"
 raised because the capability was `False`, so the sweep made NO vendor call on this
 engine at all, and the paragraph was rewritten to say the sweep cost nothing.
 
-**D-459 FLIPPED THE CAPABILITY BACK TO `True` WITH A REAL IMPLEMENTATION, SO THE SWEEP
+**D-488 FLIPPED THE CAPABILITY BACK TO `True` WITH A REAL IMPLEMENTATION, SO THE SWEEP
 COSTS AGAIN — AND IT COSTS LESS THAN EITHER VERSION SAID.** `bolna.list_kb` no longer
 reads the account listing at all. The linkage was never on the knowledge base: the
 vendor's `Knowledgebase` row has no agent field
@@ -273,7 +273,7 @@ async def _sweep() -> str:
     against the same control.
 
     **THE PREMISE BEHIND THAT CONTROL IS NARROWER THAN IT WAS, AND THE CONTROL IS KEPT
-    ANYWAY (D-459).** It used to rest on `bolna.list_kb` filtering an account listing on
+    ANYWAY (D-488).** It used to rest on `bolna.list_kb` filtering an account listing on
     a field whose existence was a hand-maintained claim (pilot gate 8). That filter is
     gone: the linkage lives on the AGENT's `vector_ids` and `list_kb` reads it there, so
     an empty answer is a fact about the agent rather than a filter that matched nothing.

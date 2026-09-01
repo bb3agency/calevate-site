@@ -265,7 +265,7 @@ def test_a_v1_shaped_agent_is_still_readable() -> None:
     assert models.llm_model == "gpt-4.1-mini"
 
 
-# --- the knowledge base, on the wire the vendor documents (D-459) ------------
+# --- the knowledge base, on the wire the vendor documents (D-488) ------------
 #
 # THESE THREE CLAUSES REPLACED THREE THAT ASSERTED THE REFUSAL (D-354), and the
 # replacement is not a relaxation: what they asserted was that an absent capability
@@ -290,7 +290,7 @@ def _kb_source() -> KBSourceRef:
 
 
 def test_the_descriptor_says_this_engine_holds_a_knowledge_base() -> None:
-    """D-459, and the value has been both things for different reasons — see the long
+    """D-488, and the value has been both things for different reasons — see the long
     comment above `BOLNA_CAPABILITIES` before trusting either.
 
     `True` here is the claim that the four documented routes exist and that this adapter

@@ -401,7 +401,7 @@ async def _engine_kb_ref(session: AsyncSession, source_id: UUID) -> str | None:
 async def _engine_kb_digest(session: AsyncSession, source_id: UUID) -> str | None:
     """The content digest of the document we last uploaded for this source.
 
-    THE IDEMPOTENCY KEY (D-459), and it is stored rather than recomputed because the two
+    THE IDEMPOTENCY KEY (D-488), and it is stored rather than recomputed because the two
     questions are different: recomputing tells us what the CURRENT chunks render to,
     while this tells us what the engine was actually HANDED. A publish is a no-op at the
     vendor only when those two agree AND the handle they produced is still attached.
@@ -553,7 +553,7 @@ def _digest_of(document: bytes) -> str:
 async def _publish_config(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> AgentConfig:
     """The agent's configuration, exactly as a publish would send it.
 
-    WHY THIS FUNCTION EXISTS (D-459). On an engine that keeps the knowledge linkage as
+    WHY THIS FUNCTION EXISTS (D-488). On an engine that keeps the knowledge linkage as
     AGENT state, attaching a document is a WRITE to the agent — and on Bolna the only
     route that writes it is a full replacement (`PUT /v2/agent/{id}`; `PATCH` updates a
     closed list of attributes that does not include `tasks`, and *"Any other field in the
@@ -764,7 +764,7 @@ async def _reconcile_engine_state(
     vendor read into an outage of the approval workflow. It can prove a divergence; it can
     never prove the absence of one.
 
-    **THE `list_kb` CAVEAT THIS DOCSTRING CARRIED IS RETIRED (D-459).** It read that the
+    **THE `list_kb` CAVEAT THIS DOCSTRING CARRIED IS RETIRED (D-488).** It read that the
     method "filters strictly by agent and so degrades to an empty list if the engine's
     rows turn out not to carry that linkage". They never carried it: the vendor's
     `Knowledgebase` row has no agent field at all
@@ -840,14 +840,14 @@ async def _detach_superseded(
     Refusing keeps the client whole: their agent still answers, from text a human
     approved. What they lose is the UPDATE, and they are told so. `kind` is inherited from
     the adapter's own error so a rate limit stays retryable and a rejection stays not.
-    Since D-459 the retry is no longer free — the new version is attached by the time this
+    Since D-488 the retry is no longer free — the new version is attached by the time this
     runs — so `publish_source` compensates by removing it before it re-raises.
 
     A version we have no handle for is the same refusal for the same reason, raised one
     step earlier by `_require_addressable`: we cannot remove what we cannot address, so
     we must not publish over it.
 
-    **A HANDLE THE ENGINE NO LONGER HOLDS IS A SUCCESS, NOT A FAILURE (D-459), and that
+    **A HANDLE THE ENGINE NO LONGER HOLDS IS A SUCCESS, NOT A FAILURE (D-488), and that
     is what makes a crashed publish self-heal.** This function's postcondition is "the
     engine is not serving that copy". `publish_source`'s engine calls are outside the
     transaction, so a process that dies between a successful detach and the COMMIT leaves
@@ -898,7 +898,7 @@ async def _undo_attach(
     """Remove the copy this publish just attached, restoring the state it found.
 
     **THIS REPLACED `_reattach_after_failed_publish`, AND THE REPLACEMENT IS A CONSEQUENCE
-    OF REVERSING THE ORDER (D-459), not a change of mind about compensation.** While the
+    OF REVERSING THE ORDER (D-488), not a change of mind about compensation.** While the
     publish detached first, a failed attach left the agent with NOTHING and the old
     function put the superseded versions back. Now the attach happens first, so the only
     thing a failure can have added is the new copy, and the only compensation is to take
@@ -960,7 +960,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
        it, nothing in our state claims the agent knows something it does not — the
        opposite order would leave a client's dashboard confidently wrong.
     2. **THE NEW COPY IS ATTACHED FIRST AND THE SUPERSEDED ONES ARE WITHDRAWN AFTER, AND
-       THIS IS THE REVERSE OF WHAT THIS FUNCTION SHIPPED WITH (D-459).** The old order
+       THIS IS THE REVERSE OF WHAT THIS FUNCTION SHIPPED WITH (D-488).** The old order
        withdrew first and priced the gap at "one request of silence", which was true while
        `attach_kb` was a single call the engine either took or refused. It is not one call
        any more: on a real engine it is a document upload plus an indexing wait the vendor
@@ -1024,7 +1024,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
       `kb_engine_out_of_sync` rather than stacking a third copy; an operator clears it.
     * **Between the detach and the COMMIT.** The old copy is gone and our rows still name
       its handle. This used to poison every later publish with `kb_detach_failed` and a
-      remediation that could not work; since D-459 `_detach_superseded` treats a handle
+      remediation that could not work; since D-488 `_detach_superseded` treats a handle
       the engine no longer holds as its own postcondition, so the next publish clears the
       record and proceeds. Self-healing, and the only cost is the update that was lost.
     * **After the COMMIT.** Done. The T0 recompile below is the only step left and it is
@@ -1113,7 +1113,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     ]
     own_handle = await _engine_kb_ref(session, source_id)
 
-    # THE DOCUMENT, AND ITS DIGEST (D-459). Rendered before anything is touched, because
+    # THE DOCUMENT, AND ITS DIGEST (D-488). Rendered before anything is touched, because
     # a deployment with no renderer must refuse while the client's knowledge is still
     # whole rather than half way through a rollover.
     document = _render_document(
@@ -1122,7 +1122,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # `None` when this deployment has no renderer — see `_render_document`. The engine that
     # needs one then refuses by name; the engine that ingests text carries on as it always
     # has, and its re-upload guard has nothing to key on, which is the state it was in
-    # before D-459 rather than a regression.
+    # before D-488 rather than a regression.
     digest = _digest_of(document) if document is not None else None
 
     # THE RE-UPLOAD GUARD. Three conditions, and all three are load-bearing: we hold a
@@ -1148,7 +1148,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         if own_handle is not None:
             withdraw.append((source_id, own_handle))
         # ATTACH FIRST, DETACH SECOND — THE OPPOSITE OF THE ORDER THIS FUNCTION SHIPPED
-        # WITH, and the reversal is forced by what an attach became (D-459). It used to be
+        # WITH, and the reversal is forced by what an attach became (D-488). It used to be
         # a single call, so detaching first cost "one request of silence". A real attach is
         # an upload plus an indexing wait the vendor gives no bound for — up to
         # `KB_READY_TIMEOUT_S`, three minutes — and detaching first would take the client's

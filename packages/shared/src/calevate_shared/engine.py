@@ -3969,7 +3969,7 @@ class VoiceEngine(Protocol):
         to return is an adapter whose KB can only ever grow.
 
         **`agent` IS THE AGENT'S OWN CONFIGURATION, AND IT IS NOT OPTIONAL EVERYWHERE
-        (D-459).** On an engine that stores the knowledge linkage as AGENT STATE, making
+        (D-488).** On an engine that stores the knowledge linkage as AGENT STATE, making
         an uploaded document retrievable is a WRITE to the agent object — and where the
         only route that writes it is a FULL REPLACEMENT (Bolna: `PUT /v2/agent/{id}`,
         while `PATCH` updates a closed list of attributes that does not include `tasks`

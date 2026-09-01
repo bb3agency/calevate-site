@@ -775,7 +775,7 @@ class FakeEngine:
         self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
     ) -> EngineKBRef:
         # `agent` IS IGNORED HERE, AND THAT IS THE HONEST ANSWER RATHER THAN AN OVERSIGHT
-        # (D-459). It exists for engines that hold the knowledge linkage as agent state
+        # (D-488). It exists for engines that hold the knowledge linkage as agent state
         # and can only rewrite it with a full-replacement PUT; this engine's KB store is
         # keyed on the agent ref directly, so there is no second object to keep in step.
         # Accepting and ignoring it is what keeps the fake a fair stand-in: a fake that
