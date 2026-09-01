@@ -73,6 +73,7 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
     revisions: [
       { revision: "1", material: true },
       { revision: "2", material: true },
+      { revision: "3", material: true },
     ],
     effectiveDate: null,
   },
@@ -82,6 +83,7 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
     revisions: [
       { revision: "1", material: true },
       { revision: "2", material: true },
+      { revision: "3", material: true },
     ],
     effectiveDate: null,
   },
@@ -97,6 +99,7 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
     revisions: [
       { revision: "1", material: true },
       { revision: "2", material: true },
+      { revision: "3", material: true },
     ],
     effectiveDate: null,
   },
@@ -106,6 +109,7 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
     revisions: [
       { revision: "1", material: true },
       { revision: "2", material: true },
+      { revision: "3", material: true },
     ],
     effectiveDate: null,
   },

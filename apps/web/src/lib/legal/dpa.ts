@@ -106,8 +106,11 @@ export const DPA: LegalDocument = {
             "We process your callers' personal data only on your documented instructions, " +
             "and for no other purpose. Your instructions are: these documents, the " +
             "configuration you set in the product (your agents, their prompts, your " +
-            "extraction schema, your retention periods, your integrations, and which " +
-            "of the AI models we run your agents use), and any " +
+            "extraction schema, your retention periods, your integrations, which " +
+            "of the AI models we run your agents use, and which of your own people you " +
+            "allow to curate the knowledge your agents answer from), the changes one of " +
+            "your people confirms in the product — including a change the in-app " +
+            "assistant proposed and they accepted — and any " +
             "further written instruction we accept.",
         },
         {
@@ -135,6 +138,14 @@ export const DPA: LegalDocument = {
               "carries the detail; if a no-training commitment on that leg is a condition " +
               "of your signing, tell us before you sign.",
             "We do not pool it across clients, sell it, or share it for anyone's marketing.",
+            "The in-app assistant we provide inside your dashboard reads your account to " +
+              "answer your own people's questions about it, and it can PROPOSE a small " +
+              "set of changes — a lead's status, adding a number to your suppression " +
+              "list, pausing a campaign, adding an entry to your knowledge. It never " +
+              "makes one: a proposal is shown to the person who asked, and it is their " +
+              "confirmation, subject to the same permission checks and the same " +
+              "compliance gates as the equivalent button, that carries it out. Anything " +
+              "it does on your account is therefore your instruction and not ours.",
             "If we believe an instruction of yours breaks the law, we will tell you and " +
               "may decline to act on it. Several such refusals are automatic — the " +
               "compliance gates described in the Acceptable Use Policy — and they are not " +
@@ -348,6 +359,21 @@ export const DPA: LegalDocument = {
             "instruction, and on our own initiative if you give none. The end-of-engagement " +
             "erasure has its own certificate, which enumerates what it does not erase " +
             "rather than leaving it to inference.",
+        },
+        {
+          kind: "para",
+          text:
+            "The in-app assistant keeps its own record of what your people asked it and " +
+            "the business facts it distilled from those conversations. Those records are " +
+            "about your users rather than about your callers, so they sit outside this " +
+            "Addendum's subject matter — but they are stated here because they are new, " +
+            "because they are personal data of your people, and because you should not " +
+            "have to find them in a release note. Identifiers are stripped before they " +
+            "are written, they are held per person, they are deleted after 180 days on " +
+            "the same nightly job as everything else, and every one of them is deleted " +
+            "when your account is closed. Section 9 of the Privacy Policy carries the " +
+            "period alongside the others, and section 12.4 states the one thing an " +
+            "erasure request does not do with them.",
         },
         {
           kind: "callout",
@@ -638,7 +664,13 @@ export const DPA: LegalDocument = {
                 "generating conversational responses; transcription; redaction; extraction " +
                 "of Client-defined fields; storage; retrieval; display; export and " +
                 "delivery to Client-configured destinations; suppression-list management; " +
-                "metering; erasure.",
+                "metering; erasure. It also includes the in-app assistant inside the " +
+                "Client's dashboard, which reads the Client's own records — leads, " +
+                "calls, campaigns, agents and knowledge content — to answer the " +
+                "questions the Client's own users put to it, and which proposes changes " +
+                "for one of those users to confirm. That leg sees names, statuses, " +
+                "counts and already-redacted call summaries; it is not given raw " +
+                "transcripts, raw numbers or extraction payloads.",
             ],
             [
               "Purpose",
@@ -721,6 +753,14 @@ export const DPA: LegalDocument = {
                   "containing unredacted data. The endpoint-to-permission map is asserted " +
                   "at start-up in four directions, including that every declared permission " +
                   "is actually held by some role.",
+                "Two capabilities inside a Client account are stated separately because " +
+                  "they moved. Staff may open the in-app assistant, which spends the " +
+                  "account's AI allowance and is therefore treated as a change-making " +
+                  "permission rather than a read. Staff may curate the knowledge the " +
+                  "Client's agents answer from ONLY in an account whose owner has " +
+                  "switched that on; it is off for every account until an owner turns " +
+                  "it on, staff cannot turn it on for themselves, and an operator " +
+                  "viewing the account cannot turn it on either.",
                 "Operator access to a client account is read-only, requires a short-lived " +
                   "signed grant bound to that operator and that client, is revoked " +
                   "instantly by sign-out or role change, and is audited twice.",

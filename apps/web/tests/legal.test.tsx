@@ -764,6 +764,81 @@ describe("what each document must contain", () => {
    * the document it names — "of the Terms of Service" reads that document, "of this
    * policy" and a bare reference read their own.
    */
+  /**
+   * THE IN-APP ASSISTANT BECAME AN AGENT AND GAINED A MEMORY, AND NO DOCUMENT SAID SO
+   * (docs/LEGAL-SURFACE.md F-16).
+   *
+   * The failure this pins is the OMISSION shape rather than the misstatement shape, which
+   * is why nothing was red while it was true. `apps/api/copilot/__init__.py` said in
+   * capitals that nothing in the package persisted, and the panel told the user "it never
+   * saves anything"; `copilot_memories` (migration `d4a9c17e6b02`) then shipped a
+   * tenant-scoped, per-user store of what a client's staff asked and what an hourly worker
+   * distilled out of it. A new CATEGORY of stored personal data that no published document
+   * mentions is a DPDP notice defect, not a documentation one — so the category, its
+   * period, its purpose and the one thing an erasure does NOT do with it are asserted
+   * here, on the four documents that carry them.
+   */
+  it("says the in-app assistant persists, and never claims it acts alone", () => {
+    const privacy = textOf(bySlug("privacy"));
+    // The CATEGORY (privacy §3.2) — what is kept, and the limit of the redaction pass.
+    expect(privacy).toMatch(/keeps a record of what you asked it and what it answered/);
+    expect(privacy).toMatch(/recognises identifiers and\s+not names/i);
+    // The PERIOD (privacy §9) — the number `scripts/seed.py` installs for `copilot_memory`,
+    // stated in the same table as every other category rather than in a footnote.
+    expect(privacy).toMatch(/What the in-app assistant remembers/);
+    expect(privacy).toMatch(/180 days/);
+    // The ERASURE LIMIT (privacy §12.4). Disclosed BEFORE the certificate carries it, and
+    // marked as such — FOLLOW-UP-12 closes the mechanism half. If somebody adds the
+    // `ERASURE_LIMITATIONS` entry, this assertion is what tells them to drop the marker.
+    expect(privacy).toMatch(/an erasure does not search what the in-app assistant remembers/);
+
+    // PROPOSES, NEVER PERFORMS — the promise the write tools have to keep, in the two
+    // documents a client is bound by. `write_tools.confirm()` is the only code there that
+    // mutates, and it runs the same gated service function a human's click runs.
+    expect(textOf(bySlug("dpa"))).toMatch(/It never\s+makes one/);
+    expect(textOf(bySlug("terms"))).toMatch(/carries none of them out by itself/);
+
+    // The store must never be described as absent again. This is the sentence the code
+    // itself had to withdraw, so the document may not reintroduce it.
+    for (const slug of ["privacy", "dpa", "subprocessors", "terms"]) {
+      expect(
+        textOf(bySlug(slug)),
+        `/legal/${slug} says the assistant stores nothing — it stores copilot_memories`,
+      ).not.toMatch(/assistant (?:never saves|saves nothing|stores nothing|keeps nothing)/i);
+    }
+  });
+
+  /**
+   * WHICH PROVIDER SERVES WHICH LEG, AND THE ONE THE REGISTER GOT WRONG (F-16).
+   *
+   * The register told a client that the OpenAI row served "the dashboard assistant on
+   * redacted data". `agents/llm_models.DASHBOARD_TERMS_UNREAD` holds `{"openai"}` and
+   * `dashboard_leg_reason` bars it — deliberately fail-closed, because nobody here has
+   * read that vendor's data-use position from a primary source and an unread position is
+   * not a permission. Over-disclosing a data flow is a smaller wrong than hiding one and
+   * it is still wrong: it tells a buyer's counsel that a vendor receives content it never
+   * sees, on the page whose entire job is saying where data goes.
+   */
+  it("does not claim the unread-terms provider serves the in-app assistant", () => {
+    const openAiRows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
+      block.kind === "table" ? block.rows.filter((row) => (row[0] ?? "") === "OpenAI") : [],
+    );
+    expect(openAiRows, "the OpenAI register row").toHaveLength(1);
+    const row = openAiRows[0] as readonly string[];
+    expect(row[1] ?? "", "the OpenAI row must say it does not serve the assistant leg").toMatch(
+      /does NOT serve the in-app assistant/,
+    );
+    expect(row[2] ?? "", "the OpenAI row must not claim assistant content reaches it").toMatch(
+      /Nothing from the in-app assistant reaches it/,
+    );
+
+    // And the page must state the general rule the bar comes from, so the next vendor
+    // added is measured against it rather than against this one row.
+    expect(textOf(bySlug("subprocessors"))).toMatch(
+      /provider serves it only where somebody here has read/,
+    );
+  });
+
   it("resolves every clause reference in the published prose", () => {
     /** "6" and "6.1" for every numbered heading, section and subsection alike. */
     const numbersIn = (doc: LegalDocument): Set<string> => {
