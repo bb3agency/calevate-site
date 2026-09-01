@@ -20,6 +20,7 @@ import json
 import pytest
 
 from apps.api.copilot import prompt as prompt_module
+from apps.api.copilot import tools as tools_module
 from apps.api.copilot.schemas import MAX_OPTIONS, CopilotAskIn
 from apps.api.core.errors import ProblemError
 
@@ -267,6 +268,33 @@ def test_the_fill_job_is_told_to_draft_rather_than_interrogate() -> None:
     # The fact/PII ban survives the rescoping — drafting form content is permitted, passing
     # off an invented real-world fact as real is not.
     assert "fabricate a FACT" in prompt_module.SYSTEM_PROMPT
+
+
+def test_a_missing_number_sends_the_model_to_a_tool_not_to_an_apology() -> None:
+    """THE SENTENCE THAT PRODUCED THE REPORTED BUG (D-497), PINNED THE RIGHT WAY ROUND.
+
+    The LIVE BUSINESS STATE paragraph used to end "a number that is not in it is a number
+    you do not have, not a zero" — written against fabrication, and correct about that, but
+    it is read AFTER the block and therefore last, which is where a model resolves a
+    conflict. It beat "ALWAYS PREFER CALLING A TOOL" fifteen lines above it. Asked "how
+    many leads do I currently have?" the copilot answered "I cannot see the total number of
+    leads. I can only see that you have 0 new, interested, or hot leads" — a verbatim
+    reading of `<leads_waiting>` and a refusal to call `leads_search`, which was in the tool
+    array the whole time. "ok how many active agents?" got nothing at all until it was
+    re-asked.
+
+    FAILS IF: the "you do not have" phrasing comes back, or the instruction to look up
+    rather than report blindness is dropped from either position. Both are needed: the
+    system prompt frames it, the closing rules sit last.
+    """
+    assert "a number you do not have" not in prompt_module.SYSTEM_PROMPT
+    assert "HAVE NOT LOOKED UP YET" in prompt_module.SYSTEM_PROMPT
+    for text in (prompt_module.SYSTEM_PROMPT, prompt_module.CLOSING_RULES):
+        assert "cannot see" in text, "the model must be told when NOT to say this"
+    # And it must be able to tell which tool answers which question, or "call a read tool"
+    # is advice it cannot act on. Enumerated from the registry, not retyped.
+    for tool in tools_module.READ_TOOLS:
+        assert tool.name in prompt_module.SYSTEM_PROMPT
 
 
 def test_the_prompt_says_the_copilot_cannot_save_dial_launch_or_spend() -> None:

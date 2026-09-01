@@ -119,6 +119,13 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
     # `won` and `lost` are not waiting on anybody; `contacted` is not a waiting status.
     assert state.counts.leads_waiting == {"hot": 2, "interested": 1, "new": 1}
     assert state.counts.campaigns == {"running": 1, "paused": 0, "scheduled": 0, "draft": 1}
+    # THE TOTAL IS EVERY STATUS, NOT THE WAITING THREE (D-497). Six leads went in; four of
+    # them are in a waiting status and `won` and `lost` are the two that used to be
+    # invisible. A block that reported 4 here would be the bug this field exists to fix.
+    assert state.counts.leads_total == 6
+    assert state.counts.leads_last_7_days == 6
+    # `create_organization` seeds exactly one agent, and it starts as a draft.
+    assert state.counts.agents == {"live": 0, "paused": 0, "draft": 1}
     # THE BLOCKERS ARE THE GATES' OWN ANSWER, NOT A SECOND DERIVATION. Asserted against
     # `readiness_rows` for the same tenant rather than against a hand-written list: a
     # literal here would be this test agreeing with a copy of the compliance rules, which
@@ -132,7 +139,9 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
 
     rendered = context.render_live(state)
     assert '<calls today="2" last_7_days="3"/>' in rendered
+    assert '<leads total="6" last_7_days="6"/>' in rendered
     assert '<leads_waiting hot="2" interested="1" new="1"/>' in rendered
+    assert '<agents live="0" paused="0" draft="1"/>' in rendered
     assert "Kondapur" not in rendered, "a campaign NAME is tenant-authored text and costs tokens"
 
 
@@ -164,12 +173,19 @@ async def test_one_tenants_block_never_carries_anothers_numbers() -> None:
     assert quiet.counts.calls_today == 0
     assert quiet.counts.leads_waiting["hot"] == 0
     assert quiet.counts.campaigns["running"] == 0
+    assert quiet.counts.leads_total == 0
     assert busy.counts.calls_today == 5
     assert busy.counts.leads_waiting["hot"] == 4
     assert busy.counts.campaigns["running"] == 1
+    # THE CROSS-TENANT ZERO FOR EVERY NEW COUNT (hard rule 1). The busy tenant has four
+    # leads and an agent of its own; the quiet tenant's total and roster must not see them.
+    assert busy.counts.leads_total == 4
+    assert quiet.counts.agents["draft"] == 1, "its own seeded agent, and only its own"
+    assert busy.counts.agents["draft"] == 1
 
     # And the rendered artefact — the thing that actually reaches the model.
     assert '<calls today="0" last_7_days="0"/>' in context.render_live(quiet)
+    assert '<leads total="0" last_7_days="0"/>' in context.render_live(quiet)
     assert '<leads_waiting hot="0" interested="0" new="0"/>' in context.render_live(quiet)
 
 

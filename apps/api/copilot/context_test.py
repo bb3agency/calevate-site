@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from apps.api.agents.models import AGENT_STATUSES
 from apps.api.copilot import context
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.schemas import CopilotAskIn
@@ -32,6 +33,7 @@ def _state(
     calls_today: int = 3,
     calls_week: int = 19,
     hot: int = 2,
+    leads_total: int = 11,
     blockers: tuple[str, ...] | None = ("kyc_missing", "agreements_not_accepted"),
 ) -> context.LiveState:
     return context.LiveState(
@@ -41,6 +43,9 @@ def _state(
             calls_last_7_days=calls_week,
             leads_waiting={"hot": hot, "interested": 1, "new": 4},
             campaigns={"running": 1, "paused": 0, "scheduled": 0, "draft": 2},
+            leads_total=leads_total,
+            leads_last_7_days=5,
+            agents={"live": 1, "paused": 0, "draft": 1},
         ),
         blocker_rules=blockers,
     )
@@ -57,9 +62,38 @@ def test_the_block_is_fenced_labelled_and_carries_every_half() -> None:
     assert rendered.endswith(context.LIVE_CLOSE)
     assert 'now_ist="2026-08-31 18:42"' in rendered
     assert '<calls today="3" last_7_days="19"/>' in rendered
+    assert '<leads total="11" last_7_days="5"/>' in rendered
     assert '<leads_waiting hot="2" interested="1" new="4"/>' in rendered
     assert '<campaigns running="1" paused="0" scheduled="0" draft="2"/>' in rendered
+    assert '<agents live="1" paused="0" draft="1"/>' in rendered
     assert '<blocker rule="kyc_missing"/>' in rendered
+
+
+def test_the_block_carries_a_lead_total_that_is_not_the_waiting_subset() -> None:
+    """THE FOUNDER'S FIRST QUESTION (D-497). "how many leads do I currently have?" was
+    answered "I cannot see the total number of leads. I can only see that you have 0 new,
+    interested, or hot leads" — because `<leads_waiting>` was the only lead element in the
+    block and it is a THREE-status subset of six. `contacted`, `won` and `lost` leads are
+    real leads and were invisible.
+
+    FAILS AGAINST THE OLD BEHAVIOUR: there was no `leads_total` field and no `<leads>`
+    element to carry it, so the total was not in the prompt at any value.
+    """
+    rendered = context.render_live(_state(leads_total=40))
+    assert 'total="40"' in rendered
+    # And the subset is still distinguishable from the total: a model must not be able to
+    # read `hot` as a share of a number that lives in the same element.
+    assert rendered.index("<leads ") < rendered.index("<leads_waiting ")
+    assert "total=" not in rendered.split("<leads_waiting ")[1].split("/>")[0]
+
+
+def test_the_working_roster_is_every_agent_status_except_the_archive() -> None:
+    """`LIVE_AGENT_STATUSES` is the roster's own definition of "working", enumerated from
+    `agents/models.AGENT_STATUSES` rather than recalled — so a fifth status added to the
+    product fails here instead of going silently uncounted in every copilot answer."""
+    assert set(context.LIVE_AGENT_STATUSES) == set(AGENT_STATUSES) - {"archived"}
+    # "active" means live, and the first attribute is the one a model summarises from.
+    assert context.LIVE_AGENT_STATUSES[0] == "live"
 
 
 def test_hot_is_first_because_it_is_the_lead_that_costs_money_to_ignore() -> None:
@@ -124,10 +158,18 @@ def test_the_block_is_small_by_construction() -> None:
 
     The ceiling is asserted against a MAXIMAL state — every waiting status, every live
     campaign status, and more blocker rules than `readiness.ROW_COPY` can currently
-    produce — so the number cannot be beaten by picking a small example. 800 bytes is
-    roughly 200 tokens; the point is not the exact figure but that adding a list of lead
+    produce — so the number cannot be beaten by picking a small example. 1,000 bytes is
+    roughly 250 tokens; the point is not the exact figure but that adding a list of lead
     names or campaign names to this block moves it by an order of magnitude and fails
     here.
+
+    ⚠ **RAISED FROM 800 BY D-497, WHICH IS THE ONLY LEGITIMATE WAY TO MOVE THIS NUMBER:
+    for scalars.** The lead total, the leads-this-week count and the three agent-status
+    counts are five more integers, and the maximal render went 771 → 882 bytes. They are
+    the block's cheapest possible growth and they answer the two questions the founder
+    actually asked. What the ceiling exists to stop is unchanged and still fails: one
+    tenant-authored NAME (a lead, a campaign, an agent) is unbounded per row and
+    unbounded in number, and property 2 forbids it independently.
     """
     worst = context.LiveState(
         now_ist=AT,
@@ -136,6 +178,9 @@ def test_the_block_is_small_by_construction() -> None:
             calls_last_7_days=9_999_999,
             leads_waiting=dict.fromkeys(context.WAITING_STATUSES, 999_999),
             campaigns=dict.fromkeys(context.LIVE_CAMPAIGN_STATUSES, 999_999),
+            leads_total=9_999_999,
+            leads_last_7_days=999_999,
+            agents=dict.fromkeys(context.LIVE_AGENT_STATUSES, 999_999),
         ),
         blocker_rules=(
             "account_suspended",
@@ -150,7 +195,7 @@ def test_the_block_is_small_by_construction() -> None:
             "big_red_switch",
         ),
     )
-    assert len(context.render_live(worst).encode("utf-8")) < 800
+    assert len(context.render_live(worst).encode("utf-8")) < 1_000
 
 
 # --- what it must never say -----------------------------------------------------------

@@ -132,6 +132,48 @@ async def test_leads_search_filters_by_status_and_names_the_lead() -> None:
     assert "1 leads with status hot" in hot
 
 
+async def test_leads_search_reports_a_total_and_a_full_status_breakdown() -> None:
+    """THE FOUNDER'S FIRST QUESTION, AT THE TOOL (D-497). "how many leads do I currently
+    have?" got "I cannot see the total number of leads." The live block was one cause; this
+    was the other, and it is the one a model that DID call the tool would still have hit.
+
+    The old renderer got its total from `_listing`, which prints one only when it EXCEEDS
+    the rows shown. Six leads with the default limit of ten therefore rendered "6 leads:" —
+    a count, but only by accident of the phrasing — and, worse, a status FILTER made the
+    number the filtered count with no way to see the whole. The count line is now
+    unconditional and covers all six statuses, including `contacted`, `won` and `lost`,
+    which no other copilot surface exposes at all.
+
+    FAILS AGAINST THE OLD BEHAVIOUR on the filtered call: it said "1 leads with status hot"
+    and nothing about the other three.
+    """
+    tenant_id, agent_id = await _tenant()
+    for index, status in enumerate(("hot", "new", "won", "lost")):
+        await _lead(
+            tenant_id, agent_id, name=f"Lead {index}", status=status, phone=f"+91987651{index:04d}"
+        )
+
+    every = await _run("leads_search", tenant_id)
+    assert "This account has 4 lead(s) in total" in every
+    assert "won 1" in every and "lost 1" in every
+
+    # The total survives a status filter — the whole point of `status_counts`, which is
+    # never narrowed by the status asked for.
+    hot = await _run("leads_search", tenant_id, status="hot", limit=None)
+    assert "This account has 4 lead(s) in total" in hot
+    assert "hot 1" in hot
+
+
+async def test_leads_search_states_the_total_even_when_it_returns_no_rows() -> None:
+    """ZERO IS A COUNT AND MUST BE SAID AS ONE. `_listing` collapses an empty page to "No
+    rows", which is a good sentence about a LIST and a non-answer to "how many". A brand
+    new account asking "how many leads do I have?" must be told nought, not told that the
+    assistant could not see."""
+    tenant_id, _ = await _tenant()
+    result = await _run("leads_search", tenant_id)
+    assert "This account has 0 lead(s) in total" in result
+
+
 async def test_leads_search_masks_the_phone_number_it_returns() -> None:
     """Hard rule 5 / D-127 G-2, on the way OUT. `LeadOut.phone_e164` is a full E.164
     number — legitimately, on the client's own screen — and the model is a US processor's
@@ -158,6 +200,25 @@ async def test_calls_recent_returns_calls_and_never_a_raw_number() -> None:
     assert "transferred" in result
     assert "90s" in result
     assert "9876500002" not in result
+
+
+async def test_calls_recent_can_be_narrowed_to_the_calls_that_did_not_connect() -> None:
+    """ "WHAT DID MY AGENT MISS?" (D-497). The tool returned the last N calls of any kind
+    and passed no filter, though `crm/service.list_calls` has taken one all along — so on
+    an account with more recent traffic than the cap, the misses are exactly the rows that
+    fall off the end and the question could not be answered at all.
+
+    FAILS AGAINST THE OLD BEHAVIOUR: the schema had no `status` argument, so this call
+    returned the completed row too."""
+    tenant_id, agent_id = await _tenant()
+    await _call(tenant_id, agent_id, status="completed", outcome="resolved")
+    await _call(tenant_id, agent_id, status="no_answer", duration_s=None, outcome=None)
+
+    missed = await _run("calls_recent", tenant_id, status="no_answer", limit=None)
+
+    assert "no_answer" in missed
+    assert "resolved" not in missed
+    assert "1 calls with status no_answer" in missed
 
 
 async def test_campaigns_list_carries_the_launch_blocker_by_its_gate_name() -> None:
@@ -344,6 +405,23 @@ async def test_the_snapshot_counts_only_this_tenants_calls() -> None:
 
     assert "1 calls" in await _run("business_snapshot", a_id)
     assert "3 calls" in await _run("business_snapshot", b_id)
+
+
+async def test_the_lead_total_counts_only_this_tenants_leads() -> None:
+    """THE SAME HOLE, ON THE COUNT D-497 ADDED. `leads_search` now states a TOTAL and a
+    per-status breakdown, and an aggregate that crossed a tenant boundary is a number, not
+    a name — so the parametrised isolation test above, which looks for foreign strings,
+    could not see it. One leaked count is a competitor's pipeline size.
+
+    FAILS IF: the count is ever taken from anything but the caller's own RLS session."""
+    a_id, a_agent = await _tenant("Tenant A")
+    b_id, b_agent = await _tenant("Tenant B")
+    await _lead(a_id, a_agent, name="OnlyLeadOfA", status="won")
+    for index in range(3):
+        await _lead(b_id, b_agent, name=f"LeadOfB {index}", phone=f"+91987652{index:04d}")
+
+    assert "This account has 1 lead(s) in total" in await _run("leads_search", a_id)
+    assert "This account has 3 lead(s) in total" in await _run("leads_search", b_id)
 
 
 # --- the permission check ---------------------------------------------------------------

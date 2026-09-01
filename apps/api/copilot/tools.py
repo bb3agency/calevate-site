@@ -62,6 +62,7 @@ from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import Permission, role_has
 from apps.api.crm import service as crm_service
+from apps.api.crm.models import CALL_STATUSES
 from apps.api.crm.performance import performance
 from apps.api.crm.schemas import LeadStatus
 from apps.api.db.session import tenant_session
@@ -271,7 +272,13 @@ async def _business_snapshot(
 async def _leads_search(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
-    """`crm/service.list_leads`, rendered.
+    """`crm/service.list_leads_page`, rendered — a COUNT LINE and then the rows.
+
+    `list_leads_page` RATHER THAN `list_leads`, and the reason is the whole point of this
+    tool now: the page reader hands back `status_counts` across all six statuses for the
+    same two queries, so a total and a per-status breakdown cost nothing extra and this
+    tool can answer "how many leads do I have?" — which it could not, because a total only
+    ever surfaced through `_listing`'s truncation note.
 
     NO `data` AND NO RAW NUMBER. `LeadOut.data` is the tenant's own extraction payload —
     the one thing hard rule 6 names alongside transcripts — and `phone_e164` is a full
@@ -282,12 +289,13 @@ async def _leads_search(
     # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
     del context
     status = args.get("status")
-    rows, total = await crm_service.list_leads(
+    asked = status if isinstance(status, str) and status else None
+    page = await crm_service.list_leads_page(
         session,
         limit=_cap(args.get("limit")),
-        # A status the enum does not admit reaches `list_leads` as a `WHERE status = :s`
+        # A status the enum does not admit reaches the reader as a `WHERE status = :s`
         # that matches nothing, which is a truthful empty answer rather than an error.
-        status=status if isinstance(status, str) and status else None,
+        status=asked,
     )
     lines = [
         " · ".join(
@@ -302,16 +310,34 @@ async def _leads_search(
             )
             if part
         )
-        for lead in rows
+        for lead in page.items
     ]
-    label = f"leads{f' with status {status}' if isinstance(status, str) and status else ''}"
-    return _clean(_listing(lines, total=total, shown_of=label))
+    label = f"leads{f' with status {asked}' if asked else ''}"
+    # THE COUNT LINE IS UNCONDITIONAL, AND THAT IS THE FIX (D-497). It used to be an
+    # artefact of `_listing`: a total appeared only when it EXCEEDED the rows shown, so
+    # "how many leads do I have?" was answerable from this tool only for an account with
+    # more than ten of them — and on an account with none, `_listing` returned "No rows"
+    # and the total vanished entirely. A count question must be answered by a count, and
+    # `list_leads_page` produces the whole breakdown in the same two queries `list_leads`
+    # already paid for (its docstring: the `GROUP BY status` replaced the `count(*)`), so
+    # the total and every status are free relative to what this tool already spent.
+    breakdown = ", ".join(f"{name} {count}" for name, count in page.status_counts.items())
+    header = f"This account has {sum(page.status_counts.values())} lead(s) in total ({breakdown})."
+    return _clean(f"{header}\n{_listing(lines, total=page.total, shown_of=label)}")
 
 
 async def _calls_recent(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
     """`crm/service.list_calls`, rendered.
+
+    THE `status` FILTER IS WHAT ANSWERS "WHAT DID MY AGENT MISS?" (D-497). Without it the
+    tool returned the last N calls of any kind, so a question about the ones that did NOT
+    connect was answerable only if they happened to be the most recent — on a busy day, the
+    misses are the rows the cap drops. `list_calls` already took the filter; nothing was
+    passing it. `no_answer`, `busy`, `failed` and `voicemail` are the four a person means by
+    "missed", and the tool's description names them so the model does not have to guess
+    which member of the enum it wants.
 
     `summary` IS ALREADY REDACTED PROSE where it is present — `list_calls` puts it through
     `redacted_summary` unconditionally, because there is no raw variant of the list — so
@@ -321,7 +347,9 @@ async def _calls_recent(
     """
     # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
     del context
-    rows = await crm_service.list_calls(session, limit=_cap(args.get("limit")))
+    status = args.get("status")
+    asked = status if isinstance(status, str) and status else None
+    rows = await crm_service.list_calls(session, limit=_cap(args.get("limit")), status=asked)
     lines = [
         " · ".join(
             part
@@ -338,7 +366,7 @@ async def _calls_recent(
         )
         for call in rows
     ]
-    return _clean(_listing(lines, shown_of="calls"))
+    return _clean(_listing(lines, shown_of=f"calls{f' with status {asked}' if asked else ''}"))
 
 
 async def _campaigns_list(
@@ -399,7 +427,12 @@ async def _agents_list(session: AsyncSession, context: ToolContext, args: Mappin
     """
     # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
     del context
-    rows = await roster.list_agents(session, limit=_cap(args.get("limit")))
+    # DEFAULT `MAX_ROWS`, NOT TEN. An agent roster is short in every account this product
+    # has (`roster.AGENT_ROSTER_LIMIT` is 200 and exists for the wide ROW, not for a long
+    # list), and the commonest question about it is a COUNT — "how many agents do I have?"
+    # answered from a page silently capped at ten, reported as "there may be more", is the
+    # truncation this module's docstring names as how a copilot comes to miscount.
+    rows = await roster.list_agents(session, limit=_cap(args.get("limit"), default=MAX_ROWS))
     lines = [
         " · ".join(
             part
@@ -529,9 +562,11 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ReadTool(
         name="leads_search",
         description=(
-            "This account's leads, newest first, optionally filtered to one status. "
-            "Returns the name, status, call count, masked phone and owner of each. Use it "
-            "to answer questions about who has been captured and what state they are in."
+            "This account's leads, newest first, optionally filtered to one status, AND "
+            "the total number of leads with a count for every status. Returns the name, "
+            "status, call count, masked phone and owner of each row. Use it to answer HOW "
+            "MANY leads there are as well as who has been captured and what state they "
+            "are in — it always reports the totals, even when it returns no rows."
         ),
         parameters={
             "type": "object",
@@ -559,17 +594,26 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         description=(
             "This account's most recent calls, newest first: when, direction, status, "
             "length, which agent took it, its outcome tag and a short redacted summary. "
-            "Use it to answer questions about what has been happening on the phone."
+            "Use it to answer questions about what has been happening on the phone. Filter "
+            "by status to find the calls a person means by 'missed' — no_answer, busy, "
+            "failed or voicemail — or the ones that connected (completed)."
         ),
         parameters={
             "type": "object",
             "properties": {
+                "status": {
+                    "anyOf": [
+                        {"type": "string", "enum": list(CALL_STATUSES)},
+                        {"type": "null"},
+                    ],
+                    "description": "Only calls in this state. Null means every state.",
+                },
                 "limit": {
                     "anyOf": [{"type": "integer"}, {"type": "null"}],
                     "description": f"How many to return, at most {MAX_ROWS}. Null means 10.",
-                }
+                },
             },
-            "required": ["limit"],
+            "required": ["status", "limit"],
             "additionalProperties": False,
         },
         permission="calls:read",
@@ -605,7 +649,9 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
             "properties": {
                 "limit": {
                     "anyOf": [{"type": "integer"}, {"type": "null"}],
-                    "description": f"How many to return, at most {MAX_ROWS}. Null means 10.",
+                    "description": (
+                        f"How many to return, at most {MAX_ROWS}. Null means {MAX_ROWS}."
+                    ),
                 }
             },
             "required": ["limit"],

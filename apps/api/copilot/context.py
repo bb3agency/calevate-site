@@ -35,8 +35,10 @@ FOUR PROPERTIES, EACH OF WHICH IS A CONSTRAINT ON WHAT MAY GO IN HERE.
    SYSTEM_PROMPT paragraph tells the model to treat a missing number as unknown.
 
 4. **ONE ROUND TRIP FOR THE NUMBERS; THE COMPLIANCE VERDICT COMES FROM THE GATE.** The
-   four counts are one `UNION ALL` statement rather than four service calls, because this
-   sits in front of a person waiting for their first token. The BLOCKERS are the one place
+   counts are one `UNION ALL` statement rather than one service call each, because this
+   sits in front of a person waiting for their first token — and that is why widening it
+   (D-497 added the lead total, the leads-this-week count and the agent roster counts)
+   costs no extra trip. The BLOCKERS are the one place
    that trade is refused: `legal/readiness.py::readiness_rows` is the organisation-level
    half of `campaigns/service.py::launch_blockers`, composed from the same predicates the
    dial gate and the launch gate call. Re-deriving those conditions in this module's SQL
@@ -51,8 +53,9 @@ has no `blocked` value (`campaigns/models.CAMPAIGN_STATUSES`): a campaign is dra
 scheduled, running, paused, completed or cancelled. What blocks an account's outbound is
 the organisation-level rule set — a suspension, KYC, agreements, DLT registration, the
 money, the first-campaign hold, the preference scrub. So the block reports the campaign
-counts BY STATUS, and separately the outbound blocker RULE NAMES, which are exactly the
-things a human must clear. Per-CAMPAIGN blockers (this campaign's template, its number,
+counts BY STATUS — and the agent counts the same way, since "how many active agents?"
+is the same shape of question — and separately the outbound blocker RULE NAMES, which are
+exactly the things a human must clear. Per-CAMPAIGN blockers (this campaign's template, its number,
 its contact list) are deliberately absent: they are per row, they need `launch_blockers`
 per campaign, and the campaign's own screen is where they are answered.
 """
@@ -104,8 +107,30 @@ WAITING_STATUSES: Final[tuple[LeadStatus, ...]] = ("hot", "interested", "new")
 #: screens are where a finished campaign is read.
 LIVE_CAMPAIGN_STATUSES: Final[tuple[str, ...]] = ("running", "paused", "scheduled", "draft")
 
-#: The four counts in ONE statement. `kind`/`key`/`n`, so the shape does not change when a
-#: status is added to either tuple above.
+#: Agent statuses worth a token — the WORKING roster, which is `agents/models.AGENT_STATUSES`
+#: minus the archive, exactly as `agents/roster.list_agents` defines the working set.
+#:
+#: **WHY AGENTS ARE IN THIS BLOCK AT ALL (D-497).** "how many active agents?" is one of the
+#: two questions the founder actually asked their own dashboard, and it went unanswered.
+#: There is an `agents_list` tool that answers it, but the block said nothing about agents
+#: and the SYSTEM_PROMPT told the model that a number absent from the block is a number it
+#: does not have — so the model reported blindness instead of looking. The prompt sentence
+#: is fixed too, and both halves are needed: the prompt so a gap routes to a tool, this so
+#: the commonest question needs no tool at all.
+#:
+#: `live` is FIRST for `WAITING_STATUSES`' reason: the first attribute is what a model
+#: reaches for when it summarises, and "active" means live.
+LIVE_AGENT_STATUSES: Final[tuple[str, ...]] = ("live", "paused", "draft")
+
+#: Every count in ONE statement. `kind`/`key`/`n`, so the shape does not change when a
+#: status is added to any tuple above. (It said "the four counts"; it has never been four
+#: since the campaign group was added and it is not four now — a count in prose is the
+#: defect class hard rule 4's own note names.)
+#:
+#: `'total'` AND `'week'` ARE NOT LEAD STATUSES, so they cannot collide with the grouped
+#: rows below them: `crm/schemas.LeadStatus` is new/contacted/interested/hot/won/lost.
+#: The lead TOTAL is every non-deleted lead in every status — `WAITING_STATUSES` is a
+#: subset by design, and "how many leads do I have?" is not answerable from a subset.
 #:
 #: `calls today` USES THE REPO'S ONE DEFINITION OF AN IST DAY (`IST_DAY_SQL`,
 #: `IST_TODAY_SQL`), imported rather than re-spelled — an Indian business day is 18:30 to
@@ -122,11 +147,19 @@ _COUNTS_SQL: Final = (
     "SELECT 'calls', 'week', count(*) FROM calls "
     "  WHERE created_at >= now() - interval '7 days' "
     "UNION ALL "
+    "SELECT 'leads', 'total', count(*) FROM leads WHERE deleted_at IS NULL "
+    "UNION ALL "
+    "SELECT 'leads', 'week', count(*) FROM leads "
+    "  WHERE deleted_at IS NULL AND created_at >= now() - interval '7 days' "
+    "UNION ALL "
     "SELECT 'leads', status, count(*) FROM leads "
     "  WHERE deleted_at IS NULL AND status = ANY(:waiting) GROUP BY status "
     "UNION ALL "
     "SELECT 'campaigns', status, count(*) FROM campaigns "
-    "  WHERE status = ANY(:campaign_statuses) GROUP BY status"
+    "  WHERE status = ANY(:campaign_statuses) GROUP BY status "
+    "UNION ALL "
+    "SELECT 'agents', status, count(*) FROM agents "
+    "  WHERE deleted_at IS NULL AND status = ANY(:agent_statuses) GROUP BY status"
 )
 
 
@@ -142,6 +175,21 @@ class LiveCounts:
     leads_waiting: dict[str, int]
     #: `status -> count` over `LIVE_CAMPAIGN_STATUSES`, zeros included, same reason.
     campaigns: dict[str, int]
+    #: EVERY lead this account has that is not deleted, in any status.
+    #:
+    #: **THE FIELD THIS BLOCK SHIPPED WITHOUT, AND THE ONE THE FOUNDER ASKED FOR (D-497).**
+    #: "how many leads do I currently have?" was answered "I cannot see the total number of
+    #: leads. I can only see that you have 0 new, interested, or hot leads" — which is a
+    #: verbatim reading of `leads_waiting` and of nothing else, because nothing else was
+    #: here. A three-status subset is not a total and a model that adds it up is inventing
+    #: one.
+    leads_total: int
+    #: Leads CREATED in the rolling 7 days — `calls_last_7_days`' instrument, on the other
+    #: noun, because "how many leads did we get this week?" is the same question about it.
+    leads_last_7_days: int
+    #: `status -> count` over `LIVE_AGENT_STATUSES`, zeros included, same reason. The
+    #: archive is excluded exactly as `roster.list_agents` excludes it.
+    agents: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +230,11 @@ async def _read_counts(session: AsyncSession) -> LiveCounts:
     rows = (
         await session.execute(
             text(_COUNTS_SQL),
-            {"waiting": list(WAITING_STATUSES), "campaign_statuses": list(LIVE_CAMPAIGN_STATUSES)},
+            {
+                "waiting": list(WAITING_STATUSES),
+                "campaign_statuses": list(LIVE_CAMPAIGN_STATUSES),
+                "agent_statuses": list(LIVE_AGENT_STATUSES),
+            },
         )
     ).all()
     tallies = {(str(kind), str(key)): int(n or 0) for kind, key, n in rows}
@@ -195,6 +247,9 @@ async def _read_counts(session: AsyncSession) -> LiveCounts:
         campaigns={
             status: tallies.get(("campaigns", status), 0) for status in LIVE_CAMPAIGN_STATUSES
         },
+        leads_total=tallies.get(("leads", "total"), 0),
+        leads_last_7_days=tallies.get(("leads", "week"), 0),
+        agents={status: tallies.get(("agents", status), 0) for status in LIVE_AGENT_STATUSES},
     )
 
 
@@ -256,14 +311,25 @@ def render_live(state: LiveState) -> str:
             f"<calls today={xml_attr(counts.calls_today)} "
             f"last_7_days={xml_attr(counts.calls_last_7_days)}/>"
         )
+        parts.append(
+            f"<leads total={xml_attr(counts.leads_total)} "
+            f"last_7_days={xml_attr(counts.leads_last_7_days)}/>"
+        )
         waiting = " ".join(
             f"{status}={xml_attr(count)}" for status, count in counts.leads_waiting.items()
         )
+        # TWO ELEMENTS RATHER THAN ONE WIDE `<leads>`: `total` and `last_7_days` are over
+        # every status, the waiting three are a subset, and one element carrying both
+        # invites the model to read `hot` as a share of `total` in the same breath as
+        # `new` — which it is not, since a lead is in exactly one of six statuses and only
+        # three of them are here.
         parts.append(f"<leads_waiting {waiting}/>")
         campaigns = " ".join(
             f"{status}={xml_attr(count)}" for status, count in counts.campaigns.items()
         )
         parts.append(f"<campaigns {campaigns}/>")
+        agents = " ".join(f"{status}={xml_attr(count)}" for status, count in counts.agents.items())
+        parts.append(f"<agents {agents}/>")
     if state.blocker_rules is None:
         parts.append('<unavailable part="outbound_blockers"/>')
     elif state.blocker_rules:
@@ -311,6 +377,7 @@ async def live_state_block(tenant_id: UUID) -> str:
 
 
 __all__ = [
+    "LIVE_AGENT_STATUSES",
     "LIVE_CAMPAIGN_STATUSES",
     "LIVE_CLOSE",
     "LIVE_OPEN",
