@@ -519,6 +519,91 @@ async def test_listing_reads_the_agent_rather_than_the_account_listing() -> None
     )
 
 
+def _kb_stub() -> tuple[Any, dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """A stateful stand-in for the four knowledge routes plus the agent object.
+
+    STATEFUL, for the reason the conformance stub is: a handler that answered every POST
+    with one id and every DELETE with 200 would let an adapter that attaches nothing and
+    detaches nothing pass a lifecycle test end to end. The first read of a knowledge base
+    answers `processing`, because that is what a create returns and it is what forces the
+    wait to exist.
+    """
+    agents: dict[str, dict[str, Any]] = {"a1": {}}
+    kbs: dict[str, dict[str, Any]] = {}
+    reads: dict[str, int] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path, method = request.url.path, request.method
+        if path == "/knowledgebase" and method == "POST":
+            n = len(kbs) + 1
+            rag = f"rag_{n}"
+            kbs[rag] = {"rag_id": rag, "vector_id": f"vec_{n}", "status": "processing"}
+            reads[rag] = 0
+            return httpx.Response(200, json={"rag_id": rag, "status": "processing"})
+        if path == "/knowledgebase/all":
+            return httpx.Response(200, json=list(kbs.values()))
+        if path.startswith("/knowledgebase/") and method == "GET":
+            rag = path.rsplit("/", 1)[-1]
+            if rag not in kbs:
+                return httpx.Response(404, json={"error": "unknown knowledgebase"})
+            reads[rag] += 1
+            if reads[rag] > 1:
+                kbs[rag]["status"] = "processed"
+            return httpx.Response(200, json=kbs[rag])
+        if path.startswith("/knowledgebase/") and method == "DELETE":
+            if kbs.pop(path.rsplit("/", 1)[-1], None) is None:
+                return httpx.Response(404, json={"error": "unknown knowledgebase"})
+            return httpx.Response(200, json={"message": "success", "state": "deleted"})
+        if path.startswith("/v2/agent/") and method == "GET":
+            agent_id = path.rsplit("/", 1)[-1]
+            return httpx.Response(200, json={"agent_id": agent_id, "data": agents[agent_id]})
+        if path.startswith("/v2/agent/") and method == "PUT":
+            agents[path.rsplit("/", 1)[-1]] = json.loads(request.content)["agent_config"]
+            return httpx.Response(200, json={"message": "success", "state": "updated"})
+        raise AssertionError(f"unexpected {method} {path}")
+
+    return handler, agents, kbs
+
+
+async def test_the_whole_knowledge_lifecycle_leaves_nothing_behind() -> None:
+    """Two sources on, one superseded, both off — asserted at BOTH objects each time.
+
+    The conformance suite proves attach-then-list and detach-then-list adapter-agnostically.
+    What it cannot see is the second object: whether the DOCUMENT went with the reference.
+    An adapter that un-references and never deletes passes every clause in that suite and
+    bills the account for every version any client has ever published.
+
+    The last assertion is the one that is easy to miss. Removing the final source must put
+    the agent back on the plain arm of the `llm_config` union — a knowledge agent pointed
+    at nothing is a shape nobody documents, and it is what an adapter that only ever
+    emptied the list would leave behind.
+    """
+    handler, agents, kbs = _kb_stub()
+    engine = _engine(handler)
+
+    first = await engine.attach_kb("a1", _kb_source(), agent=_config())
+    second = await engine.attach_kb("a1", _kb_source(), agent=_config())
+    assert await engine.list_kb("a1") == [first, second]
+    assert len(kbs) == 2, "each attach is a CREATE: there is no update route on this object"
+
+    await engine.detach_kb("a1", first, agent=_config())
+    assert await engine.list_kb("a1") == [second]
+    assert len(kbs) == 1, (
+        "the reference went but the document stayed — an un-referenced knowledge base is "
+        "billed for as long as the account exists and no per-agent read can see it"
+    )
+
+    snapshot = await engine.get_agent("a1")
+    assert snapshot.references_kb(first) is False, "D-41: the detached handle still dangles"
+    assert snapshot.references_kb(second) is True
+
+    await engine.detach_kb("a1", second, agent=_config())
+    assert await engine.list_kb("a1") == [] and kbs == {}
+    llm_agent = agents["a1"]["tasks"][0]["tools_config"]["llm_agent"]
+    assert llm_agent["agent_type"] == "simple_llm_agent"
+    assert "vector_store" not in llm_agent["llm_config"]
+
+
 # --- the rotating LLM credential (D-404) ----------------------------------------
 #
 # THREE DOCUMENTED ROUTES AND ONE UNDOCUMENTED SEMANTIC. `POST /providers` takes

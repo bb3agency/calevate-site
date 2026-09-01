@@ -453,8 +453,10 @@ async def _due_tenants() -> list[UUID]:
 #   no `engine_kb_ref`    — the engine must have given the copy back first. A superseded
 #                           version has its handle CLEARED on detach
 #                           (`kb/service._detach_superseded`), so a handle still recorded
-#                           means a detach that never completed — the exact residue
-#                           `_reattach_after_failed_publish` documents. Deleting our rows
+#                           means a detach that never completed — the residue
+#                           `_undo_attach` documents itself as leaving (D-488 renamed it
+#                           from `_reattach_after_failed_publish` when the publish order
+#                           reversed; the residue is the same). Deleting our rows
 #                           then would destroy the only record that can address the
 #                           engine's copy, which is the D-126 failure shape on a
 #                           different table. Those rows are the reconciliation sweep's

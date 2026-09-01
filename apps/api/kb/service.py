@@ -406,12 +406,13 @@ async def _engine_kb_digest(session: AsyncSession, source_id: UUID) -> str | Non
     while this tells us what the engine was actually HANDED. A publish is a no-op at the
     vendor only when those two agree AND the handle they produced is still attached.
 
-    Why it is needed at all: the vendor's knowledge base has no update route
-    (`bolna-findings/mirror/pages/api-reference/knowledgebase/overview.md:11-16`), so
-    every attach is a CREATE that mints a new object and de-duplicates nothing. A
-    double-clicked Publish, a retry after a timeout, or FLOWS §7's rollback onto the
-    version already live would each upload a second identical document, bill for it, and
-    overwrite the only handle that could have removed the first.
+    Why it is needed at all: `attach_kb` is a CREATE on every engine this port
+    describes — none of them offers an update — so each call mints a new object and
+    de-duplicates nothing (the vendor evidence for the one we run on is cited in
+    `apps/api/engine/`, which is the only place it may be named). A double-clicked
+    Publish, a retry after a timeout, or FLOWS §7's rollback onto the version already
+    live would each upload a second identical document, bill for it, and overwrite the
+    only handle that could have removed the first.
     """
     value = (
         await session.execute(
@@ -518,14 +519,14 @@ def _render_document(*, title: str, chunks: list[str], language: str) -> bytes |
     try:
         renderer = getattr(import_module(_RENDERER_MODULE), _RENDERER_FUNCTION)
     except (ImportError, AttributeError):
-        log.error("kb_renderer_unavailable", extra={"module": _RENDERER_MODULE})
+        log.error("kb_renderer_unavailable", extra={"renderer": _RENDERER_MODULE})
         return None
     document = renderer(title=title, chunks=chunks, language=language)
     # CHECKED, because a dynamically resolved callable is unchecked by construction and
     # this one's output goes straight into a multipart upload. `str` is the likely wrong
     # answer and would be encoded to plausible-looking bytes by httpx without a word.
     if not isinstance(document, bytes) or not document:
-        log.error("kb_renderer_returned_no_document", extra={"module": _RENDERER_MODULE})
+        log.error("kb_renderer_returned_no_document", extra={"renderer": _RENDERER_MODULE})
         raise ProblemError(
             kind="dependency",
             code="kb_renderer_unavailable",
@@ -554,15 +555,16 @@ async def _publish_config(session: AsyncSession, tenant_id: UUID, agent_id: UUID
     """The agent's configuration, exactly as a publish would send it.
 
     WHY THIS FUNCTION EXISTS (D-488). On an engine that keeps the knowledge linkage as
-    AGENT state, attaching a document is a WRITE to the agent — and on Bolna the only
-    route that writes it is a full replacement (`PUT /v2/agent/{id}`; `PATCH` updates a
-    closed list of attributes that does not include `tasks`, and *"Any other field in the
-    body is ignored"*, `bolna-findings/mirror/pages/api-reference/agent/v2/
-    patch_update.md:9,20`). An adapter cannot assemble that body from a read-back: the
-    vendor's `AgentV2` response declares neither `agent_welcome_message` nor
-    `webhook_url` (`.../agent/v2/get.md:54-97`), so a PUT built from a GET would silently
-    drop the agent's spoken AI-disclosure and recording notice and its event webhook. So
-    the publisher supplies the configuration and the adapter writes a body it was given.
+    AGENT state, attaching a document is a WRITE to the agent — and on the engine this
+    product runs, the only route that performs that write REPLACES the agent's whole
+    configuration, while the partial-update route cannot reach the field at all. An
+    adapter cannot assemble a full body from a read-back either, because the read-back
+    omits the agent's spoken notice and its event webhook: a publish that rebuilt the
+    agent from what it could read would silently drop the AI disclosure, the recording
+    notice and the only channel by which we learn a call happened. So the publisher
+    supplies the configuration and the adapter writes a body it was given. The vendor
+    citations for every clause of that are in `apps/api/engine/`, where hard rule 2 lets
+    them live.
 
     `service._to_config` RATHER THAN A SECOND RENDERING, for `publishing.engine_drift_for`'s
     reason: a config built here would drift from the one a real publish sends on the field
@@ -724,7 +726,7 @@ async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> se
     Deliberately NOT filtered to `is_active` sources. A superseded version has its handle
     CLEARED on detach (`_detach_superseded`), so a handle still recorded against an
     archived source means a detach that never completed — a divergence, not noise, and
-    exactly the residue `_reattach_after_failed_publish` documents itself as leaving.
+    exactly the residue `_undo_attach` documents itself as leaving.
     """
     rows = (
         await session.execute(
@@ -766,12 +768,11 @@ async def _reconcile_engine_state(
 
     **THE `list_kb` CAVEAT THIS DOCSTRING CARRIED IS RETIRED (D-488).** It read that the
     method "filters strictly by agent and so degrades to an empty list if the engine's
-    rows turn out not to carry that linkage". They never carried it: the vendor's
-    `Knowledgebase` row has no agent field at all
-    (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md:63-121`),
-    and the linkage lives on the AGENT's `vector_ids`, which is what `list_kb` now reads.
-    So an empty answer means the agent references nothing, which is a fact rather than a
-    filter artefact.
+    rows turn out not to carry that linkage". The rows never carried it — the linkage was
+    always a property of the AGENT, and `list_kb` reads it there now. So an empty answer
+    means the agent references nothing, which is a fact rather than a filter artefact.
+    The adapter's own docstring carries the vendor evidence; naming the field here would
+    put a vendor payload shape above the boundary.
 
     RETURNS the handles the engine reports, or `None` when the read failed — a third
     state the caller must not flatten into "none attached".
@@ -963,9 +964,9 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
        THIS IS THE REVERSE OF WHAT THIS FUNCTION SHIPPED WITH (D-488).** The old order
        withdrew first and priced the gap at "one request of silence", which was true while
        `attach_kb` was a single call the engine either took or refused. It is not one call
-       any more: on a real engine it is a document upload plus an indexing wait the vendor
-       publishes no bound for (`engine/bolna.py::KB_READY_TIMEOUT_S` allows three
-       minutes). Detaching first would take a client's knowledge away for the whole of
+       any more: on a real engine it is a document upload plus an indexing wait no vendor
+       publishes a bound for, and the adapter's own budget for it is minutes rather than
+       seconds. Detaching first would take a client's knowledge away for the whole of
        that, on every republish — the agent answering "I don't know" (T4
        refuse-and-escalate) to every caller for minutes because somebody corrected a
        price.
@@ -1129,7 +1130,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # handle, the bytes are the ones that handle was minted from, and the engine still
     # reports it attached. Any one of them missing and a fresh upload is the safe answer —
     # the vendor has no update route, so an attach is a CREATE that mints a new object and
-    # de-duplicates nothing (`.../knowledgebase/overview.md:11-16`). This is what makes a
+    # de-duplicates nothing — no engine this port describes offers an update. This is
     # double-clicked Publish, a retry after a timeout, and FLOWS §7's rollback onto the
     # version already live cost nothing instead of stacking a second billed copy the first
     # handle could never name again.
