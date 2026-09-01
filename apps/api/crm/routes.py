@@ -30,7 +30,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.crm import assist, saved_views, service
+from apps.api.crm import assist, lead_search, saved_views, service
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import attention_queue
 from apps.api.crm.performance import performance
@@ -523,6 +523,21 @@ def _parse_field_filters(raw: list[str], allowed: frozenset[str]) -> service.Fie
     return parsed
 
 
+def _tenant_of(principal: Principal) -> UUID:
+    """The account this request is about, for the ONE thing RLS cannot supply.
+
+    A semantic search METERS the question's embedding against a tenant's AI ceiling, and a
+    spend needs an account to land on — a session GUC cannot hand one back. Every other
+    predicate on these routes is still RLS and nothing here re-states tenancy as a filter.
+
+    `requires("leads:read")` has already refused a principal with no tenant (a client route
+    is never reached by an operator with no account open), so this is an assert rather than
+    a second refusal sentence.
+    """
+    assert principal.tenant_id is not None
+    return principal.tenant_id
+
+
 def _column_out(column: lead_column_registry.LeadColumn) -> LeadColumnOut:
     return LeadColumnOut(key=column.key, label=column.label, kind=column.kind, type=column.type)
 
@@ -551,7 +566,37 @@ def _refuse_search_in_query(search: str | None) -> None:
         raise _SEARCH_MOVED_TO_POST
 
 
-async def _leads_page(session: AsyncSession, lens: LeadSearchIn) -> LeadListOut:
+#: What the CSV export is told when the lens carries a semantic question (D-504).
+#:
+#: REFUSED, NEVER IGNORED, and this is the `_SEARCH_MOVED_TO_POST` failure in its most
+#: expensive form. `LeadLensIn` is shared by the table and the file, so an `ask` the export
+#: silently dropped would hand a client who had narrowed their screen to four matching
+#: leads a CSV of their ENTIRE contact list with full phone numbers — the widest possible
+#: read of the narrowest possible request, which `crm/columns.py` exists to make
+#: impossible and which this route has already shipped once.
+#:
+#: A refusal rather than an implementation, for now, because the honest export of a RANKING
+#: is not "the whole filtered set" the file promises: it is the top `_RANK_DEPTH` chunks
+#: fused, and a client pressing Export on 30 ranked rows would reasonably read the file as
+#: every lead that matches. Closing it means deciding what an exported ranking IS, which is
+#: a product answer and not a code change.
+_ASK_CANNOT_BE_EXPORTED = ProblemError(
+    kind="validation",
+    code="ask_cannot_be_exported",
+    title="Search results can't be exported yet",
+    detail=(
+        "A question like 'leads who asked about a 3BHK' ranks the best matches rather "
+        "than selecting a complete set, so a CSV of it would look like every matching "
+        "lead when it is not."
+    ),
+    remediation=(
+        "Clear the question and export by the filters instead, or open the leads you want "
+        "from the list."
+    ),
+)
+
+
+async def _leads_page(session: AsyncSession, lens: LeadSearchIn, *, tenant_id: UUID) -> LeadListOut:
     """One implementation of "the Leads table", for both shapes of the request.
 
     `agent_id` filters the ROWS as well as choosing the columns. It used to do only the
@@ -565,6 +610,39 @@ async def _leads_page(session: AsyncSession, lens: LeadSearchIn) -> LeadListOut:
     field_filters = _parse_field_filters(
         lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
     )
+    if lens.ask:
+        # THE SEMANTIC BRANCH (D-504). Same lens, same columns, same filters — only the
+        # ROWS and their ORDER come from somewhere else. It is a branch here rather than a
+        # second route because a client searching "3BHK in Gachibowli" inside "hot leads
+        # assigned to me" is asking ONE question, and two routes would have meant two
+        # column resolutions, two facet parsers and two places for the two to drift.
+        found = await lead_search.search_leads(
+            session,
+            tenant_id=tenant_id,
+            question=lens.ask,
+            limit=lens.limit,
+            status=lens.status,
+            search=lens.search,
+            agent_id=lens.agent_id,
+            assigned_to=lens.assigned_to,
+            field_filters=field_filters,
+        )
+        return LeadListOut(
+            items=list(found.leads),
+            columns=[_column_out(c) for c in resolved.columns],
+            available_columns=[_column_out(c) for c in available],
+            dropped_column_keys=list(resolved.dropped),
+            total=found.ranked,
+            limit=lens.limit,
+            # ALWAYS 0, AND `offset` IS IGNORED RATHER THAN HONOURED. A ranking is not a
+            # paginable set: page two of an RRF result would re-run the search, re-buy the
+            # question's embedding and re-rank from scratch, and any lead whose data
+            # changed in between would move across the boundary. The screen asks a
+            # narrower question instead, which is what `semantic_truncated` tells it.
+            offset=0,
+            status_counts_matching_search=found.status_counts,
+            semantic_truncated=found.exhausted,
+        )
     page = await service.list_leads_page(
         session,
         limit=lens.limit,
@@ -610,7 +688,7 @@ async def get_leads(
     assigned_to: UUID | None = None,
     columns: str | None = _COLUMNS_Q,
     f: list[str] = _FIELD_FILTER_Q,
-    _: Principal = Depends(requires("leads:read")),
+    principal: Principal = Depends(requires("leads:read")),
 ) -> LeadListOut:
     _refuse_search_in_query(search)
     return await _leads_page(
@@ -624,6 +702,7 @@ async def get_leads(
             columns=columns,
             f=f,
         ),
+        tenant_id=_tenant_of(principal),
     )
 
 
@@ -640,9 +719,9 @@ async def get_leads(
 async def search_leads(
     payload: LeadSearchIn,
     session: Session,
-    _: Principal = Depends(requires("leads:read")),
+    principal: Principal = Depends(requires("leads:read")),
 ) -> LeadListOut:
-    return await _leads_page(session, payload)
+    return await _leads_page(session, payload, tenant_id=_tenant_of(principal))
 
 
 async def _lead_facets(session: AsyncSession, lens: LeadLensIn) -> LeadFacetsOut:
@@ -833,6 +912,8 @@ async def _export_and_summary(
     an incident. Every member is an id, a key or a count; `search` is a BOOLEAN and never
     its text, because the search box accepts a phone suffix (hard rule 6).
     """
+    if lens.ask:
+        raise _ASK_CANNOT_BE_EXPORTED
     available = lead_column_registry.available(await service.lead_columns(session, lens.agent_id))
     chosen = _parse_columns(lens.columns)
     field_filters = _parse_field_filters(

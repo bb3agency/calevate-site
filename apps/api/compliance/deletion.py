@@ -245,6 +245,23 @@ KB_OUTCOME: Final = "searched_not_erased"
 # nothing" about an erasure that never searched it.
 KB_MATCH_KEY: Final = "knowledge_base_documents_matched"
 
+# HOW MANY SEARCHABLE PROJECTIONS OF THIS PERSON'S WORDS WERE DESTROYED, and how many
+# remembered facts about them went with them (D-503). Duplicated from
+# `apps.workers.retention.CALLER_VECTOR_KEY` / `CALLER_MEMORY_KEY` exactly as the four keys
+# above are, and for the same reason — neither package may import the other.
+#
+# They are on the certificate rather than in a sentence alone because a vector is the one
+# copy of a caller's words that nobody can read and nobody would miss: an erasure that
+# destroyed the transcript and left the embedding would produce a certificate that is true
+# in every field it states and false in the only field it does not.
+#
+# ABSENT IS NOT ZERO. Every proof written before `caller_chunks` existed carries neither
+# key, and a rendered `0` would tell a data principal "we looked in the vector store and
+# there was nothing" about an erasure that could not look — `deletion_proof._caller_sentence`
+# says the two states in two different sentences.
+CALLER_VECTOR_KEY: Final = "caller_vectors_erased"
+CALLER_MEMORY_KEY: Final = "caller_memories_erased"
+
 #: What an erasure can and cannot do at a sub-processor, as the certificate words it.
 #:
 #: `unconfirmed_pending_vendor_api` — the value the PROOF still carries on the wire — was
@@ -973,6 +990,8 @@ async def list_requests(session: AsyncSession, *, limit: int = 100) -> list[Dele
 __all__ = [
     "BACKUP_OUTCOME",
     "BACKUP_WINDOW_DAYS",
+    "CALLER_MEMORY_KEY",
+    "CALLER_VECTOR_KEY",
     "DELETION_JOB",
     "DELETION_SCOPE",
     "ENGINE_OUTCOME",

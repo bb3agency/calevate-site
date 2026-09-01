@@ -33,10 +33,16 @@ token costs (`billing/rates.llm_inr_per_ktok` — the one door to `unit_cost_pai
 from __future__ import annotations
 
 from typing import Final
+from uuid import UUID
 
+import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.billing.rates import llm_price_is_billable
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.workers import chat
 from apps.workers.chat import ChatLeg
 from apps.workers.extraction import azure_credentials
 
@@ -79,6 +85,38 @@ ASSIST_FEATURE_KB_EMBED: Final = "kb_embed"
 #: answered this lands on the tenant's AI ceiling like every other thing their own click
 #: caused, which is the existing rule rather than a new one.)
 ASSIST_FEATURE_KB_SEARCH: Final = "kb_search_embedding"
+
+#: `usage_events.meta.feature` for QUERY-TIME embedding of a search over PAST CALLS —
+#: `retrieval/caller_search.py`, reached from the copilot's `search_calls` tool.
+#:
+#: **ITS OWN NAME, AND THE SPLIT IS THE SAME ARGUMENT AS THE ONE ABOVE, NOT A NEW ONE.**
+#: `kb_search_embedding` is a question asked of what a client PUBLISHED; this is a question
+#: asked of what their callers SAID. They are two corpora, two access-control stories and
+#: two cost curves — a client who never uploads knowledge can still search a year of calls,
+#: and an operator sizing either curve needs to see it alone. One name would make the two
+#: unseparable in the only ledger that has them, which is exactly why ingestion and query
+#: were split in the first place.
+#:
+#: It bills the CLIENT's AI quota, like every other thing their own click caused: the
+#: search is a person on the dashboard asking a question, not a background sweep.
+ASSIST_FEATURE_CALL_SEARCH: Final = "call_search_embedding"
+
+#: `usage_events.meta.feature` for QUERY-TIME embedding of a search over LEADS —
+#: `crm/lead_search.py`, reached from the Leads screen and from the copilot's
+#: `leads_semantic_search` tool.
+#:
+#: A THIRD NAME, for the second of the two reasons the first split was made rather than
+#: for a new one. The corpora differ (what a client PUBLISHED, what their callers SAID,
+#: what the agent CAPTURED as a CRM record) and so do the curves: lead search is bounded by
+#: how many leads an account has and is asked by a salesperson working a list, while call
+#: search is bounded by call volume and is asked by an owner reviewing a week. An operator
+#: sizing either cannot do it from a merged number, and a client disputing a bill is owed
+#: the surface their click was on.
+#:
+#: It bills the CLIENT's AI quota, exactly as the other two query-time names do: a person
+#: on the dashboard typed a question. INGESTION of these same leads is the platform's spend
+#: and is metered by the shared sweep under its own name — one claim, one price check.
+ASSIST_FEATURE_LEAD_SEARCH: Final = "lead_search_embedding"
 
 #: Wall clock for one embedding request. Nobody is waiting on the sweep; the dashboard
 #: search is, which is why this is short — a hung provider costs a slow tool call, not a
@@ -153,13 +191,101 @@ def embedding_leg() -> ChatLeg | None:
     )
 
 
+async def embed_query_vector(
+    session: AsyncSession, *, tenant_id: UUID, question: str, feature: str
+) -> list[float] | None:
+    """One QUESTION as a vector, metered — or None, and then the dense arm is skipped.
+
+    **ONE IMPLEMENTATION FOR EVERY SEARCH SURFACE, and that is the point of it living here
+    rather than in an adapter.** Three surfaces now buy a question vector (knowledge, past
+    calls, leads) and every one of them has the same four obligations in the same order:
+    check the price BEFORE the provider is called, find the leg, meter what was bought
+    whether or not it was usable, and refuse a width the column cannot hold. Three copies
+    of that would be three places to get hard rule 7 right; they differ only in the
+    `feature` name the spend is filed under, which is therefore the only parameter.
+
+    **THE PRICE IS CHECKED BEFORE THE PROVIDER IS CALLED (hard rule 7).** Buying an
+    embedding this repository cannot price would either write a made-up `unit_cost_paid` on
+    an append-only row or record nothing at all; both are worse than answering from the
+    sparse arm. `embedding_price_is_billable` is total and never raises, so this is a branch
+    and not a failure.
+
+    Returning None on EVERY failure — no price, no leg, a provider error, a width the column
+    will not hold — is deliberate. A dashboard question is not the place to surface a
+    provider outage as an exception: the sparse arm still answers, the person still gets
+    rows, and the operator gets the log line.
+
+    HARD RULE 6: `feature` and an exception's TYPE, never the question and never a
+    provider's error body — which quotes the request, and the request is a person's own
+    words about their caller.
+    """
+    if not embedding_price_is_billable():
+        log.info("query_embedding_unpriced", extra={"model": EMBEDDING_MODEL, "feature": feature})
+        return None
+    leg = embedding_leg()
+    if leg is None:
+        log.info("query_embedding_no_provider", extra={"feature": feature})
+        return None
+    try:
+        outcome = await chat.embed(
+            leg, [question], dimensions=EMBEDDING_DIMS, timeout_s=EMBED_TIMEOUT_S
+        )
+    except (httpx.HTTPError, TimeoutError) as failure:
+        log.warning(
+            "query_embedding_failed",
+            extra={"feature": feature, "error": type(failure).__name__},
+        )
+        return None
+
+    # METERED WHETHER OR NOT THE VECTOR IS USABLE. We paid for the turn; a refused width is
+    # our problem, not a discount. `tokens_out=0` is the truth about an embedding rather
+    # than a default — the vendor's `usage` block has no output half at all.
+    if outcome.usage is not None:
+        await record_ai_assist_usage(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            tokens_in=outcome.usage.prompt_tokens,
+            tokens_out=0,
+            model=EMBEDDING_MODEL,
+            feature=feature,
+        )
+    vector = outcome.vectors[0] if outcome.vectors else None
+    if vector is None or len(vector) != EMBEDDING_DIMS:
+        log.warning(
+            "query_embedding_width",
+            extra={
+                "feature": feature,
+                "want": EMBEDDING_DIMS,
+                "got": 0 if vector is None else len(vector),
+            },
+        )
+        return None
+    return list(vector)
+
+
+def vector_literal(vector: list[float] | None) -> str | None:
+    """A vector as the text form `CAST(:q AS vector)` accepts, or None.
+
+    psycopg renders a Python list as a Postgres ARRAY, which the `vector` type will not
+    accept; the type's own text form is the bracketed literal. Spelled once here because
+    every adapter that passes a question vector into a `text()` statement needs it and a
+    second spelling is a silent `DataError` on one of them.
+    """
+    return None if vector is None else "[" + ",".join(map(repr, vector)) + "]"
+
+
 __all__ = [
+    "ASSIST_FEATURE_CALL_SEARCH",
     "ASSIST_FEATURE_KB_EMBED",
     "ASSIST_FEATURE_KB_SEARCH",
+    "ASSIST_FEATURE_LEAD_SEARCH",
     "EMBEDDING_DIMS",
     "EMBEDDING_MODEL",
     "EMBED_BATCH",
     "EMBED_TIMEOUT_S",
+    "embed_query_vector",
     "embedding_leg",
     "embedding_price_is_billable",
+    "vector_literal",
 ]

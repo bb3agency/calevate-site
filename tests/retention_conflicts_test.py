@@ -532,12 +532,29 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
             # `transcript` rather than a fifth category, for this test's own reason.
             "knowledge_gap_occurrences.question_redacted",
             "knowledge_gaps.example_question_redacted",
+            # THE VECTOR AND THE LEXEMES (D-503). `caller_chunks` stores no content and is
+            # still a copy of the transcript: an embedding is derived from the text by a
+            # deterministic function of it and is substantially invertible, and `tsv` is
+            # literally the caller's words as lexemes. `caller_memories.fact` rides the same
+            # clock because a memory is DISTILLED from what the caller said — `calls.summary`'s
+            # argument, one table over — and because a fifth category is a migration and a
+            # number the founder has to give, which is this test's own point.
+            "caller_chunks.tsv+embedding (transcript scopes)",
+            "caller_memories.fact",
         ),
         # `webhook_deliveries.payload_ref` names the object holding the CRM payload we
         # POSTed to a client's endpoint (D-23) — the same fields as
         # `call_extractions.data`, so the same category and the same clock. Filed under
         # `lead` rather than a fifth category for exactly the reason above.
-        "lead": ("call_extractions.data", "webhook_deliveries.payload_ref"),
+        "lead": (
+            "call_extractions.data",
+            "webhook_deliveries.payload_ref",
+            # The same projection table under the CRM clock: a lead's chunks are the same class
+            # of thing as `call_extractions.data`. One table, two clocks, decided by the row's
+            # own `retention_category` — which the projection registry sets from
+            # `models.SUBJECT_RETENTION`, so a scope cannot choose its own.
+            "caller_chunks.tsv+embedding (lead scope)",
+        ),
     }
     assert set(retention.DERIVED_COPIES) <= set(SHIPPED_TTLS)
 

@@ -610,6 +610,11 @@ _SCOPE_COUNTS: Final = (
     "recordings_destroyed",
     "recordings_within_trai_floor",
     "webhook_bodies_erased",
+    # The vector projection of every caller this account held, and every fact its agents
+    # had remembered about them (D-503). On the certificate for the per-subject path's
+    # reason: it is the copy a reader cannot check by eye.
+    "caller_vectors_erased",
+    "caller_memories_erased",
 )
 
 

@@ -369,6 +369,48 @@ kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
 --    was unusable" — kb_documents.gloss_state's argument, one table over.
 --  * `source_id` is denormalised beside `document_id`, because provenance on a result is
 --    the SOURCE's own name — what the client called the thing they uploaded.
+caller_chunks(id, tenant_id, subject_kind ENUM[lead,call_turn,call_summary,caller_memory],
+  subject_id UUID, idx INT, call_id UUID NULL, agent_id UUID, subject_ref TEXT,
+  subject_ref_kek_id INT, first_turn_idx INT NULL, last_turn_idx INT NULL,
+  retention_category ENUM[transcript,lead], occurred_at TIMESTAMPTZ, tsv tsvector,
+  embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,
+  content_sha256 TEXT, scrubbed_at TIMESTAMPTZ NULL)  -- BUILT (D-503, migration c6b1f0d47e83)
+-- `kb_chunks` above, pointed at a DATA PRINCIPAL's words instead of a client's own
+-- document. Same column types, same indexes (HNSW m=16/ef_construction=64 CONCURRENTLY,
+-- GIN(tsv), a partial index on the pending backlog), same FORCEd RLS, same "no content"
+-- rule. THE DIFFERENCE IS THE ERASURE SEAM, and it is the whole reason this is a second
+-- table rather than three more columns:
+--  * `kb_chunks` erases by CASCADE, which is sound ONLY because retention really DELETEs a
+--    kb_sources row. A DPDP erasure does NOT delete a call — it scrubs it in place and
+--    keeps the row as billing evidence (usage_events references it, FK RESTRICT) — so a
+--    cascade on call_id NEVER FIRES. `retrieval/caller_erasure.py` is the explicit arm,
+--    called from execute_deletion_request, execute_tenant_erasure and the nightly sweep.
+--  * A SCRUBBED ROW IS KEPT AND EMPTIED, never deleted: the ingestion sweep discovers
+--    un-projected subjects, so a deleted row would be re-projected next tick and a vector
+--    re-bought for text the erasure had just destroyed. `scrubbed_at` is the tombstone and
+--    `ck_caller_chunks_forgotten_has_no_keys` makes "no vector AND no lexemes" a database
+--    constraint rather than a convention in a worker.
+--  * `subject_ref` is `compliance/caller_ref`'s KEYED MAC of (tenant, E.164) under a
+--    PLATFORM_KEK-derived key — NOT export.subject_ref, which is unsalted over a ~10^9
+--    space and takes no tenant into the input. `subject_ref_kek_id` bounds the ring walk an
+--    erasure does, so a KEK rotation cannot hide a row from a §12 request.
+--  * ONE TABLE, THREE SCOPES. `subject_id` is an IDEMPOTENCY KEY and never a foreign key:
+--    a transcript chunk windows several turns (which retention may DELETE), a lead yields
+--    several chunks from one payload, and a caller memory derives from no single row.
+--  * `retention_category` is set by the projection registry from
+--    `retrieval/models.SUBJECT_RETENTION`, so a scope cannot file a caller's sentence on
+--    the 1095-day CRM clock by calling itself a lead. Both values are real
+--    `retention_policies` categories with real sweep arms; there is no new category.
+caller_memories(id, tenant_id, agent_id, subject_ref TEXT, subject_ref_kek_id INT,
+  fact TEXT, source_call_id UUID NULL, occurred_at TIMESTAMPTZ,
+  scrubbed_at TIMESTAMPTZ NULL)  -- BUILT (D-503, migration c6b1f0d47e83)
+-- The SOURCE caller_chunks projects for the caller_memory scope, because a content-free
+-- projection cannot be a distilled fact's home. FORCEd RLS; `source_call_id` is PROVENANCE
+-- with ON DELETE SET NULL and is explicitly NOT the erasure path (the row outlives the call
+-- it was learned on, which is the feature); `occurred_at` comes from the source call's end
+-- and NOT created_at, or a backfill would restart every caller's retention clock. Gated by
+-- `agents.caller_memory_enabled`, DEFAULT FALSE — the opposite of the disclosure toggles,
+-- because the posture a silence must not produce here is "remembers".
 kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
   top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
   -- `top_ids UUID[]` was specified here and is NOT in the shipped table. Its stated

@@ -87,6 +87,7 @@ from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
+from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.dial_recall import recall_queued_dials
@@ -493,6 +494,23 @@ CRON_JOBS = [
     cron(
         traced_job(embed_knowledge_chunks),
         minute=set(EMBED_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE CALLER-DATA INGESTION SWEEP (D-503) — the same job one corpus over: it projects
+    # what a client's CALLERS said into `caller_chunks` and buys the vector beside it. An
+    # unregistered cron here is not a dormant feature but a broken one that reads as shipped:
+    # every projection stays `pending` for ever, the CRM and transcript search screens answer
+    # from their keyword arm alone while every surface reports a hybrid store, and nothing
+    # anywhere says so.
+    #
+    # `minute` comes FROM the module for its neighbours' reason — two places writing "twice
+    # hourly" is how the module's own clearance argument (:13 and :43 are the last minutes no
+    # other O(tenants) fan-out uses) stops being true. `max_tries` EXPLICIT because `cron()`
+    # defaults it to 1 and `WorkerSettings.max_tries` does not reach a function registered
+    # here; the tick's own failure is a worklist read, which is exactly the kind a retry fixes.
+    cron(
+        traced_job(embed_caller_chunks),
+        minute=set(CALLER_EMBED_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE COMPLIANCE-FLAG SWEEP. The third drift-shaped gap and the one with a regulator

@@ -586,7 +586,20 @@ class PlatformAiUsage(PKMixin, Base):
 
     __tablename__ = "platform_ai_usage"
 
-    admin_user_id: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    #: WHO SPENT IT, when a person did. NULLABLE since migration `c6b1f0d47e83`, paired
+    #: with `system_actor` under `ck_platform_ai_usage_one_actor` so EXACTLY ONE of the two
+    #: is always present. The property this column was defending is unchanged and is stated
+    #: on its own migration comment — "a row of our own spend nobody can be asked about is
+    #: the one shape this ledger must not be able to hold". That is about ACCOUNTABILITY,
+    #: not about a human: a named cron is answerable in exactly the way an anonymous NULL is
+    #: not, and a background sweep that spends our key had no honest home here before.
+    admin_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("admin_users.id"))
+    #: The JOB that spent it, when no operator did — `caller_embed`, and whatever joins it.
+    #: A NAME and never a fabricated user id: inventing an operator on an APPEND-ONLY ledger
+    #: is a lie that can never afterwards be corrected (hard rule 4), which is why D-502
+    #: reported this gap rather than papering over it and why this closes it with a column
+    #: instead of a placeholder uuid.
+    system_actor: Mapped[str | None] = mapped_column(Text)
     viewing_tenant_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("organizations.id", ondelete="SET NULL")
     )
@@ -605,6 +618,10 @@ class PlatformAiUsage(PKMixin, Base):
         CheckConstraint(
             "ref ~ '^assist:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
             name="ref_shape",
+        ),
+        # EXACTLY ONE ACTOR — an operator or a named job, never both and never neither.
+        CheckConstraint(
+            "(admin_user_id IS NOT NULL) <> (system_actor IS NOT NULL)", name="one_actor"
         ),
         Index("ux_platform_ai_usage_unit_ref", "unit_type", "ref", unique=True),
         Index(

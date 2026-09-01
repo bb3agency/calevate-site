@@ -22,6 +22,7 @@ from apps.api.legal import models as legal_models
 from apps.api.ops import models as ops_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
+from apps.api.retrieval import models as retrieval_models
 from apps.api.tenancy import models as tenancy_models
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "ops_models",
     "quality_models",
     "reliability_models",
+    "retrieval_models",
     "tenancy_models",
 ]
 
@@ -172,6 +174,15 @@ TENANT_TABLES = [
     # no natural key to get wrong: without the policy, forgetting the tenant predicate
     # returns a NEIGHBOUR'S nearest chunk and looks like a working search.
     "kb_chunks",
+    # THE CALLER-DATA PROJECTION AND ITS SOURCE (D-503, migration c6b1f0d47e83).
+    # `kb_chunks` one line up is the same shape over a client's own uploaded knowledge;
+    # these two hold the same shape over a DATA PRINCIPAL's. Both get the FORCEd
+    # `tenant_isolation` policy, and the leak they defend against is the one with no shape
+    # to it: a `WHERE lead_id = ?` that leaks returns a row every screen shows as wrong,
+    # while a vector query that leaks returns the NEAREST chunk in the fleet and reads as an
+    # excellent search result.
+    "caller_chunks",
+    "caller_memories",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
     # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the

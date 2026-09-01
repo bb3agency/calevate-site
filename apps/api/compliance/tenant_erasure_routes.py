@@ -113,6 +113,10 @@ class TenantErasureScopeOut(Strict):
     recordings_destroyed: int | None
     recordings_within_trai_floor: int | None
     webhook_bodies_erased: int | None
+    # D-503. Nullable and required, exactly as every count above: absent is "a proof from
+    # before the vector store existed", not "none".
+    caller_vectors_erased: int | None
+    caller_memories_erased: int | None
 
 
 class TenantErasureLimitationOut(Strict):

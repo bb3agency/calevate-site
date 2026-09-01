@@ -61,11 +61,16 @@ from apps.api.copilot.prompt import function_tool
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import Permission, role_has
+from apps.api.crm import lead_search
 from apps.api.crm import service as crm_service
 from apps.api.crm.models import CALL_STATUSES
 from apps.api.crm.performance import performance
-from apps.api.crm.schemas import LeadStatus
+from apps.api.crm.schemas import LeadOut, LeadStatus
 from apps.api.db.session import admin_session, tenant_session
+from apps.api.retrieval.call_chunks import describe_hits
+from apps.api.retrieval.caller_search import MAX_K, search_caller_chunks
+from apps.api.retrieval.embedding import ASSIST_FEATURE_CALL_SEARCH
+from apps.api.retrieval.models import SUBJECT_CALL_SUMMARY, SUBJECT_CALL_TURN
 from apps.api.retrieval.service import look_up
 from apps.workers.redaction import redact
 
@@ -298,6 +303,31 @@ async def _business_snapshot(
     return _clean(" ".join(lines))
 
 
+def _lead_line(lead: LeadOut) -> str:
+    """ONE rendering of a lead row, shared by every tool that lists leads.
+
+    Two tools now answer with leads (`leads_search` and `leads_semantic_search`) and a
+    third will; one renderer is what keeps them describing the same row the same way, and
+    — the part that matters — what keeps the field list ONE decision. `data` is absent from
+    it deliberately: `LeadOut.data` is the tenant's extraction payload, the one thing hard
+    rule 6 names beside transcripts, and `phone_e164` survives only through `_clean`, as
+    `[phone ••NN]` — enough for a person to recognise the lead on their own screen and not
+    enough to dial from a model's answer.
+    """
+    return " · ".join(
+        part
+        for part in (
+            f"- {lead.name or 'unnamed'}",
+            lead.status,
+            f"{lead.call_count} call(s)",
+            lead.phone_e164,
+            f"updated {lead.updated_at.date().isoformat()}",
+            f"owner {lead.assigned_to_name}" if lead.assigned_to_name else None,
+        )
+        if part
+    )
+
+
 async def _leads_search(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
@@ -326,21 +356,7 @@ async def _leads_search(
         # that matches nothing, which is a truthful empty answer rather than an error.
         status=asked,
     )
-    lines = [
-        " · ".join(
-            part
-            for part in (
-                f"- {lead.name or 'unnamed'}",
-                lead.status,
-                f"{lead.call_count} call(s)",
-                lead.phone_e164,
-                f"updated {lead.updated_at.date().isoformat()}",
-                f"owner {lead.assigned_to_name}" if lead.assigned_to_name else None,
-            )
-            if part
-        )
-        for lead in page.items
-    ]
+    lines = [_lead_line(lead) for lead in page.items]
     label = f"leads{f' with status {asked}' if asked else ''}"
     # THE COUNT LINE IS UNCONDITIONAL, AND THAT IS THE FIX (D-497). It used to be an
     # artefact of `_listing`: a total appeared only when it EXCEEDED the rows shown, so
@@ -501,6 +517,18 @@ _NOTHING_PUBLISHED = (
     "there."
 )
 
+#: What the model is told when no lead's captured answers match. `_NOTHING`'s rule applied
+#: to a SEARCH rather than to a listing, and the difference is the sentence: "this account
+#: has none yet" would be a false statement about the account when the truth is only that
+#: nothing matched this question. It also names the boundary the tool actually has, because
+#: a model that does not know a phone number is unsearchable here will otherwise conclude
+#: the lead does not exist.
+_NO_LEADS_MATCHED = (
+    "No lead's captured answers match that. Say so rather than guessing, and note that "
+    "this search covers what callers asked for — not names, phone numbers or dates, which "
+    "are found with leads_search and the filters on the Leads screen."
+)
+
 #: Prepended when the port answered from a LOWER tier than the router asked for.
 #:
 #: THE DEGRADATION IS SPOKEN, NOT SWALLOWED. The router asks for t3 on an open-ended
@@ -569,6 +597,116 @@ async def _search_knowledge(
     return f"{_DEGRADED_NOTE}\n{body}" if result.unmet_capability is not None else body
 
 
+async def _leads_semantic_search(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`crm/lead_search.search_leads`, rendered — leads whose captured answers match a
+    question asked in words.
+
+    THE ONE THING THIS ADDS OVER `leads_search`: that tool lists and counts, and its only
+    text filter is a name or a phone suffix (`crm/service._lead_scope`). "Who asked about a
+    3BHK in Gachibowli" is not a name and not a status, and before this the copilot could
+    not answer it at all — the answer lives inside `leads.data`, which no tool may print
+    (hard rule 6) and which nothing could search.
+
+    IT SEARCHES THE PROJECTION, NOT THE PAYLOAD, so what is reachable here is exactly what
+    `crm/lead_projection.py` chose to embed: labelled text and enum answers. A phone number
+    captured in a field is NOT searchable and that is the design — an identifier is what
+    `leads_search` already matches exactly.
+
+    `context.tenant_id` IS USED and is not a second tenancy control: RLS still decides what
+    the statement can see; the id is what the store's own predicate re-states (belt over
+    braces) and what the question's embedding is METERED against — a spend needs an account
+    to land on, and a session variable cannot hand it one.
+    """
+    question = strip_invisible(str(args.get("question") or "")).strip()[:_MAX_QUESTION_CHARS]
+    if not question:
+        return _NO_LEADS_MATCHED
+    # NOT-NONE BY `run_read_tool`'s SCOPE GUARD — a `tenant`-scoped tool is never reached
+    # without an account open. An assert rather than a second refusal sentence: the refusal
+    # belongs where the guard is.
+    assert context.tenant_id is not None
+    status = args.get("status")
+    found = await lead_search.search_leads(
+        session,
+        tenant_id=context.tenant_id,
+        question=question,
+        limit=_cap(args.get("limit")),
+        status=status if isinstance(status, str) and status else None,
+    )
+    if not found.leads:
+        return _NO_LEADS_MATCHED
+    lines = [_lead_line(lead) for lead in found.leads]
+    # `total` is the number the STORE ranked, so "showing 5 of 12" is true of the search
+    # rather than of the account — and `exhausted` is the only case where even that is a
+    # floor, which `_listing` cannot know and this sentence says out loud.
+    body = _listing(lines, total=found.ranked, shown_of="matching leads", cap=MAX_ROWS)
+    tail = (
+        "\nThere may be more matches than were ranked — ask a narrower question."
+        if found.exhausted
+        else ""
+    )
+    return _clean(body + tail)
+
+
+#: What `search_calls` says when a question matched nothing in the account's calls.
+#:
+#: A SENTENCE THAT DISTINGUISHES THE TWO EMPTY ANSWERS, because they lead to different next
+#: moves and a model told only "no rows" will guess which. "Nobody said anything like that"
+#: is a finding a client acts on; "these calls are past their retention period" is a fact
+#: about our own policy that the model must not report as a finding about their callers.
+_NOTHING_IN_CALLS = (
+    "No passage in this account's stored calls matches that. Either no caller said "
+    "anything like it, or those conversations are past the account's transcript retention "
+    "period and the words are gone. Say which you cannot tell apart, and do not guess."
+)
+
+
+async def _search_calls(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """`retrieval/caller_search`, over what CALLERS SAID — the demand signal, not the script.
+
+    THE QUESTION THIS ANSWERS AND NO OTHER TOOL DOES: "which callers asked about weekend
+    appointments?". `search_knowledge` searches what the client PUBLISHED and `calls_recent`
+    lists calls by time; neither can find a moment inside a conversation. The corpus here is
+    windows of `transcript_turns.text_redacted` and `calls.summary`, projected into
+    `caller_chunks` — with the SPEAKER labelled, which is what makes "a caller ASKED" a
+    different result from "the agent MENTIONED".
+
+    **IT NEVER TOUCHES `transcript_turns.text`.** The hit carries no words at all
+    (`caller_search.CallerHit`); `call_chunks.describe_hits` reads them back from the
+    redacted column, which is the same column the transcript screen and every other derived
+    surface read (hard rule 5). `_clean` then runs the PII backstop over the result, so a
+    number a redactor missed is masked before it reaches the model.
+
+    Both kinds are named explicitly. `search_caller_chunks` requires that and has no
+    default, so a leads search cannot silently return transcript windows and this cannot
+    silently return CRM fields.
+    """
+    question = strip_invisible(str(args.get("question") or "")).strip()[:_MAX_QUESTION_CHARS]
+    if not question:
+        return _NOTHING_IN_CALLS
+    # Not-None by `run_read_tool`'s scope guard: this is a `tenant`-scoped tool.
+    assert context.tenant_id is not None
+    limit = _cap(args.get("limit"), default=8)
+    hits = await search_caller_chunks(
+        session,
+        tenant_id=context.tenant_id,
+        question=question,
+        kinds=(SUBJECT_CALL_TURN, SUBJECT_CALL_SUMMARY),
+        feature=ASSIST_FEATURE_CALL_SEARCH,
+        # ONE MORE THAN WE WILL SHOW, so "there may be more" is a fact rather than a guess —
+        # and clamped to the adapter's own ceiling rather than assumed to fit, because a `k`
+        # this tool would have to have clamped is one the adapter refuses outright.
+        k=min(limit + 1, MAX_K),
+    )
+    lines = await describe_hits(session, hits, max_chars=MAX_PASSAGE_CHARS)
+    if not lines:
+        return _NOTHING_IN_CALLS
+    return _clean(_listing(lines[:limit], shown_of="passages from past calls", cap=limit))
+
+
 # --- the registry ---------------------------------------------------------------------
 #
 READ_TOOLS: Final[tuple[ReadTool, ...]] = (
@@ -623,6 +761,47 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         },
         permission="leads:read",
         run=_leads_search,
+    ),
+    ReadTool(
+        name="leads_semantic_search",
+        description=(
+            "Find leads by WHAT THEY ASKED FOR, in the caller's own words — 'leads who "
+            "asked about a 3BHK in Gachibowli', 'anyone who wanted a weekend site visit'. "
+            "It searches the answers this account's agents captured on each lead, not the "
+            "lead's name or number: use `leads_search` for a name, a phone, a status or a "
+            "count, and this when the question is about the CONTENT of what a caller "
+            "wanted. Returns the same row summary, best match first."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": (
+                        "What the caller wanted, in ordinary words, e.g. '3BHK in "
+                        "Gachibowli'. Do not include names, phone numbers or email "
+                        "addresses — they are not searchable here."
+                    ),
+                },
+                "status": {
+                    "anyOf": [
+                        {"type": "string", "enum": list(get_args(LeadStatus))},
+                        {"type": "null"},
+                    ],
+                    "description": "Only leads in this state. Null means every state.",
+                },
+                "limit": {
+                    "anyOf": [{"type": "integer"}, {"type": "null"}],
+                    "description": f"How many to return, at most {MAX_ROWS}. Null means 10.",
+                },
+            },
+            "required": ["question", "status", "limit"],
+            "additionalProperties": False,
+        },
+        # THE SAME PERMISSION THE SCREEN SERVING THIS DATA DECLARES — `GET /v1/leads` is
+        # `leads:read`, and this returns the same rows in a different order.
+        permission="leads:read",
+        run=_leads_semantic_search,
     ),
     ReadTool(
         name="calls_recent",
@@ -730,6 +909,51 @@ READ_TOOLS: Final[tuple[ReadTool, ...]] = (
         # have its own would be a permission no route grants.
         permission="agents:read",
         run=_search_knowledge,
+    ),
+    # APPENDED AT THE END, and that is deliberate rather than incidental: `service.
+    # tool_array` composes the cacheable prefix in `realm_read_tools` order, so a new tool
+    # inserted in the middle would move every schema after it and cold-start the prompt
+    # cache for every request of both realms. Last costs nothing.
+    ReadTool(
+        name="search_calls",
+        description=(
+            "Search what CALLERS ACTUALLY SAID on past calls, by meaning rather than by "
+            "keyword — 'who asked about weekend appointments', 'callers who mentioned a "
+            "refund', 'anyone unhappy about waiting'. Returns the matching passage with "
+            "the speaker marked, the date and the caller's lead name where there is one. "
+            "Use it for questions about DEMAND and about what people ask for; use "
+            "`search_knowledge` for what the agent has been taught to say, and "
+            "`calls_recent` to list calls by time rather than by topic. Transcripts are "
+            "redacted, so names and numbers are not searchable here and must not be put "
+            "in the question."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": (
+                        "What you are looking for, in ordinary words, e.g. 'weekend "
+                        "appointment' or 'complained about the price'. Do not include "
+                        "names, phone numbers or email addresses — they are redacted out "
+                        "of transcripts and are not searchable here."
+                    ),
+                },
+                "limit": {
+                    "anyOf": [{"type": "integer"}, {"type": "null"}],
+                    "description": (
+                        f"How many passages to return, at most {MAX_ROWS}. Null means 8."
+                    ),
+                },
+            },
+            "required": ["question", "limit"],
+            "additionalProperties": False,
+        },
+        # THE SAME PERMISSION THE SCREEN SERVING THIS DATA DECLARES — a transcript is read
+        # through `GET /v1/crm/calls/{id}`, which is `calls:read`. A semantic index over
+        # the same words must not be reachable on a looser permission than the words are.
+        permission="calls:read",
+        run=_search_calls,
     ),
 )
 

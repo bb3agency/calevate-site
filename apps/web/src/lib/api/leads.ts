@@ -252,6 +252,18 @@ export type LeadListWithColumns = Schemas["LeadListOut"];
 export interface LeadLens {
   status?: string;
   search?: string;
+  /**
+   * The SEMANTIC question — "leads who asked about a 3BHK in Gachibowli" (D-504).
+   *
+   * A second field beside `search`, not a mode on it: `search` matches a name or the last
+   * digits of a number EXACTLY, and this ranks leads by what their captured answers mean.
+   * A client must be able to combine them ("Priya, who wanted a 3BHK"), which one field
+   * with a toggle would have made unaskable.
+   *
+   * It rides in the same body for the same reason and one of its own — a question typed
+   * about a caller is a fact about that caller, and a URL is a log line.
+   */
+  ask?: string;
   assigned_to?: string;
   agent_id?: string;
   /** Extraction-schema key → selected values. OR within a key, AND across keys. */
@@ -292,6 +304,7 @@ export function lensBody(
   const scalars: Record<string, string | number | undefined> = {
     status: lens.status,
     search: lens.search,
+    ask: lens.ask,
     assigned_to: lens.assigned_to,
     agent_id: lens.agent_id,
     ...paging,

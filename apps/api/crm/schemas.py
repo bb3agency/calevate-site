@@ -212,6 +212,15 @@ class LeadFacetsOut(Strict):
     omitted_field_count: int
 
 
+#: The longest semantic question `LeadLensIn.ask` accepts, and the same bound
+#: `copilot/tools._MAX_QUESTION_CHARS` puts on the copilot's version of it. Past this a
+#: "question" is a paste, and embedding a paste is a real charge on a client's AI ceiling
+#: for a query nobody meant to run. It lives HERE rather than in `crm/lead_search.py`
+#: because that module imports this one; one constant, and the wire bound and the service
+#: bound are the same number by construction.
+LEAD_ASK_MAX_CHARS = 2000
+
+
 class LeadLensIn(Strict):
     """The Leads table's lens — WHICH ROWS and WHICH COLUMNS — carried in a request BODY.
 
@@ -234,6 +243,21 @@ class LeadLensIn(Strict):
     status: str | None = None
     #: The one field that made this a body. Same 60-character bound the GET had.
     search: str | None = Field(None, max_length=60)
+    #: The SEMANTIC question — "leads who asked about a 3BHK in Gachibowli" (D-504).
+    #:
+    #: A SECOND FIELD RATHER THAN A MODE ON `search`, because the two match different
+    #: things and a client must be able to combine them: `search` is an exact name or
+    #: phone-suffix predicate, `ask` ranks leads by what their captured answers MEAN. One
+    #: field with a flag would have made "Priya, who wanted a 3BHK" unaskable.
+    #:
+    #: It rides in the BODY for `search`'s reason and one of its own: a question typed
+    #: about a caller is a fact about that caller, and a URL is a log line, a browser
+    #: history entry and the next request's `Referer` (hard rule 6).
+    #:
+    #: Bounded at `crm/lead_search.MAX_QUESTION_CHARS`: past that a "question" is a paste,
+    #: and embedding a paste is a real charge on the client's AI ceiling for a query
+    #: nobody meant to run.
+    ask: str | None = Field(None, max_length=LEAD_ASK_MAX_CHARS)
     agent_id: UUID | None = None
     assigned_to: UUID | None = None
     #: Comma-separated column keys, in display order. Omit for every column.
@@ -290,6 +314,11 @@ class LeadListOut(Strict):
     # Always all six keys: a status with no leads answers 0 rather than going missing,
     # so the UI never has to tell "none of these" apart from "the server did not say".
     status_counts_matching_search: dict[str, int]
+    #: Set only when the request carried `ask`. True means the ranking hit its depth and
+    #: there may be matches this search did not look at — the "there may be more" note the
+    #: screen must show rather than guess. False on an ordinary filtered page, where
+    #: `total` is exact.
+    semantic_truncated: bool = False
 
 
 class LeadUpdateIn(Strict):

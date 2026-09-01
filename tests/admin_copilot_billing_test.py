@@ -194,6 +194,36 @@ async def test_the_ref_shape_is_enforced_by_the_database_and_not_only_by_python(
             )
 
 
+async def test_the_spend_is_attributed_to_exactly_one_actor_never_both_and_never_neither() -> None:
+    """Every rupee on this ledger answers "who asked?" with ONE name.
+
+    Two names is worse than none: the row would be attributable to a person AND to a job,
+    and the admin spend board would count it under whichever it read first. None is a row
+    nobody owns, which is the state this ledger exists to make impossible — it is append-
+    only (hard rule 4), so a mis-attributed row cannot be corrected, only compensated.
+
+    A `ValueError` and not a `ProblemError` because both shapes are programming errors in
+    a CALLER, not anything a person did, and it is refused BEFORE the price lookup so the
+    message names the actual mistake rather than an unpriced model.
+    """
+    admin_id = await _make_admin()
+    both = {"admin_user_id": admin_id, "system_actor": "retention_sweep"}
+    neither: dict[str, object] = {}
+    for actors in (both, neither):
+        with pytest.raises(ValueError, match="exactly one of admin_user_id"):
+            async with untenanted_session() as session:
+                await platform_ai.record_platform_ai_usage(
+                    session,
+                    viewing_tenant_id=None,
+                    ref=new_assist_ref(),
+                    tokens_in=1,
+                    tokens_out=1,
+                    model="gpt-4o-mini",
+                    feature=ASSIST_FEATURE_ADMIN_COPILOT,
+                    **actors,  # type: ignore[arg-type]
+                )
+
+
 async def test_one_attempt_metered_twice_charges_once() -> None:
     """Idempotency is `ux_platform_ai_usage_unit_ref`, not a reader's `if`.
 

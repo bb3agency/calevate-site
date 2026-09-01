@@ -428,12 +428,26 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         # migration rather than a constant.
         "knowledge_gap_occurrences.question_redacted",
         "knowledge_gaps.example_question_redacted",
+        # THE VECTOR AND THE LEXEMES (D-503). `caller_chunks` stores no content and is
+        # still a copy of the transcript: an embedding is derived from the text by a
+        # deterministic function of it and is substantially invertible, and `tsv` is
+        # literally the caller's words as lexemes. `caller_memories.fact` rides the same
+        # clock because a memory is DISTILLED from what the caller said — `calls.summary`'s
+        # argument, one table over — and because a fifth category is a migration and a
+        # number the founder has to give, which is this test's own point.
+        "caller_chunks.tsv+embedding (transcript scopes)",
+        "caller_memories.fact",
     )
     assert retention.DERIVED_COPIES["lead"] == (
         "call_extractions.data",
         # The delivered webhook body (D-23): the client's CRM payload in object storage,
         # governed by the `lead` policy the tenant already has.
         "webhook_deliveries.payload_ref",
+        # The same projection table under the CRM clock: a lead's chunks are the same class
+        # of thing as `call_extractions.data`. One table, two clocks, decided by the row's
+        # own `retention_category` — which the projection registry sets from
+        # `models.SUBJECT_RETENTION`, so a scope cannot choose its own.
+        "caller_chunks.tsv+embedding (lead scope)",
     )
 
 

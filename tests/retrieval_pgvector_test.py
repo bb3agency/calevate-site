@@ -22,7 +22,7 @@ from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attest
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb.models import EMBED_READY
-from apps.api.retrieval import pgvector as pgvector_module
+from apps.api.retrieval import embedding as embedding_module
 from apps.api.retrieval import service as retrieval_service
 from apps.api.retrieval.embedding import EMBEDDING_DIMS, EMBEDDING_MODEL
 from apps.api.retrieval.pgvector import PgVectorRetriever
@@ -145,7 +145,10 @@ async def test_the_dense_arm_ranks_the_chunk_its_vector_points_at(
     # Seed 1 is the SECOND row by content order — "Valet parking…" sorts after "A
     # consultation…", so this is the parking chunk's own coordinate.
     monkeypatch.setattr(chat, "embed", _fake_embed(_unit_vector(1)))
-    monkeypatch.setattr(pgvector_module, "embedding_leg", lambda: _LEG)
+    # Patched on `embedding` and not on `pgvector`: `embed_query_vector` is the one
+    # implementation of hard rule 7's pre-flight and reads `embedding_leg` from its own
+    # module, so patching an importer would leave the real leg in the path.
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
 
     async with tenant_session(tenant_id) as session:
         result = await PgVectorRetriever(session).retrieve(
@@ -167,7 +170,7 @@ async def test_the_question_embedding_is_metered_against_the_tenant(
     name, with an output quantity of zero because an embedding has no output tokens."""
     tenant_id, _ = await _corpus()
     monkeypatch.setattr(chat, "embed", _fake_embed(_unit_vector(0)))
-    monkeypatch.setattr(pgvector_module, "embedding_leg", lambda: _LEG)
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
 
     async with tenant_session(tenant_id) as session:
         await PgVectorRetriever(session).retrieve(
@@ -203,7 +206,7 @@ async def test_an_unpriced_model_is_never_bought_and_the_sparse_arm_still_answer
 
     tenant_id, _ = await _corpus()
     monkeypatch.setattr(chat, "embed", _explode)
-    monkeypatch.setattr(pgvector_module, "embedding_leg", lambda: _LEG)
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
 
     async with tenant_session(tenant_id) as session:
         result = await PgVectorRetriever(session).retrieve(
@@ -267,7 +270,7 @@ async def test_the_composite_answers_t0_from_the_block_and_t3_from_the_store(
     """
     tenant_id, _ = await _corpus()
     monkeypatch.setattr(chat, "embed", _fake_embed(_unit_vector(1)))
-    monkeypatch.setattr(pgvector_module, "embedding_leg", lambda: _LEG)
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: _LEG)
 
     async with tenant_session(tenant_id) as session:
         composite = KnowledgeRetriever(session)

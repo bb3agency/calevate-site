@@ -80,6 +80,10 @@ function completedRequest(): DeletionRequest {
         transcript_turns_erased: 34,
         call_extractions_erased: 2,
         recordings_within_trai_floor: 1,
+        // Required on the wire since the caller-chunk erasure landed on the proof. Numeric
+        // means the store was searched; `null` (a proof predating it) means it could not be.
+        caller_vectors_erased: 27,
+        caller_memories_erased: 3,
         // Required on the wire since the recording-hold fields landed on the proof;
         // added by the slice that regenerated the client, so the fixture is a shape the
         // server can actually send.

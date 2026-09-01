@@ -46,9 +46,13 @@ a tenant, a user, a feature and an environment, "including internal tools and cr
 Production", https://www.softwareseni.com/token-attribution-and-cost-governance-for-multi-tenant-llm-products-in-production/,
 read 1 Sep 2026 — EVIDENCE CLASS: SECONDARY, a vendor-neutral practice article and not a
 primary specification; it is cited for the SHAPE of the record, never for a number). This
-ledger has no tenant to carry, so the dimension it substitutes is the OPERATOR:
-`admin_user_id` is NOT NULL, and `viewing_tenant_id` carries which account was on screen so
-"what did supporting this client cost us" stays a query. The same reading notes that the
+ledger has no tenant to carry, so the dimension it substitutes is the ACTOR — and the cited
+reading is explicit that the attribution covers "internal tools and CRON JOBS", which is the
+half this module originally could not represent. Exactly one of `admin_user_id` and
+`system_actor` is always present (`ck_platform_ai_usage_one_actor`, migration
+`c6b1f0d47e83`), so every row of our own spend is answerable by somebody or by some named
+job; `viewing_tenant_id` carries which account was on screen so "what did supporting this
+client cost us" stays a query. The same reading notes that the
 internal-support/impersonation case is not covered by the published practice at all, which
 is why the decision behind `viewing_tenant_id` being context and never a payer is D-499's
 and is argued there rather than borrowed.
@@ -96,9 +100,10 @@ PLATFORM_ASSIST_META_KIND: Final = ASSIST_META_KIND
 # `DO UPDATE` fires `calevate_forbid_mutation`. A conflict here means the same
 # server-minted attempt was written twice — a retried transaction — which must be a no-op.
 _INSERT_PLATFORM_USAGE = f"""
-INSERT INTO platform_ai_usage (id, admin_user_id, viewing_tenant_id, unit_type, qty,
-                               unit_cost_paid, ref, occurred_at, meta, created_at)
-VALUES (:id, :admin_id, :viewing, :unit, :qty, :cost, :ref, now(), CAST(:meta AS jsonb), now())
+INSERT INTO platform_ai_usage (id, admin_user_id, system_actor, viewing_tenant_id, unit_type,
+                               qty, unit_cost_paid, ref, occurred_at, meta, created_at)
+VALUES (:id, :admin_id, :actor, :viewing, :unit, :qty, :cost, :ref, now(),
+        CAST(:meta AS jsonb), now())
 ON CONFLICT (unit_type, ref) DO NOTHING
 RETURNING id, {_IST_MONTH}
 """
@@ -117,8 +122,9 @@ class PlatformAssistMetered:
 async def record_platform_ai_usage(
     session: AsyncSession,
     *,
-    admin_user_id: UUID,
-    viewing_tenant_id: UUID | None,
+    admin_user_id: UUID | None = None,
+    system_actor: str | None = None,
+    viewing_tenant_id: UUID | None = None,
     ref: str,
     tokens_in: int,
     tokens_out: int,
@@ -146,12 +152,35 @@ async def record_platform_ai_usage(
     * **The month comes from the ROW**, read back through `_IST_MONTH`, never from this
       process's clock.
 
+    **AN OPERATOR OR A NAMED JOB — EXACTLY ONE, AND THIS FUNCTION USED TO ADMIT ONLY THE
+    FIRST.** D-502 recorded the consequence in as many words: the founder asked for the KB
+    ingestion sweep to bill this ledger, `admin_user_id` was `UUID` and NOT NULL, a cron has
+    no operator, and inventing one would put a fabricated identity on an APPEND-ONLY row
+    that could never afterwards be corrected (hard rule 4) — so the spend went to the
+    TENANT's ledger and the gap was reported rather than papered over.
+
+    What the original signature was defending is on the column's own migration comment: "a
+    row of our own spend nobody can be asked about is the one shape this ledger must not be
+    able to hold". That is a property about ACCOUNTABILITY and not about a human, and a
+    NAMED JOB satisfies it exactly as a named operator does — `caller_embed` is answerable,
+    an anonymous NULL is not. So `system_actor` joins it, `ck_platform_ai_usage_one_actor`
+    makes the database refuse both and neither, and this function refuses the same two
+    before it writes: the widening is one more representable row, not one fewer rule.
+
     NEVER RAISES for an ordinary outcome. It runs after the provider has been paid, in the
     caller's transaction, and a metered answer undone by a failure to talk about it is the
     money hole the whole path exists to close. It DOES raise `ValueError` for a malformed
     `ref` or an unpriced model, both of which are programming errors in a caller rather than
     anything a person did.
     """
+    if (admin_user_id is None) == (system_actor is None):
+        # A `ValueError` and not a `ProblemError`, for the `ref` guard's reason below: this
+        # is a programming error in a caller rather than anything a person did. Refused
+        # BEFORE the price lookup so the message names the actual mistake.
+        raise ValueError(
+            "platform AI spend is attributed to exactly one of admin_user_id (a person "
+            "asked) or system_actor (a named job ran); never both and never neither"
+        )
     if not is_assist_ref(ref):
         raise ValueError(
             "a platform assist metering key must come from new_assist_ref() "
@@ -168,7 +197,8 @@ async def record_platform_ai_usage(
             "model": model,
             "feature": feature,
             "ref": ref,
-            "admin_user_id": str(admin_user_id),
+            "admin_user_id": None if admin_user_id is None else str(admin_user_id),
+            "system_actor": system_actor,
             "viewing_tenant_id": None if viewing_tenant_id is None else str(viewing_tenant_id),
         }
     )
@@ -185,6 +215,7 @@ async def record_platform_ai_usage(
                 {
                     "id": uuid7(),
                     "admin_id": admin_user_id,
+                    "actor": system_actor,
                     "viewing": viewing_tenant_id,
                     "unit": unit,
                     "qty": qty,
@@ -205,7 +236,7 @@ async def record_platform_ai_usage(
         log.warning(
             "platform_ai_assist_replayed",
             extra={
-                "admin_user_id": str(admin_user_id),
+                "actor": str(admin_user_id or system_actor),
                 "ref": ref,
                 "model": model,
                 "feature": feature,
@@ -220,7 +251,7 @@ async def record_platform_ai_usage(
     log.info(
         "platform_ai_assist_metered",
         extra={
-            "admin_user_id": str(admin_user_id),
+            "actor": str(admin_user_id or system_actor),
             "viewing_tenant_id": None if viewing_tenant_id is None else str(viewing_tenant_id),
             "ref": ref,
             "model": model,
