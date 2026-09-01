@@ -704,7 +704,17 @@ async def test_a_declined_capability_does_not_tell_the_operator_to_re_run() -> N
         "a declined capability must not be reported as something a re-run could fix"
     )
     assert "DECLINES" in check.detail and "ANSWERED" in check.detail
-    assert "D-354" in check.detail, "the operator needs the decision that explains it"
+    # ⚠ THIS USED TO ASSERT "D-354" IS NAMED, AND THAT PINNED A SUPERSEDED CLAIM (D-493).
+    # D-354 retired the primary engine's KB capability; D-488 BUILT it and set the
+    # descriptor back to `True`, so a sentence citing D-354 as the reason this engine
+    # declines was false, and the test was holding it in place. What an operator needs is
+    # the CONDITION they can check — the adapter's own descriptor — not a decision row
+    # whose truth moved.
+    assert "knowledge_base" in check.detail, "the operator needs the condition they can check"
+    assert "D-354" not in check.detail, (
+        "D-488 reversed D-354; naming it here would send the operator to re-point a probe "
+        "that is pointed correctly"
+    )
 
 
 async def test_a_transient_failure_still_says_re_run() -> None:
