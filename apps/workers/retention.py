@@ -100,6 +100,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.insights.service import scrub_quotes_for_calls
 from apps.workers import storage
 
 log = get_logger(__name__)
@@ -212,7 +213,15 @@ TENANT_ROW_BUDGET = 20_000
 #                                     any other would mean "leads are kept for N days"
 #                                     is true of a table and false of a bucket.
 DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
-    "transcript": ("calls.summary",),
+    "transcript": (
+        "calls.summary",
+        # The gap quotes are transcript text by another name: the detector copies the
+        # caller's question and the agent's deflection out of `transcript_turns.
+        # text_redacted`. They belong to the transcript's clock, not to a clock of their
+        # own — a category nobody sets is a category that never expires.
+        "knowledge_gap_occurrences.question_redacted",
+        "knowledge_gaps.example_question_redacted",
+    ),
     "lead": ("call_extractions.data", "webhook_deliveries.payload_ref"),
 }
 
@@ -254,6 +263,11 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     "recordings": 0,
     "transcripts": 0,
     "summaries": 0,
+    # Knowledge-gap quote columns marked on the TRANSCRIPT clock, counted across both
+    # tables (the per-call occurrence and the aggregate's example). Counted in COLUMN
+    # GROUPS rather than rows, because one occurrence and one aggregate can hold the same
+    # sentence and "we forgot the words" is the fact worth reporting, not the row count.
+    "knowledge_gap_quotes": 0,
     "leads": 0,
     "extractions": 0,
     # Delivered webhook bodies (D-23): one object deleted and its `payload_ref` cleared.
@@ -739,6 +753,40 @@ UPDATE calls SET summary = NULL, updated_at = now() WHERE id IN (
   ORDER BY {_CLOCK} LIMIT :batch)
 """
 
+# THE OTHER DERIVED COPY OF THE TRANSCRIPT, on the transcript's clock (`DERIVED_COPIES`).
+# The gap detector copies the caller's question and the agent's deflection out of
+# `transcript_turns.text_redacted`, so these two tables hold the caller's own sentences.
+# Nothing expired them: the category that owns the words they came from stopped at
+# `transcript_turns` and `calls.summary`, and a table no category names never expires.
+#
+# MARKED, NOT CLEARED, unlike `summary` — the columns are NOT NULL, and the mark is what
+# `_TRANSCRIPT_ANONYMIZE_SQL` does to the very text these were copied from. Same treatment
+# for the same data.
+_GAP_QUOTE_SQL = f"""
+UPDATE knowledge_gap_occurrences SET question_redacted = :mark, answer_redacted = :mark,
+  updated_at = now()
+WHERE id IN (
+  SELECT o.id FROM knowledge_gap_occurrences o JOIN calls c ON c.id = o.call_id
+  WHERE {_CLOCK} < :cutoff
+    AND (o.question_redacted <> :mark OR o.answer_redacted <> :mark)
+  ORDER BY {_CLOCK} LIMIT :batch)
+"""
+
+# The aggregate's example quote, on `last_seen_at` — which is the MAX contributing call's
+# clock, so it passes the cutoff exactly when the last call that could have supplied the
+# example does. No join is needed and none would be more correct: `_recompute_aggregate`
+# takes the example from the most recent contributing call, so `last_seen_at` IS the age
+# of the sentence stored here.
+_GAP_EXAMPLE_SQL = """
+UPDATE knowledge_gaps SET example_question_redacted = :mark,
+  example_answer_redacted = :mark, updated_at = now()
+WHERE id IN (
+  SELECT g.id FROM knowledge_gaps g
+  WHERE g.last_seen_at < :cutoff
+    AND (g.example_question_redacted <> :mark OR g.example_answer_redacted <> :mark)
+  ORDER BY g.last_seen_at LIMIT :batch)
+"""
+
 # Never a DELETE: leads carry FKs from lead_events and are referenced by calls.
 # Anonymizing keeps the funnel countable and removes the person.
 #
@@ -1077,6 +1125,19 @@ async def _apply_one(
             session, _SUMMARY_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
+        # Both gap tables, ALWAYS marked and never deleted, whatever the category's
+        # action is. `delete` on this category means the turns themselves go; the gap
+        # ROW is a count the client acts on, and destroying it would silently move their
+        # analytics when a retention period elapsed. The words go either way.
+        occurrences, deferred = await _sweep_in_batches(
+            session, _GAP_QUOTE_SQL, {"cutoff": cutoff, "mark": REDACTED_MARK}
+        )
+        counts["deferred"] += int(deferred)
+        examples, deferred = await _sweep_in_batches(
+            session, _GAP_EXAMPLE_SQL, {"cutoff": cutoff, "mark": REDACTED_MARK}
+        )
+        counts["deferred"] += int(deferred)
+        counts["knowledge_gap_quotes"] = occurrences + examples
         return counts
 
     if category == "lead":
@@ -1556,6 +1617,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
 
         turns_erased = 0
         extractions_erased = 0
+        gap_quotes_erased = 0
         recordings_in_floor = 0
         recordings_destroyed = 0
         payloads_erased = 0
@@ -1607,6 +1669,18 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 {"ids": list(calls)},
             )
             extractions_erased = int(rowcount_of(result) or 0)
+            # THE OTHER DERIVED COPY, and the one that had no path to it at all. The
+            # knowledge-gap tables quote the caller — `question_redacted` is what they
+            # ASKED — copied out of `transcript_turns.text_redacted` at detection time.
+            # Scrubbing the transcript above does not reach those copies, and the
+            # `ON DELETE CASCADE` on `knowledge_gap_occurrences.call_id` never fires
+            # because this function does not DELETE a call, it empties one. So before
+            # this, the last surviving record of what an erased caller said was the gap
+            # card on their agent's dashboard. See `scrub_quotes_for_calls` for why the
+            # counts stay and only the sentence goes.
+            gap_quotes_erased = await scrub_quotes_for_calls(
+                session, call_ids=list(calls), mark=REDACTED_MARK
+            )
         if leads:
             await session.execute(
                 text(
@@ -1635,6 +1709,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 "calls": [_hash(str(c)) for c in calls],
                 "leads": [_hash(str(lead)) for lead in leads],
                 "transcript_turns_erased": turns_erased,
+                # ON THE CERTIFICATE, not just in the log. The proof is what the subject
+                # is handed, so a copy of their words that this erasure destroyed has to
+                # be counted where they can see it — otherwise the certificate attests to
+                # less than we actually did, and the next reader cannot tell whether the
+                # gap tables were reached or merely forgotten again.
+                "knowledge_gap_quotes_erased": gap_quotes_erased,
                 "call_extractions_erased": extractions_erased,
                 # How many of those calls still held a recording pointer INSIDE the
                 # 90-day floor when this erasure ran — i.e. how many audio files the
@@ -1918,6 +1998,7 @@ async def _erase_tenant_calls(
     counts: dict[str, int] = {
         "calls_erased": 0,
         "transcript_turns_erased": 0,
+        "knowledge_gap_quotes_erased": 0,
         "call_extractions_erased": 0,
         "recordings_destroyed": 0,
         "recordings_within_trai_floor": 0,
@@ -1991,6 +2072,13 @@ async def _erase_tenant_calls(
             {"ids": call_ids},
         )
         counts["call_extractions_erased"] += int(rowcount_of(result) or 0)
+
+        # The gap quotes, for `execute_deletion_request`'s reason. A tenant erasure that
+        # left them would keep every caller's question on file for a client that no
+        # longer exists.
+        counts["knowledge_gap_quotes_erased"] += await scrub_quotes_for_calls(
+            session, call_ids=call_ids, mark=REDACTED_MARK
+        )
 
         counts["webhook_bodies_erased"] += await _erase_delivery_bodies(
             session,

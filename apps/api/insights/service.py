@@ -33,6 +33,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.insights import detection
 from apps.api.insights.schemas import (
@@ -122,14 +123,30 @@ async def record_call_gaps(
 
 
 async def _recompute_aggregate(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, topic_key: str
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    topic_key: str,
+    deprioritise: str | None = None,
 ) -> None:
     """Re-derive one aggregate from its occurrences, race-safe (see module docstring).
 
     STEP 1 locks (or creates) the aggregate row. STEP 2, holding that lock, reads the
     occurrences and writes the roll-up; the example quotes and `top_signal` are taken from
     the MOST RECENT contributing call (`array_agg … ORDER BY call time DESC`). `status` is
-    never written here — a recurrence must not re-open a gap the client closed. STEP 3
+    never written here — a recurrence must not re-open a gap the client closed.
+
+    `deprioritise` IS THE ERASURE'S DOING AND IS A NO-OP ON THE NORMAL PATH. When an
+    erasure or a retention sweep marks a quote, that occurrence is usually still the most
+    recent one, so a plain "newest wins" pick would put the MARKER on the client's card
+    while a perfectly good older example sat unused — a dashboard degraded as a side
+    effect of an unrelated caller's erasure request. Sorting `(quote = :dep)` first puts
+    marked quotes last (`false` sorts before `true`), so a surviving sentence wins and the
+    marker is chosen only when nothing else is left. Passing `None` compares against NULL,
+    which is NULL for every row and therefore orders nothing — the normal path is
+    byte-identical to what it was, which is why this is safe to do in the shared
+    recompute rather than in a second one. STEP 3
     deletes the aggregate when no occurrences remain, so a re-drive that removed a topic's
     last occurrence leaves no orphan open gap behind.
     """
@@ -170,10 +187,10 @@ async def _recompute_aggregate(
             "    max(coalesce(c.started_at, c.created_at)) AS last_seen, "
             "    (array_agg(o.topic_label ORDER BY coalesce(c.started_at, c.created_at) DESC))[1] "
             "      AS topic_label, "
-            "    (array_agg(o.question_redacted ORDER BY coalesce(c.started_at, c.created_at) "
-            "      DESC))[1] AS ex_q, "
-            "    (array_agg(o.answer_redacted ORDER BY coalesce(c.started_at, c.created_at) "
-            "      DESC))[1] AS ex_a, "
+            "    (array_agg(o.question_redacted ORDER BY (o.question_redacted = :dep), "
+            "      coalesce(c.started_at, c.created_at) DESC))[1] AS ex_q, "
+            "    (array_agg(o.answer_redacted ORDER BY (o.answer_redacted = :dep), "
+            "      coalesce(c.started_at, c.created_at) DESC))[1] AS ex_a, "
             "    (array_agg(o.signal ORDER BY coalesce(c.started_at, c.created_at) DESC))[1] "
             "      AS top_signal "
             "  FROM knowledge_gap_occurrences o JOIN calls c ON c.id = o.call_id "
@@ -182,7 +199,7 @@ async def _recompute_aggregate(
             "WHERE g.tenant_id = :tid AND g.agent_id = :aid AND g.topic_key = :key "
             "  AND agg.occ IS NOT NULL"
         ),
-        {"tid": tenant_id, "aid": agent_id, "key": topic_key},
+        {"tid": tenant_id, "aid": agent_id, "key": topic_key, "dep": deprioritise},
     )
     # STEP 3 — no occurrences left: the aggregate is derived, so it goes with them. Runs
     # under the same lock; the NOT EXISTS is evaluated now, so a concurrent call that
@@ -198,6 +215,84 @@ async def _recompute_aggregate(
         ),
         {"tid": tenant_id, "aid": agent_id, "key": topic_key},
     )
+
+
+async def scrub_quotes_for_calls(
+    session: AsyncSession, *, call_ids: Sequence[UUID], mark: str
+) -> int:
+    """Remove the caller's own words from both gap tables for these calls. Counts stay.
+
+    **THE HOLE THIS CLOSES.** A DPDP erasure does not DELETE a call — it scrubs the call
+    in place (`transcript_turns.text`/`.text_redacted` → the marker, the phone columns →
+    NULL, `call_extractions.data` → `{}`) and keeps the row, because the call is billing
+    evidence. `knowledge_gap_occurrences.call_id` is `ON DELETE CASCADE`, which reads like
+    protection and is not: nothing is ever deleted, so the cascade never fires. The
+    quotes in `question_redacted` / `answer_redacted` were copied out of
+    `transcript_turns.text_redacted` at detection time, so after an erasure they were the
+    LAST surviving copy of what that caller said — and `knowledge_gaps` held a second one
+    in `example_question_redacted` / `example_answer_redacted`, with no `call_id` on it at
+    all. Neither table appeared in any erasure path or in `DERIVED_COPIES`.
+
+    **REDACTED IS NOT ERASED, and the column name invites exactly that mistake.**
+    Redaction removes identifiers — a phone number, an email — from a sentence. It does
+    not remove the sentence. "Do you do IVF, my wife and I have been trying for six
+    years" survives redaction intact, and it is still that caller's words.
+
+    **SCRUBBED, NOT DELETED, and the choice matters to the client.** The row is kept and
+    emptied, which is what `call_extractions` does two statements up the same function.
+    Deleting the occurrence would silently move the client's analytics as a side effect of
+    a stranger's erasure request — "12 callers asked about parking" becoming 11, with the
+    aggregate's `call_count` following it. The count is not the caller's data; the
+    sentence is. So the sentence goes and the count stays.
+
+    THE AGGREGATE IS RE-DERIVED RATHER THAN PATCHED. `knowledge_gaps` cannot say which
+    occurrence its example came from, so there is nothing to compare against. Re-running
+    `_recompute_aggregate` answers the question properly: it re-picks the example from the
+    most recent contributing call, which is now either a surviving caller's quote or the
+    marker. That is also why this reuses the recompute instead of writing a second
+    UPDATE — one definition of what an aggregate row means, not two that can drift.
+
+    Returns the number of occurrence rows scrubbed, for the proof certificate.
+    """
+    if not call_ids:
+        return 0
+    ids = list(call_ids)
+    # The affected aggregates, read BEFORE the scrub. Afterwards the rows are still there
+    # (they are emptied, not deleted) so this could be read either side — it is read first
+    # so the set is fixed even if a concurrent call adds a topic mid-statement, which
+    # would otherwise be recomputed on data this function has not finished writing.
+    affected = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT tenant_id, agent_id, topic_key "
+                "FROM knowledge_gap_occurrences WHERE call_id = ANY(:ids)"
+            ),
+            {"ids": ids},
+        )
+    ).all()
+
+    result = await session.execute(
+        text(
+            "UPDATE knowledge_gap_occurrences "
+            "SET question_redacted = :mark, answer_redacted = :mark, updated_at = now() "
+            # Idempotent, and for `call_extractions`'s reason: a re-run of an erasure must
+            # not report a second, larger count for work the first one already did.
+            "WHERE call_id = ANY(:ids) "
+            "  AND (question_redacted <> :mark OR answer_redacted <> :mark)"
+        ),
+        {"ids": ids, "mark": mark},
+    )
+    scrubbed = int(rowcount_of(result) or 0)
+
+    for tenant_id, agent_id, topic_key in affected:
+        await _recompute_aggregate(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            topic_key=str(topic_key),
+            deprioritise=mark,
+        )
+    return scrubbed
 
 
 # --- read + mutate (client realm) --------------------------------------------
@@ -387,5 +482,6 @@ __all__ = [
     "get_gap",
     "list_gaps",
     "record_call_gaps",
+    "scrub_quotes_for_calls",
     "teach_gap",
 ]

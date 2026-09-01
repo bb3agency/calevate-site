@@ -522,7 +522,17 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
     match — the CHECK constraint enumerates four categories, so a fifth is a migration
     (and someone else's territory), not a constant in this module."""
     assert retention.DERIVED_COPIES == {
-        "transcript": ("calls.summary",),
+        "transcript": (
+            "calls.summary",
+            # The knowledge-gap quote columns are transcript text under another name:
+            # the detector copies the caller's question and the agent's deflection out of
+            # `transcript_turns.text_redacted`. They were in NO category, which is why
+            # nothing expired them and no erasure reached them — the failure this pair of
+            # entries exists to make impossible to reintroduce silently. Filed under
+            # `transcript` rather than a fifth category, for this test's own reason.
+            "knowledge_gap_occurrences.question_redacted",
+            "knowledge_gaps.example_question_redacted",
+        ),
         # `webhook_deliveries.payload_ref` names the object holding the CRM payload we
         # POSTed to a client's endpoint (D-23) — the same fields as
         # `call_extractions.data`, so the same category and the same clock. Filed under
