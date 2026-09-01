@@ -1699,7 +1699,7 @@ KB_SIMILARITY_TOP_K = 15
 #: multilingual direction costs an unmeasured amount of retrieval precision on
 #: English-only content; being wrong in the other direction breaks the primary language of
 #: the product. ⚠ WHAT IS NOT KNOWN is the size of that first cost — the vendor publishes
-#: no comparison — and no number is invented for it here (OPERATIONS §2 gate 41c).
+#: no comparison — and no number is invented for it here (OPERATIONS §2 gate 43f).
 KB_LANGUAGE_SUPPORT = "multilingual"
 
 #: How long `attach_kb` waits for `processing` → `processed`, and how often it looks.
@@ -2615,7 +2615,7 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   this container and no credential exists here. `True` is the claim that the ROUTES
 #   exist as the pinned mirror documents them and that this adapter calls them correctly;
 #   it is not a measurement. Every unmeasured half is a named gate in OPERATIONS §2
-#   (41a-41f), each of which fails LOUD — a vendor 4xx surfaced as `engine_rejected`, or
+#   (43a-43f), each of which fails LOUD — a vendor 4xx surfaced as `engine_rejected`, or
 #   a timeout surfaced as `engine_kb_processing_timeout` — rather than degrading to a
 #   green tick. That is strictly better than the state D-354 left, where the capability
 #   was absent and the step was not attempted at all.

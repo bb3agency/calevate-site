@@ -278,7 +278,7 @@ async def _sweep() -> str:
     gone: the linkage lives on the AGENT's `vector_ids` and `list_kb` reads it there, so
     an empty answer is a fact about the agent rather than a filter that matched nothing.
     What is still unmeasured is the READ ITSELF — no call in this adapter has been made
-    against a live account (OPERATIONS §2 gate 41d) — so the control is retained for what
+    against a live account (OPERATIONS §2 gate 43d) — so the control is retained for what
     it still buys: it costs nothing on a healthy tick and it is the difference between one
     rising `undetermined` count and a fleet-wide false alarm on the first tick after a
     vendor changes a response shape.

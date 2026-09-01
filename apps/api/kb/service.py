@@ -485,9 +485,9 @@ async def _remember_engine_kb_ref(
 #: content and uploads a duplicate every time. It must also render exactly the approved
 #: chunks in reading order and add nothing a human did not approve.
 #:
-#: RESOLVED BY NAME AT CALL TIME, AND REFUSED BY NAME WHEN ABSENT. A missing renderer is
-#: a deployment fact, not a client's mistake, and it must surface BEFORE anything is
-#: uploaded or withdrawn — which is where this is called from. `importlib` rather than a
+#: RESOLVED BY NAME AT CALL TIME. A missing renderer is a deployment fact, not a client's
+#: mistake, and it surfaces BEFORE anything is uploaded or withdrawn — which is where this
+#: is called from. `importlib` rather than a
 #: deferred `from ... import`, because the module is a SIBLING's and is not in this tree
 #: yet: a static import of a module that does not exist fails type checking, and silencing
 #: that with an ignore leaves a lie behind on the day it lands.
@@ -495,25 +495,31 @@ _RENDERER_MODULE = "apps.api.kb.render"
 _RENDERER_FUNCTION = "render_knowledge_pdf"
 
 
-def _render_document(*, title: str, chunks: list[str], language: str) -> bytes:
-    """The approved chunks as the document an engine will ingest, or a named refusal."""
+def _render_document(*, title: str, chunks: list[str], language: str) -> bytes | None:
+    """The approved chunks as the document an engine will ingest, or `None`.
+
+    **`None` IS NOT A SHRUG AND IT IS NOT A SILENT DEGRADATION — read where it goes.** Not
+    every engine's knowledge base ingests files: the port carries both, `KBSourceRef.text`
+    for the ones that take prose and `.document` for the ones that take a document, and an
+    adapter that NEEDS a document and is handed `None` refuses by NAME
+    (`engine_kb_document_missing`) before a byte reaches the vendor. So the loud failure
+    happens where the requirement actually lives, and the publisher does not have to know
+    which kind of engine it is talking to.
+
+    RAISING HERE INSTEAD WOULD BE THE WRONG PLACE, and it is worth saying why, because
+    that was the first shape of this function: a deployment whose engine ingests text
+    would then be unable to publish knowledge at all because a renderer it never needed
+    was missing. The refusal belongs to the adapter that cannot proceed, not to every
+    caller of this module.
+
+    It is logged at ERROR either way. A missing renderer is a deployment fault and
+    somebody has to be told, whether or not this particular engine minds.
+    """
     try:
         renderer = getattr(import_module(_RENDERER_MODULE), _RENDERER_FUNCTION)
-    except (ImportError, AttributeError) as exc:
+    except (ImportError, AttributeError):
         log.error("kb_renderer_unavailable", extra={"module": _RENDERER_MODULE})
-        raise ProblemError(
-            kind="dependency",
-            code="kb_renderer_unavailable",
-            title="Knowledge cannot be published right now",
-            detail=(
-                "This deployment cannot turn an approved knowledge source into the "
-                "document the voice platform ingests."
-            ),
-            remediation=(
-                "Nothing changed. This is a platform fault, not a problem with the "
-                "wording — support has been alerted."
-            ),
-        ) from exc
+        return None
     document = renderer(title=title, chunks=chunks, language=language)
     # CHECKED, because a dynamically resolved callable is unchecked by construction and
     # this one's output goes straight into a multipart upload. `str` is the likely wrong
@@ -1011,7 +1017,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
       the document it just created and re-raises; nothing is attached and nothing is
       billed. A death inside THAT window leaves an unreferenced knowledge base, which
       costs money and is invisible to `list_kb` — the account-level sweep (OPERATIONS §2
-      gate 41e) is what finds it.
+      gate 43e) is what finds it.
     * **Between the attach and the detach.** Both versions are attached and no row of ours
       changed. The agent can answer from either — the overlap window, made permanent. The
       next publish reads the engine, cannot account for the new handle, and REFUSES with
@@ -1113,7 +1119,11 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     document = _render_document(
         title=str(name), chunks=chunks, language=agent_config.language_primary
     )
-    digest = _digest_of(document)
+    # `None` when this deployment has no renderer — see `_render_document`. The engine that
+    # needs one then refuses by name; the engine that ingests text carries on as it always
+    # has, and its re-upload guard has nothing to key on, which is the state it was in
+    # before D-459 rather than a regression.
+    digest = _digest_of(document) if document is not None else None
 
     # THE RE-UPLOAD GUARD. Three conditions, and all three are load-bearing: we hold a
     # handle, the bytes are the ones that handle was minted from, and the engine still
@@ -1124,7 +1134,8 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # version already live cost nothing instead of stacking a second billed copy the first
     # handle could never name again.
     unchanged = (
-        own_handle is not None
+        digest is not None
+        and own_handle is not None
         and await _engine_kb_digest(session, source_id) == digest
         and (attached_now is None or own_handle in attached_now)
     )
