@@ -302,6 +302,18 @@ class Agent(PKMixin, TimestampMixin, Base):
     recording_notice_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
+    # MAY THIS AGENT REMEMBER ITS CALLERS ACROSS CALLS? (D-503, migration c6b1f0d47e83.)
+    #
+    # DEFAULT FALSE — DELIBERATELY THE OPPOSITE OF THE TWO TOGGLES ABOVE, and by the same
+    # rule rather than in spite of it. Those default TRUE because the posture an omission
+    # must not produce is "does not disclose". Here the posture an omission must not produce
+    # is "remembers": a forgotten column in an INSERT, a future importer, or a restore from
+    # a dump written before this column existed must all yield an agent that keeps no
+    # cross-call profile of the people who ring it. The safe default is whichever one a
+    # silence should mean, and it is not the same value on every column.
+    caller_memory_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="draft")
     engine: Mapped[str] = mapped_column(String, nullable=False, server_default="fake")
     engine_agent_ref: Mapped[str | None] = mapped_column(Text)

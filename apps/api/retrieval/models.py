@@ -1,0 +1,322 @@
+"""`caller_chunks` and `caller_memories` — the store for CALLER personal data (D-503).
+
+`kb/models.KbChunk` is the same shape over a client's own uploaded knowledge. This is that
+shape pointed at data belonging to a data principal, and the whole of the difference is in
+the erasure and retention seams: `kb_chunks` erases by `ON DELETE CASCADE` because
+`retention._KB_EXPIRE_SQL` really DELETEs a `kb_sources` row, and a DPDP erasure does not
+delete a call — it SCRUBS the call in place and keeps the row as billing evidence, so a
+cascade on `call_id` never fires. Everything below follows from that one sentence.
+
+Migration `c6b1f0d47e83` carries the long-form argument for every column.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Final
+from uuid import UUID
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import Mapped, mapped_column
+
+from apps.api.db.base import Base, PKMixin, TimestampMixin
+from apps.api.retrieval.embedding import EMBEDDING_DIMS
+
+#: `caller_chunks.subject_kind` — WHAT a projection is of. A closed set, because the value
+#: decides which registered scope re-projects the row and which erasure handle applies; a
+#: free-form string would let a typo become a scope nothing sweeps, which is the defect
+#: `retention.DERIVED_COPIES` exists against.
+SUBJECT_LEAD: Final = "lead"
+SUBJECT_CALL_TURN: Final = "call_turn"
+SUBJECT_CALL_SUMMARY: Final = "call_summary"
+SUBJECT_CALLER_MEMORY: Final = "caller_memory"
+SUBJECT_KINDS: Final[tuple[str, ...]] = (
+    SUBJECT_LEAD,
+    SUBJECT_CALL_TURN,
+    SUBJECT_CALL_SUMMARY,
+    SUBJECT_CALLER_MEMORY,
+)
+
+#: Which `retention_policies.data_category` clock a projection expires on — a SUBSET of
+#: `compliance/models.DATA_CATEGORIES`, and only the values that have a real sweep arm
+#: behind them in `workers/retention._apply_one`. A third value added speculatively would
+#: be a copy filed under a category nothing reads, which is the whole failure this column
+#: exists to prevent.
+RETENTION_TRANSCRIPT: Final = "transcript"
+RETENTION_LEAD: Final = "lead"
+RETENTION_CATEGORIES: Final[tuple[str, ...]] = (RETENTION_TRANSCRIPT, RETENTION_LEAD)
+
+#: Which retention clock each subject kind rides. Written ONCE, here, and read by the
+#: projection registry, the retention sweep and the tests — a scope that could choose its
+#: own category could file a caller's sentence on the 1095-day CRM clock by naming itself
+#: a lead.
+#:
+#: `caller_memory` rides the TRANSCRIPT clock because a memory is DISTILLED from what the
+#: caller said, so it belongs on the clock of the words it was distilled from —
+#: `calls.summary` and the knowledge-gap quotes are already filed exactly that way
+#: (`retention.DERIVED_COPIES`), and it costs no new `retention_policies` row.
+SUBJECT_RETENTION: Final[dict[str, str]] = {
+    SUBJECT_LEAD: RETENTION_LEAD,
+    SUBJECT_CALL_TURN: RETENTION_TRANSCRIPT,
+    SUBJECT_CALL_SUMMARY: RETENTION_TRANSCRIPT,
+    SUBJECT_CALLER_MEMORY: RETENTION_TRANSCRIPT,
+}
+
+#: `caller_chunks.embed_state`. The first three are `kb/models.EMBED_STATES` unchanged and
+#: for its reasons. The last three exist because this table is swept by things `kb_chunks`
+#: is not, and they are THREE rather than one because they answer three different questions
+#: an operator asks about the same emptied row:
+#:
+#: * `superseded` the SOURCE changed and no longer fills this slot. REVIVABLE —
+#:   `scrubbed_at` stays NULL, so an edited lead that grows back gets its slot back.
+#: * `expired`    the tenant's retention clock reached it. TERMINAL, `scrubbed_at` set.
+#: * `erased`     a data principal or a client asked. TERMINAL, `scrubbed_at` set.
+#:
+#: The two terminal states must be terminal because the ingestion sweep DISCOVERS its own
+#: work: without a tombstone, deleting the row would let the next tick re-project the
+#: subject and re-buy a vector for text an erasure had just destroyed — spending money to
+#: undo a legal obligation.
+EMBED_PENDING: Final = "pending"
+EMBED_READY: Final = "ready"
+EMBED_REFUSED: Final = "refused"
+EMBED_SUPERSEDED: Final = "superseded"
+EMBED_EXPIRED: Final = "expired"
+EMBED_ERASED: Final = "erased"
+EMBED_STATES: Final[tuple[str, ...]] = (
+    EMBED_PENDING,
+    EMBED_READY,
+    EMBED_REFUSED,
+    EMBED_SUPERSEDED,
+    EMBED_EXPIRED,
+    EMBED_ERASED,
+)
+
+#: The two states that mean "forgotten for good". Read by the erasure arms (which write
+#: them) and by the discovery statement (which refuses to revive them).
+FORGOTTEN_STATES: Final[tuple[str, ...]] = (EMBED_EXPIRED, EMBED_ERASED)
+
+
+class CallerChunk(PKMixin, TimestampMixin, Base):
+    """ONE retrievable chunk of ONE thing a caller said, or of a fact learned from them.
+
+    **IT HOLDS NO CONTENT, AND THE EMBEDDING IS STILL A COPY OF THE SENTENCE.** Those two
+    sentences are not in tension and both are load-bearing. There is no `content` column
+    for `KbChunk`'s reason — the source row is the one copy, so a correction has one place
+    to land and an erasure has one row to find. But a vector is DERIVED FROM the text by a
+    deterministic function of it and is substantially invertible with the model, and the
+    `tsv` is literally the caller's lexemes. So scrubbing the source is NOT enough: every
+    arm that empties a source row must also NULL `embedding` and empty `tsv` here, and
+    `ck_caller_chunks_forgotten_has_no_keys` enforces that in the database rather than
+    leaving it to a worker to remember.
+
+    **ONE TABLE WITH A DISCRIMINATOR, NOT THREE.** Three tables would be three erasure arms
+    and three retention arms, and the count of arms IS the risk — `insights/service.
+    scrub_quotes_for_calls` exists because a second copy of a caller's sentence was filed
+    under a table no erasure path and no `DERIVED_COPIES` entry named, and it survived
+    every erasure for exactly as long as nobody looked.
+
+    **`subject_id` IS AN IDEMPOTENCY KEY AND NEVER A FOREIGN KEY.** None of the scopes is
+    1:1 with a source row: a transcript chunk WINDOWS several turns (and
+    `_TRANSCRIPT_DELETE_SQL` really deletes turns, so a reference would dangle), a lead
+    yields several chunks from one schema-driven payload, and a caller memory is distilled
+    across calls from no single row. Each scope mints its own deterministic id — a uuid5
+    over (call_id, first turn idx) for the transcript scope, the lead's own id for the lead
+    scope — and `UNIQUE (subject_kind, subject_id, idx)` contains both conventions.
+    """
+
+    __tablename__ = "caller_chunks"
+    __table_args__ = (
+        UniqueConstraint("subject_kind", "subject_id", "idx", name="uq_caller_chunks_subject"),
+        CheckConstraint(
+            f"subject_kind IN {SUBJECT_KINDS!r}", name="ck_caller_chunks_subject_kind_enum"
+        ),
+        CheckConstraint(
+            f"retention_category IN {RETENTION_CATEGORIES!r}",
+            name="ck_caller_chunks_retention_category_enum",
+        ),
+        CheckConstraint(
+            f"embed_state IN {EMBED_STATES!r}", name="ck_caller_chunks_embed_state_enum"
+        ),
+        CheckConstraint(
+            "scrubbed_at IS NULL OR (embedding IS NULL AND tsv = ''::tsvector "
+            "AND embed_state IN ('expired', 'erased'))",
+            name="ck_caller_chunks_forgotten_has_no_keys",
+        ),
+        CheckConstraint(
+            "embed_state <> 'superseded' OR (embedding IS NULL AND scrubbed_at IS NULL)",
+            name="ck_caller_chunks_superseded_has_no_vector",
+        ),
+        CheckConstraint(
+            "(first_turn_idx IS NULL) = (last_turn_idx IS NULL)",
+            name="ck_caller_chunks_turn_span_paired",
+        ),
+        CheckConstraint(
+            "first_turn_idx IS NULL OR subject_kind = 'call_turn'",
+            name="ck_caller_chunks_turn_span_scope",
+        ),
+        CheckConstraint("idx >= 0", name="ck_caller_chunks_idx_not_negative"),
+        Index(
+            "ix_caller_chunks_scope",
+            "tenant_id",
+            "subject_kind",
+            "agent_id",
+            postgresql_where=text("scrubbed_at IS NULL"),
+        ),
+        Index(
+            "ix_caller_chunks_embed_pending",
+            "tenant_id",
+            postgresql_where=text("embed_state = 'pending'"),
+        ),
+        Index("ix_caller_chunks_call", "call_id", postgresql_where=text("call_id IS NOT NULL")),
+        Index(
+            "ix_caller_chunks_subject_ref",
+            "tenant_id",
+            "subject_ref",
+            postgresql_where=text("scrubbed_at IS NULL"),
+        ),
+        Index("ix_caller_chunks_retention", "retention_category", "occurred_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    subject_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_id: Mapped[UUID] = mapped_column(nullable=False)
+    #: SET NULL and not CASCADE: a caller-memory row outlives the call it was learned on by
+    #: design, and on the call scopes a cascade would destroy the TOMBSTONE that proves we
+    #: forgot the row. Provenance goes; the record that we forgot stays.
+    call_id: Mapped[UUID | None] = mapped_column(ForeignKey("calls.id", ondelete="SET NULL"))
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    #: `compliance/caller_ref.active_caller_ref` — a KEYED MAC of (tenant, E.164) under a
+    #: `PLATFORM_KEK`-derived key, NOT `export.subject_ref`'s unsalted digest. That
+    #: construction takes no tenant into the input (so one person calling two clients
+    #: collides on one column) and reverses in seconds over the ~10^9 Indian mobile space —
+    #: which is why `_erase_campaign_contacts` CLEARS `dedupe_hash` rather than leaving it.
+    #: A reversible number beside an invertible sentence is a re-identifiable profile.
+    subject_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Which KEK generation minted `subject_ref`. A rotation is an ERASURE hazard here, not
+    #: a nuisance: `caller_refs()` returns every generation so the predicate is
+    #: `= ANY(:refs)`, and `ring_covers()` turns "this deployment can no longer address
+    #: those rows" into an alarm instead of a silent miss on a §12 request.
+    subject_ref_kek_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    first_turn_idx: Mapped[int | None] = mapped_column(Integer)
+    last_turn_idx: Mapped[int | None] = mapped_column(Integer)
+    idx: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    retention_category: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The clock of the thing this projects, CARRIED rather than joined — the sweep dates a
+    #: row without knowing which of four tables it came from. NOT `created_at`: a backfill
+    #: that projected two years of calls tonight would restart every caller's retention
+    #: period because a background job read their data.
+    occurred_at: Mapped[datetime] = mapped_column(nullable=False)
+    #: The sparse key. NOT NULL with an EMPTY default, because the erasure arm EMPTIES it
+    #: and an empty `tsvector` matches nothing.
+    tsv: Mapped[str] = mapped_column(TSVECTOR, nullable=False, server_default=text("''::tsvector"))
+    #: The dense key. NULL before the sweep reaches it, and NULL again after an erasure.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMS))
+    embed_model: Mapped[str | None] = mapped_column(Text)
+    embed_dim: Mapped[int | None] = mapped_column(Integer)
+    embed_state: Mapped[str] = mapped_column(String, nullable=False, server_default=EMBED_PENDING)
+    #: `sha256` of the text this row's keys were built from. A HASH and not the text,
+    #: because a content column would make every claim above it false; it answers exactly
+    #: one question — is the source still the text this vector was bought for?
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    scrubbed_at: Mapped[datetime | None]
+
+
+class CallerMemory(PKMixin, TimestampMixin, Base):
+    """ONE durable fact about a repeat caller, learned on a call and kept past it.
+
+    THE SOURCE ROW `CallerChunk` PROJECTS, and it exists because `caller_chunks` stores no
+    content: a distilled fact needs a home the way a transcript turn and a lead already
+    have one.
+
+    DELIBERATELY THIN. What a fact IS, how it is distilled and when it is recalled belong to
+    the scope that owns the feature. What belongs here is that the row is REACHABLE BY AN
+    ERASURE (`subject_ref`), DATED BY A CLOCK A BACKGROUND JOB CANNOT RESTART
+    (`occurred_at`, from the source call rather than from `created_at`), and ISOLATED by a
+    FORCEd policy.
+
+    NO RETENTION CATEGORY OF ITS OWN: a memory is distilled from what the caller said, so it
+    rides the tenant's existing `transcript` clock through `retention.DERIVED_COPIES`.
+
+    `source_call_id` IS PROVENANCE AND NOT AN ERASURE PATH — SET NULL, so the row survives
+    the call it was learned on, which is the entire point of cross-call memory. Erasure
+    reaches it by `subject_ref = ANY(caller_refs(tenant, number))`, the same predicate that
+    reaches its projection.
+
+    THE FEATURE IS OFF UNLESS AN AGENT SAYS OTHERWISE: `agents.caller_memory_enabled`
+    defaults FALSE, the opposite of the two disclosure toggles beside it, because the safe
+    posture here is "does not remember" rather than "discloses".
+    """
+
+    __tablename__ = "caller_memories"
+    __table_args__ = (
+        CheckConstraint(
+            "scrubbed_at IS NULL OR fact = ''", name="ck_caller_memories_scrubbed_is_empty"
+        ),
+        Index(
+            "ix_caller_memories_subject",
+            "tenant_id",
+            "subject_ref",
+            postgresql_where=text("scrubbed_at IS NULL"),
+        ),
+        Index("ix_caller_memories_occurred", "occurred_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    subject_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_ref_kek_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: One short sentence per row rather than a document: a fact is what gets recalled into
+    #: a prompt, and a paragraph recalled is a paragraph of somebody's conversation replayed
+    #: to whoever rings next. Emptied to `''` (never NULL) when scrubbed, so the column
+    #: stays NOT NULL and every reader has ONE empty value to test rather than two.
+    fact: Mapped[str] = mapped_column(Text, nullable=False)
+    source_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("calls.id", ondelete="SET NULL"))
+    occurred_at: Mapped[datetime] = mapped_column(nullable=False)
+    scrubbed_at: Mapped[datetime | None]
+
+
+#: `agents.caller_memory_enabled`'s default, spelled where a reader of the model finds it.
+#: FALSE, and that is the decision rather than an accident — see `CallerMemory`.
+CALLER_MEMORY_DEFAULT_ENABLED: Final[bool] = False
+
+__all__ = [
+    "CALLER_MEMORY_DEFAULT_ENABLED",
+    "EMBED_ERASED",
+    "EMBED_EXPIRED",
+    "EMBED_PENDING",
+    "EMBED_READY",
+    "EMBED_REFUSED",
+    "EMBED_STATES",
+    "EMBED_SUPERSEDED",
+    "FORGOTTEN_STATES",
+    "RETENTION_CATEGORIES",
+    "RETENTION_LEAD",
+    "RETENTION_TRANSCRIPT",
+    "SUBJECT_CALLER_MEMORY",
+    "SUBJECT_CALL_SUMMARY",
+    "SUBJECT_CALL_TURN",
+    "SUBJECT_KINDS",
+    "SUBJECT_LEAD",
+    "SUBJECT_RETENTION",
+    "CallerChunk",
+    "CallerMemory",
+]
