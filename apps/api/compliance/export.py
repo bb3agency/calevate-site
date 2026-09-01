@@ -89,13 +89,32 @@ _MIN_PHONE_DIGITS = 8
 
 
 def subject_ref(phone_e164: str) -> str:
-    """A stable, non-reversible handle for one data subject.
+    """A stable handle for one data subject. **NOT non-reversible — see below.**
 
     Deliberately the same construction as the erasure proof's `subject_hash`
     (`apps/workers/retention._hash`): an access request and an erasure request for the
     same person must be correlatable in `audit_log` and in the proof archive, and the
     only way to do that without either record carrying the number is for both to derive
     the same reference from it (hard rule 6).
+
+    ⚠ **THIS DOCSTRING SAID "non-reversible" AND THAT WAS FALSE.** The tree contradicted
+    itself: `retention.py`'s `_CAMPAIGN_CONTACT_ERASE_SQL` says of the IDENTICAL
+    construction that it is "unsalted, and Indian mobile E.164 is a ~10^9 space anyone
+    can enumerate in seconds, so leaving it is leaving the number in a form that
+    reverses" — which is why erasure CLEARS `dedupe_hash`. Both claims were in the
+    repository and only one can be true. Enumerating a billion candidates and comparing
+    digests is seconds of work, so this value must be treated as PSEUDONYMOUS, never as
+    anonymous: it is a pointer to a person that a determined reader can resolve.
+
+    **THE CONSTRUCTION IS DELIBERATELY UNCHANGED, and the reason is the paragraph above
+    it.** Salting or keying this would break the correlation it exists to provide — proofs
+    already archived carry the unkeyed value, and an access request must still match an
+    erasure performed last year. What changes is what may be BUILT on it: a tombstone on
+    a call whose data is already gone is a reasonable place for a pseudonymous ref, and a
+    durable profile is not. `compliance/caller_ref.py` is the keyed construction for
+    anything that outlives the call, and it takes the tenant into the input as well —
+    this one does not, so the same person calling two of our clients carries an identical
+    ref in both, which is a correlation RLS does not prevent in a dump or a backup.
     """
     return hashlib.sha256(phone_e164.encode()).hexdigest()[:32]
 
