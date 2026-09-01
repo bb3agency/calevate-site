@@ -488,6 +488,11 @@ const PROPOSAL = {
   object_id: "0192f0aa-0000-7000-8000-00000000c001",
   current: "running",
   proposed: "paused",
+  // D-500. `cost` is null here because pausing charges nothing — the card renders no cost
+  // line at all rather than "none", which would make a free action look priced.
+  cost: null,
+  reversal:
+    "You can start it again from the campaign screen. Calls already placed cannot be recalled.",
   expires_at: "2099-01-01T00:00:00Z",
 };
 
@@ -982,5 +987,80 @@ describe("the fallback surface", () => {
     expect(screen.getByText(/isn't available in the admin console yet/)).toBeTruthy();
     expect(screen.queryByLabelText("Your question about this screen")).toBeNull();
     expect(bodies).toEqual([]);
+  });
+});
+
+/**
+ * The two frames D-500 added, driven through the REAL panel.
+ *
+ * `action` and `step` are the browser's half of "an assistant that performs actions": a
+ * receipt for something already done, and a live account of what it is doing. Both are
+ * asserted against the panel rather than against the reader, because the property that
+ * matters is what a PERSON SEES — in particular, that a receipt never looks like an offer.
+ */
+const ACTION = {
+  tool: "agent_create",
+  title: "Create a draft agent",
+  detail: "“Raghava outbound” exists as a draft.",
+  object_type: "agent",
+  object_id: "0192f0aa-0000-7000-8000-00000000a001",
+  applied: true,
+  reversal: "A draft reaches no caller. You can rename it, or archive it, from the Agents screen.",
+  where: "under Agents in your dashboard",
+};
+
+describe("an action the assistant has already taken", () => {
+  it("RENDERS AS A RECEIPT — no Confirm button, and it says where the result is", async () => {
+    stubCopilot({
+      chunks: [
+        `event: action\ndata: ${JSON.stringify(ACTION)}\n\n`,
+        'event: text\ndata: {"delta":"Created it as a draft."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    renderPanel();
+    await ask("create an outbound agent called raghava outbound");
+
+    expect(await screen.findByText("Done")).toBeTruthy();
+    expect(screen.getAllByText(ACTION.detail).length).toBe(1);
+    // THE CROSS-SCREEN RULE, on screen: it acted from wherever the person was and told
+    // them where it went, rather than navigating them or filling in a form for them.
+    expect(screen.getAllByText(ACTION.where).length).toBe(1);
+    // AND THE HONEST UNDO. The panel's own Undo belongs to a field fill and does not reach
+    // a database write, so this sentence is the only thing saying what applies here.
+    expect(screen.getAllByText(ACTION.reversal).length).toBe(1);
+    // NOTHING TO CONFIRM AND NOTHING SUGGESTED: this already happened.
+    expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(0);
+    expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0);
+  });
+});
+
+describe("live tool-execution visibility", () => {
+  it("SHOWS ONE ROW PER CALL, updated in place, with the tool and how long it took", async () => {
+    const running = {
+      id: "r1",
+      tool: "campaigns_list",
+      status: "running",
+      args: '{"limit":5}',
+      detail: null,
+      elapsed_ms: null,
+    };
+    const finished = { ...running, status: "done", detail: "2 campaigns.", elapsed_ms: 84 };
+    stubCopilot({
+      chunks: [
+        `event: step\ndata: ${JSON.stringify(running)}\n\n`,
+        `event: step\ndata: ${JSON.stringify(finished)}\n\n`,
+        'event: text\ndata: {"delta":"You have two."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    renderPanel();
+    await ask("what campaigns do i have");
+
+    // ONE row for one call: the terminal frame REPLACED its own `running` one rather than
+    // following it, which is what keeps a two-lookup turn from looking like four.
+    expect((await screen.findAllByText("campaigns_list")).length).toBe(1);
+    expect(screen.getAllByText("2 campaigns.").length).toBe(1);
+    expect(screen.getAllByText("84 ms").length).toBe(1);
   });
 });
