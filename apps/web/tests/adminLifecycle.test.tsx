@@ -383,6 +383,12 @@ const ERASED = {
       recordings_destroyed: 96,
       recordings_within_trai_floor: 32,
       webhook_bodies_erased: 12,
+      // Present-and-numeric is the shape a proof written today carries. `null` is a
+      // different state the server also sends — a proof from before `caller_chunks`
+      // existed, which could not look — and `_caller_sentences` says the two in two
+      // different sentences rather than rendering a `0` for both.
+      caller_vectors_erased: 812,
+      caller_memories_erased: 19,
     },
     recording_hold_until: "2026-11-15T18:45:00Z",
     actions: { calls: "stripped", leads: "anonymised" },
