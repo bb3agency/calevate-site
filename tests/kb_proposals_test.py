@@ -130,10 +130,21 @@ def test_the_tool_is_registered_in_the_one_registry_and_the_one_composer() -> No
     composer (`copilot/service.py`), and appearing in `WRITE_TOOLS` is what puts it there —
     so this asserts both ends rather than trusting that the second follows from the first.
     """
-    assert [tool.name for tool in write_tools.WRITE_TOOLS][-1] == TOOL, (
-        "registration order is wire order and part of the cacheable prompt prefix: new tools APPEND"
+    names = [tool.name for tool in write_tools.WRITE_TOOLS]
+    assert TOOL in names, "the tool left the one registry, so the model is never offered it"
+
+    # WAS `names[-1] == TOOL`, AND THAT PIN BROKE WHILE THE PROPERTY IT GUARDED HELD.
+    # The property is "registration order is wire order and new tools APPEND, because the
+    # order is part of the cacheable prompt prefix". Being LAST was only a proxy for it,
+    # true for exactly as long as this was the newest tool — D-500's `agent_create`,
+    # `agent_rename`, `agent_publish` and `campaign_launch` appended after it, which is
+    # the property working, not breaking. Pin the property instead: this tool keeps its
+    # index, so a future tool can only be added after it.
+    assert names.index(TOOL) == 3, (
+        "propose_knowledge moved within WRITE_TOOLS — registration order is wire order and "
+        "part of the cacheable prompt prefix, so tools APPEND and never reorder"
     )
-    offered = [schema["function"]["name"] for schema in copilot_service.tool_array()]
+    offered = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
     assert TOOL in offered
 
 

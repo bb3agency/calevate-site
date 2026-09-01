@@ -67,7 +67,7 @@ def test_the_port_is_offered_to_the_model_on_every_request() -> None:
     by role, which the array's own byte-identity test forbids. A registry entry no composer
     emitted would be the dark half of the same defect this file exists to forbid.
     """
-    names = [schema["function"]["name"] for schema in copilot_service.tool_array()]
+    names = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
     assert "search_knowledge" in names
 
 
@@ -105,7 +105,7 @@ def test_the_schema_carries_no_field_that_could_name_another_account() -> None:
     and adding one must fail here rather than in review."""
     (tool,) = [
         schema
-        for schema in copilot_service.tool_array()
+        for schema in copilot_service.tool_array("client")
         if schema["function"]["name"] == "search_knowledge"
     ]
     assert list(tool["function"]["parameters"]["properties"]) == ["question"]

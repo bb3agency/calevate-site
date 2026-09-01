@@ -40,6 +40,7 @@ import uuid
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.copilot import actions as copilot_actions
 from apps.api.copilot import write_tools
 from apps.api.core.context import Principal
 from apps.api.db.session import tenant_session, untenanted_session
@@ -463,7 +464,7 @@ async def test_the_two_grants_are_independent() -> None:
 
     * may open the assistant and use its READ tools — `copilot:use` is a flat role fact and
       owes nothing to this account's settings;
-    * is refused the moment a knowledge entry has to be COMPLETED — `write_tools._may`
+    * is refused the moment a knowledge entry has to be COMPLETED — `actions.may_act`
       routes `kb:write` to `kb/curation.may_curate_knowledge`, which reads the owner's
       switch, so the assistant gives exactly the answer the Add-Knowledge form gives.
 
@@ -491,10 +492,10 @@ async def test_the_two_grants_are_independent() -> None:
     )
     assert actor is not None
     async with tenant_session(tenant_id) as session:
-        assert await write_tools._may(session, actor, "leads:write"), (
+        assert await copilot_actions.may_act(session, actor, "leads:write"), (
             "a plain role fact must be unaffected by the knowledge switch"
         )
-        assert not await write_tools._may(session, actor, "kb:write"), (
+        assert not await copilot_actions.may_act(session, actor, "kb:write"), (
             "with the owner's switch OFF, the assistant must refuse to complete a knowledge "
             "entry — the same answer POST /v1/kb/sources gives"
         )
