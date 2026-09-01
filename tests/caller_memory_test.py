@@ -13,10 +13,27 @@ So the erasure arms are written by hand and these tests are what prove they bite
 central one — `test_an_erased_caller_is_forgotten` — asserts on the FACT, not on a phone
 number: redaction removes identifiers from a sentence and does not remove the sentence,
 which is the confusion `insights/service.scrub_quotes_for_calls` was written to undo.
+
+**THE SECOND GROUP IS D-507(b): THE VERTICALS WHERE THE WRITE IS REFUSED OUTRIGHT.** A
+distilled fact CAN be sensitive personal data — "asked about IVF pricing" is, on a clinic,
+an inference about a health condition, which the SPDI Rules 2011 Rule 3 list includes and
+which Rule 5(1) wants written consent for. Those tests assert on the TABLE and not on a
+return value, for `test_the_switch_gates_the_write_and_not_only_the_read`'s reason: a
+refusal that only silenced `recall()` would leave the rows accumulating, which is the
+failure mode this feature is most exposed to. They also pin that the refusal is SILENT AND
+LOGGED rather than raised — `memory_enabled` is a worker's question and a permanent NO
+raised as an exception is a job that retries into the DLQ nightly for ever.
+
+**WHY THE FIXTURE TENANT IS NO LONGER A CLINIC.** It was, and every write test in this
+file passed for a tenant D-507 now refuses — so the file could not tell the difference
+between "the store works" and "the store refuses everything". `_tenant()` is `real_estate`
+by default and takes the vertical as an argument, and the refusal tests are the only ones
+that ask for a clinic.
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -33,6 +50,7 @@ from apps.api.retrieval.caller_erasure import (
 )
 from apps.api.retrieval.models import (
     CALLER_MEMORY_DEFAULT_ENABLED,
+    RETENTION_CALLER_MEMORY,
     SUBJECT_CALLER_MEMORY,
     SUBJECT_RETENTION,
 )
@@ -50,11 +68,18 @@ FACT = "asked about IVF pricing"
 OTHER_FACT = "wants a Saturday appointment"
 
 
-async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
+async def _tenant(vertical: str = "real_estate") -> tuple[uuid.UUID, uuid.UUID]:
+    """A tenant and its first agent, on a vertical the SPDI refusal does NOT cover.
+
+    `real_estate` rather than `clinic` (D-507(b)): a clinic tenant may not remember its
+    callers at all, so a fixture on one would make every write test in this file pass
+    against an implementation that wrote nothing. `test_a_refused_vertical_...` asks for
+    the clinic explicitly, which is the only place the difference should be invisible.
+    """
     created = await admin_service.create_organization(
-        name="Memory Clinic",
+        name="Memory Estates",
         slug=f"mem-{uuid.uuid4().hex[:8]}",
-        vertical_template="clinic",
+        vertical_template=vertical,
         billing_email=None,
         language="te-IN",
         created_by=None,
@@ -167,6 +192,141 @@ async def test_recall_stops_the_moment_the_switch_moves() -> None:
             await caller_memory.recall(session, tenant_id, agent_id=agent_id, phone_e164=CALLER)
             == ()
         )
+
+
+# ──────────────────── the verticals where it is refused outright (D-507(b))
+
+
+async def test_a_refused_vertical_writes_nothing_however_the_switch_is_set() -> None:
+    """A CLINIC MAY NOT REMEMBER ITS CALLERS, AND THE SWITCH DOES NOT OVERRIDE IT.
+
+    "Asked about IVF pricing" is, on a clinic, an inference about a health condition — one
+    of the entries on the SPDI Rules 2011 Rule 3 list, which is exhaustive — and Rule 5(1)
+    wants consent IN WRITING for collecting sensitive personal data, which a phone call
+    cannot give. No classifier over free text can be trusted to sort the sentences that
+    are from the ones that are not, and being wrong is not recoverable, so the whole
+    vertical is refused (D-507(b)).
+
+    Asserted with the switch VERIFIABLY ON in the database first, because the claim is
+    that the refusal beats the client's own configuration and not that the fixture forgot
+    to enable it. And asserted on the TABLE, for
+    `test_the_switch_gates_the_write_and_not_only_the_read`'s reason: a refusal that only
+    emptied `recall()` would leave a durable profile of every caller accumulating behind a
+    feature that looks off.
+    """
+    tenant_id, agent_id = await _tenant("clinic")
+    await _enable(tenant_id, agent_id)
+
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT caller_memory_enabled FROM agents WHERE id = :aid"),
+                {"aid": agent_id},
+            )
+        ).scalar()
+        assert stored is True, "the fixture must have the switch on or this proves nothing"
+        assert await caller_memory.memory_enabled(session, agent_id=agent_id) is False
+
+    assert await _remember(tenant_id, agent_id) == 0
+    assert await _facts_on_file(tenant_id) == []
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await caller_memory.recall(session, tenant_id, agent_id=agent_id, phone_e164=CALLER)
+            == ()
+        )
+
+
+async def test_the_same_configuration_on_a_vertical_that_is_not_refused_writes() -> None:
+    """THE CONTROL, and the test that keeps the refusal from being indistinguishable from
+    a broken write path. Two tenants, the same switch, the same call into `remember()` —
+    the only difference is the vertical the business was onboarded on, and that difference
+    is what decides. Without this pair, an implementation that never wrote anything at all
+    would pass the refusal test above."""
+    refused, refused_agent = await _tenant("clinic")
+    allowed, allowed_agent = await _tenant("real_estate")
+    await _enable(refused, refused_agent)
+    await _enable(allowed, allowed_agent)
+
+    assert await _remember(refused, refused_agent) == 0
+    assert await _remember(allowed, allowed_agent) == 1
+
+    assert await _facts_on_file(refused) == []
+    assert await _facts_on_file(allowed) == [FACT]
+
+
+async def test_the_refusal_is_logged_and_is_never_an_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SILENT TO THE CALLER, LOUD TO AN OPERATOR — and never raised.
+
+    `memory_enabled` is asked by a worker. A refusal that raised would fail the job, retry
+    it three times and land it in the DLQ on every call for a client who has done nothing
+    wrong and whose posture will never change — which is the shape the missing-agent case
+    already rejected for the same reason, and this one matches it deliberately.
+
+    It is LOGGED because the alternative is an operator mystery: a client with the switch
+    visibly on and a store that stays permanently empty, with nothing anywhere saying why.
+    The record names the DECISION's ground (the vertical) and the agent id, and no more —
+    a vertical template is the client's own business category, never a caller's data
+    (hard rule 6).
+    """
+    tenant_id, agent_id = await _tenant("clinic")
+    await _enable(tenant_id, agent_id)
+
+    with caplog.at_level(logging.WARNING, logger="apps.api.compliance.caller_memory"):
+        async with tenant_session(tenant_id) as session:
+            assert await caller_memory.memory_enabled(session, agent_id=agent_id) is False
+
+    refused = "caller_memory_refused_spdi_vertical"
+    refusals = [r for r in caplog.records if r.getMessage() == refused]
+    assert len(refusals) == 1, "the refusal must be findable in the log, once"
+    assert refusals[0].levelno == logging.WARNING
+    assert getattr(refusals[0], "vertical", None) == "clinic"
+    assert getattr(refusals[0], "agent_id", None) == str(agent_id)
+
+
+async def test_a_missing_agent_is_false_rather_than_an_exception() -> None:
+    """The case `memory_enabled`'s docstring has always claimed and nothing asserted.
+
+    A worker's subject may have been deleted between the job being queued and it running,
+    and "we did not remember anything" is the right outcome — refusing loudly would retry
+    a job that can never succeed. `remember()` takes the same door, so an unknown agent
+    writes nothing rather than violating the foreign key with a stack trace in it.
+    """
+    tenant_id, _ = await _tenant()
+    ghost = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        assert await caller_memory.memory_enabled(session, agent_id=ghost) is False
+        assert (
+            await caller_memory.remember(
+                session,
+                tenant_id,
+                agent_id=ghost,
+                phone_e164=CALLER,
+                occurred_at=datetime.now(UTC),
+                source_call_id=None,
+                facts=[FACT],
+            )
+            == 0
+        )
+        await session.commit()
+    assert await _facts_on_file(tenant_id) == []
+
+
+def test_the_refusal_predicate_reads_a_positive_signal_and_not_an_absent_one() -> None:
+    """The predicate itself, at its three inputs, because two readers depend on it —
+    `memory_enabled` here and `compliance/caller_notice.py`, which must not tell a
+    client's callers about processing this module refuses.
+
+    `None` is NOT a refusal: `organizations.vertical_template` is nullable, so an absent
+    value is the absence of a signal rather than a business that declined to answer, and
+    reading it as a refusal would silently disable the feature for accounts created by a
+    path that never asked.
+    """
+    assert caller_memory.spdi_refuses_memory("clinic") is True
+    assert caller_memory.spdi_refuses_memory("real_estate") is False
+    assert caller_memory.spdi_refuses_memory(None) is False
+    assert "clinic" in caller_memory.SPDI_REFUSED_VERTICALS
 
 
 # ─────────────────────────────────────── it remembers
@@ -376,19 +536,21 @@ async def test_the_clock_forgets_facts_older_than_the_cutoff() -> None:
     assert await _facts_on_file(tenant_id) == [OTHER_FACT]
 
 
-async def test_the_scope_rides_the_transcript_clock_and_nothing_else() -> None:
+async def test_the_scope_rides_its_own_clock_and_nothing_else() -> None:
     """One statement of which clock owns this scope, asserted across the two places that
     have to agree: the shared store's registry and the erasure module's own constant. They
     drift silently otherwise — the projection would expire on one clock and the source row
     on another, and the survivor would be a fact with no words left to justify it.
 
-    `transcript` and not a category of its own: a memory is DISTILLED from what the caller
-    said, so it rides the clock of the words it was distilled from — `calls.summary`'s
-    argument, one table over — and it costs no new `retention_policies` row a client would
-    have to be asked about.
+    **ITS OWN CATEGORY SINCE D-507(c), AND THIS TEST ASSERTED `transcript` UNTIL THEN.**
+    The distillation argument had the feature backwards: the PURPOSE of a memory is to
+    outlive the call, so inheriting the call's clock meant a fact on the tenant's 365-day
+    transcript default outlived the conversation it came from by design, which is the
+    opposite of purpose limitation.
     """
     assert SUBJECT_RETENTION[SUBJECT_CALLER_MEMORY] == MEMORY_RETENTION_CATEGORY
-    assert MEMORY_RETENTION_CATEGORY == "transcript"
+    assert MEMORY_RETENTION_CATEGORY == RETENTION_CALLER_MEMORY
+    assert MEMORY_RETENTION_CATEGORY != "transcript"
 
 
 async def test_the_subject_key_matches_the_one_the_projection_is_filed_under() -> None:
