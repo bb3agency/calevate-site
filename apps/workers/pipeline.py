@@ -54,6 +54,7 @@ from apps.api.billing.caps import (
     lock_tenant_spend_state,
     over_cap_sql,
 )
+from apps.api.billing.list_rates import self_serve_rate_at
 from apps.api.billing.plans import ist_billing_month, month_pricing_instant, plan_in_effect_sql
 from apps.api.billing.rates import (
     MONEY_Q,
@@ -90,7 +91,6 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
-from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -2380,6 +2380,21 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # about today (see the next paragraph). One spelling, `billing.plans
         # .ist_billing_month`, on the instant the ledger rows are stamped with.
         month = ist_billing_month(snapshot.ended_at or datetime.now(UTC))
+        # THE INSTANT THIS MONTH'S TERMS ARE RESOLVED AT, read ONCE and handed to both of
+        # them. The plan row below and the self-serve list rate are two terms of the same
+        # month, and taking two readings of the clock is how a call that settles across the
+        # roll gets its plan from one month and its list price from the other.
+        priced_at = month_pricing_instant(month)
+        # WHAT A MINUTE COST IN *THIS CALL'S OWN* MONTH (D-492). This was
+        # `get_settings().self_serve_inr_per_min` — the LIVE setting — in both places
+        # below, while the `llm_surcharge` added to it in the same expression was already
+        # resolved at `priced_at`. So a LATE-SETTLING call was debited at NEXT month's
+        # price and surcharged at its own: the reconciliation poller's window straddling
+        # midnight IST on the 1st, an ARQ retry ladder crossing it, or a vendor that takes
+        # minutes to price a call all land there. `billing/list_rates.py` is the one home
+        # of that number now, and `usage_summary` reads it at the same instant, so the
+        # wallet debit, this counter and the client's statement cannot disagree.
+        list_rate = await self_serve_rate_at(session, at=priced_at)
         # THE PLAN ROW IS READ ONCE HERE and used for both halves below, rather than
         # re-read under the lock: a second reading could land on a different row if an
         # operator changed the plan between the two statements — the wallet debit and the
@@ -2414,7 +2429,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                         "overage_rate, overage_rate_value, llm_model_surcharge"
                     )
                 ),
-                {"tid": tenant_id, "at": month_pricing_instant(month)},
+                {"tid": tenant_id, "at": priced_at},
             )
         ).first()
         # THE PLAN'S TERMS AS THIS CALL SEES THEM. Both rungs, not one: this counter no
@@ -2470,7 +2485,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # the wallet drains exactly as it did before.
                 amount_inr=prepaid_billed_inr(
                     minutes=minutes,
-                    self_serve_rate=get_settings().self_serve_inr_per_min,
+                    self_serve_rate=list_rate,
                 )
                 + llm_surcharge_billed_inr(
                     minutes=minutes if llm_bucket != UNSURCHARGED_MODEL else Decimal("0"),
@@ -2513,6 +2528,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             rate=overage_rate,
             rate_value=overage_rate_value,
             llm_surcharge=llm_surcharge,
+            self_serve_rate=list_rate,
         )
         billed = increment.billed_inr
         counters = (
@@ -2615,6 +2631,7 @@ async def _counter_increment(
     rate: Decimal,
     rate_value: Decimal | None,
     llm_surcharge: Decimal | None,
+    self_serve_rate: Decimal,
 ) -> _CounterIncrement:
     """This call's contribution to the two `spend_state` counters the cap is judged on.
 
@@ -2636,7 +2653,18 @@ async def _counter_increment(
 
     PREPAID (`self_serve`, `trial`) RUPEES: every minute is charged with no allowance in
     front of it, so the accrual is the same figure `charge_for_call` was just given, from
-    the same function. Deliberately computed twice rather than threaded through as a
+    the same function, at the same `self_serve_rate`.
+
+    `self_serve_rate` IS PASSED IN RATHER THAN READ FROM `Settings` HERE (D-492), and that
+    is a money fix: this branch read the LIVE setting while the `llm_surcharge` beside it in
+    the same expression had already been resolved at the month's pricing instant, so a call
+    that settled after the IST month rolled was debited at NEXT month's price. The caller
+    resolves it once from `billing/list_rates.self_serve_rate_at` at `month_pricing_instant`
+    and hands the SAME figure to `charge_for_call` and to this function — the two are still
+    computed twice on purpose (see the paragraph below), but they can no longer be computed
+    from two different rates.
+
+    Deliberately computed twice rather than threaded through as a
     variable — the two are the same NUMBER but not the same FACT, and a future tier with
     a wallet discount would want the debit and the accrual to diverge without either
     quietly following the other. It is emphatically NOT the ledger's increment: a call is
@@ -2690,7 +2718,7 @@ async def _counter_increment(
             # actually taken off it, to the paisa.
             billed_inr=prepaid_billed_inr(
                 minutes=minutes,
-                self_serve_rate=get_settings().self_serve_inr_per_min,
+                self_serve_rate=self_serve_rate,
             )
             + llm_surcharge_billed_inr(
                 minutes=minutes if llm_model_bucket != UNSURCHARGED_MODEL else Decimal("0"),

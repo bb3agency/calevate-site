@@ -445,6 +445,10 @@ async def test_a_month_that_straddles_a_model_switch_totals_exactly() -> None:
             minutes=summary["minutes_used"],
             overage_cost_inr=summary["overage_cost_inr"],
             llm_surcharge_inr=summary["llm_surcharge_inr"],
+            # MANAGED, so the list rate is not read at all (D-492). A number nothing
+            # else in this file uses, so a managed answer that ever moved with it would
+            # be unmistakable.
+            self_serve_rate_inr_per_min=Decimal("999.00"),
         )
     ) == to_paise(Decimal("65") * OVERAGE_RATE + Decimal("25") * SURCHARGE)
 
@@ -852,6 +856,8 @@ def test_the_month_total_is_the_three_published_components_and_nothing_else(
         minutes=Decimal("120.50"),
         overage_cost_inr=Decimal(overage),
         llm_surcharge_inr=Decimal(surcharge),
+        # MANAGED: the list rate is not read on this branch (D-492).
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     )
     assert answer == Decimal(expected)
 
@@ -872,11 +878,13 @@ def test_the_client_total_and_the_admin_revenue_are_the_same_expression() -> Non
         minutes=Decimal("120.50"),
         overage_cost_inr=overage,
         llm_surcharge_inr=surcharge,
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     ) == fee + calling_revenue_inr(
         plan_tier="managed",
         minutes=Decimal("120.50"),
         overage_cost_inr=overage,
         llm_surcharge_inr=surcharge,
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     )
 
 
@@ -894,6 +902,7 @@ def test_the_total_is_unquantized_so_its_two_callers_can_round_once_each() -> No
         minutes=Decimal("1.00"),
         overage_cost_inr=Decimal("0.0002"),
         llm_surcharge_inr=Decimal("0.0000"),
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     )
     assert answer == Decimal("0.0003"), "the fraction survives the addition"
 

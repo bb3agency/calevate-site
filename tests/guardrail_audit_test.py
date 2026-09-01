@@ -418,6 +418,12 @@ class TestRlsCoverage:
             # founder's, not a tenant's — so it carries no `tenant_id` and is
             # policied on the ops GUC rather than tenant-isolated.
             "platform_model_prices",
+            # D-492: the self-serve list price per calling minute, effective-dated so a
+            # CLOSED month renders at the rate it was struck at rather than at today's.
+            # Platform-global for `platform_model_prices`' reason on the other side of the
+            # margin — one published price for the whole self-serve motion at an instant,
+            # and a managed client's price is their `plans` row.
+            "platform_list_rates",
             "platform_dashboard_data_use",
             "platform_state",
             "platform_ai_spend",

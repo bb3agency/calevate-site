@@ -46,6 +46,7 @@ from apps.api.billing.caps import (
     EFFECTIVE_CAP_SPEND_SQL,
     read_spend_counters,
 )
+from apps.api.billing.list_rates import self_serve_rate_at
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import (
     ist_billing_month,
@@ -1568,6 +1569,19 @@ async def usage_summary(
     # any query runs — a month we cannot parse is a month we cannot pick a plan for, and
     # a 422 up front beats a ₹0.00 statement for `?month=july`.
     priced_at = month_pricing_instant(period)
+    # WHAT A MINUTE COST IN *THIS* MONTH, resolved at the same instant the plan is (D-492).
+    #
+    # This used to be `get_settings().self_serve_inr_per_min` read inside
+    # `calling_revenue_inr` — the LIVE setting, on a statement for a month that closed and
+    # was paid for out of the wallet at whatever the rate was THEN. A price change therefore
+    # re-priced every past month on this panel: measured on this tree, 14.83 minutes
+    # rendered ₹88.98 and then ₹133.47 after the rate moved 6 -> 9, against wallet debits
+    # totalling ₹89.00 that had not moved and could not.
+    #
+    # The plan's terms were already resolved at `priced_at` for exactly this reason
+    # (`billing/plans.py`), and the list price is the prepaid motion's equivalent of a plan
+    # rate — the same fact about the same month, so it is asked at the same instant.
+    list_rate = await self_serve_rate_at(session, at=priced_at)
     # THE MINUTES AND THE RUNGS COME FROM ONE READ, and it is `_tier_totals`.
     #
     # This function used to sum `telephony_s` itself, in its own query, and then read the
@@ -1706,6 +1720,13 @@ async def usage_summary(
         # (compliance/service.py §2b): a managed client is invoiced against a retainer,
         # so their wallet must not shorten their runway any more than it blocks a dial.
         balance = await get_balance(session, tenant_id=tenant_id)
+        # DELIBERATELY THE LIVE RATE, NOT `list_rate` (D-492), and the split is the same
+        # one `pipeline._meter` makes between a RATE and a CAP: everything else on this
+        # panel is a fact about the month on screen, and this is a fact about what the
+        # client can still buy TODAY. The balance it divides is the current wallet, not a
+        # month-scoped figure, so pricing it at a closed month's rate would quote a runway
+        # nobody can spend. The top-up flow (`billing/payment_routes.py`) prices from the
+        # same live setting for the same reason, which is the property that has to hold.
         rate = get_settings().self_serve_inr_per_min
         if rate > 0 and balance.amount_inr > 0:
             minutes_left = int(balance.amount_inr / rate)
@@ -1788,6 +1809,7 @@ async def usage_summary(
                 minutes=minutes,
                 overage_cost_inr=overage_cost,
                 llm_surcharge_inr=surcharge.total_inr,
+                self_serve_rate_inr_per_min=list_rate,
             )
         ),
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
@@ -1805,6 +1827,7 @@ async def usage_summary(
                     minutes=minutes,
                     overage_cost_inr=overage_cost,
                     llm_surcharge_inr=surcharge.total_inr,
+                    self_serve_rate_inr_per_min=list_rate,
                 ),
             )
         ),
@@ -1818,6 +1841,7 @@ def month_charges_inr(
     minutes: Decimal,
     overage_cost_inr: Decimal,
     llm_surcharge_inr: Decimal,
+    self_serve_rate_inr_per_min: Decimal,
 ) -> Decimal:
     """EVERYTHING THIS BILLING PERIOD HAS COST THE CLIENT — the retainer plus the calling.
 
@@ -1843,6 +1867,11 @@ def month_charges_inr(
     Returning a pre-quantized figure here is the defect `calling_revenue_inr` documents at
     length one function down, on the same path.
 
+    `self_serve_rate_inr_per_min` is passed straight through to `calling_revenue_inr`,
+    which is where the argument is explained: it is the month's own list price, resolved by
+    the caller at the month's pricing instant, and it is required rather than defaulted for
+    the reason stated there.
+
     `monthly_fee_inr` is `None` — not zero — while a client is mid-onboarding with no plan
     row, which is a real state; it contributes nothing and the total is then the calling
     alone. A prepaid tenant has no retainer either, and its calling half is priced at the
@@ -1854,6 +1883,7 @@ def month_charges_inr(
         minutes=minutes,
         overage_cost_inr=overage_cost_inr,
         llm_surcharge_inr=llm_surcharge_inr,
+        self_serve_rate_inr_per_min=self_serve_rate_inr_per_min,
     )
 
 
@@ -1863,6 +1893,7 @@ def calling_revenue_inr(
     minutes: Decimal,
     overage_cost_inr: Decimal,
     llm_surcharge_inr: Decimal,
+    self_serve_rate_inr_per_min: Decimal,
 ) -> Decimal:
     """What the CLIENT owes for a whole billing period's CALLING, at their own rate.
 
@@ -1890,12 +1921,26 @@ def calling_revenue_inr(
     HERE rather than each carrying the rule. `_spend_used`'s prepaid branch was the one
     that was right, and it is what moved into this function unchanged.
 
+    **THE LIST RATE IS PASSED IN, AND THAT IS THE MONEY FIX (D-492).** This function read
+    `get_settings().self_serve_inr_per_min` — the LIVE setting — for every month it was
+    asked about, so a CLOSED month's statement was re-priced by every later rate move: the
+    same 14.83 minutes rendered ₹88.98 and then ₹133.47 after the rate went 6 -> 9, on a
+    month whose wallet debits had been taken at ₹6 and cannot change. The caller resolves
+    the figure from `billing/list_rates.self_serve_rate_at` at the month's own pricing
+    instant, exactly as it already resolved the PLAN's terms there — a list price is the
+    prepaid motion's equivalent of a plan rate, and it had been the one term in this
+    expression with no valid time. It is a required argument rather than an optional one
+    with a live default: a default is how the defect gets back in, silently, at whichever
+    call site forgets.
+
     **NOT `prepaid_billed_inr`, and the difference is the quantum.** That function prices
     ONE CALL for a ledger row and quantizes at `MONEY_Q` (the NUMERIC(12,4) storage
     scale). This is a PERIOD total whose reader quantizes it once to paise, so returning
     a pre-rounded figure here would round the same amount twice and could move a paisa.
-    Both nevertheless read the list price from the one config value the runway framing and
-    the top-up flow read, which is the property that actually has to hold.
+    Both nevertheless read the list price from the one effective-dated home
+    (`billing/list_rates.py`), which is the property that actually has to hold — and which
+    is what stopped the wallet debit and this figure from being able to disagree about what
+    a minute cost in a month that has closed.
 
     **A MANAGED tenant's answer is the overage the caller already priced**, passed in
     rather than recomputed, because `usage_summary` derived it from `overage_rungs` — the
@@ -1941,7 +1986,7 @@ def calling_revenue_inr(
     move. Neither is ours to pick.
     """
     if plan_tier in PREPAID_TIERS:
-        return get_settings().self_serve_inr_per_min * minutes + llm_surcharge_inr
+        return self_serve_rate_inr_per_min * minutes + llm_surcharge_inr
     return overage_cost_inr + llm_surcharge_inr
 
 
@@ -2136,6 +2181,14 @@ async def margin_for_tenant(
         minutes=usage["minutes_used"],
         overage_cost_inr=usage["overage_cost_inr"],
         llm_surcharge_inr=usage["llm_surcharge_inr"],
+        # THE MONTH'S OWN LIST RATE (D-492), resolved at the same instant `usage_summary`
+        # resolved the plan and its own copy of this figure at. Re-resolved here rather
+        # than threaded out through `usage_summary`'s dict because that dict is the
+        # client's panel (`UsagePanelOut`) and the list price is not a field of it — and
+        # `month` is exactly the argument that makes the two resolutions agree.
+        self_serve_rate_inr_per_min=await self_serve_rate_at(
+            session, at=month_pricing_instant(str(usage["month"]))
+        ),
     )
     margin = to_paise(revenue - cost_inr)
     pct = margin_pct(margin_inr=margin, revenue_inr=revenue)

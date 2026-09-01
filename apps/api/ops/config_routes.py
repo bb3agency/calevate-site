@@ -48,12 +48,14 @@ summary column, so a reason that lives only in the log stream is a reason nobody
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.list_rates import SELF_SERVE_PER_MIN, record_list_rate
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -500,6 +502,10 @@ async def set_config(
         await _audit(
             session, request, principal, result, action="platform.config_set", reason=payload.reason
         )
+        # THE PRICE ACQUIRES A DATE (D-492). Same transaction as the row above, for the
+        # reason the audit entry is: a rate change nobody can place in time re-prices every
+        # month rendered after it.
+        await _record_list_rate(session, result, actor_id=principal.user_id, reason=payload.reason)
     return _write_out(response, result, tasks)
 
 
@@ -569,6 +575,9 @@ async def revert_config(
         # `audit_log` is the whole history of why a value went back to its default.
         reason=REVERT_REASON,
     )
+    # A REVERT MOVES THE PRICE TOO, and it is the one an operator forgets: the value goes
+    # back to the environment or the code default, which is a rate change like any other.
+    await _record_list_rate(session, result, actor_id=principal.user_id, reason=REVERT_REASON)
     return _write_out(response, result, tasks)
 
 
@@ -654,6 +663,61 @@ def _write_out(response: Response, result: WriteResult, tasks: BackgroundTasks) 
     )
 
 
+def _projected_overrides(result: WriteResult) -> dict[str, Any]:
+    """This process's stored overrides with `result` applied — the state one commit away.
+
+    Extracted from `_projected_field`, which computed it inline, when a second caller
+    needed it: `_record_list_rate` has to know the value that will be IN FORCE after the
+    write, and for a REVERT that is not `result.new` (which is `None`) but whatever the
+    environment or the code default takes over with. Two spellings of "the projection"
+    would be two answers to what the platform is about to be running.
+    """
+    overrides = dict(snapshot().overrides)
+    if result.new is None:
+        overrides.pop(result.key, None)
+    else:
+        overrides[result.key] = typed_value(result.key, result.new)
+    return overrides
+
+
+async def _record_list_rate(
+    session: AsyncSession, result: WriteResult, *, actor_id: UUID, reason: str
+) -> None:
+    """Date the self-serve list price, in the same transaction as the setting it dates.
+
+    **WHY A SECOND STORE FOR ONE NUMBER (D-492).** `platform_settings` is keyed by `key`:
+    changing `self_serve_inr_per_min` OVERWRITES the row, so the store that holds the price
+    cannot say what the price WAS. Two money readers needed exactly that — a closed month's
+    statement (`billing/service.calling_revenue_inr`) and a late-settling call's wallet debit
+    (`workers/pipeline`) — and both were reading today's rate for a month that had already
+    been charged at another one. `platform_list_rates` is the effective-dated home;
+    `platform_settings` keeps its job, which is what the platform charges RIGHT NOW.
+
+    Written HERE rather than inside `set_value`/`clear_value` because those are the generic
+    config writers and this is a fact about one key; and on the caller's session, so the
+    price and the record of when it changed commit together or neither does.
+
+    THE VALUE RECORDED IS THE PROJECTION, NOT `result.new`. A revert leaves no row and its
+    `new` is `None`, but the platform still starts charging something — whatever the
+    environment or the code default takes over with — and that is the figure a month
+    rendered afterwards has to resolve.
+
+    A NO-OP RECORDS NOTHING, for the reason `_audit` skips one: a double-clicked Save must
+    not put two price changes into an append-only history that cannot be corrected by an
+    edit.
+    """
+    if result.key != SELF_SERVE_PER_MIN or not result.recorded:
+        return
+    settings, _ = project(_projected_overrides(result))
+    await record_list_rate(
+        session,
+        rate_key=SELF_SERVE_PER_MIN,
+        inr_amount=settings.self_serve_inr_per_min,
+        recorded_by=actor_id,
+        note=reason,
+    )
+
+
 def _projected_field(result: WriteResult) -> ConfigFieldOut:
     """This key as it will stand once the caller's transaction commits.
 
@@ -664,12 +728,7 @@ def _projected_field(result: WriteResult) -> ConfigFieldOut:
     predict: a value equal to the code default still reports `db` afterwards, since a row
     now exists and reverting it has become a distinct act.
     """
-    overrides = dict(snapshot().overrides)
-    if result.new is None:
-        overrides.pop(result.key, None)
-    else:
-        overrides[result.key] = typed_value(result.key, result.new)
-    settings, projected = project(overrides)
+    settings, projected = project(_projected_overrides(result))
     rows = {
         result.key: StoredRow(updated_by=None, updated_at=None, note=None, revision=result.revision)
     }
