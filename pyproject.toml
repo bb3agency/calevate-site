@@ -30,6 +30,10 @@ dev = [
     # one Makefile line, and this way the gate adds exactly ONE package with no runtime
     # dependencies of its own on 3.12 rather than a package plus its own flag surface.
     "coverage>=7.10",
+    # Reads the text back OUT of a PDF we produced, so the Telugu round-trip is asserted
+    # against a real parser rather than against our own writer. TEST-ONLY: nothing in
+    # `apps/` imports it. Pure Python, no build hooks, no dependencies of its own.
+    "pypdf>=6.16",
 ]
 
 # ERROR REPORTING, and it is a GROUP rather than a runtime dependency (P5.10).
