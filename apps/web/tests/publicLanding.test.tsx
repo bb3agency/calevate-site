@@ -483,6 +483,158 @@ describe("the questions section", () => {
   });
 });
 
+/**
+ * THE CONVERSION STRUCTURE, pinned in the same negative style as the claims above — and
+ * for the same reason. This page has NO social proof available to it: there is no client
+ * #1 in production (ROADMAP M2), so testimonials, customer counts, logo walls, star
+ * ratings and case studies would all be fabrications, and the borrowed statistics the
+ * genre runs on trace to sources this repository could not read (hard rule 11;
+ * `docs/POSITIONING-QUALIFICATION-LAYER.md` §6 names each refused figure).
+ *
+ * What is left is clarity, the buyer's own arithmetic, and risk reversal that is true.
+ * Those three are structural rather than textual, which is what these assertions guard: a
+ * later edit can reword any of it, but it cannot quietly reintroduce four names for one
+ * door, bury the audience below the fold again, or drop the repeated call to action that
+ * a page this long needs.
+ */
+describe("the page's structure asks for one thing, once", () => {
+  /**
+   * ONE DESTINATION, ONE LABEL, OFFERED MORE THAN ONCE.
+   *
+   * `/signup` was reached under four different names — "Get a workspace" twice, "How to
+   * get one" and "Start a conversation" — which is CLAUDE.md's "two ways of doing one
+   * thing" defect on a surface where it also costs conversion: a reader cannot tell
+   * whether four buttons are four things or one, so repetition reads as clutter instead
+   * of confidence. GOV.UK's rule is about multiple DIFFERENT default buttons ("having
+   * more than one main call to action reduces their impact", alphagov/govuk-design-system
+   * `main`, `src/components/button/index.md`, read 1 Sep 2026); the same action repeated
+   * down a long page is not that, and is what the assertion below requires.
+   *
+   * "How to get one" is the one deliberate exception and is pinned separately above: it
+   * answers the question its own card heading asks.
+   */
+  it("offers the same door under one name, at more than one point on the page", () => {
+    const { container } = render(<Home />);
+    const toSignup = [...container.querySelectorAll('a[href="/signup"]')];
+    // Header, hero, the block under the calculator, the doors card and the closing panel.
+    expect(toSignup.length).toBeGreaterThanOrEqual(4);
+
+    const labels = new Set(toSignup.map((a) => (a.textContent ?? "").trim()));
+    labels.delete("How to get one");
+    // Two spellings, not one, and the second is measured rather than stylistic: the
+    // header shares a row with the logo and "Sign in", and `MarketingAccountNav` records
+    // that the row was 374px of content in a 320px viewport before it was tightened. The
+    // short form is a prefix of the long one, so it reads as the same offer.
+    expect(
+      [...labels].sort(),
+      "every other link to /signup must carry the SAME label — one door, one name for it",
+    ).toEqual(["Talk to us", "Talk to us about your calls"]);
+
+    // And it is offered again where the reader has just done work, rather than only at the
+    // top and the very bottom with the whole page in between.
+    const cost = container.querySelector("#cost");
+    expect(cost, "the cost section did not render").not.toBeNull();
+    expect(cost!.querySelectorAll('a[href="/signup"]').length).toBe(1);
+  });
+
+  /**
+   * WHO THIS IS FOR, ABOVE THE BUTTON RATHER THAN BELOW IT.
+   *
+   * The audience sentence used to be the last item in the hero, under the call to action
+   * and under the three-item list, so on a phone the reader this page is written for had
+   * to scroll past the button to learn it was addressed to them. Asserted on ORDER in the
+   * DOM rather than on the words, because the words may legitimately be rewritten and the
+   * order is the thing that regressed.
+   */
+  it("says who it is for before it asks for anything", () => {
+    const { container } = render(<Home />);
+    const hero = container.querySelector("h1")?.closest("section");
+    expect(hero, "the hero section did not render").not.toBeNull();
+
+    const audience = [...hero!.querySelectorAll("p")].find((p) =>
+      /Andhra Pradesh and Telangana/.test(p.textContent ?? ""),
+    );
+    expect(audience, "the hero no longer names who it is for").toBeDefined();
+
+    const cta = hero!.querySelector('a[href="/signup"]');
+    expect(cta).not.toBeNull();
+    // `compareDocumentPosition` reads DOM order, which is reading order.
+    expect(
+      audience!.compareDocumentPosition(cta!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "the audience sentence must come BEFORE the hero's call to action",
+    ).toBeTruthy();
+  });
+
+  /**
+   * THE BANDS ARE NUMBERED, AND THE NUMBERS ARE THE READING ORDER.
+   *
+   * The eyebrow index is decoration until it disagrees with the order of the sections,
+   * at which point it is a small visible defect that says nobody checked. It also pins
+   * the objection order itself: fit ("is it for me, in my language, for my trade") ahead
+   * of value ahead of the sceptic's objections. See `app/page.tsx`'s header for why that
+   * order and not the one it replaced.
+   */
+  it("numbers its bands in the order they are read", () => {
+    const { container } = render(<Home />);
+    const eyebrows = [...container.querySelectorAll("main p > span.font-mono")]
+      .map((s) => s.textContent ?? "")
+      .filter((t) => /^\d\d$/.test(t));
+    expect(eyebrows).toEqual([
+      "01",
+      "02",
+      "03",
+      "04",
+      "05",
+      "06",
+      "07",
+      "08",
+      "09",
+      "10",
+    ]);
+  });
+
+  /**
+   * RISK REVERSAL, AND EVERY LINE OF IT A SHIPPED FACT.
+   *
+   * This is the slot a landing page normally fills with a testimonial or a money-back
+   * guarantee. We have neither: no client is in production to quote, and there is no
+   * refund term to promise (D-11's commercial terms are negotiated per client). What we
+   * do have is three things the buyer keeps control of, each enforced in code — approval
+   * before anything is answerable (`apps/api/agents/t0.py`, `kb_sources` review states),
+   * the campaign launch gate (`apps/api/campaigns/service.py`), and the pause that stops
+   * the next dispatch tick. Pinned so a later edit cannot swap one of them for a promise
+   * nothing enforces.
+   */
+  it("reverses risk with three things the product actually enforces", () => {
+    const { container } = render(<Home />);
+    const cost = container.querySelector("#cost");
+    const text = cost?.textContent ?? "";
+    expect(text).toContain("You approve every word before it goes live");
+    expect(text).toContain("Nothing dials anybody until you launch it");
+    expect(text).toContain("Pause it from your dashboard whenever you want");
+    // And it may not reach for the thing it does not have. A guarantee, a refund, a
+    // no-commitment claim and a trial are each a commercial term nobody has agreed;
+    // "free" and "trial" are already banned page-wide by the price rule above.
+    expect(text).not.toMatch(/guarantee|money[- ]back|refund|no commitment|risk[- ]free/i);
+  });
+
+  /**
+   * NO MANUFACTURED URGENCY, anywhere on the page.
+   *
+   * Scarcity and countdowns are the other half of the playbook this page cannot use, and
+   * unlike social proof they are not merely unavailable — they would be false. There are
+   * no limited places, no closing date and no offer. Banned by shape rather than by
+   * example, because the phrasing varies and the shape does not.
+   */
+  it("manufactures no urgency or scarcity", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/limited (time|offer|places?|spots?)|only \d+ (left|spots?|places?)/i);
+    expect(text).not.toMatch(/act now|hurry|don'?t miss|last chance|ends (soon|today|in)/i);
+    expect(text).not.toMatch(/\bwait ?list\b|early bird|founding (member|client)s?/i);
+  });
+});
+
 describe("the footer's legal links", () => {
   /**
    * THE ONE SURFACE A PAYMENT AGGREGATOR'S REVIEWER LOOKS FOR.
