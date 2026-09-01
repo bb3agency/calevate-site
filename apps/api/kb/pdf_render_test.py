@@ -10,6 +10,7 @@ fine, reports `processed`, and retrieves nothing on a live call.
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import uuid
 
@@ -353,8 +354,7 @@ def test_uharfbuzz_is_not_installed() -> None:
     be switched on at all while uharfbuzz is absent. If a future lockfile change pulls it
     in, this fails and whoever did it has to read why shaping is refused here.
     """
-    with pytest.raises(ImportError):
-        import uharfbuzz  # noqa: F401
+    assert importlib.util.find_spec("uharfbuzz") is None
 
 
 def test_the_font_actually_covers_both_scripts() -> None:
