@@ -734,3 +734,51 @@ async def test_a_body_the_contract_does_not_admit_is_a_422_and_not_a_stream(
 
     assert response.status_code == 422
     assert reached == []
+
+
+async def test_an_operator_is_refused_at_the_door_before_any_of_this_runs(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WHERE THE ADMIN REALM IS ACTUALLY STOPPED — checked over HTTP because the route's own
+    docstring made a claim about it and a claim is not a check (D-501).
+
+    `NORMAL_ADMIN_ROLE` holds `copilot:use` deliberately (`core/rbac.py` argues it), so the
+    permission list is NOT what refuses an operator. `current_any` is: it resolves the admin
+    realm only when the impersonation header is present, so an operator's token is checked
+    against the CLIENT realm and gets a 401 before the response generator starts. That is
+    what makes `assert principal.tenant_id is not None` a statement rather than a branch.
+
+    IT MATTERS NOW BECAUSE THE DOCK RENDERS ON EVERY ADMIN SCREEN (D-501), not only the
+    declared ones, so more operators can press the launcher. The refusal must stay free —
+    the provider is asserted unreached — and the console must not put a person in front of
+    it at all, which `CopilotPanel` handles by not sending the request.
+
+    FAILS IF: someone widens `current_any` or points this route at `realm="any"` with an
+    admin fallback, which would put an operator's typing on a client's ledger or on none.
+    """
+    admin_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'operator', now(), now())"
+            ),
+            {"id": admin_id},
+        )
+    reached = _fake_provider(monkeypatch)
+
+    async with _client() as http:
+        response = await http.post(
+            ASK,
+            headers={"Authorization": f"Bearer dev:admin:{admin_id}"},
+            json={
+                "screen": {"route": "/admin/tenants", "title": "Tenants", "realm": "admin"},
+                "question": "how many accounts are live?",
+                "fields": [],
+                "facts": [],
+                "history": [],
+            },
+        )
+
+    assert response.status_code == 401, response.text
+    assert reached == [], "a refusal must cost nothing"

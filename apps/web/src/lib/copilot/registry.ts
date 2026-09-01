@@ -53,9 +53,16 @@ function snapshot(): SurfaceHolder | null {
 }
 
 /**
- * The SERVER snapshot, and it is `null` for a reason rather than by omission: the dock
- * renders nothing without a surface, so a server render and the first client render
- * agree, and no screen flashes a launcher before its own registration has run.
+ * The SERVER snapshot, and it is `null` for a reason rather than by omission: a
+ * registration happens in an EFFECT, and effects do not run on the server, so `null` is
+ * the truthful answer and the first client render agrees with it.
+ *
+ * ⚠ THE REASON USED TO BE "the dock renders nothing without a surface, so no screen
+ * flashes a launcher before its own registration has run", AND THAT HALF IS GONE (D-501):
+ * the dock now always renders, falling back to a route-only surface while the stack is
+ * empty. What that costs is one render of the fallback TITLE before a declaring screen's
+ * effect commits, on a launcher whose panel is closed — not a launcher appearing and
+ * disappearing, which is what the old sentence was protecting against.
  */
 function serverSnapshot(): SurfaceHolder | null {
   return null;
@@ -114,13 +121,16 @@ export function useCopilotSurface(surface: CopilotSurface | null): void {
     latest.current = surface;
   });
   /*
-   * `null` DECLARES NOTHING, and the launcher disappears with it.
+   * `null` DECLARES NOTHING, and since D-501 the launcher no longer disappears with it —
+   * the dock falls back to a route-only surface, so what a `null` costs is the FIELD LIST,
+   * not the assistant.
    *
-   * A screen with more than one step is why: the new-client wizard's step 1 is a form,
-   * step 3 is a confirmation with an invite address on it, and the SAME component renders
-   * both. Without this the step-1 declaration would still be live on step 3 and the
-   * assistant would offer to fill in five controls that are no longer on the page — the
-   * exact "assistant that can see nothing" failure the dock's header refuses to ship.
+   * A screen with more than one step is why it exists: the new-client wizard's step 1 is a
+   * form, step 3 is a confirmation with an invite address on it, and the SAME component
+   * renders both. Without this the step-1 declaration would still be live on step 3 and the
+   * assistant would offer to fill in five controls that are no longer on the page — an
+   * assistant confidently wrong about the screen, which is worse than one that says it
+   * cannot see the screen, and it is why passing `null` is still the right answer there.
    *
    * Only the null-ness is a dependency, so a keystroke does not re-register (which would
    * push a second holder onto the stack every time), and a step change does.

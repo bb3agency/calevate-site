@@ -3,10 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { useEffect, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { CopilotDock } from "@/components/copilot/CopilotDock";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { ToggleSwitch } from "@/components/ui";
 import { API_BASE, type Session } from "@/lib/api/client";
 import { clickByAccessibleName, fillById } from "@/lib/copilot/dom";
+import { fallbackRoute, fallbackTitle } from "@/lib/copilot/fallback";
 import { applyByPaths, setByPath } from "@/lib/copilot/paths";
 import { redactForWire } from "@/lib/copilot/redaction";
 import {
@@ -16,6 +18,27 @@ import {
 } from "@/lib/copilot/registry";
 
 import { expectNoA11yViolations } from "./a11y";
+
+/**
+ * `next/navigation` is re-mocked for this file because the PATHNAME is an input here
+ * rather than scenery: the dock composes its fallback surface from it (D-501), so a fixed
+ * "/" would make every fallback assertion a test of one hard-coded string. Same idiom as
+ * `globalStates.test.tsx`; `vi.hoisted` is what lets the factory reach a mutable box.
+ */
+const nav = vi.hoisted(() => ({ pathname: "/" }));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => nav.pathname,
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
 
 /**
  * The screen assistant: the registry contract, both apply paths, the undo contract, and
@@ -810,5 +833,154 @@ describe("a proposal", () => {
     await waitFor(() =>
       expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0),
     );
+  });
+});
+
+/**
+ * D-501: the assistant is never absent. A screen that declared nothing still gets a
+ * launcher, a route, a title and every read tool — and a screen that DID declare must
+ * still win, whatever the mount order.
+ */
+describe("the fallback surface", () => {
+  /** The dock as a realm shell mounts it, with whatever is beside it. */
+  function DockMount({ realm = "client" as const, children }: { realm?: "client" | "admin"; children?: ReactNode }) {
+    return withQuery(
+      <>
+        {children}
+        <CopilotDock session={SESSION} realm={realm} />
+      </>,
+    );
+  }
+
+  async function openDock() {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Ask about this screen" }));
+    });
+  }
+
+  it("MASKS anything in the address that is not a plain name", () => {
+    // The realistic hazard: a personal value in the address bar reaching the prompt, the
+    // audit row, and the server's redaction guard — which would refuse the whole question
+    // and show a defect message to somebody who did nothing wrong.
+    expect(fallbackRoute("/c/acme/billing")).toBe("/c/acme/billing");
+    expect(fallbackRoute("/c/acme/leads/550e8400-e29b-41d4-a716-446655440000")).toBe(
+      "/c/acme/leads/:hidden",
+    );
+    expect(fallbackRoute("/c/acme/members/priya@example.com")).toBe("/c/acme/members/:hidden");
+    expect(fallbackRoute("/c/acme/leads/+919876543210")).toBe("/c/acme/leads/:hidden");
+    // A caller passing a full href is the mistake this cuts, and the query string is
+    // exactly where an email or a number turns up.
+    expect(fallbackRoute("/c/acme/leads?email=priya@example.com")).toBe("/c/acme/leads");
+    expect(fallbackRoute("/")).toBe("/");
+  });
+
+  it("names the screen from the last part of the address a person would recognise", () => {
+    expect(fallbackTitle("/c/acme/billing", "client")).toBe("Billing");
+    expect(fallbackTitle("/c/acme/leads/:hidden", "client")).toBe("Leads");
+    expect(fallbackTitle("/admin/tenants/:hidden/do-not-call", "admin")).toBe("Do not call");
+    expect(fallbackTitle("/", "admin")).toBe("Admin console");
+  });
+
+  it("STILL RENDERS THE LAUNCHER, and sends the route, no fields, and the honest fact", async () => {
+    nav.pathname = "/c/acme/billing";
+    const { bodies } = stubCopilot({
+      chunks: [
+        'event: text\ndata: {"delta":"You have 12 leads."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    render(<DockMount />);
+    await openDock();
+    // The header names the screen — "I can see you're on the billing screen".
+    expect(screen.getAllByText("Billing").length).toBe(1);
+    expect(screen.getByText(/hasn't told the assistant what it shows/)).toBeTruthy();
+
+    // THE POINT OF THE WHOLE CHANGE: a read-tool question is asked and answered from a
+    // screen that declared nothing. The read tools run server-side off the account's own
+    // rows and never look at the screen block, so the answer arrives as it always would.
+    await ask("how many leads do I have?");
+    await screen.findByText("You have 12 leads.");
+
+    const sent = JSON.parse(bodies[0]) as {
+      screen: { route: string; title: string; realm: string };
+      fields: unknown[];
+      facts: { key: string; value: string }[];
+    };
+    expect(sent.screen).toEqual({ route: "/c/acme/billing", title: "Billing", realm: "client" });
+    expect(sent.fields).toEqual([]);
+    // "Declared nothing" and "shows nothing" are different sentences, and only the first is
+    // true. Zero fields cannot carry that distinction — a read-only screen declaring
+    // `noFill` sends zero too — so the fact has to say it in words.
+    expect(sent.facts).toHaveLength(1);
+    expect(sent.facts[0].key).toBe("screen_details");
+    expect(sent.facts[0].value).toContain("not an empty screen");
+  });
+
+  it("LETS A CHILD'S REAL DECLARATION BEAT IT, whatever the mount order", async () => {
+    // THE FAILURE THIS EXISTS TO FORECLOSE. The registry is a stack and a parent's effect
+    // commits AFTER its child's, so a shell that DECLARED a generic surface would land on
+    // top of the screen's own declaration and shadow it — which has already cost this
+    // console two field lists. The fallback is composed in the dock and never registered,
+    // so there is no ordering for it to win.
+    nav.pathname = "/c/acme/agents/new";
+    const { bodies } = stubCopilot({
+      chunks: ['event: done\ndata: {"disclosure":null,"metered":true}\n\n'],
+    });
+    render(
+      <DockMount>
+        <DraftScreen />
+      </DockMount>,
+    );
+    await openDock();
+    expect(screen.getAllByText("A test screen").length).toBe(1);
+    await ask("what is left to do?");
+
+    const sent = JSON.parse(bodies[0]) as {
+      screen: { route: string; title: string };
+      fields: { id: string }[];
+      facts: unknown[];
+    };
+    expect(sent.screen.route).toBe("/t");
+    expect(sent.screen.title).toBe("A test screen");
+    expect(sent.fields.map((field) => field.id)).toEqual(["t-name", "t-opens", "t-phone"]);
+    // …and the fallback's "I cannot see this screen" fact is nowhere near it.
+    expect(sent.facts).toEqual([]);
+  });
+
+  it("APPLIES NOTHING when a fill arrives for a screen that declared no fields", async () => {
+    // `set_fields` stays in the tool array (the array is byte-identical on every request —
+    // it is the whole prompt cache), so the refusal has to be real rather than absent. The
+    // server refuses it item by item (`validate_fill`); this is the browser's own half of
+    // the same answer, and it is what keeps "filled 21 fields nobody asked for" impossible
+    // on a screen with nothing declared to fill.
+    nav.pathname = "/c/acme/billing";
+    stubCopilot({
+      chunks: [
+        'event: text\ndata: {"delta":"I cannot see this screen."}\n\n',
+        'event: fill\ndata: {"items":[{"field_id":"plan","value":"growth"}]}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    render(<DockMount />);
+    await openDock();
+    await ask("set the plan to growth");
+    await screen.findByText("I cannot see this screen.");
+    expect(screen.queryAllByText(/^Filled /).length).toBe(0);
+  });
+
+  it("TELLS AN OPERATOR WHY RATHER THAN SENDING A DOOMED REQUEST", async () => {
+    // The admin realm is server-refused: `/v1/copilot/ask` is client-realm, so an
+    // operator's token is checked against the client realm and 401s
+    // (`copilot/route_test.py::test_an_operator_is_refused_at_the_door_before_any_of_this_
+    // runs`). Rendered raw that is "Unauthorized · Authentication is required" — "you are
+    // signed out", told to somebody who is not — and D-501 puts this launcher on every
+    // admin screen. So the panel explains instead, and sends nothing.
+    nav.pathname = "/admin/tenants";
+    const { bodies } = stubCopilot({ chunks: [] });
+    render(<DockMount realm="admin" />);
+    await openDock();
+    expect(screen.getByText(/isn't available in the admin console yet/)).toBeTruthy();
+    expect(screen.queryByLabelText("Your question about this screen")).toBeNull();
+    expect(bodies).toEqual([]);
   });
 });

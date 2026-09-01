@@ -97,6 +97,26 @@ export function CopilotPanel({
 
   const surface = holder.read();
   const batch = conversation.batch;
+  // THE ADMIN CONSOLE HAS NO ASSISTANT YET, AND THE HONEST PLACE TO SAY SO IS HERE (D-501).
+  //
+  // `POST /v1/copilot/ask` is client-realm: `core/auth.current_any` resolves the admin
+  // realm only behind an impersonation header, so an operator's token is checked against
+  // the client realm and refused 401 — which the console would otherwise render as
+  // "Unauthorized · Authentication is required", i.e. "you are signed out" told to somebody
+  // who is not. D-501 makes this launcher appear on every admin screen rather than only the
+  // declared ones, so that misleading sentence is now in front of more operators, and the
+  // fix is to not send a request whose only possible answer is that.
+  //
+  // NOT A DISABLED LAUNCHER, deliberately: the button opens, and what it opens says what
+  // the assistant is and where it works. A person who reads this once knows something true;
+  // a dead button teaches nothing and reads as a bug.
+  //
+  // WHAT REMOVES THIS BRANCH: `POST /v1/admin/copilot/ask`, the admin-realm route whose
+  // payer is the platform rather than a client (D-499, in flight in another lane —
+  // `billing/platform_ai.py`, `copilot/admin_tools.py`). When it lands, the admin realm
+  // points at it and this paragraph goes with the branch. Nothing here should be built up
+  // into a second assistant in the meantime.
+  const adminUnserved = realm === "admin";
 
   return (
     <div
@@ -129,14 +149,42 @@ export function CopilotPanel({
             on its own — every one arrives as a suggestion with a Confirm button — and
             that is the promise this copy has to make instead, because a person who was
             told nothing can ever be saved will not read the card before clicking. */}
-        {conversation.turns.length === 0 && conversation.streaming === null && (
-          <p className="text-xs text-ink-muted">
-            It can see the {surface.fields.length} fields on this screen and can fill them
-            in for you — nothing is saved until you press the screen&apos;s own save
-            button. If it suggests a change to your leads or campaigns, it asks you to
-            confirm first and does nothing until you do.
-          </p>
+        {adminUnserved && (
+          <div className="rounded-lg border border-line bg-app px-3 py-2">
+            <p className="text-xs font-medium text-ink">
+              The assistant isn&apos;t available in the admin console yet.
+            </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              It answers about one client account — their screens, calls, leads and agents
+              — and an operator session isn&apos;t inside an account. Open a client&apos;s
+              own console to ask about them.
+            </p>
+          </div>
         )}
+
+        {!adminUnserved &&
+          conversation.turns.length === 0 &&
+          conversation.streaming === null &&
+          (surface.undeclared === true ? (
+            /* THE FALLBACK SENTENCE (D-501), AND IT SAYS THE HONEST THING. This screen did
+               not describe itself, so the assistant cannot see what is on it — which is not
+               the same as the screen being empty, and this copy must never let a person
+               (or the model, which is told the same thing in `prompt.py`) read it as "this
+               screen shows nothing". What it CAN still do is the whole reason the launcher
+               is here at all: the read tools answer from the account's own records. */
+            <p className="text-xs text-ink-muted">
+              This screen hasn&apos;t told the assistant what it shows, so it can&apos;t
+              read or fill anything on it. It can still answer questions about your
+              account — your calls, leads, campaigns and agents — by looking them up.
+            </p>
+          ) : (
+            <p className="text-xs text-ink-muted">
+              It can see the {surface.fields.length} fields on this screen and can fill them
+              in for you — nothing is saved until you press the screen&apos;s own save
+              button. If it suggests a change to your leads or campaigns, it asks you to
+              confirm first and does nothing until you do.
+            </p>
+          ))}
 
         {/* `aria-live` on the region rather than on each bubble: a screen reader should
             hear the answer arrive without the transcript being re-read from the top. */}
@@ -247,6 +295,7 @@ export function CopilotPanel({
         <div ref={transcriptEnd} />
       </div>
 
+      {!adminUnserved && (
       <form
         className="border-t border-line px-4 py-3"
         onSubmit={(event) => {
@@ -285,6 +334,7 @@ export function CopilotPanel({
           </button>
         </div>
       </form>
+      )}
       {buying && quota.data !== undefined && (
         <AcceptChargeDialog
           quota={quota.data}

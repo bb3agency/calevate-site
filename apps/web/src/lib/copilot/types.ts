@@ -116,6 +116,17 @@ export interface CopilotSurface {
    * model's, and a screen crashing on it would take the console with it.
    */
   apply: (items: CopilotFillItem[]) => void;
+  /**
+   * Set ONLY by `fallback.ts::fallbackSurface`, on the surface the dock composes for a
+   * screen that declared nothing (D-501). Never set by a screen: a screen that sets it
+   * would be claiming it cannot see itself.
+   *
+   * It exists because the panel's copy has to be able to tell the two apart, and the
+   * FIELD COUNT cannot: a read-only screen declaring `noFill` and zero fields is a real
+   * declaration, and telling its user "I can't see this screen" would be as wrong as
+   * telling a fallback's user "this screen has 0 fields".
+   */
+  undeclared?: boolean;
 }
 
 /**

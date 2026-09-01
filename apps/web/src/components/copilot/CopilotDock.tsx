@@ -1,26 +1,52 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { BotMessageSquare } from "lucide-react";
 
 import { adminSession } from "@/lib/api/admin";
 import type { Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
-import { useCopilotSurfaceHolder } from "@/lib/copilot/registry";
+import { fallbackSurface } from "@/lib/copilot/fallback";
+import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
 import { CopilotPanel } from "./CopilotPanel";
 
 /**
  * The floating launcher, and the panel it anchors — mounted once per realm shell.
  *
- * ## It renders NOTHING on a screen that has not declared itself
+ * ## IT ALWAYS RENDERS, AND THIS PARAGRAPH USED TO ARGUE THE OPPOSITE (D-501)
  *
- * A screen becomes assistable by calling `useCopilotSurface` (`lib/copilot/registry.ts`)
- * and in no other way. A launcher on a screen with no declaration would open onto an
- * assistant that can see nothing and fill nothing, which is worse than no launcher: it
- * teaches a person the feature is broken on the screen where they first tried it. So the
- * button is absent until a surface is registered, and the list of screens that register
- * one is the honest list of where this works.
+ * The old rule was that a screen becomes assistable by calling `useCopilotSurface`
+ * (`lib/copilot/registry.ts`) and in no other way, so that a screen with no declaration
+ * showed no launcher at all. The reason given was sound and is worth keeping in view: a
+ * launcher that "opens onto an empty context" — an assistant that can see nothing and fill
+ * nothing — teaches a person the feature is broken on the screen where they first tried it,
+ * which is worse than no launcher.
+ *
+ * WHAT ANSWERS IT IS THAT THE CONTEXT IS NOT EMPTY. An undeclared screen still sends the
+ * ROUTE the person is on, a title derived from it, an explicit "this screen did not
+ * describe itself" fact, and — the part that carries the feature — the assistant keeps all
+ * of its read tools. `leads_search`, `business_snapshot`, `campaigns_list`, `agents_list`,
+ * `calls_recent` and `search_knowledge` answer from the account's own rows and know nothing
+ * about which screen asked, so "how many leads do I have?" is answered exactly as well on a
+ * screen that declared nothing as on one that declared forty fields. The failure mode the
+ * old comment feared — a launcher that does nothing — is not the failure mode available
+ * here; what is available is "slightly less context", which is a degradation and not a
+ * disappearance. The empty-context objection would apply again the day the read tools go
+ * away, and then this comment should be re-read rather than this behaviour kept.
+ *
+ * Every screen in both consoles declares itself today (30/30 client, 23/23 admin), so this
+ * is INSURANCE for the next screen somebody adds, not a repair of a present hole.
+ *
+ * ## The fallback is composed HERE and is never registered
+ *
+ * `registry.ts` is a stack whose top entry wins, and a parent's effect commits AFTER its
+ * children's — so a shell that declared a generic surface would sit ON TOP of the real
+ * declaration made by the screen inside it and shadow it (which has already cost this
+ * console two field lists once). Reading the stack and falling back only when it is EMPTY
+ * has no such ordering: a real declaration wins by construction, in any mount order,
+ * because the fallback is never in the stack to compete.
  *
  * ## Position, and the one collision it accepts
  *
@@ -39,8 +65,23 @@ import { CopilotPanel } from "./CopilotPanel";
  * READS A HOOK that must run inside `ClientRealmProvider`, and the admin realm calls a
  * plain builder. A single component branching on a prop would be a conditional hook.
  */
-function CopilotDock({ session, realm }: { session: Session; realm: "client" | "admin" }) {
-  const holder = useCopilotSurfaceHolder();
+export function CopilotDock({
+  session,
+  realm,
+}: {
+  session: Session;
+  realm: "client" | "admin";
+}) {
+  const declared = useCopilotSurfaceHolder();
+  const pathname = usePathname();
+  // Memoised on the address, so the holder's identity is as stable as a screen's own
+  // registration is — the effect below closes the panel whenever the holder changes, and a
+  // fresh object per render would slam it shut on every keystroke of every form.
+  const fallback = useMemo<SurfaceHolder>(() => {
+    const surface = fallbackSurface(pathname, realm);
+    return { read: () => surface };
+  }, [pathname, realm]);
+  const holder = declared ?? fallback;
   const [isOpen, setIsOpen] = useState(false);
   const launcher = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -61,8 +102,6 @@ function CopilotDock({ session, realm }: { session: Session; realm: "client" | "
     shouldRestoreFocus.current = false;
     launcher.current?.focus();
   }, [isOpen]);
-
-  if (holder === null) return null;
 
   return (
     <>

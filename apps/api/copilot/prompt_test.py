@@ -401,3 +401,47 @@ def test_the_widest_declarable_screen_is_caught_by_the_ceiling() -> None:
     )
     with pytest.raises(ProblemError):
         prompt_module.assert_screen_fits(prompt_module.render_screen(payload))
+
+
+def test_an_undeclared_screen_is_not_described_to_the_model_as_an_empty_one() -> None:
+    """D-501. The dock now renders on screens that declared nothing and sends a route-only
+    surface: no fields, plus a `screen_details` fact saying the contents are not visible.
+
+    THE TRAP THIS PINS IS THAT ZERO FIELDS ALREADY MEANT SOMETHING ELSE. A read-only screen
+    that declares `noFill` sends no fields either, so `<fields/>` cannot carry the
+    distinction and a model reading the fallback would say "this screen has nothing on it"
+    — a lie, on a billing page. The system prompt therefore has to name the fact, forbid
+    that sentence, and send the model to the read tools anyway.
+
+    FAILS IF: the paragraph is dropped, or the fact key it names drifts from the one the
+    console sends (`apps/web/src/lib/copilot/fallback.ts::UNDECLARED_FACT_KEY`).
+    """
+    assert '"screen_details"' in prompt_module.SYSTEM_PROMPT
+    assert "THAT IS NOT AN EMPTY SCREEN" in prompt_module.SYSTEM_PROMPT
+    # And it must not try to fill a screen with nothing declared on it: the server refuses
+    # that call item by item (`validate_fill`), so a model attempting it burns a turn.
+    assert f"do not call {prompt_module.SET_FIELDS_TOOL_NAME} on one" in prompt_module.SYSTEM_PROMPT
+
+
+def test_an_undeclared_screens_fact_survives_into_the_rendered_block() -> None:
+    """The other half: the sentence the prompt paragraph refers to actually reaches the
+    model, through `facts` — the seam a recalled memory already rides on, which is why this
+    needed no schema field and no OpenAPI change."""
+    payload = CopilotAskIn.model_validate(
+        {
+            "screen": {"route": "/c/:hidden/billing", "title": "Billing", "realm": "client"},
+            "question": "how many leads do I have?",
+            "fields": [],
+            "facts": [
+                {
+                    "key": "screen_details",
+                    "label": "Details of this screen",
+                    "value": "Not available. This screen did not describe itself.",
+                }
+            ],
+        }
+    )
+    block = prompt_module.render_screen(payload)
+    assert 'key="screen_details"' in block
+    assert "did not describe itself" in block
+    assert "<fields/>" in block
