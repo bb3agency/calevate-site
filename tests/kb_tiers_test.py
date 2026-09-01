@@ -33,6 +33,8 @@ the marker instead of leaving a comment that outlives the thing it describes.
 
 from __future__ import annotations
 
+import io
+import tokenize
 import uuid
 from pathlib import Path
 
@@ -204,6 +206,26 @@ def test_in_call_retrieval_is_not_reimplemented_on_our_side() -> None:
 # --- T4: a prompt instruction whose measurement has no producer ----------------------
 
 
+def _without_comments(source: str) -> str:
+    """`source` with `#` comments removed, so a CROSS-REFERENCE is not read as a producer.
+
+    The guard below is text-based on purpose — it must catch a table named inside a raw
+    SQL string, which no import graph would show. But that made it fire on
+    `crm/lead_projection.py`, which merely cites `kb_retrieval_logs` in prose to explain
+    why it reuses that table's vocabulary. A comment cannot write a row, so dropping
+    comments removes false positives without weakening the property: a string literal, an
+    identifier and a docstring all still count.
+    """
+    out: list[str] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type != tokenize.COMMENT:
+                out.append(tok.string)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source  # unparseable: fall back to the blunt match rather than pass blindly
+    return "\n".join(out)
+
+
 def _app_sources_naming(table: str) -> list[str]:
     """Files under apps/ that name a table, excluding the two places every table is
     named for structural reasons: its ORM model and the model registry."""
@@ -215,7 +237,7 @@ def _app_sources_naming(table: str) -> list[str]:
     for path in (REPO_ROOT / "apps").rglob("*.py"):
         if "__pycache__" in path.parts or path in excluded:
             continue
-        if table in path.read_text(encoding="utf-8"):
+        if table in _without_comments(path.read_text(encoding="utf-8")):
             hits.append(str(path.relative_to(REPO_ROOT)))
     return hits
 

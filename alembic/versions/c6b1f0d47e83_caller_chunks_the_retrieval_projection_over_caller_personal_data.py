@@ -131,10 +131,10 @@ value stale-EARLY, so the vector expires slightly before its source rather than 
 Losing a vector early degrades a search; keeping one late is a retention promise broken.
 
 --------------------------------------------------------------------------------
-`embed_state`, AND WHY IT HAS FIVE VALUES WHERE `kb_chunks` HAS THREE
+`embed_state`, AND WHY IT HAS SIX VALUES WHERE `kb_chunks` HAS THREE
 --------------------------------------------------------------------------------
 `pending` / `ready` / `refused` are `kb_chunks`' vocabulary, unchanged and for its reasons.
-Two more exist because this table is swept by things `kb_chunks` is not:
+Three more exist because this table is swept by things `kb_chunks` is not:
 
 * `expired` — retention reached it. TERMINAL, and `scrubbed_at` is set.
 * `erased`  — a DPDP erasure or a tenant erasure reached it. TERMINAL, `scrubbed_at` set.
@@ -277,9 +277,14 @@ SUBJECT_KINDS = ("lead", "call_turn", "call_summary", "caller_memory")
 #: in that order and in one migration.
 RETENTION_CATEGORIES = ("transcript", "lead")
 
-#: `pending` / `ready` / `refused` are `kb_chunks.EMBED_STATES`, unchanged. `expired` and
-#: `erased` are terminal and are argued in the module docstring.
-EMBED_STATES = ("pending", "ready", "refused", "expired", "erased")
+#: `pending` / `ready` / `refused` are `kb_chunks.EMBED_STATES`, unchanged. `superseded`,
+#: `expired` and `erased` are argued in the module docstring — and all three are listed
+#: here, which this tuple briefly failed to do: it held five values while the model held
+#: six, so the database CHECK forbade the one state `ck_caller_chunks_superseded_has_no_
+#: vector` is written about, and the first sweep to supersede a slot would have raised.
+#: `tests/orm_schema_fidelity_test.py` is what caught it; a retyped enum is why it could
+#: happen at all.
+EMBED_STATES = ("pending", "ready", "refused", "superseded", "expired", "erased")
 
 _POLICY = (
     f"CREATE POLICY tenant_isolation ON {TABLE} USING ("
