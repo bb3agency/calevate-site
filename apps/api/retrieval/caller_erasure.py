@@ -63,7 +63,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.retrieval.models import (
     EMBED_ERASED,
     EMBED_EXPIRED,
-    RETENTION_TRANSCRIPT,
+    RETENTION_CALLER_MEMORY,
     SUBJECT_LEAD,
 )
 
@@ -224,7 +224,17 @@ UPDATE caller_memories
 
 #: The category `EXPIRE_MEMORIES_SQL` may be run under. Named here so the sweep's arm reads
 #: as a decision rather than as a coincidence of which branch it sits in.
-MEMORY_RETENTION_CATEGORY: Final = RETENTION_TRANSCRIPT
+#:
+#: **D-507 MOVED IT OFF THE TRANSCRIPT CLOCK**, and this line used to say
+#: `RETENTION_TRANSCRIPT`. Riding the transcript's tenant-set default (365 days) meant a
+#: distilled fact about a caller outlived the conversation it was distilled from as a
+#: matter of design; `copilot_memory` had already answered the same question at 180 days
+#: and `delete`, for reasons that transfer intact — nothing depends on these rows, use
+#: regenerates them, and there is no anonymised form of a sentence. What does not transfer
+#: is who the subject is: a copilot memory is about the client's own staff using a product
+#: they bought, and this is about a caller who never chose us, which is the argument for
+#: taking the shorter clock rather than the longer one when the two disagreed.
+MEMORY_RETENTION_CATEGORY: Final = RETENTION_CALLER_MEMORY
 
 _UNREACHABLE_SQL: Final = """
 SELECT DISTINCT subject_ref_kek_id FROM caller_chunks WHERE scrubbed_at IS NULL

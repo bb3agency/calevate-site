@@ -80,3 +80,4 @@ VPS_INPUTS.md
 # Ignoring it is the durable fix: the test writes and reads the path directly, so it is
 # unaffected, and no `add -A` can ever capture it again.
 apps/api/_ratchet_probe/
+/mergewt

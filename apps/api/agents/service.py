@@ -334,6 +334,10 @@ class AgentRow(TypedDict):
     ai_disclosure_enabled: bool
     recording_notice_line: str
     recording_notice_enabled: bool
+    #: Sentence three and its switch (D-507). No third `*_enabled` field for the sentence
+    #: itself: it is spoken exactly when `caller_memory_enabled` is true.
+    caller_memory_notice_line: str
+    caller_memory_enabled: bool
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -381,6 +385,7 @@ async def _load_agent(
                 # the drift read can never disagree about the posture.
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
                 "a.recording_notice_line, a.recording_notice_enabled, "
+                "a.caller_memory_notice_line, a.caller_memory_enabled, "
                 # The ACCOUNT's model default, joined rather than fetched separately: the
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
@@ -443,7 +448,9 @@ async def _load_agent(
         "ai_disclosure_enabled": row[16],
         "recording_notice_line": row[17],
         "recording_notice_enabled": row[18],
-        "organization_llm_model": row[19],
+        "caller_memory_notice_line": row[19],
+        "caller_memory_enabled": row[20],
+        "organization_llm_model": row[21],
     }
 
 
@@ -460,6 +467,10 @@ def posture_of(agent: AgentRow) -> DisclosurePosture:
         ai_disclosure_enabled=bool(agent["ai_disclosure_enabled"]),
         recording_notice_line=str(agent["recording_notice_line"]),
         recording_notice_enabled=bool(agent["recording_notice_enabled"]),
+        # Sentence three (D-507), whose switch IS the memory switch — there is no third
+        # `*_enabled` column to read, and that is the decision rather than an omission.
+        caller_memory_notice_line=str(agent["caller_memory_notice_line"]),
+        caller_memory_enabled=bool(agent["caller_memory_enabled"]),
     )
 
 
@@ -1458,13 +1469,14 @@ def _variant_config(
             # is what makes a toggle flip reach the arms: `republish_running_variants`
             # rebuilds every arm from the agent, so an arm cannot go on greeting callers
             # with a notice its agent has withdrawn.
+            # ONE FIELD SWAPPED ON THE AGENT'S OWN POSTURE, not a second construction of
+            # it. This used to re-list every field by hand, which is precisely the drift
+            # `posture_of` was written to prevent — and it proved the point: a third
+            # sentence added to the posture (D-507) would have reached the agent and not
+            # its experiment arms, so an arm would greet callers without saying the agent
+            # remembers them while the agent said it.
             "opening_line": compose_opening_line(
-                DisclosurePosture(
-                    ai_disclosure_line=disclosure,
-                    ai_disclosure_enabled=bool(agent["ai_disclosure_enabled"]),
-                    recording_notice_line=str(agent["recording_notice_line"]),
-                    recording_notice_enabled=bool(agent["recording_notice_enabled"]),
-                )
+                posture_of(agent).model_copy(update={"ai_disclosure_line": disclosure})
             ),
         }
     )

@@ -1062,7 +1062,13 @@ async def set_disclosure_posture(
             await session.execute(
                 text(
                     "SELECT ai_disclosure_enabled, recording_notice_enabled, "
-                    "ai_disclosure_line, recording_notice_line, status, engine_agent_ref "
+                    "ai_disclosure_line, recording_notice_line, status, engine_agent_ref, "
+                    # Read but NOT settable here: this route toggles the two D-163
+                    # switches, and the memory sentence has none of its own (D-507). It is
+                    # selected so the recomposed opening carries it — a toggle flip that
+                    # dropped the memory sentence would republish an agent that still
+                    # remembers callers and has stopped saying so.
+                    "caller_memory_notice_line, caller_memory_enabled "
                     "FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
                 ),
                 {"aid": agent_id},
@@ -1088,6 +1094,8 @@ async def set_disclosure_posture(
             ai_disclosure_enabled=wanted["ai_disclosure_enabled"],
             recording_notice_line=str(row[3]),
             recording_notice_enabled=wanted["recording_notice_enabled"],
+            caller_memory_notice_line=str(row[6]),
+            caller_memory_enabled=bool(row[7]),
         )
         is_live = str(row[4]) == "live" and bool(row[5])
         if changed:

@@ -891,9 +891,14 @@ adopted as D-502 on 1 Sep 2026):
   measured, and both of those are identical for every candidate store.
   `tests/kb_tiers_test.py` pins voice-runtime's route inventory as an equality so this
   cannot drift.
-* **The dashboard copilot, CRM semantic search and H3 caller memory are served by
-  `kb_chunks` + pgvector in the Postgres we already run** (migration `dc1aaeeeff02`,
-  `apps/api/retrieval/pgvector.py`). Hybrid: a dense arm fused with a `tsvector` arm by
+* **The dashboard copilot is served by `kb_chunks`, and CRM semantic search, past-call
+  search and H3 caller memory by `caller_chunks`, both on pgvector in the Postgres we
+  already run** (migrations `dc1aaeeeff02` and `c6b1f0d47e83`,
+  `apps/api/retrieval/pgvector.py`, `apps/api/retrieval/caller_search.py`). ⚠ This bullet
+  named `kb_chunks` for all four until D-503 split them, and the split is not cosmetic:
+  `kb_chunks` holds the CLIENT'S OWN knowledge and `caller_chunks` holds a data
+  principal's words, which is why only the second carries `subject_ref`, a
+  `retention_category` per row and an explicit erasure arm. Hybrid: a dense arm fused with a `tsvector` arm by
   Reciprocal Rank Fusion, behind FORCEd RLS. Embeddings come from `text-embedding-3-small`
   on the EXISTING Azure OpenAI resource in East US 2 — **no new sub-processor**.
 * **This is not "we operate vector infrastructure".** It adds no deployable, no backup unit,
@@ -913,7 +918,7 @@ Only H3 touches the retrieval layer. H1 is orchestration, H2 is our existing pip
 |---|---|---|---|---|---|
 | **H1** | In-call working memory — the running dialogue the agent reasons over | the call only; **discarded at hangup** | the ENGINE's orchestrator (the LLM message array) | no line item — LLM input tokens, already inside the ₹0.10–0.24/min LLM leg (§10.1) | 0ms (nothing is retrieved) |
 | **H2** | Call-level durable memory — transcript, AI summary, extraction fields, sentiment, resolved/needs-follow-up | retention policy (90-day recording floor) | OURS — Postgres, written by the post-call pipeline (§8) | ⚠ Sarvam extraction is **NOT ₹0.00/call** — `sarvam-105b` is priced per token (₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out, §10.1's correction note). The pass has never run on a NON-Sarvam vendor (`GEMINI_EXTRACTION_DEFAULT is False`), which is a different statement from free, and it currently meters nothing | n/a (post-call) |
-| **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | forever | `kb_chunks` + pgvector, in our own Postgres (D-502 supersedes D-28) — ⚠ **the KB scope is built; the caller-memory scope is NOT, and must not ship without its DPDP erasure arm, because an embedding of a caller's words is a derived copy of those words** | Azure embedding tokens, metered per usage_event | injected **pre-call** via the context webhook (~5s budget), never mid-call |
+| **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | **NOT forever — 180 days for what an agent remembers about a CALLER (D-507), the tenant's own clock for the rest** | `caller_chunks` + `caller_memories` on pgvector in our own Postgres (D-503; D-502 supersedes D-28) — the DPDP erasure arm is BUILT (`retrieval/caller_erasure.py`, called from both erasure paths and the nightly sweep) because an embedding of a caller's words is a derived copy of those words. ⚠ **The caller-memory scope still has no PRODUCER and no route that switches it on**; the lead and transcript scopes are live. | Azure embedding tokens, metered per usage_event | injected **pre-call** via the context webhook (~5s budget), never mid-call |
 
 H1 is not a component we build, buy, or key: the engine holds the conversation for the
 duration of the call and drops it at hangup. The hand-off from H1 to H2 is the post-call

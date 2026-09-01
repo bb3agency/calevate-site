@@ -168,6 +168,36 @@ def clean_fact(raw: str) -> str:
     return cleaned
 
 
+#: Verticals where a distilled fact is SENSITIVE PERSONAL DATA by construction, and where
+#: cross-call memory is therefore refused however the agent's switch is set (D-507(b)).
+#:
+#: THE QUESTION WAS "IS 'ASKED ABOUT IVF PRICING' HEALTH DATA?" and the honest answer is
+#: that it depends on who the business is, which no classifier over free text can be
+#: trusted to decide — and being wrong is not recoverable. The SPDI Rules 2011 list is
+#: EXHAUSTIVE and includes "physical, physiological and mental health condition" and
+#: "medical records and history" (Rule 3), so a memory that a caller enquired about a
+#: treatment is, on a clinic, an inference about exactly that.
+#:
+#: SPDI Rule 5(1) wants consent IN WRITING for collecting sensitive personal data. A phone
+#: call cannot give one. So the refusal is not "until we word the notice better" — it is
+#: until an instrument exists that a phone call can produce, which is not a code change.
+#:
+#: ⚠ REPORTED, NOT VERIFIED HERE: the SPDI Rules stand repealed by DPDP §44(2) on a date
+#: reported as 13 May 2027 (18 months from the 13 Nov 2025 commencement gazette), which
+#: would ALSO be when DPDP §§5-6 (notice and consent) first bind. `meity.gov.in` is
+#: egress-blocked from this container, so that schedule comes from the search index of the
+#: gazette PDF and from law-firm summaries, not from reading the notification. Whichever
+#: regime governs on the day, this list is the conservative side of both, and re-reading
+#: the gazette is what would let it shrink.
+#:
+#: A PROXY AND KNOWN TO BE ONE. `vertical_template` is the extraction schema a tenant
+#: STARTED from, so a fertility clinic onboarded as `real_estate` is not caught. It is
+#: kept because it is the only structured signal that exists and it errs toward refusing;
+#: it is not represented as sufficient, and the enable path — when one is built — is where
+#: a per-tenant attestation belongs.
+SPDI_REFUSED_VERTICALS: Final[frozenset[str]] = frozenset({"clinic"})
+
+
 async def memory_enabled(session: AsyncSession, *, agent_id: UUID) -> bool:
     """Is this agent allowed to remember its callers across calls?
 
@@ -181,13 +211,28 @@ async def memory_enabled(session: AsyncSession, *, agent_id: UUID) -> bool:
     anything" is the right outcome there — refusing loudly would retry a job that can
     never succeed.
     """
-    enabled = (
+    row = (
         await session.execute(
-            text("SELECT caller_memory_enabled FROM agents WHERE id = :aid"),
+            text(
+                "SELECT a.caller_memory_enabled, o.vertical_template FROM agents a "
+                "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
+            ),
             {"aid": agent_id},
         )
-    ).scalar()
-    return bool(enabled)
+    ).first()
+    if row is None or not bool(row[0]):
+        return False
+    if str(row[1]) in SPDI_REFUSED_VERTICALS:
+        # D-507(b). Not an exception, for the same reason a missing agent is not: this is
+        # a worker's question and "nothing was remembered" is the right outcome. It IS
+        # logged, because a switch that is on and a store that stays empty is otherwise an
+        # operator mystery — and the ground is a decision they can look up, not a bug.
+        log.warning(
+            "caller_memory_refused_spdi_vertical",
+            extra={"agent_id": str(agent_id), "vertical": str(row[1])},
+        )
+        return False
+    return True
 
 
 async def remember(
