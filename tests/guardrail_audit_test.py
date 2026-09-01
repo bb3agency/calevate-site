@@ -246,6 +246,127 @@ class TestRlsCoverage:
 
         assert not any("delivery_receipts" in f for f in failures)
 
+    def test_catches_a_tenant_payload_held_inline(self) -> None:
+        """Rule 7c, and the one 7b structurally could not see.
+
+        7b matches on a column holding an object-storage KEY, so it catches the POINTER
+        to a CRM body and is blind to the body itself sitting in a jsonb column — the
+        same exposure with one less hop. `outbox_messages.payload` is that shape and is
+        the worse of the two: it holds a subject's email address beside a plaintext
+        password-reset secret, and the whole outbound delivery body (a lead's name,
+        number and extracted fields). It had no tenant_id, no policy, and no entry in
+        the dict whose contract is to answer "what is not tenant-isolated, and why".
+        """
+        state = _tenant_state()
+        state = replace(
+            state,
+            all_tables=state.all_tables | {"job_queue"},
+            inline_payload_tables=frozenset({"job_queue"}),
+        )
+
+        failures = check_rls_coverage.evaluate(state)
+
+        assert any("job_queue" in f and "INLINE" in f for f in failures)
+
+    def test_an_inline_payload_table_with_a_tenant_id_is_rules_1_to_3s_business(self) -> None:
+        """The scoping control. 7c must fire only on tables the column-driven rules
+        cannot see — `lead_events.payload` and `leads.data` are jsonb payloads too, and
+        they are already isolated. A rule that also reported them would push a reviewer
+        to register tables that need a POLICY, which is the opposite of its purpose."""
+        state = _tenant_state()
+        state = replace(state, inline_payload_tables=frozenset({"lead_events"}))
+
+        failures = check_rls_coverage.evaluate(state)
+
+        assert not any("lead_events" in f and "INLINE" in f for f in failures)
+
+    def test_a_registered_inline_payload_table_passes(self) -> None:
+        """The control. Like 7b, 7c asks for a WRITTEN REASON and not for a policy: the
+        reliability triad is claimed by a dispatcher with no tenant context, so a tenant
+        predicate is genuinely unavailable at write time and registering is the right
+        answer."""
+        state = _tenant_state()
+        state = replace(
+            state,
+            all_tables=state.all_tables | {"job_queue"},
+            inline_payload_tables=frozenset({"job_queue"}),
+        )
+
+        failures = check_rls_coverage.evaluate(
+            state,
+            exemptions={
+                **RLS_EXEMPT_TENANT_COLUMNS,
+                "job_queue": (
+                    "claimed across tenants by a dispatcher that has no tenant context; "
+                    "no client-realm route names it and the payload is scrubbed in the "
+                    "same statement that flips the status"
+                ),
+            },
+        )
+
+        assert not any("job_queue" in f for f in failures)
+
+    def test_every_policy_less_table_is_registered_or_tenant_scoped(self, engine: Engine) -> None:
+        """THE STRUCTURAL COMPANION TO THE PIN, asking the DATABASE rather than the dict.
+
+        `test_exemption_list_is_pinned` has named this test since P4.6 as the thing that
+        makes the pin sufficient — and it did not exist. That is exactly the gap it was
+        described to close: the pin proves nobody ADDED an exemption without review, and
+        is silent about a table that was never registered at all. `outbox_messages` and
+        `idempotency_records` were both in that silence, holding a plaintext reset secret
+        and a replayed response body between them, while `webhook_deliveries` — which
+        holds only a KEY to a comparable body — carried a fifteen-line entry.
+
+        The claim is deliberately narrower than "every unpoliced table must be
+        registered", for the reason `evaluate`'s rule 7 gives: a list long enough to
+        include `alembic_version` is a list nobody reads. What it asserts is that the
+        three SHAPES rule 7 names are, against the live catalog, actually covered — so a
+        new table of any of those shapes fails here even if a future edit loosened the
+        script.
+        """
+        with engine.connect() as connection:
+            unpoliced = {
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "SELECT c.relname FROM pg_class c "
+                        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                        "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') "
+                        "AND NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid)"
+                    )
+                )
+            }
+            interesting = {
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "SELECT DISTINCT c.relname FROM pg_class c "
+                        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                        "JOIN pg_attribute a ON a.attrelid = c.oid "
+                        "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') "
+                        "AND a.attnum > 0 AND NOT a.attisdropped AND ("
+                        "  a.attname = 'tenant_id'"
+                        "  OR a.attname = ANY(:refs)"
+                        "  OR (a.attname = ANY(:inline) AND a.atttypid = 'jsonb'::regtype))"
+                    ),
+                    {
+                        "refs": list(check_rls_coverage._OBJECT_REF_COLUMNS),
+                        "inline": list(check_rls_coverage._INLINE_PAYLOAD_COLUMNS),
+                    },
+                )
+            }
+            platform = {t for t in unpoliced if t.startswith("platform_")}
+
+        needs_reason = (unpoliced & interesting) | platform
+        unregistered = sorted(needs_reason - set(RLS_EXEMPT_TENANT_COLUMNS))
+
+        assert unregistered == [], (
+            f"{unregistered} carry tenant data (or are platform state) and have NO RLS "
+            "policy at all, and none is registered in RLS_EXEMPT_TENANT_COLUMNS. Either "
+            "give the table a FORCEd tenant_isolation policy or state in the registry "
+            "why cross-tenant access is correct and what stops the data leaking."
+        )
+
     def test_catches_a_stale_exemption(self) -> None:
         failures = check_rls_coverage.evaluate(
             _tenant_state(),
@@ -306,6 +427,17 @@ class TestRlsCoverage:
             # everybody at once.
             "platform_engine_health",
             "webhook_deliveries",
+            # The FOURTH shape, and the one `webhook_deliveries` above is one hop short
+            # of: a tenant payload held INLINE rather than by reference. `payload` on the
+            # outbox carries a subject's email address beside a plaintext password-reset
+            # secret and the whole outbound CRM body; `response_payload` is a replayed
+            # response, so for a client-realm route it is whatever that route returned.
+            # Neither can carry a tenant predicate — the outbox dispatcher claims across
+            # tenants with no context, and the idempotency record is scoped by its LOOKUP
+            # KEY (`reliability.scope_key`, guarded by `check_idempotency_scope`) rather
+            # than by a policy. Both sat outside this dict until rule 7c could see them.
+            "outbox_messages",
+            "idempotency_records",
             # The THIRD shape, added by D-165: tables that are policied HARDER than a
             # tenant table rather than more loosely. `auth_credentials` and
             # `auth_sessions` carry no `tenant_id` because identity crosses tenants, and
