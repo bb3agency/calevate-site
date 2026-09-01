@@ -117,10 +117,18 @@ def classify_kb_drift(
     keeping the rows whose agent linkage equalled the ref, and the vendor's knowledge-base
     object has no agent linkage of any kind: every agent listed empty, on every sweep,
     forever. Pilot gate 8's `kb_list_carries_agent_linkage` was the right question and the
-    answer was readable in the vendor's published schema the whole time. That engine now
-    declares the capability absent and its three KB methods refuse by name, so this
-    function's positive control is what stands between a REAL listing and the same silent
-    verdict on any engine that grows one. The adapter is named in `apps/api/engine/`, not here:
+    answer was readable in the vendor's published schema the whole time.
+
+    **THAT ENGINE'S LISTING IS REAL AGAIN (D-459), AND THIS CONTROL IS WHY THE REPAIR IS
+    NOT A LEAP OF FAITH.** Its `list_kb` no longer filters an account listing at all: it
+    reads the linkage where the linkage lives, on the agent. So world 2 is no longer that
+    engine's standing behaviour — but the control is not retired with it, because what
+    changed is one adapter's implementation and what the control guards is the SHAPE of
+    the mistake. An empty listing still cannot distinguish "deleted" from "the read tells
+    us nothing", the new read has still never been made against a live account, and the
+    next adapter is free to make the same choice.
+
+    The adapter is named in `apps/api/engine/`, not here:
     hard rule 2 is a rule about this file's VOCABULARY as much as its imports, and
     `tests/kb_boundaries_test.py` scans this directory as text for exactly that reason.
     `_reconcile_engine_state` already

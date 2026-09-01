@@ -2809,12 +2809,39 @@ class ProvisionedNumber(BaseModel):
 class KBSourceRef(BaseModel):
     """A knowledge source we have already parsed, chunked and approved. Under BYOK the
     KB is NOT a model slot (D-33) — the engine's built-in KB serves in-call retrieval
-    in v1, so this is a pointer plus the text, not an embedding."""
+    in v1, so this is a pointer plus the text, not an embedding.
+
+    **IT CARRIES A DOCUMENT AS WELL AS THE TEXT, AND THAT IS D-354's OTHER HALF.** The
+    text is the approved thing; some engines ingest text and some ingest only FILES.
+    Bolna is the second kind — `POST /knowledgebase` is `multipart/form-data` taking
+    `file` (a PDF, max 20 MB) or `url`, "Provide either `file` or `url`, not both", and
+    it accepts no field that takes prose
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:29-80`). So the
+    publisher renders the approved chunks to a PDF and hands the BYTES here; an adapter
+    that ingests text ignores them, and an adapter that needs one and is handed `None`
+    refuses by name rather than uploading something nobody approved.
+
+    THE RENDERING IS THE PUBLISHER'S, NOT THE ADAPTER'S, and the boundary is the point:
+    inventing a document format inside `apps/api/engine/` would put the shape of an
+    approved artefact behind hard rule 2's wall, where no gate and no test that reads
+    "what did the human sign off" can see it.
+
+    `content_sha256` IS THE IDEMPOTENCY KEY. The renderer is deterministic, so the same
+    approved chunks render to the same bytes and hash to the same digest; a publisher
+    that already holds a handle minted for this digest must not upload again. It is
+    OURS, computed over the DOCUMENT, and it never reaches a vendor field — an engine
+    that de-duplicates on its own is welcome to, and none is trusted to.
+    """
 
     kb_id: str
     title: str
     text: str
     language: str = "te-IN"
+    #: The rendered document, for engines whose knowledge base ingests files. `None` on
+    #: an engine that takes text — never a silent empty document.
+    document: bytes | None = None
+    #: Hex SHA-256 of `document`, when there is one. The publisher's re-upload guard.
+    content_sha256: str | None = None
 
 
 class CostBreakdown(BaseModel):
@@ -3932,16 +3959,36 @@ class VoiceEngine(Protocol):
         """
         ...
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+    async def attach_kb(
+        self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
+    ) -> EngineKBRef:
         """Push an approved source and return the engine's handle for it.
 
         Returning the handle is the whole reason a superseded version can ever be
         removed: the engine names its copy, we do not. An adapter that has nothing
         to return is an adapter whose KB can only ever grow.
+
+        **`agent` IS THE AGENT'S OWN CONFIGURATION, AND IT IS NOT OPTIONAL EVERYWHERE
+        (D-459).** On an engine that stores the knowledge linkage as AGENT STATE, making
+        an uploaded document retrievable is a WRITE to the agent object — and where the
+        only route that writes it is a FULL REPLACEMENT (Bolna: `PUT /v2/agent/{id}`,
+        while `PATCH` updates a closed list of attributes that does not include `tasks`
+        and *"Any other field in the body is ignored"* —
+        `bolna-findings/mirror/pages/api-reference/agent/v2/patch_update.md:9,20`), the
+        adapter cannot build that body from a read-back: the vendor's `AgentV2` response
+        declares neither `agent_welcome_message` nor `webhook_url`
+        (`.../agent/v2/get.md:54-97`), so a PUT assembled from a GET would silently drop
+        the agent's spoken notice and its event webhook. So the caller hands over the
+        configuration it would publish, and the linkage write is a publish like any other.
+
+        `None` is legal and means "this engine does not need it". An adapter that DOES
+        need it and is handed `None` must refuse by name — never guess a body.
         """
         ...
 
-    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+    async def detach_kb(
+        self, ref: EngineAgentRef, kb: EngineKBRef, *, agent: AgentConfig | None = None
+    ) -> None:
         """Remove ONE attached source — the counterpart without which `attach_kb` is a
         one-way door.
 
@@ -3959,6 +4006,10 @@ class VoiceEngine(Protocol):
         Detaching a handle the engine does not have must RAISE, not pass quietly: the
         publisher's next step is to attach the replacement, and it is entitled to know
         whether the old text is really gone before it does.
+
+        `agent` has `attach_kb`'s meaning and the same standing: removing the linkage is
+        the same agent write as adding it, so an engine that needs the configuration to
+        add needs it to remove.
         """
         ...
 

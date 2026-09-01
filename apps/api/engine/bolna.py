@@ -98,12 +98,14 @@ throttle block below for what is and is not retried, and why.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from time import monotonic
 from types import MappingProxyType
 from typing import Any, Final, NamedTuple
 from urllib.parse import urlsplit
@@ -1653,6 +1655,94 @@ _AGENT_KB_REF_KEYS = frozenset(
 _AGENT_WALK_MAX_DEPTH = 10
 
 
+# --- the knowledge base's wire constants (D-459) ---------------------------------
+#
+# EVERY VALUE HERE IS READ FROM THE HASH-PINNED MIRROR, page and line, because each one
+# is either a limit the vendor enforces or a default that silently decides how a client's
+# approved text gets cut up.
+
+#: `POST /knowledgebase` `file`: *"PDF file to upload (max 20 MB)"*
+#: (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:40-45`). Checked
+#: BEFORE the upload so an oversized document is one named refusal rather than a vendor
+#: 400 the ladder would treat as a transient fault and retry three times.
+KB_MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
+
+#: The three retrieval knobs, sent EXPLICITLY at their documented defaults
+#: (`create.md:53-69`). Sent rather than omitted for `_agent_body`'s reason: a default we
+#: do not send is a default the vendor may change under us, and these three decide what a
+#: retrieved chunk CONTAINS. They are also the honest boundary of the approval gate — a
+#: human approves the CONTENT, and these numbers are the only part of the chunking we
+#: control. Where the vendor then places a boundary inside that content is theirs.
+KB_CHUNK_SIZE = 512
+KB_OVERLAPPING = 128
+KB_SIMILARITY_TOP_K = 15
+
+#: `language_support`, and the enum has exactly ONE member: `multilingual`, which
+#: *"enables cross-lingual retrieval across 100+ languages ... you can upload documents in
+#: any language and query them in any language"*; omitting it selects *"the default
+#: English-optimized configuration"* (`create.md:70-80`).
+#:
+#: WE SEND IT ALWAYS, AND FOR THIS PRODUCT THAT IS NOT A PREFERENCE. Calevate is
+#: Telugu-first: the caller speaks Telugu, Saaras transcribes Telugu, and a client's
+#: approved knowledge is routinely a mixture — Telugu prose with English product names,
+#: prices and clinic hours, often typed in Latin script. An English-optimized index asked
+#: a Telugu question is the failure that looks like working software: retrieval returns
+#: the wrong chunk, the model answers confidently from it, and nothing in the call is
+#: marked wrong.
+#:
+#: **IT CANNOT BE CHANGED AFTERWARDS.** *"Existing knowledge bases cannot be switched
+#: between default and multilingual — you'll need to create a new one"*
+#: (`bolna-findings/mirror/pages/getting-started/knowledge-base.md`). So this constant is
+#: not a tunable: flipping it later does not migrate anything, it silently means every
+#: knowledge base created before the flip is indexed one way and every one after it the
+#: other, and the only fix is re-uploading every client's documents. Being wrong in the
+#: multilingual direction costs an unmeasured amount of retrieval precision on
+#: English-only content; being wrong in the other direction breaks the primary language of
+#: the product. ⚠ WHAT IS NOT KNOWN is the size of that first cost — the vendor publishes
+#: no comparison — and no number is invented for it here (OPERATIONS §2 gate 41c).
+KB_LANGUAGE_SUPPORT = "multilingual"
+
+#: How long `attach_kb` waits for `processing` → `processed`, and how often it looks.
+#:
+#: THE WAIT EXISTS BECAUSE THE CREATE RESPONSE IS NOT THE ANSWER. `POST /knowledgebase`
+#: returns `status` *"Initially the status would be `processing`"* and NO `vector_id`
+#: (`create.md:105-127` — the response's declared properties are `rag_id`, `file_name`,
+#: `source_type`, `status`, `language_support`); the `vector_id` an agent must reference
+#: appears only on `GET /knowledgebase/{rag_id}`
+#: (`.../get_knowledgebase.md:81-93`). So an adapter that returned on the create has
+#: uploaded a document nothing can retrieve from.
+#:
+#: THE BUDGET IS OURS AND IS AN ESTIMATE, NOT A VENDOR FIGURE — nothing published says how
+#: long ingestion takes for a document of our size. Three minutes is chosen against what
+#: the caller does with a timeout: `publish_source` compensates by deleting the half-made
+#: knowledge base and refusing, so an over-short budget costs a retry and an over-long one
+#: holds a publish request open. It is deliberately far longer than any other vendor call
+#: in this adapter, which is why it is a named constant instead of `REQUEST_TIMEOUT_S`.
+KB_READY_TIMEOUT_S = 180.0
+KB_READY_POLL_INTERVAL_S = 2.0
+
+#: `status` on a knowledge base. `processing` and `processed` are declared on every one of
+#: the three read/write schemas; `error` is declared on the CREATE response only
+#: (`create.md:110-113`) and is absent from `Knowledgebase` (`get_knowledgebase.md:87-92`,
+#: `get_knowledgebases.md:95-101`) — which is a gap in their spec rather than a promise
+#: that a read can never report one, so both are handled wherever a status is read.
+KB_STATUS_PROCESSED = "processed"
+KB_STATUS_PROCESSING = "processing"
+KB_STATUS_ERROR = "error"
+
+
+def _kb_filename(source: KBSourceRef) -> str:
+    """The `file_name` the vendor echoes back and shows in its console.
+
+    OURS, NOT THE CLIENT'S, AND DELIBERATELY DULL. The vendor stores this string, returns
+    it on every listing row and prints it in a dashboard we do not control, so it is a
+    place caller data could leak by accident (hard rule 6). `kb_id` is a uuid of ours and
+    the title is not used at all -- a client's own source title can carry a person's name
+    ("Ravi's clinic timings") and there is no reason a vendor console needs it.
+    """
+    return f"calevate-kb-{source.kb_id}.pdf"
+
+
 def _agent_object(payload: dict[str, Any]) -> dict[str, Any]:
     """The agent object itself, whatever envelope it arrived in."""
     for key in _AGENT_ENVELOPE_KEYS:
@@ -1940,14 +2030,30 @@ def _agent_kb_refs(agent: dict[str, Any]) -> tuple[list[EngineKBRef], bool]:
     """`(handles, readable)` — the agent's own knowledge references, and whether we
     actually found the field that would hold them.
 
-    `readable=False` is the honest answer when no candidate key appears anywhere in the
-    object, and it is NOT the same as an empty list: D-41 asks whether a deleted
-    knowledge base leaves the agent pointing at a dead `rag_id`, and "we could not find
-    the field" would otherwise be recorded as "the reference was cleared" — closing the
-    question in the direction that adds no work to our code, on no evidence.
+    `readable=False` is the honest answer when we cannot see the place a reference would
+    live, and it is NOT the same as an empty list: D-41 asks whether a deleted knowledge
+    base leaves the agent pointing at a dead handle, and "we could not find the field"
+    recorded as "the reference was cleared" would close the question in the direction that
+    adds no work to our code, on no evidence.
+
+    **WHAT COUNTS AS "WE CAN SEE IT" CHANGED WHEN THE LOCATION WAS READ (D-459), AND THIS
+    IS THE HALF THAT MATTERS.** It used to be "some candidate key is present somewhere",
+    which meant an agent with NO knowledge — no `vector_store` block at all — read as
+    `readable=False`, i.e. "cannot tell". That is exactly the state a successful
+    `detach_kb` leaves behind, so the one question D-41 asks could never be answered YES:
+    an adapter that correctly cleared the reference was indistinguishable from one that
+    could not find it.
+
+    Now the test is whether `llm_config` — the block the reference lives INSIDE
+    (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:806-817,1164-1195`) — is
+    present. If it is, an absent `vector_store` is a fact about the agent: it references
+    nothing. If it is not, the payload is not a shape we understand and "cannot tell"
+    remains the only honest answer. The tolerant walk stays alongside for the older
+    spellings this adapter itself once wrote, and can only ever turn a "cannot tell" into
+    an answer.
     """
-    handles: list[EngineKBRef] = []
-    found_key = False
+    handles: list[EngineKBRef] = _agent_vector_ids(agent)
+    found_key = bool(_llm_configs(agent))
 
     def walk(node: Any, depth: int) -> None:
         nonlocal found_key
@@ -1968,6 +2074,96 @@ def _agent_kb_refs(agent: dict[str, Any]) -> tuple[list[EngineKBRef], bool]:
 
     walk(agent, 0)
     return handles, found_key
+
+
+def _llm_configs(agent: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every task's `llm_config` block, at the DOCUMENTED path and nowhere else.
+
+    Separate from `_agent_kb_refs`'s tolerant walk on purpose, and the two are not
+    duplicates. That one answers "is there a knowledge reference anywhere in this
+    payload", tolerantly, because its job is to avoid reporting a dangling handle as
+    cleared. THIS one answers "where do I WRITE the reference", and a write may not be
+    tolerant: guessing a location would put `vector_ids` somewhere the engine ignores,
+    which is a silent no-attach — the exact defect class D-354 found.
+
+    The path is `agent_config.tasks[].tools_config.llm_agent.llm_config`
+    (`bolna-findings/mirror/pages/api-reference/agent/v2/update.md:243-247,532-551`),
+    with `agent_config` present on the WRITE body and absent from the READ schema
+    (`.../get.md:54-97` declares `tasks` at the top level), so both are accepted.
+    """
+    root = agent.get("agent_config") if isinstance(agent.get("agent_config"), dict) else agent
+    tasks = root.get("tasks") if isinstance(root, dict) else None
+    if not isinstance(tasks, list):
+        return []
+    configs: list[dict[str, Any]] = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        tools = task.get("tools_config")
+        llm_agent = tools.get("llm_agent") if isinstance(tools, dict) else None
+        llm_config = llm_agent.get("llm_config") if isinstance(llm_agent, dict) else None
+        if isinstance(llm_config, dict):
+            configs.append(llm_config)
+    return configs
+
+
+def _agent_vector_ids(agent: dict[str, Any]) -> list[EngineKBRef]:
+    """The vector ids this agent references, read at the documented path.
+
+    Order-preserving and de-duplicated: the list goes back on the wire on the next write,
+    and a set would reshuffle it on every publish, turning a no-op update into a diff
+    nobody made.
+
+    `vector_id` (singular) is read as well as `vector_ids`. Their own schema calls it
+    *"Vector id of a single knowledgebase (legacy, use `vector_ids` for multiple)"*
+    (`update.md:1224-1233`), so an agent configured in their console — or by an older
+    build of ours — can be carrying one, and a preserve-on-update that only understood
+    the plural would DELETE it.
+    """
+    handles: list[EngineKBRef] = []
+    for llm_config in _llm_configs(agent):
+        store = llm_config.get("vector_store")
+        provider_config = store.get("provider_config") if isinstance(store, dict) else None
+        if not isinstance(provider_config, dict):
+            continue
+        raw = provider_config.get("vector_ids")
+        candidates = raw if isinstance(raw, list) else []
+        single = provider_config.get("vector_id")
+        if isinstance(single, str) and single:
+            candidates = [*candidates, single]
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate and candidate not in handles:
+                handles.append(candidate)
+    return handles
+
+
+def _apply_vector_store(body: dict[str, Any], vector_ids: Sequence[EngineKBRef]) -> None:
+    """Put the knowledge linkage into an agent body we are about to WRITE.
+
+    TWO FIELDS MOVE TOGETHER AND THAT IS THE WHOLE FUNCTION. `vector_store` lives on the
+    `KnowledgebaseAgent` arm of `llm_config`'s `oneOf`, and the arm is selected by
+    `llm_agent.agent_type` (`update.md:532-551,848-860`). Writing `vector_store` while
+    leaving `agent_type: "simple_llm_agent"` posts a body whose union arm has no such
+    property — at best ignored, which is a silent no-attach.
+
+    Empty restores the simple arm rather than sending `vector_ids: []`: an agent with no
+    knowledge is a `simple_llm_agent`, which is what `_agent_body` already builds, and a
+    knowledgebase agent pointed at nothing is a shape nothing documents.
+    """
+    for task in body["agent_config"]["tasks"]:
+        llm_agent = task["tools_config"]["llm_agent"]
+        if not vector_ids:
+            llm_agent["agent_type"] = "simple_llm_agent"
+            llm_agent["llm_config"].pop("vector_store", None)
+            continue
+        llm_agent["agent_type"] = "knowledgebase_agent"
+        llm_agent["llm_config"]["vector_store"] = {
+            # `provider` has one enum member, `lancedb`, and it is also the declared
+            # default (`update.md:1205-1211`). Sent explicitly for `_agent_body`'s
+            # standing reason: a default we do not send is one the vendor may move.
+            "provider": "lancedb",
+            "provider_config": {"vector_ids": list(vector_ids)},
+        }
 
 
 def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn], int]:
@@ -2370,35 +2566,59 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 # finding that Bolna signs nothing, and the vendor names the one address it delivers from.
 #
 # WHAT IS A DELIBERATE *NO* RATHER THAN AN UNKNOWN:
-# * `knowledge_base=False`. **THIS WAS `True` AND THE IMPLEMENTATION BEHIND IT COULD NEVER
-#   HAVE WORKED (D-354).** Bolna has a knowledge base and this adapter called it — with a
-#   JSON body of `{agent_id, name, text}`. VERIFIED-OAS: `POST /knowledgebase` is
-#   `multipart/form-data` taking `file` (a PDF, max 20 MB) or `url`, "Provide either
-#   `file` or `url`, not both", and it accepts NO agent id and NO raw text. Two separate
-#   walls, and the second is the one that decides the flag:
-#     (a) our `KBSourceRef` carries `text` — parsed, chunked, approved prose. There is no
-#         field on this endpoint that takes prose. Rendering it to a PDF inside the
-#         adapter to squeeze it through would be inventing a document format on the money-
-#         adjacent side of a compliance feature, on a route nobody has ever called live.
-#     (b) `Knowledgebase` has no `agent_id`, so a created KB is attached to NOTHING. The
-#         link is made on the AGENT: `llm_agent.agent_type = "knowledgebase_agent"` plus
-#         `llm_config.vector_store.provider_config.vector_ids = [...]`, keyed by the
-#         knowledge base's `vector_id` — a DIFFERENT identifier from the `rag_id` this
-#         adapter returned and deleted by. So `attach_kb` returning 2xx would have meant
-#         "a document exists in the account", never "this agent can retrieve it", and
-#         `list_kb`'s filter on a non-existent `row["agent_id"]` returned `[]` for every
-#         agent forever — which `kb/reconciliation` reads as "the engine holds nothing",
-#         i.e. permanent silent drift.
-#   `False` is therefore the honest descriptor and the refusals below are the honest
-#   behaviour: an absent capability produces a NAMED refusal, never a silent no-op, and
-#   `require_capability` refuses at the KB publish path (`kb/service.py`) before a single
-#   request goes out. WHAT WOULD REVERSE IT is ours, not the vendor's: `KBSourceRef` would
-#   have to carry a PDF or a public URL instead of prose, and `attach_kb` would have to
-#   PATCH the agent's `vector_ids` as its second half. That is a change to the KB tier
-#   design (T0-T4, TRD §6) and to what `kb_sources` stores, so it is a decision and not a
-#   flag flip — D-354 names it. In-call retrieval meanwhile is OURS (D-28's managed vector
-#   service behind the RAG tool endpoint), which is where every KB tier above T0 already
-#   lives, so nothing a client sees today depended on the engine built-in.
+# * `knowledge_base=True` (D-459). **IT WAS `True`, THEN `False`, AND IT IS NOW `True`
+#   FOR THE FIRST TIME WITH A PATH BEHIND IT — read all three states before trusting any
+#   sentence that survives from an earlier one.**
+#
+#   THE FIRST `True` (pre-D-354) WAS A LIE THAT COULD NEVER HAVE WORKED. This adapter
+#   called `POST /knowledgebase` with a JSON body of `{agent_id, name, text}`. The route
+#   is `multipart/form-data` taking `file` (a PDF, max 20 MB) or `url` — "Provide either
+#   `file` or `url`, not both" — and accepts NO agent id and NO raw text
+#   (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:29-80`). And a
+#   created knowledge base carries no agent linkage at all, so `list_kb`'s filter on
+#   `row["agent_id"]` matched a field the `Knowledgebase` schema does not declare
+#   (`.../knowledgebase/get_knowledgebases.md:63-121`) and answered `[]` for every agent
+#   forever — which `kb/reconciliation` reads as "the engine holds nothing", i.e. silent
+#   drift by construction.
+#
+#   `False` WAS THE HONEST DESCRIPTOR OF THAT, AND IT RESTED ON ONE PREMISE THAT WAS
+#   WRONG. D-354 recorded the blocker as ours-but-unreachable: `KBSourceRef` carries
+#   prose and "rendering it to a PDF inside the adapter would be inventing a document
+#   format on the money-adjacent side of a compliance feature". That reasoning is intact
+#   and is why the renderer is NOT here — it lives in `apps/api/kb/`, on the side of hard
+#   rule 2's wall where the approval gate can see it, and `KBSourceRef.document` carries
+#   the bytes. What was wrong was the wider inference that grew around it, corrected in
+#   `docs/evidence/kb-retrieval-bakeoff.md` §3.1e: that the engine could not do in-call
+#   retrieval at all. It does, per turn — *"On each turn the latest user message
+#   retrieves the most relevant chunks, which are added to the prompt before the response
+#   is generated"* (`bolna-findings/mirror/pages/graph-agent/tools-and-rag.md`).
+#
+#   WHAT ACTUALLY CHANGED TO EARN THE `True`, none of it a flag flip:
+#     (a) `KBSourceRef` gained a rendered `document` and a `content_sha256`, so the thing
+#         uploaded is an artefact a human approved, rendered by the publisher.
+#     (b) `attach_kb` is the real four-step sequence — multipart create, wait for
+#         `processed` (the create returns `processing` and NO `vector_id`; the vector id
+#         exists only on `GET /knowledgebase/{rag_id}`, `.../get_knowledgebase.md:81-93`),
+#         read the agent's current vector ids, then PUT the agent with the new one added.
+#     (c) `detach_kb` un-references BEFORE it deletes, and raises on a handle the account
+#         does not hold. `list_kb` reads the AGENT, which is where the linkage has always
+#         lived.
+#     (d) The handle is the VECTOR ID, so `AgentSnapshot.references_kb` compares like with
+#         like and D-41's dangling-handle question is answerable from a payload instead of
+#         being closed by an unreadable field.
+#     (e) `update_agent` reads the agent's vector ids back and re-sends them, because
+#         `PUT` replaces the whole configuration and `AgentConfig` carries none — without
+#         it, every T0 recompile would silently delete the client's knowledge.
+#
+#   ⚠ WHAT IS STILL NOT MEASURED, AND WHY `True` IS STILL THE HONEST VALUE. Not one of
+#   these calls has been made against a live account: `api.bolna.ai` is unreachable from
+#   this container and no credential exists here. `True` is the claim that the ROUTES
+#   exist as the pinned mirror documents them and that this adapter calls them correctly;
+#   it is not a measurement. Every unmeasured half is a named gate in OPERATIONS §2
+#   (41a-41f), each of which fails LOUD — a vendor 4xx surfaced as `engine_rejected`, or
+#   a timeout surfaced as `engine_kb_processing_timeout` — rather than degrading to a
+#   green tick. That is strictly better than the state D-354 left, where the capability
+#   was absent and the step was not attempted at all.
 # * `campaigns=False`. Bolna HAS campaign objects; TRD §5 records them and CLAUDE.md
 #   prefers configuring engine built-ins over rebuilding them. We do not use them — every
 #   campaign in this system is dispatched by `apps/api/campaigns` + `apps/workers`,
@@ -2481,7 +2701,7 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     llm="ours",
     agent_hosting="control_plane",
     campaigns=False,
-    knowledge_base=False,
+    knowledge_base=True,
     number_series=frozenset(),
     caller_id=True,
     inbound_binding=True,
@@ -2594,7 +2814,9 @@ class BolnaEngine:
             **kwargs,
         )
 
-    def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
+    def _agent_body(
+        self, cfg: AgentConfig, *, vector_ids: Sequence[EngineKBRef] = ()
+    ) -> dict[str, Any]:
         """Our AgentConfig → their agent object.
 
         TWO STRINGS OUR LAYER OWNS BRACKET THE CLIENT'S SCRIPT, and the order is the
@@ -2943,6 +3165,14 @@ class BolnaEngine:
             # built above; this is the one place actions touch the vendor body.
             tasks = body["agent_config"]["tasks"]
             tasks[0]["tools_config"]["api_tools"] = api_tools
+        # THE KNOWLEDGE LINKAGE, AND IT IS A PARAMETER RATHER THAN A FIELD OF `AgentConfig`
+        # (D-459). What an agent KNOWS is our state; which VECTOR IDS the engine minted for
+        # it is the engine's, and the two are related only by handles this adapter recorded.
+        # Threading it through `AgentConfig` would put vendor-minted identifiers into the
+        # model every caller builds, and every caller that did not know to populate them
+        # would silently publish an agent with its knowledge removed. Every writer here
+        # reads them from the ENGINE instead, which cannot be forgotten.
+        _apply_vector_store(body, vector_ids)
         return body
 
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
@@ -2959,7 +3189,32 @@ class BolnaEngine:
         return ref
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
-        await self._request("PUT", f"/v2/agent/{ref}", json=self._agent_body(cfg))
+        """`PUT /v2/agent/{id}` — a FULL REPLACEMENT, which is why it reads first.
+
+        **THE READ IS NOT AN OPTIMISATION, IT IS WHAT STOPS EVERY REPUBLISH FROM WIPING
+        THE AGENT'S KNOWLEDGE (D-459).** `PUT` *"replaces the entire agent
+        configuration"* (`bolna-findings/mirror/pages/api-reference/agent/v2/
+        patch_update.md:9`), and `AgentConfig` carries no vector ids — deliberately, see
+        `_agent_body`. So a body built from `cfg` alone omits `vector_store`, and this
+        method is reached by a T0 recompile, a voice change, a call-cap change and the
+        drift repair: an agent whose knowledge silently vanished the next time anybody
+        renamed it would look exactly like an engine that lost the document.
+
+        THE ALTERNATIVE — `PATCH` — CANNOT DO THIS JOB AT ALL, and that is worth stating
+        because it is the obvious reach. `PATCH /v2/agent/{id}` updates a CLOSED list of
+        attributes (`agent_name`, `agent_welcome_message`, `webhook_url`, `synthesizer`,
+        `ingest_source_config`, `telephony_provider`, `calling_guardrails`,
+        `agent_prompts`) and *"Any other field in the body is ignored"*
+        (`patch_update.md:9,20-31`). `tasks` is not on it, and `vector_store` lives inside
+        `tasks[].tools_config`. A PATCH carrying it would answer 200 and change nothing.
+
+        The cost is one extra GET per publish. That is the honest price of a
+        full-replacement write on an object whose other writer is `attach_kb`.
+        """
+        preserved = _agent_vector_ids(_agent_object(await self._request("GET", f"/v2/agent/{ref}")))
+        await self._request(
+            "PUT", f"/v2/agent/{ref}", json=self._agent_body(cfg, vector_ids=preserved)
+        )
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """`DELETE /v2/agent/{agent_id}` — the orphan compensator's one instrument.
@@ -3059,13 +3314,19 @@ class BolnaEngine:
           opening line lands `unreadable` rather than `applied` until a live account says
           otherwise. That is the honest verdict, not a bug to code around, and it is what
           OPERATIONS §2 gate 2 exists to settle.
-        * NOT FOUND AT ALL — the loudest gap. **Nothing found anywhere says where a
-          knowledge base reference lives inside the agent object**, or whether the agent
-          object carries one. `_AGENT_KB_REF_KEYS` is therefore a guessed set of field
-          names, and `knowledge_base_refs_readable` is False whenever none of them is
-          present — which is why a "no dangling `rag_id`" verdict can never be inferred
-          from silence here. That is precisely D-41's open question and it stays a PILOT
-          GATE (OPERATIONS §2 gate 8), not a premise.
+        * **THE KNOWLEDGE REFERENCE IS FOUND, AND THIS BULLET SAID THE OPPOSITE UNTIL THE
+          MIRROR WAS READ.** It read "NOT FOUND AT ALL — the loudest gap. Nothing found
+          anywhere says where a knowledge base reference lives inside the agent object".
+          It does: `tasks[].tools_config.llm_agent.llm_config` is a `KnowledgebaseAgent`
+          whose `vector_store.provider_config` is a `LanceDbConfig` declaring `vector_id`
+          and `vector_ids` (`bolna-findings/mirror/pages/api-reference/agent/v2/
+          get.md:806-817,1164-1195`). `_agent_vector_ids` reads exactly that path and
+          `_agent_kb_refs` tolerates the older spellings around it.
+          WHAT DOES NOT CHANGE is `knowledge_base_refs_readable`'s asymmetry: an agent
+          with no knowledge carries no `vector_store` at all, so absence still reads as
+          "we could not find it" rather than "the reference was cleared". D-41's question
+          is now ANSWERABLE from a payload — which is the change — and the answer is still
+          a live-account observation (OPERATIONS §2 gate 8), not a premise.
 
         * THE GREETING has the same standing as the prompt and no better:
           `agent_welcome_message` is the key we SEND (their OSS agent object carries it),
@@ -3517,41 +3778,336 @@ class BolnaEngine:
 
     # --- knowledge base ------------------------------------------------------
     #
-    # ALL THREE METHODS REFUSE. See `BOLNA_CAPABILITIES.knowledge_base` for the two walls
-    # that decide it (D-354): the vendor's `POST /knowledgebase` takes a PDF or a URL over
-    # multipart and cannot ingest our `KBSourceRef.text`, and a created knowledge base
-    # carries no agent linkage — the link lives on the AGENT's `vector_ids`, keyed by a
-    # `vector_id` this adapter never read.
-    #
-    # THE REFUSAL IS `require_capability`, NOT A BESPOKE `raise`, and that is the point: it
-    # is the same code a caller gets from asking the descriptor BEFORE calling, so a screen
-    # and these methods cannot disagree, and widening the flag without writing the client
-    # makes them fail loudly here rather than fall off the end returning None.
-    #
-    # `list_kb` RETURNING `[]` WOULD HAVE BEEN THE WORST OF THE THREE and is why this is a
-    # refusal rather than a stub: `kb/reconciliation` reads an empty list as "the engine
-    # holds no documents for this agent", which is a positive claim about the engine, and
-    # a refusal is the only answer that is not a lie about a system we cannot read.
+    # THE SHAPE OF THIS FEATURE IN ONE PARAGRAPH, because it is not the shape the port
+    # suggests. The vendor's knowledge base is an ACCOUNT-LEVEL object with four routes
+    # and no agent field (`bolna-findings/mirror/pages/api-reference/knowledgebase/
+    # overview.md:11-16`); the LINKAGE is a list of `vector_ids` on the AGENT. So an
+    # attach is two writes to two objects, a detach is the same two in reverse, and the
+    # handle this adapter hands back is the identifier BOTH halves can be addressed by.
+    # See `attach_kb` for why that is the vector id and not the `rag_id` a create returns.
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
-        require_capability("knowledge_base", engine=self)
-        # Unreachable while the descriptor says False, and kept as a real refusal rather
-        # than an `assert` for `provision_number`'s reason: the way this line gets reached
-        # is somebody flipping the flag without writing the multipart upload and the agent
-        # `vector_ids` patch, and that must fail loudly rather than return None.
-        raise ProblemError(
-            kind="dependency",
-            code="engine_capability_unverified",
-            title="This voice platform cannot hold this knowledge base",
-            detail="The voice platform's knowledge base accepts documents, not text.",
+    async def _kb_row(self, rag_id: str) -> dict[str, Any]:
+        """`GET /knowledgebase/{rag_id}` -> the row, which is the only place `vector_id`
+        appears (`.../knowledgebase/get_knowledgebase.md:81-93`)."""
+        return await self._request("GET", f"/knowledgebase/{rag_id}")
+
+    async def _await_kb_processed(self, rag_id: str) -> EngineKBRef:
+        """Poll until the upload is `processed`, then answer its `vector_id`.
+
+        THE THREE OUTCOMES ARE ALL NAMED, and the middle one is why this is a loop rather
+        than a second GET. `processing` is what a create RETURNS, so the vector id does
+        not exist yet; `error` is a real vendor verdict on a document we uploaded and must
+        never be read as "not ready yet"; and a `processed` row with no `vector_id` is a
+        response we cannot use, not an empty result.
+
+        `asyncio.sleep` between looks, deliberately not a backoff ladder: this is one
+        object becoming ready on a clock we do not control, not a contended resource, and
+        a doubling interval would spend most of a three-minute budget asleep past the
+        moment it became usable.
+        """
+        deadline = monotonic() + KB_READY_TIMEOUT_S
+        while True:
+            row = await self._kb_row(rag_id)
+            status = str(row.get("status") or "").lower()
+            if status == KB_STATUS_ERROR:
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_kb_processing_failed",
+                    title="The voice platform could not read that knowledge document",
+                    detail=(
+                        "The voice platform accepted the document and then failed to "
+                        "index it, so the agent would not be able to answer from it."
+                    ),
+                    remediation=(
+                        "Nothing is live from this version. Check the wording for "
+                        "anything unusual and submit it again; if it happens twice the "
+                        "platform is rejecting the document itself and support must look."
+                    ),
+                    failure_stage="CORE_LOGIC",
+                )
+            if status == KB_STATUS_PROCESSED:
+                vector_id = row.get("vector_id")
+                if isinstance(vector_id, str) and vector_id:
+                    return vector_id
+                # PROCESSED AND UNADDRESSABLE. Not a wait: their own schema declares
+                # `vector_id` on this row, so its absence is a response we cannot use, and
+                # sleeping on it would burn the whole budget to report the wrong cause.
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_bad_response",
+                    title="Voice engine returned an unusable response",
+                    detail="The voice platform indexed the document but named no vector id.",
+                    failure_stage="CORE_LOGIC",
+                )
+            if monotonic() >= deadline:
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_kb_processing_timeout",
+                    title="The voice platform is still indexing that knowledge",
+                    detail=(
+                        "The document was uploaded but the platform has not finished "
+                        "indexing it, so it cannot be attached yet."
+                    ),
+                    remediation=(
+                        "Nothing changed: the previously approved version is still live. "
+                        "Try publishing again in a few minutes."
+                    ),
+                    failure_stage="CORE_LOGIC",
+                )
+            await asyncio.sleep(KB_READY_POLL_INTERVAL_S)
+
+    async def _rag_id_of(self, vector_id: EngineKBRef) -> str | None:
+        """Our handle -> the id the DELETE route takes, or None if the account holds no
+        such knowledge base.
+
+        `GET /knowledgebase/all` is the ONLY route carrying both identifiers on one row
+        (`.../knowledgebase/get_knowledgebases.md:63-94`), and there is no route that
+        reads a knowledge base BY vector id, which is the whole reason a listing is
+        fetched here rather than a row.
+
+        None is a real answer and the caller must treat it as one: it means the engine
+        does not hold that knowledge base, which for `detach_kb` is the 404 the Protocol
+        says must RAISE rather than pass quietly.
+        """
+        for row in _listing_rows(await self._request("GET", "/knowledgebase/all")):
+            if row.get("vector_id") == vector_id:
+                rag_id = row.get("rag_id")
+                return rag_id if isinstance(rag_id, str) and rag_id else None
+        return None
+
+    async def _current_vector_ids(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        """What the AGENT references right now. The engine's answer, not our records."""
+        return _agent_vector_ids(_agent_object(await self._request("GET", f"/v2/agent/{ref}")))
+
+    async def _write_vector_ids(
+        self, ref: EngineAgentRef, cfg: AgentConfig, vector_ids: Sequence[EngineKBRef]
+    ) -> None:
+        """The agent half of an attach or a detach: one full-replacement PUT.
+
+        `cfg` IS THE CALLER'S AND CANNOT BE DERIVED HERE, which is the whole reason the
+        port carries it (D-459). `PATCH` cannot write `tasks` at all (see `update_agent`),
+        so the write is a `PUT` -- and a `PUT` body assembled from `GET /v2/agent/{id}`
+        would drop `agent_welcome_message` and `webhook_url`, neither of which is declared
+        on the `AgentV2` response (`.../agent/v2/get.md:54-97`). The first is the sentence
+        the agent VOLUNTEERS, the AI disclosure and the recording notice (hard rule 5,
+        D-163); the second is how we ever hear that a call happened. Publishing knowledge
+        is not permitted to cost either.
+        """
+        await self._request(
+            "PUT", f"/v2/agent/{ref}", json=self._agent_body(cfg, vector_ids=vector_ids)
         )
 
-    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+    def _kb_agent_config(self, agent: AgentConfig | None) -> AgentConfig:
+        """The caller's configuration, or a named refusal.
+
+        A DEFAULT IS UNTHINKABLE HERE and the check is free, so this is a guard rather
+        than an `assert`: the way it gets reached is a caller that has not been taught the
+        linkage is an agent write, and the failure it prevents is an adapter publishing an
+        agent body it made up.
+        """
+        if agent is not None:
+            return agent
+        raise ProblemError(
+            kind="dependency",
+            code="engine_kb_agent_config_required",
+            title="This voice platform needs the agent's configuration",
+            detail=(
+                "The voice platform stores knowledge attachments on the agent itself, "
+                "so attaching or removing one is a change to the agent."
+            ),
+            failure_stage="CORE_LOGIC",
+        )
+
+    async def _delete_kb_quietly(self, rag_id: str) -> None:
+        """Best-effort removal of a knowledge base we created and could not use.
+
+        SWALLOWS, AND SAYS SO AT ERROR. It runs on a path that is already failing, and
+        raising here would replace a diagnosable cause with a cleanup error. What it must
+        never do is disappear: the residue is a billed document nothing of ours can reach,
+        so an operator is told by name and the drift sweep reports the agent as holding
+        knowledge we cannot account for.
+        """
+        try:
+            await self._request("DELETE", f"/knowledgebase/{rag_id}", absent_is_success=True)
+        except Exception as exc:  # the caller's failure is the one to report, not this cleanup's
+            log.error("kb_orphan_left_on_engine", extra={"engine_error": type(exc).__name__})
+
+    async def attach_kb(
+        self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
+    ) -> EngineKBRef:
+        """Upload the approved document, wait for it, and make the agent reference it.
+
+        **THIS CAPABILITY WAS `False` AND THE IMPLEMENTATION BEHIND IT COULD NEVER HAVE
+        WORKED (D-354). D-459 BUILT THE REAL ONE.** Four steps, and the order is the
+        design:
+
+        1. `POST /knowledgebase`, `multipart/form-data`, `file` = the RENDERED DOCUMENT
+           (`.../knowledgebase/create.md:29-80`). The old body was JSON `{agent_id, name,
+           text}`; the route accepts neither an agent id nor prose.
+        2. Wait for `processed` and read `vector_id` (`_await_kb_processed`). The create
+           response carries no vector id at all, so this is not a nicety: it is where the
+           usable identifier comes from.
+        3. PUT the agent with the new vector id ADDED to the ones it already references.
+           Read-then-write, and the read is the ENGINE's list rather than our records --
+           our records can be stale, the engine's list is what the caller hears.
+        4. Return the VECTOR ID as the handle.
+
+        WHY THE VECTOR ID AND NOT THE `rag_id`, which is what a create returns and what
+        `DELETE` takes. The handle's whole job is to answer "is this still attached", and
+        the only thing an AGENT carries is a vector id -- so a `rag_id` handle would make
+        `AgentSnapshot.references_kb` compare two different namespaces and answer False
+        for every attached document, reporting "the reference is cleared" on no evidence.
+        That is D-41's question answered the comfortable way, which is a failure this
+        adapter has already shipped once. The `rag_id` is recoverable when it is needed
+        (`_rag_id_of`), and it is needed exactly once, in `detach_kb`.
+
+        NOTHING IS LEFT BEHIND WHEN A LATER STEP FAILS. Steps 2 and 3 can both fail after
+        the upload has succeeded, and a knowledge base nothing references is billed for as
+        long as the account exists. So the upload is compensated: the document is deleted
+        and the ORIGINAL failure re-raised, never replaced by the cleanup's.
+
+        WHAT THIS METHOD DOES NOT DO IS DE-DUPLICATE. There is no update route on this
+        object (`.../knowledgebase/overview.md:11-16`), so every call is a CREATE and the
+        engine has no idea two uploads describe one source of ours. Not re-uploading
+        unchanged content is the publisher's job and is keyed on `KBSourceRef
+        .content_sha256`; an adapter cannot do it, because the only account-wide thing it
+        could compare is `file_name`, which is ours and identical across versions.
+        """
         require_capability("knowledge_base", engine=self)
+        cfg = self._kb_agent_config(agent)
+        document = source.document
+        if not document:
+            # THE ONE THING THIS ADAPTER MAY NOT DO IS RENDER ONE ITSELF. What a human
+            # approved is text; turning it into a document is a decision about an approved
+            # artefact, and hard rule 2 puts everything on this side of the wall out of
+            # reach of the gates that check approvals. See `KBSourceRef`.
+            raise ProblemError(
+                kind="dependency",
+                code="engine_kb_document_missing",
+                title="This voice platform needs a document, not text",
+                detail=(
+                    "The voice platform's knowledge base ingests documents, and nothing "
+                    "rendered one for this version."
+                ),
+                failure_stage="CORE_LOGIC",
+            )
+        if len(document) > KB_MAX_DOCUMENT_BYTES:
+            # Refused here rather than at the vendor: a 400 would go through the throttle
+            # ladder as a transient fault and be retried, three times, with the same
+            # oversized body.
+            raise ProblemError(
+                kind="validation",
+                code="kb_document_too_large",
+                title="That knowledge source is too large to publish",
+                detail=(
+                    f"The rendered document is {len(document) // (1024 * 1024)} MB and the "
+                    f"voice platform accepts at most "
+                    f"{KB_MAX_DOCUMENT_BYTES // (1024 * 1024)} MB."
+                ),
+                remediation="Split it into two knowledge sources and publish them separately.",
+                status=422,
+            )
+        created = await self._request(
+            "POST",
+            "/knowledgebase",
+            # `files=` not `json=`: the route is `multipart/form-data`. The filename is
+            # OURS and carries no caller data -- the vendor echoes it back as `file_name`
+            # and shows it in their console, so it names the source, never a client's data.
+            files={"file": (_kb_filename(source), document, "application/pdf")},
+            data={
+                "chunk_size": str(KB_CHUNK_SIZE),
+                "overlapping": str(KB_OVERLAPPING),
+                "similarity_top_k": str(KB_SIMILARITY_TOP_K),
+                "language_support": KB_LANGUAGE_SUPPORT,
+            },
+        )
+        rag_id = created.get("rag_id")
+        if not isinstance(rag_id, str) or not rag_id:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_bad_response",
+                title="Voice engine returned an unusable response",
+                detail="The voice platform did not return a knowledge base id.",
+                failure_stage="CORE_LOGIC",
+            )
+        if str(created.get("status") or "").lower() == KB_STATUS_ERROR:
+            # Answered on the create itself: their create response declares `error` in its
+            # status enum, and treating it as "not ready" would poll a dead object for
+            # three minutes and then report a timeout instead of the refusal it is.
+            await self._delete_kb_quietly(rag_id)
+            raise ProblemError(
+                kind="dependency",
+                code="engine_kb_processing_failed",
+                title="The voice platform could not read that knowledge document",
+                detail="The voice platform rejected the document as unreadable.",
+                failure_stage="CORE_LOGIC",
+            )
+        try:
+            vector_id = await self._await_kb_processed(rag_id)
+            await self._write_vector_ids(
+                ref, cfg, [*await self._current_vector_ids(ref), vector_id]
+            )
+        except Exception:
+            # COMPENSATE, THEN RE-RAISE THE ORIGINAL. The document is uploaded and nothing
+            # references it; leaving it is a permanent line on the bill for text no agent
+            # can reach. The compensation must not become the reported error -- the caller
+            # needs to know the attach failed, not that a cleanup did.
+            await self._delete_kb_quietly(rag_id)
+            raise
+        return vector_id
+
+    async def detach_kb(
+        self, ref: EngineAgentRef, kb: EngineKBRef, *, agent: AgentConfig | None = None
+    ) -> None:
+        """Stop the agent referencing this knowledge, then delete it. In that order.
+
+        THE ORDER IS THE ONE THING THAT CANNOT BE GOT WRONG TWICE. Delete first and a
+        crash before the agent write leaves the agent pointing at a vector that no longer
+        exists -- D-41's dangling handle, on a live call path, with no route that repairs
+        it except a republish nobody knows is needed. Un-reference first and a crash
+        leaves an unreferenced document: money, visible to the drift sweep, and removable
+        at any later time.
+
+        A HANDLE THE ENGINE DOES NOT HOLD RAISES, as the Protocol requires. The
+        publisher's next act is to attach a replacement, and "the old text is gone" is a
+        claim it is entitled to have proven rather than inferred from a 200.
+        """
+        require_capability("knowledge_base", engine=self)
+        cfg = self._kb_agent_config(agent)
+        rag_id = await self._rag_id_of(kb)
+        if rag_id is None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform does not hold that knowledge base.",
+                failure_stage="CORE_LOGIC",
+            )
+        remaining = [handle for handle in await self._current_vector_ids(ref) if handle != kb]
+        await self._write_vector_ids(ref, cfg, remaining)
+        # `absent_is_success` for `delete_agent`'s reason and no other: the reference is
+        # already gone, so a knowledge base that vanished between the listing above and
+        # this call has reached this method's postcondition by another route.
+        await self._request("DELETE", f"/knowledgebase/{rag_id}", absent_is_success=True)
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
+        """The vector ids this AGENT references -- one `GET /v2/agent/{id}`.
+
+        **IT USED TO READ THE ACCOUNT LISTING AND FILTER ON `row["agent_id"]`, WHICH THE
+        VENDOR'S ROW DOES NOT HAVE (D-354).** `Knowledgebase` declares `rag_id`,
+        `file_name`, `humanized_created_at`, `created_at`, `updated_at`, `vector_id`,
+        `status`, `chunk_size`, `similarity_top_k` and `language_support`, and nothing
+        else (`.../knowledgebase/get_knowledgebases.md:63-121`). So the filter matched
+        nothing, every agent listed `[]` forever, and `kb/reconciliation` read that as the
+        positive claim "the engine holds no documents for this agent" -- silent drift by
+        construction, and the reason this method was made to refuse rather than answer.
+
+        The linkage was never on the knowledge base; it is on the agent. Reading it THERE
+        is both correct and one round trip instead of an account-wide listing that grows
+        with every source every client publishes.
+        """
         require_capability("knowledge_base", engine=self)
-        return []
+        return await self._current_vector_ids(ref)
 
     # --- reading the truth ---------------------------------------------------
 

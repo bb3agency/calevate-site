@@ -423,9 +423,14 @@ CRON_JOBS = [
     # publishes — so a source edited in the vendor's dashboard, or a publish that committed
     # there and rolled back here, stayed invisible for months rather than minutes.
     #
-    # HOURLY rather than the agent sweep's half-hourly, and 15 agents rather than 25: the
-    # round trip is dearer, because `bolna.list_kb` pulls the WHOLE account's knowledge
-    # list and filters it to one agent on our side. `apps/workers/kb_reconciliation.py`
+    # HOURLY rather than the agent sweep's half-hourly, and 15 agents rather than 25,
+    # sized against the dearest round trip the PORT allows — an engine whose `list_kb`
+    # pulls the whole account's knowledge list and filters it on our side. That is no
+    # longer what the primary adapter does (D-459: it reads the agent's own `vector_ids`,
+    # one GET, the same price as the agent sweep's), and the bound is deliberately NOT
+    # loosened for it: the next adapter may be the dear kind, and a limit relaxed to fit
+    # today's cheapest engine is a limit discovered in production by tomorrow's.
+    # `apps/workers/kb_reconciliation.py`
     # carries the arithmetic and asserts at import that a tick's worst case fits inside the
     # interval, which is what lets it skip the Redis lease the campaign tick needs —
     # `minute` therefore comes FROM the module, because two places writing "hourly" is how
