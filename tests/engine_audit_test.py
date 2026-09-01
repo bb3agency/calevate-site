@@ -1622,6 +1622,17 @@ _VENDOR_ONLY_KEYS = frozenset(
         "vector_id",
         "vector_ids",
         "vector_store",
+        # THE VENDOR'S NOUN FOR THE PER-LANGUAGE PROMPT BLOCK (D-494). Bolna keeps a
+        # `system_prompt` per language under `tools_config.multilingual_config` and swaps
+        # the ACTIVE prompt mid-call, which is how a console-added language could carry a
+        # prompt with no truthful-answer directive in it while the base prompt read back
+        # clean. We read it to score the compliance floor against every prompt the engine
+        # will actually run. OUR word for what comes back is `AgentSnapshot.
+        # alternate_prompts` — a plain tuple of prompt strings with no vendor shape left
+        # on it — so this compound noun appearing outside the adapter would be exactly the
+        # escape hard rule 2 bans. (`languages` and `enabled`, the two keys nested inside
+        # it, are in `_SHARED_PAYLOAD_KEYS`: both are words we use ourselves.)
+        "multilingual_config",
         # THE DIRECTION OF A CALL, IN THE VENDOR'S SPELLING (D-359). Bolna puts it on
         # `telephony_data.call_type` as `"inbound"`/`"outbound"`; OUR word for the same
         # thing is `direction`, on `CallEvent` and `ExecutionSnapshot`. That is exactly
@@ -1807,6 +1818,13 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "azure_openai",
         "calls",
         "completed_at",
+        # BOTH ARRIVED WITH D-494's MULTILINGUAL READ-BACK, and both are ours as much as
+        # theirs, which is the whole test for this list. `enabled` is a column we own
+        # (`flags/models.py`) and `languages` is a field we own (`agents/voices.py`), so
+        # banning either would fire on our own vocabulary. Only the block that contains
+        # them — `multilingual_config` — is a vendor noun, and that one IS banned above.
+        "enabled",
+        "languages",
         "content",
         "context_note",
         # OURS AS MUCH AS THEIRS — the whole test for this list rather than the one above.
