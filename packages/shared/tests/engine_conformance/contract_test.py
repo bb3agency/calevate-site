@@ -10,6 +10,7 @@ Run: `make conformance` (or `uv run pytest -m conformance`).
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -602,9 +603,10 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
         # handle", and an engine that holds no agent record of ours has no object to ask.
         # `get_agent` refuses by name there rather than answering `readable=False`.
         return
-    ref = await engine.create_agent(_agent_config(engine))
+    cfg = _agent_config(engine)
+    ref = await engine.create_agent(cfg)
     handle = await engine.attach_kb(
-        ref, KBSourceRef(kb_id="kb_readback", title="Fees", text="A consultation costs 500.")
+        ref, _kb_source("kb_readback", "Fees", "A consultation costs 500."), agent=cfg
     )
     snapshot = await engine.get_agent(ref)
 
@@ -620,7 +622,7 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
         "just attached to this agent is not among them — so a dangling handle would be "
         "just as invisible"
     )
-    await engine.detach_kb(ref, handle)
+    await engine.detach_kb(ref, handle, agent=cfg)
     after = await engine.get_agent(ref)
     assert after.references_kb(handle) is False, (
         "the agent still references the detached knowledge base (D-41): `detach_kb` is a "
@@ -968,6 +970,33 @@ async def test_unknown_vendor_status_degrades_to_failed(engine: VoiceEngine) -> 
     assert event.status == "failed"
 
 
+#: The smallest thing that is unambiguously a PDF. The conformance stub asserts the file
+#: part starts with it, which is what stops an adapter passing the KB clauses while
+#: uploading the approved TEXT — the exact body shape D-354 found on the wire.
+#:
+#: Rendering a real one here would put a document format in the conformance suite, which
+#: is the sibling module's job and nobody else's. What this fixture stands for is "the
+#: publisher handed us bytes", and the bytes only have to be recognisable.
+_STUB_PDF = b"%PDF-1.4\n% conformance fixture, not a rendering\n%%EOF\n"
+
+
+def _kb_source(kb_id: str, title: str, text: str, *, language: str = "te-IN") -> KBSourceRef:
+    """One approved source as the publisher hands it over: text AND a rendered document.
+
+    Both, always. An engine that ingests text reads `text`; one that ingests files reads
+    `document`; and a clause that supplied only one of them would silently exempt half
+    the adapters from the half of the contract that applies to them.
+    """
+    return KBSourceRef(
+        kb_id=kb_id,
+        title=title,
+        text=text,
+        language=language,
+        document=_STUB_PDF,
+        content_sha256=hashlib.sha256(_STUB_PDF).hexdigest(),
+    )
+
+
 async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
     engine: VoiceEngine,
 ) -> None:
@@ -980,10 +1009,10 @@ async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await _agent_ref(engine)
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
     handle = await engine.attach_kb(
-        ref,
-        KBSourceRef(kb_id="kb_1", title="Clinic hours", text="Mon-Sat 9am-8pm", language="te-IN"),
+        ref, _kb_source("kb_1", "Clinic hours", "Mon-Sat 9am-8pm"), agent=cfg
     )
     assert isinstance(handle, str) and handle, "an attached source must be addressable"
 
@@ -1010,19 +1039,20 @@ async def test_detach_kb_actually_removes_exactly_the_source_it_names(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await _agent_ref(engine)
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
     superseded = await engine.attach_kb(
-        ref, KBSourceRef(kb_id="kb_detach_v1", title="Fees", text="A consultation costs 500.")
+        ref, _kb_source("kb_detach_v1", "Fees", "A consultation costs 500."), agent=cfg
     )
     kept = await engine.attach_kb(
-        ref, KBSourceRef(kb_id="kb_detach_other", title="Parking", text="Parking is free.")
+        ref, _kb_source("kb_detach_other", "Parking", "Parking is free."), agent=cfg
     )
     assert superseded != kept, "two sources must not share one handle — one cannot be removed"
     assert {superseded, kept} <= set(await engine.list_kb(ref)), (
         "an attached source must be visible to `list_kb`, or a detach can never be proven"
     )
 
-    await engine.detach_kb(ref, superseded)
+    await engine.detach_kb(ref, superseded, agent=cfg)
 
     remaining = await engine.list_kb(ref)
     assert superseded not in remaining, (
@@ -1050,10 +1080,11 @@ async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await _agent_ref(engine)
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
     reported: Exception | None = None
     try:
-        await engine.detach_kb(ref, "kb_this_engine_never_issued")
+        await engine.detach_kb(ref, "kb_this_engine_never_issued", agent=cfg)
     except Exception as exc:  # adapters raise our ProblemError; the type is theirs
         reported = exc
     assert reported is not None, (
@@ -1374,11 +1405,12 @@ async def test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods(
     """
     if engine.capabilities.knowledge_base:
         return
-    ref = await _agent_ref(engine)
-    source = KBSourceRef(kb_id="kb_absent", title="Fees", text="A consultation costs 500.")
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    source = _kb_source("kb_absent", "Fees", "A consultation costs 500.")
     for label, call in (
-        ("attach_kb", lambda: engine.attach_kb(ref, source)),
-        ("detach_kb", lambda: engine.detach_kb(ref, "kb_anything")),
+        ("attach_kb", lambda: engine.attach_kb(ref, source, agent=cfg)),
+        ("detach_kb", lambda: engine.detach_kb(ref, "kb_anything", agent=cfg)),
         ("list_kb", lambda: engine.list_kb(ref)),
     ):
         refusal: Exception | None = None

@@ -415,19 +415,38 @@ that does not exist is read by the next reader as a step somebody forgot to call
   tier or score. The only instrument that would answer "is the new content retrievable"
   is a live PSTN call, which is pilot gate 8's Telugu retrieval probe
   (`scripts/pilot/knowledge.py::probe_telugu_retrieval`), not a per-publish step. What
-  publish DOES verify is the half it can see: the detach is confirmed before the attach
-  (below), and the T0 recompile mints a new prompt version carrying the newly live facts.
-  `tests/kb_flow_promises_test.py` fails the day this paragraph and the code disagree.
+  publish DOES verify is the half it can see: the withdrawal of every superseded copy is
+  confirmed (below), and the T0 recompile mints a new prompt version carrying the newly
+  live facts. `tests/kb_flow_promises_test.py` fails the day this paragraph and the code
+  disagree.
 
-**Engine KB sync is DETACH-then-attach, and a failed detach aborts the publish (D-41).**
-Archiving a row only changes our tables; what the caller hears is what the ENGINE holds,
-so the superseded version is withdrawn from the agent before the new one is pushed — push
-first and the agent can answer from either version, and a rollback leaves every version
-live at once. If the withdrawal is not confirmed, nothing is published and the previously
-approved version stays live: publishing over a version we could not retract is the defect,
-and dropping the old while publishing nothing is an outage. The ordering costs one gap —
-between detach and attach the agent has no copy of that source and answers T4
-"I don't know" — which is cheaper than a stale price the client is then held to.
+**Engine KB sync is ATTACH-then-detach, and a failed detach aborts the publish (D-41,
+REVERSED BY D-488).** Archiving a row only changes our tables; what the caller hears is
+what the ENGINE holds, so every superseded copy — including this source's own previously
+attached one — is withdrawn as part of the publish, and a withdrawal that is not
+confirmed aborts it. What changed in D-488 is the ORDER and not that rule. D-41 detached
+first and priced the gap at "one request of silence", which was true while `attach_kb` was
+a single call. On a real engine it is an upload plus an indexing wait the vendor publishes
+no bound for (ours allows three minutes), so detaching first would leave the agent with no
+copy of that source — answering T4 "I don't know" — for the whole of it, on every
+republish. The engine references knowledge by a LIST, so an overlap is expressible and a
+gap is not avoidable any other way.
+
+**So the window MOVED rather than closed, and it is stated rather than implied: for the
+length of one detach round trip the agent can retrieve from either version.** A stale
+price for one round trip beats no answer for one round trip, and beats no answer for three
+minutes by much more. If the detach fails, the copy the publish just attached is removed
+again and the previously approved version — still attached, still the one a human signed
+off — stays live; the client loses the update and is told so. Publishing over a version we
+could not retract is still the defect, and dropping the old while publishing nothing is
+still an outage.
+
+**A re-publish of unchanged content uploads nothing.** There is no update route on the
+engine's knowledge base, so `attach_kb` is a CREATE that mints a fresh handle every time
+and de-duplicates nothing. The publisher keys on a SHA-256 of the rendered document stored
+beside the handle, so a double-clicked Publish, a retry after a timeout and a rollback onto
+the version already live cost nothing instead of stacking a second billed copy that the
+first handle could never name again.
 
 ## 8. Billing Cycle
 

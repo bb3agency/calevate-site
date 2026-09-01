@@ -32,30 +32,35 @@ output is a RECORDED VERDICT (`engine_agent_routes.kb_drift_state`, read by
 
 WHAT IT COSTS, AND THE BOUNDS THAT KEEP IT AFFORDABLE
 
-**TODAY IT COSTS NOTHING, AND THIS PARAGRAPH USED TO SAY OTHERWISE.** It described
-`bolna.list_kb` as reading `GET /knowledgebase/all` — the WHOLE ACCOUNT's knowledge
-list — once per agent per tick. Since D-354 that is not what happens: `BolnaEngine.
-list_kb` opens with `require_capability("knowledge_base")`, which raises because
-`BOLNA_CAPABILITIES.knowledge_base is False`, so the sweep makes NO vendor call on this
-engine at all. The blockers are the vendor's and are re-confirmed against their own docs
-(`docs/evidence/bolna-kb-extraction.md` §1): `POST /knowledgebase` is multipart and takes
-a PDF or a URL, never our `KBSourceRef.text`. A cost model that overstates a round trip
-is not a harmless comment — the three bounds below are justified BY it, and a reader
-tuning them against a listing that is never fetched would be tuning against arithmetic
-that does not exist.
+**THE SWEEP IS LIVE AGAIN, AND THIS PARAGRAPH HAS NOW BEEN WRONG IN BOTH DIRECTIONS —
+read it before trusting any cost figure near it.** It first described `bolna.list_kb` as
+pulling the WHOLE ACCOUNT's knowledge list once per agent per tick. D-354 made that
+false the other way: the method opened with `require_capability("knowledge_base")`, which
+raised because the capability was `False`, so the sweep made NO vendor call on this
+engine at all, and the paragraph was rewritten to say the sweep cost nothing.
 
-So the bounds below are stated for the engine that WILL make the call, which is what
-they were designed for and what they must survive: the amplification is real the day the
-capability flips or a second adapter carries it, and the sweep must not have to be
-re-reasoned then.
+**D-488 FLIPPED THE CAPABILITY BACK TO `True` WITH A REAL IMPLEMENTATION, SO THE SWEEP
+COSTS AGAIN — AND IT COSTS LESS THAN EITHER VERSION SAID.** `bolna.list_kb` no longer
+reads the account listing at all. The linkage was never on the knowledge base: the
+vendor's `Knowledgebase` row has no agent field
+(`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md:63-121`),
+and the agent carries `vector_ids`
+(`.../api-reference/agent/v2/get.md:806-817,1164-1195`). So the read is ONE
+`GET /v2/agent/{id}` per agent — the same shape and the same price as the agent sweep's,
+not the account-wide listing this file has warned about twice.
+
+The bounds below were sized against the dearer arithmetic. They are KEPT rather than
+loosened: they are still correct for an engine that does read an account listing (the
+next adapter may), a tick of N agents is still N vendor round trips, and D-35 makes
+vendor limits a CONCURRENCY input regardless of which route the trip goes to. Loosening
+a bound because today's adapter got cheaper is how a limit gets discovered in production
+by the engine that did not.
 ------------------------------------------------------
-One vendor round trip per live agent per tick, and there that round trip is dearer than
-the agent sweep's: an engine that answers `list_kb` reads the WHOLE ACCOUNT's knowledge
-list and filters it to one agent on our side. So a tick of N agents pulls the account
-listing N times, and the listing itself grows with every source every client publishes.
-D-35 makes vendor limits a CONCURRENCY input, and an unbounded sweep is a self-inflicted
-rate-limit incident that arrives on a schedule. Three bounds, each chosen against that
-arithmetic rather than for looking tidy:
+One vendor round trip per live agent per tick. On an engine that answers `list_kb` from
+an ACCOUNT-WIDE knowledge listing, that round trip is dearer than the agent sweep's: a
+tick of N agents pulls the whole listing N times, and the listing grows with every source
+every client publishes. That is the arithmetic these three bounds are sized against — the
+worst case the port allows, not the best case today's adapter happens to achieve:
 
 1. **`KB_SWEEP_BATCH_SIZE = 15` agents per tick**, stalest first (`claim_kb_drift_batch`).
    Smaller than the agent sweep's 25 for the amplification above. The ordering is what
@@ -261,12 +266,22 @@ async def _sweep() -> str:
     """One tick: the stalest live agents' knowledge read back, then scored, then recorded.
 
     TWO PHASES, and the split is not incidental. `classify_kb_drift` needs to know whether
-    the vendor's listing attributes rows to agents AT ALL before it may read an empty
-    listing as "the documents are gone" — pilot gate 8's `kb_list_carries_agent_linkage`
-    is open, and `bolna.list_kb` filters on a field whose existence is a hand-maintained
-    claim. The evidence that it does exist is any non-empty listing in this tick, and that
-    is only known once the reads are done. So phase one gathers observations at the cost
-    of the vendor round trips, and phase two scores them all against the same control.
+    the engine attributes knowledge to agents AT ALL before it may read an empty listing
+    as "the documents are gone". The evidence that it does is any non-empty listing in
+    this tick, and that is only known once the reads are done. So phase one gathers
+    observations at the cost of the vendor round trips, and phase two scores them all
+    against the same control.
+
+    **THE PREMISE BEHIND THAT CONTROL IS NARROWER THAN IT WAS, AND THE CONTROL IS KEPT
+    ANYWAY (D-488).** It used to rest on `bolna.list_kb` filtering an account listing on
+    a field whose existence was a hand-maintained claim (pilot gate 8). That filter is
+    gone: the linkage lives on the AGENT's `vector_ids` and `list_kb` reads it there, so
+    an empty answer is a fact about the agent rather than a filter that matched nothing.
+    What is still unmeasured is the READ ITSELF — no call in this adapter has been made
+    against a live account (OPERATIONS §2 gate 43d) — so the control is retained for what
+    it still buys: it costs nothing on a healthy tick and it is the difference between one
+    rising `undetermined` count and a fleet-wide false alarm on the first tick after a
+    vendor changes a response shape.
 
     The control is deliberately the TICK and not a stored flag: a persisted "linkage was
     once observed" would keep asserting a vendor behaviour long after the vendor changed

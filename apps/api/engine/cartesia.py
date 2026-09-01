@@ -919,7 +919,12 @@ class CartesiaEngine:
     # `CARTESIA_CAPABILITIES.knowledge_base` stays True: agent-scoped retrieval
     # demonstrably exists. What is unknown is how a document gets IN.
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+    async def attach_kb(
+        self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
+    ) -> EngineKBRef:
+        # `agent` unused: this engine's documents are addressed UNDER the agent
+        # (`/agents/{ref}/documents`), so the linkage is the route and there is no
+        # separate agent object to rewrite. See the Protocol for why it exists at all.
         require_capability("knowledge_base", engine=self)
         data = await self._request(
             "POST",
@@ -938,7 +943,9 @@ class CartesiaEngine:
             )
         return handle
 
-    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+    async def detach_kb(
+        self, ref: EngineAgentRef, kb: EngineKBRef, *, agent: AgentConfig | None = None
+    ) -> None:
         """No swallowing of a 404: an id we cannot delete is an id we cannot prove is
         gone, and the caller's next act is to publish a replacement."""
         require_capability("knowledge_base", engine=self)

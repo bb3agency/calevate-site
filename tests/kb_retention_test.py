@@ -344,8 +344,9 @@ async def test_a_version_the_engine_still_holds_a_handle_for_is_never_deleted() 
 
     A superseded version has its engine handle CLEARED when it is detached
     (`kb/service._detach_superseded`), so a handle still recorded against an archived
-    source means a detach that never completed — the residue
-    `_reattach_after_failed_publish` documents itself as leaving. Deleting our rows then
+    source means a detach that never completed — the residue `_undo_attach` documents
+    itself as leaving (D-488 renamed it from `_reattach_after_failed_publish` when the
+    publish order reversed; the residue is unchanged). Deleting our rows then
     would destroy the only record that can address the engine's copy, which is exactly
     the D-126 defect on a different table. Those rows belong to the reconciliation sweep
     (D-158), and this arm leaves them alone however old they are.

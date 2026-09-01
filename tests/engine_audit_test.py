@@ -1609,6 +1609,19 @@ _VENDOR_ONLY_KEYS = frozenset(
         # every other shipped mention is prose explaining the vendor, which the AST reader
         # ignores.
         "api_tools",
+        # THE KNOWLEDGE LINKAGE, IN THE VENDOR'S FOUR NOUNS (D-488). The agent references
+        # a knowledge base through `llm_config.vector_store.provider_config.vector_ids`
+        # (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:806-817,1164-1195`),
+        # with `vector_id` the legacy singular. OUR word for the same thing is
+        # `EngineKBRef` — an opaque handle — and `apps/api/kb/` is written so that not one
+        # of these four appears in it (`tests/kb_boundaries_test.py` scans that directory
+        # as text). So they are vendor-only by exactly `call_type`'s argument: the concept
+        # is ours, the spelling and the nesting are theirs, and either escaping the
+        # adapter would be a payload shape above the boundary.
+        "provider_config",
+        "vector_id",
+        "vector_ids",
+        "vector_store",
         # THE DIRECTION OF A CALL, IN THE VENDOR'S SPELLING (D-359). Bolna puts it on
         # `telephony_data.call_type` as `"inbound"`/`"outbound"`; OUR word for the same
         # thing is `direction`, on `CallEvent` and `ExecutionSnapshot`. That is exactly

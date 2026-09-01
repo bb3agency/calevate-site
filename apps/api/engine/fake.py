@@ -771,7 +771,15 @@ class FakeEngine:
     def _kb_handle(self, ref: EngineAgentRef, kb_id: str) -> EngineKBRef:
         return self._stable_id("fakekb", ref, kb_id)
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+    async def attach_kb(
+        self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
+    ) -> EngineKBRef:
+        # `agent` IS IGNORED HERE, AND THAT IS THE HONEST ANSWER RATHER THAN AN OVERSIGHT
+        # (D-488). It exists for engines that hold the knowledge linkage as agent state
+        # and can only rewrite it with a full-replacement PUT; this engine's KB store is
+        # keyed on the agent ref directly, so there is no second object to keep in step.
+        # Accepting and ignoring it is what keeps the fake a fair stand-in: a fake that
+        # REQUIRED it would make the parameter look load-bearing everywhere.
         require_capability("knowledge_base", engine=self)
         attached = self._kb.get(ref, [])
         # Re-attaching the SAME source replaces it. Appending a second copy would make
@@ -780,7 +788,9 @@ class FakeEngine:
         self._kb[ref] = [s for s in attached if s.kb_id != source.kb_id] + [source]
         return self._kb_handle(ref, source.kb_id)
 
-    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+    async def detach_kb(
+        self, ref: EngineAgentRef, kb: EngineKBRef, *, agent: AgentConfig | None = None
+    ) -> None:
         require_capability("knowledge_base", engine=self)
         attached = self._kb.get(ref, [])
         remaining = [s for s in attached if self._kb_handle(ref, s.kb_id) != kb]

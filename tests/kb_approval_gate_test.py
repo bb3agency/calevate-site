@@ -29,7 +29,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb import service
 from sqlalchemy import text
-from tests.kb_workflow_test import _tenant_with_published_agent
+from tests.kb_workflow_test import _tenant_with_published_agent, give_agent_a_script
 
 
 async def _second_published_agent(tenant_id: uuid.UUID) -> uuid.UUID:
@@ -58,6 +58,8 @@ async def _second_published_agent(tenant_id: uuid.UUID) -> uuid.UUID:
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
+    # A live agent has an applied script; see `give_agent_a_script`.
+    await give_agent_a_script(tenant_id, agent_id)
     return agent_id
 
 
