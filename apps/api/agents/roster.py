@@ -72,7 +72,11 @@ AGENT_ROSTER_SQL = (
     # caller's own row, and resolving the fallback from two statements would let an
     # account default change land between them — a roster whose rows disagree about which
     # model the account runs.
-    "a.llm_model, o.default_llm_model "
+    "a.llm_model, o.default_llm_model, "
+    # Sentence three and its switch (D-507). APPENDED rather than slotted beside the two
+    # sentences above, so every existing positional index below keeps meaning what it
+    # meant — a shifted index in a positional row read is a silent field swap.
+    "a.caller_memory_notice_line, a.caller_memory_enabled "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "WHERE a.deleted_at IS NULL"
@@ -107,6 +111,8 @@ def agent_out(r: Any) -> AgentOut:
         ai_disclosure_enabled=bool(r[10]),
         recording_notice_line=r[11],
         recording_notice_enabled=bool(r[12]),
+        caller_memory_notice_line=str(r[17]),
+        caller_memory_enabled=bool(r[18]),
         archived_at=r[13],
         inbound_number_count=int(r[14]),
         llm_model=r[15],
@@ -120,6 +126,8 @@ def agent_out(r: Any) -> AgentOut:
                 ai_disclosure_enabled=bool(r[10]),
                 recording_notice_line=str(r[11]),
                 recording_notice_enabled=bool(r[12]),
+                caller_memory_notice_line=str(r[17]),
+                caller_memory_enabled=bool(r[18]),
             )
         ),
     )

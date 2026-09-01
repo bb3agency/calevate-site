@@ -96,9 +96,10 @@ async def _bill_minutes(tenant_id: UUID, *, tier: str | None, minutes: int) -> N
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
-                "updated_at) VALUES (:a, :t, 'Ladder', 'outbound', 'Idi AI assistant.', 'Idi AI "
-                "assistant.', 'This call is being recorded.', 'live', 'fake', now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:a, :t, 'Ladder', 'outbound', 'Idi AI "
+                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'I keep a "
+                "short note of what you ask about.', 'live', 'fake', now(), now())"
             ),
             {"a": agent_id, "t": tenant_id},
         )

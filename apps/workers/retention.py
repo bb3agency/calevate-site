@@ -249,13 +249,20 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
         # literally the caller's words as lexemes. A projection that outlived the turns it
         # projects would make "transcripts are kept for N days" true of a table and false of
         # a person — the sentence this whole mapping exists to keep true.
-        #
-        # `caller_memories.fact` rides the same clock and is here rather than under a
-        # category of its own for `calls.summary`'s reason: a memory is DISTILLED from what
-        # the caller said, so it belongs to the clock of the words it was distilled from. A
-        # new `retention_policies.data_category` would be a number the founder has to give
-        # and a row every existing tenant needs, to say something this line already says.
         "caller_chunks.tsv+embedding (transcript scopes)",
+    ),
+    # D-507. `caller_memories.fact` AND the caller-memory chunks used to sit in the
+    # `transcript` tuple above, on the argument that a memory is distilled from what the
+    # caller said and so belongs to the clock of the words it came from — and that a new
+    # category would be "a number the founder has to give and a row every existing tenant
+    # needs". The founder gave the number (180 days, `delete`) and the migration writes the
+    # row, so what is left of that argument is the half that was always weakest: the
+    # PURPOSE of a memory is to outlive the call, which is exactly why inheriting the
+    # call's clock was the wrong shape rather than a convenient one. A fact kept for the
+    # tenant's 365-day transcript default outlived the conversation it was distilled from
+    # by design.
+    "caller_memory": (
+        "caller_chunks.tsv+embedding (caller memory scope)",
         "caller_memories.fact",
     ),
     "lead": (
@@ -555,18 +562,20 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM calls c
       WHERE c.summary IS NOT NULL
         AND {_CLOCK} < now() - make_interval(days => r.ttl_days))
-      -- The vector projection and the distilled facts, on this same clock (D-503). Asked
+      -- The vector projection of the TRANSCRIPT scopes, on this same clock (D-503). Asked
       -- in the PROBE and not only in the arm, because a category the probe reports as
       -- having no work is a category whose arms never run: the projection would then be
       -- expired only on the ticks where some OTHER transcript copy happened to be due.
+      --
+      -- `caller_memories` USED TO BE PROBED HERE TOO and is not any more (D-507): the arm
+      -- that sweeps it moved to the `caller_memory` category below, so asking about it on
+      -- this clock would report work the transcript arm cannot do — a tick where the
+      -- transcript period has elapsed and the memory period has not would run four
+      -- statements that match nothing and report a sweep that swept nothing.
       OR EXISTS (
       SELECT 1 FROM caller_chunks cc
       WHERE cc.retention_category = 'transcript' AND cc.scrubbed_at IS NULL
         AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
-      OR EXISTS (
-      SELECT 1 FROM caller_memories m
-      WHERE m.scrubbed_at IS NULL
-        AND m.occurred_at < now() - make_interval(days => r.ttl_days))
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -605,6 +614,26 @@ SELECT r.data_category, r.ttl_days, r.action,
     WHEN 'copilot_memory' THEN EXISTS (
       SELECT 1 FROM copilot_memories m
       WHERE m.created_at < now() - make_interval(days => r.ttl_days))
+    -- What an AGENT remembers about a CALLER between calls (D-507). `occurred_at` is the
+    -- clock, not `created_at` and not `updated_at`: it is when the caller said the thing,
+    -- which is what the notice they were given is about. Dating from `updated_at` would
+    -- restart a caller's period because the distiller re-read the row, which is the trap
+    -- `copilot_memory` above already names.
+    WHEN 'caller_memory' THEN EXISTS (
+      SELECT 1 FROM caller_memories cm
+      WHERE cm.scrubbed_at IS NULL
+        AND cm.occurred_at < now() - make_interval(days => r.ttl_days))
+      -- AND THE PROJECTION OF THOSE FACTS, asked separately rather than assumed to follow
+      -- the source. The two are scrubbed together by the arm and by both erasure paths,
+      -- but they are not the same rows and they can diverge: a fact erased on a §12
+      -- request leaves its `caller_memories` row scrubbed, and if the tick that would
+      -- have expired the chunks then found no unscrubbed FACT it would report no work and
+      -- the vector and the lexemes — the copy of the sentence nobody reads — would stay
+      -- on file for as long as nobody looked. Same reason the transcript arm asks twice.
+      OR EXISTS (
+      SELECT 1 FROM caller_chunks cc
+      WHERE cc.retention_category = 'caller_memory' AND cc.scrubbed_at IS NULL
+        AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
     ELSE false
   END AS has_work
 FROM retention_policies r
@@ -1243,14 +1272,27 @@ async def _apply_one(
             session, EXPIRE_CHUNKS_SQL, {"cutoff": cutoff, "category": category}
         )
         counts["deferred"] += int(deferred)
-        # The distilled facts, on the same clock — see `MEMORY_RETENTION_CATEGORY`. Guarded
-        # on the category rather than left to the branch it sits in, so a future arm that
-        # reached this statement from the `lead` clock would have to say so out loud.
-        if category == MEMORY_RETENTION_CATEGORY:
-            counts["caller_memories"], deferred = await _sweep_in_batches(
-                session, EXPIRE_MEMORIES_SQL, {"cutoff": cutoff}
-            )
-            counts["deferred"] += int(deferred)
+        return counts
+
+    if category == MEMORY_RETENTION_CATEGORY:
+        # ITS OWN CLOCK SINCE D-507, and this used to be two statements tacked onto the
+        # transcript arm above. The category exists because the question "how long may we
+        # remember a caller between calls" has a different answer from "how long may we
+        # keep what they said on one call" — 180 days and `delete`, `copilot_memory`'s
+        # pair, against the transcript's tenant-set 365.
+        #
+        # BOTH HALVES OR NEITHER. `caller_memories.fact` is the sentence and the
+        # `caller_chunks` rows of this kind are the vector and the lexemes built from it,
+        # and an arm that expired one would leave the other as the sentence on file in the
+        # form nobody looks at (D-503's premise: an embedding IS a copy).
+        counts["caller_vectors"], deferred = await _sweep_in_batches(
+            session, EXPIRE_CHUNKS_SQL, {"cutoff": cutoff, "category": category}
+        )
+        counts["deferred"] += int(deferred)
+        counts["caller_memories"], deferred = await _sweep_in_batches(
+            session, EXPIRE_MEMORIES_SQL, {"cutoff": cutoff}
+        )
+        counts["deferred"] += int(deferred)
         return counts
 
     if category == "lead":

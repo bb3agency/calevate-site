@@ -5468,6 +5468,10 @@ export interface components {
             ai_disclosure_line: string;
             /** Archived At */
             archived_at: string | null;
+            /** Caller Memory Enabled */
+            caller_memory_enabled: boolean;
+            /** Caller Memory Notice Line */
+            caller_memory_notice_line: string;
             /**
              * Direction
              * @enum {string}

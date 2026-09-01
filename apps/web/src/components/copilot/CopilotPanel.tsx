@@ -10,6 +10,7 @@ import type { Session } from "@/lib/api/client";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
 
+import { AnswerText } from "./answerText";
 import { ActionReceipt } from "./ActionReceipt";
 import { ProposalCard } from "./ProposalCard";
 import { StepList } from "./StepList";
@@ -191,18 +192,21 @@ export function CopilotPanel({
         {/* `aria-live` on the region rather than on each bubble: a screen reader should
             hear the answer arrive without the transcript being re-read from the top. */}
         <div aria-live="polite" className="space-y-3">
-          {conversation.turns.map((turn, index) => (
-            <p
-              key={index}
-              className={
-                turn.role === "user"
-                  ? "ml-6 whitespace-pre-wrap rounded-lg bg-black/5 px-3 py-2 text-ink dark:bg-white/10"
-                  : "whitespace-pre-wrap text-ink"
-              }
-            >
-              {turn.content}
-            </p>
-          ))}
+          {conversation.turns.map((turn, index) =>
+            // The PERSON'S turn stays literal `pre-wrap`: they typed what they typed, and
+            // rendering their asterisks as emphasis would edit their own words back at
+            // them. Only the model's answer is formatted (`answerText.tsx`).
+            turn.role === "user" ? (
+              <p
+                key={index}
+                className="ml-6 whitespace-pre-wrap rounded-lg bg-black/5 px-3 py-2 text-ink dark:bg-white/10"
+              >
+                {turn.content}
+              </p>
+            ) : (
+              <AnswerText key={index} text={turn.content} />
+            ),
+          )}
           {conversation.streaming !== null &&
             (conversation.streaming === "" && conversation.steps.length === 0 ? (
               // THE SKELETON IS NOW THE FALLBACK RATHER THAN THE DEFAULT. Once a tool call
@@ -212,7 +216,9 @@ export function CopilotPanel({
               <Skeleton rows={2} label="Thinking…" />
             ) : (
               conversation.streaming !== "" && (
-                <p className="whitespace-pre-wrap text-ink">{conversation.streaming}</p>
+                // Through the SAME renderer as a finished answer, so a list does not
+                // arrive as asterisks and then reflow into bullets when the stream ends.
+                <AnswerText text={conversation.streaming} />
               )
             ))}
         </div>

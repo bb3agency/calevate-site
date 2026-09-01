@@ -254,11 +254,17 @@ def test_the_retention_categories_are_the_ones_the_data_model_enumerates() -> No
         # The in-app copilot's memory (migration d4a9c17e6b02) — a CATEGORY on the existing
         # mechanism, exactly as `kb` and `engine_payload` were, rather than a second clock.
         "copilot_memory",
+        # What an AGENT remembers about a CALLER between calls (D-507, migration
+        # e1a4d70c9b52). Added the same way and for the same kind of reason: the question
+        # "how long may we remember this person between calls" has a different answer from
+        # "how long may we keep what they said on one call", so it is a category rather
+        # than a share of the transcript's.
+        "caller_memory",
     )
     documented = DATA_MODEL.read_text(encoding="utf-8")
     assert (
         "data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,"
-        "copilot_memory]" in documented
+        "copilot_memory,\n                     caller_memory]" in documented
     ), "DATA-MODEL §9 no longer enumerates the same categories the code enforces"
 
 

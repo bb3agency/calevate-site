@@ -73,11 +73,18 @@ async def _member(tenant_id: uuid.UUID, role: str = "owner") -> str:
     return f"dev:client:{user_id}"
 
 
-async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str, str]:
+async def _tenant(vertical: str = "real_estate") -> tuple[uuid.UUID, uuid.UUID, str, str]:
+    """A tenant, its first agent, its slug and an owner token.
+
+    `real_estate` and no longer `clinic` (D-507(b)): a clinic may not remember its callers
+    at all, so every cross-call-memory test in this file would have been asserting against
+    a tenant whose agents can never remember anybody — passing for the wrong reason. The
+    refusal tests ask for the clinic by name.
+    """
     created = await admin_service.create_organization(
-        name="Notice Clinic",
+        name="Notice Estates",
         slug=f"ntc-{uuid.uuid4().hex[:8]}",
-        vertical_template="clinic",
+        vertical_template=vertical,
         billing_email=None,
         language="te-IN",
         created_by=None,
@@ -166,10 +173,11 @@ async def test_a_field_two_agents_both_capture_is_listed_once() -> None:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
-                "disclosure_line, ai_disclosure_line, recording_notice_line, status, engine, "
-                "created_at, updated_at) VALUES (:i, :t, 'Follow-up', 'outbound', 'te-IN', "
-                "'This is an AI assistant.', 'This is an AI assistant.', "
-                "'This call is recorded.', 'draft', 'fake', now(), now())"
+                "disclosure_line, ai_disclosure_line, recording_notice_line, "
+                "caller_memory_notice_line, status, engine, created_at, updated_at) VALUES (:i, "
+                ":t, 'Follow-up', 'outbound', 'te-IN', 'This is an AI assistant.', 'This is an "
+                "AI assistant.', 'This call is recorded.', 'I keep a short note of what you ask "
+                "about.', 'draft', 'fake', now(), now())"
             ),
             {"i": second, "t": tenant_id},
         )
@@ -546,6 +554,21 @@ async def test_a_client_who_does_not_remember_callers_says_nothing_about_it() ->
     markdown = draft.markdown  # type: ignore[attr-defined]
     assert "If you have called us before" not in markdown
     assert "keeps a short note" not in markdown
+    # And nothing in the account of what the caller HEARS, either: the third spoken
+    # sentence (D-507) exists only where memory does, so a draft that described it here
+    # would be telling a client their agents say something they do not say.
+    assert "keep notes about you between calls" not in markdown
+    # NOR A PERIOD FOR IT. `scripts/seed.py` writes a `caller_memory` retention row for
+    # every organisation, so the row exists on this account and says nothing about this
+    # account: printing "The short note of what you asked about: 180 days" here would
+    # tell a caller how long notes are kept about them by a business that keeps none.
+    assert "The short note of what you asked about" not in markdown
+    assert draft.memory_retention_days is None  # type: ignore[attr-defined]
+    assert not [
+        line
+        for line in draft.retention  # type: ignore[attr-defined]
+        if "short note" in line.what
+    ]
 
 
 async def test_remembering_callers_is_itemised_and_named() -> None:
@@ -565,6 +588,13 @@ async def test_remembering_callers_is_itemised_and_named() -> None:
     markdown = draft.markdown  # type: ignore[attr-defined]
     assert "If you have called us before" in markdown
     assert draft.caller_memory_on[0] in markdown  # type: ignore[attr-defined]
+    # THE ITEM AND ITS PERIOD TRAVEL TOGETHER. An itemised collection with no period
+    # against it is the half of Rule 3 a generated draft is most likely to drop, because
+    # nothing raises when a category label is missing from a filtered map — the list just
+    # comes back one line shorter and reads as complete.
+    days = draft.memory_retention_days  # type: ignore[attr-defined]
+    assert days is not None
+    assert f"The short note of what you asked about: {days} days" in markdown
 
 
 async def test_the_draft_says_it_is_a_note_of_the_subject_and_not_a_transcript() -> None:
@@ -596,3 +626,108 @@ async def test_remembering_callers_puts_a_question_in_front_of_counsel_first() -
     assert "BETWEEN calls" in questions[0]
     assert "never sees this page" in questions[0]
     assert "sensitive" in questions[0]
+
+
+async def test_the_spoken_account_includes_the_memory_sentence_and_no_third_toggle() -> None:
+    """D-507(a): the agent SAYS it, so the draft's account of what is spoken must say so.
+
+    The draft's "Being told what you are speaking to" section is what a caller reads to
+    know what they will hear. Until D-507 there was nothing to hear about memory — the
+    draft was the only channel, which is precisely why an INBOUND caller (who has visited
+    no website and agreed to no page) was the hole in it. Now `compose_opening_line`
+    appends `agents.caller_memory_notice_line` third.
+
+    AND IT MUST NOT READ AS A THIRD SWITCH. `ai_disclosure_enabled` and
+    `recording_notice_enabled` are per-agent toggles because both obligations hold whatever
+    this product does; the memory sentence has NO flag of its own, because memory exists
+    only where `caller_memory_enabled` is on. A draft implying a third control would send a
+    client looking for one in a screen that has none — and support would eventually invent
+    an answer.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id)
+
+    draft = await _draft(tenant_id)
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    spoken = markdown.split("## What we collect")[0]
+
+    assert "keep notes about you between calls also say so at the start of the call" in spoken
+    assert draft.caller_memory_on[0] in spoken  # type: ignore[attr-defined]
+    assert "there is no separate setting for it" in spoken
+    # The floor is untouched by the new sentence and still stated unconditionally.
+    assert "it will tell you the truth" in markdown
+
+
+async def test_the_notes_are_given_their_own_period_and_not_the_transcripts() -> None:
+    """D-507(c) moved caller memory off the transcript clock onto its own 180-day one, and
+    this draft said "kept for the same period as the transcript above" until it did. For a
+    tenant on the 365-day transcript default that sentence over-stated the period by half a
+    year — in a document the client publishes as their own statement of fact.
+
+    The period is read from the tenant's OWN `caller_memory` retention row, like every
+    other period in this document, and asserted against a value this test moves so it
+    cannot pass off a hard-coded 180.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE retention_policies SET ttl_days = 120 WHERE data_category = 'caller_memory'"
+            )
+        )
+
+    draft = await _draft(tenant_id)
+
+    assert draft.memory_retention_days == 120  # type: ignore[attr-defined]
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    assert "kept for 120 days after the call it was taken on" in markdown
+    assert "the same period as the transcript" not in markdown
+    # And it is on the itemised "How long we keep it" list too, from the same row: a
+    # caller reading the periods should not find every category but the one collection
+    # the business chose to make. Both statements come from one read, so they cannot
+    # disagree.
+    notes = [line for line in draft.retention if line.days == 120]  # type: ignore[attr-defined]
+    assert [line.what for line in notes] == ["The short note of what you asked about"]
+    assert "The short note of what you asked about: 120 days" in markdown
+
+
+async def test_a_vertical_where_the_write_is_refused_is_never_told_its_agents_remember() -> None:
+    """D-507(b) AT THE NOTICE, and the reason this module cannot read the column alone.
+
+    On a refused vertical `caller_memory.memory_enabled` returns False however the switch
+    is set, so nothing is ever written. A draft generated from the raw column would tell
+    that client's callers that notes are kept about them between calls — processing that
+    cannot happen — and the client would publish it as their own statement. Over-disclosure
+    is not the safe direction: it is a false notice, and it invites a caller to decline
+    something nobody is doing.
+
+    Everything the memory switch drives is asserted absent together, because they are four
+    separate readers of the same fact and a fix that missed one would leave the false
+    sentence in the document a client actually pastes.
+    """
+    tenant_id, agent_id, _, _ = await _tenant("clinic")
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id)
+
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT caller_memory_enabled FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar()
+    assert stored is True, "the fixture must have the switch on or this proves nothing"
+
+    draft = await _draft(tenant_id)
+
+    assert draft.caller_memory_on == []  # type: ignore[attr-defined]
+    labels = [item.what for item in draft.collected]  # type: ignore[attr-defined]
+    assert not [label for label in labels if "kept after the call ends" in label]
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    assert "If you have called us before" not in markdown
+    assert "keep notes about you between calls" not in markdown
+    assert "The short note of what you asked about" not in markdown
+    assert draft.memory_retention_days is None  # type: ignore[attr-defined]
+    assert not [q for q in draft.open_questions if "BETWEEN calls" in q]  # type: ignore[attr-defined]

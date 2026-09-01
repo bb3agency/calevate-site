@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * THE TWO OPENING NOTICES — a compliance surface, and the one sentence no switch reaches.
+ * THE OPENING NOTICES — a compliance surface, and the one sentence no switch reaches.
  *
  * Split out of `agents/panels.tsx` with the rest of that file's four subjects. It is the
  * one piece of the agent workspace that UX-DOCTRINE §8 forbids putting behind a
@@ -59,6 +59,16 @@ import { useClientSession } from "@/lib/api/session";
  * every write to them is admin-realm. So there is no textbox here and there must not be
  * one — but a quoted sentence with no control beside it reads as an oversight, so the
  * reason is stated rather than left to be inferred.
+ *
+ * ## The third sentence, and why it has no switch (D-507)
+ *
+ * An agent that remembers callers between calls says so, as a third sentence in its
+ * opening. It is NOT a third toggle, and rendering it as one would be a lie the screen
+ * tells: the two above are switchable because their obligations hold whatever this product
+ * is configured to do, while cross-call memory exists ONLY because somebody turned memory
+ * on. So it appears here as a FACT — shown when `caller_memory_enabled` is true, absent
+ * otherwise — with the switch it actually follows named in the copy, so a client reading
+ * an opening with three sentences in it can see where the third came from.
  */
 export function OpeningNotices({ agent }: { agent: Agent }) {
   const session = useClientSession();
@@ -110,6 +120,34 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           }
           onChange={(next) => setDisclosure.mutate({ recording_notice_enabled: next })}
         />
+
+        {/* NO SWITCH, deliberately (D-507): this sentence is spoken exactly when the agent
+            remembers callers, so the only control over it is the memory setting itself.
+            Shown as a bordered card like the two above so it reads as part of the same
+            opening, and without the toggle affordance so it cannot read as one more thing
+            to turn off. */}
+        {agent.caller_memory_enabled && (
+          <div className="rounded-card border border-line bg-app p-4">
+            <p className="text-sm font-medium text-ink">Say that it remembers callers</p>
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Spoken last, after the sentences above.
+            </p>
+            <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
+              “{agent.caller_memory_notice_line}”
+            </blockquote>
+            <p
+              className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs ${NOTICE_TONES.neutral}`}
+            >
+              <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                This one has no switch. It is said because this agent remembers what callers
+                asked about between calls — turn that off and the sentence goes with it. An
+                agent that remembers people without telling them is not something this
+                product can be configured into.
+              </span>
+            </p>
+          </div>
+        )}
       </div>
 
       {/* The server's composition, quoted — this is the actual first utterance. */}
@@ -128,9 +166,9 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
           </p>
         )}
         <p className="mt-2 text-xs text-ink-muted">
-          Changes take effect on the next call. The two sentences themselves are written by
-          your account manager and cannot be edited here or switched off entirely — every
-          agent must have both on file. Tell them if anything in the wording is wrong.
+          Changes take effect on the next call. The sentences themselves are written by your
+          account manager and cannot be edited here or switched off entirely — every agent
+          must have all of them on file. Tell them if anything in the wording is wrong.
         </p>
       </div>
     </section>

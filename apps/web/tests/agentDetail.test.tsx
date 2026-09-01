@@ -70,6 +70,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
+    caller_memory_notice_line: "I keep a short note of what you ask about.",
+    caller_memory_enabled: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -462,9 +464,12 @@ describe("the numbers come from the server", () => {
 });
 
 describe("the two opening notices, and the answer neither of them reaches (D-163)", () => {
+  //: The fixture agent's opening, as the server composes it — shared by every test here so
+  //: that a case about the THIRD sentence (D-507) can say what the other two still are.
+  const OPENING =
+    "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
+
   it("renders the server's opening line verbatim and offers no way to reword it", async () => {
-    const OPENING =
-      "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText(`“${OPENING}”`);
@@ -473,7 +478,40 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // rather than leaving a quoted sentence with no control beside it to read as an
     // oversight.
     expect(container.textContent).toContain("cannot be edited here");
-    expect(container.textContent).toContain("every agent must have both on file");
+    expect(container.textContent).toContain("every agent must have all of them on file");
+  });
+
+  it("says the memory sentence is spoken, and gives it no switch of its own (D-507)", async () => {
+    // An agent that remembers callers says so as a third sentence. It is bound to the
+    // MEMORY setting, so the screen shows it as a fact and must not grow a third switch —
+    // a toggle here would advertise a state ("remembers, says nothing") the product cannot
+    // be configured into.
+    const MEMORY = "I keep a short note of what you ask about.";
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          caller_memory_enabled: true,
+          caller_memory_notice_line: MEMORY,
+          opening_line: `${OPENING} ${MEMORY}`,
+        }),
+      }),
+    );
+
+    await screen.findByText(`“${MEMORY}”`);
+    expect(screen.getAllByRole("switch")).toHaveLength(2);
+    expect(container.textContent).toContain("This one has no switch");
+    // WHY it is being said, not just that it is: a client reading a three-sentence opening
+    // has to be able to find the setting that produced the third one.
+    expect(container.textContent).toContain("remembers what callers asked about");
+  });
+
+  it("says nothing about memory for an agent that does not remember", async () => {
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText(`“${OPENING}”`);
+    expect(container.textContent).not.toContain("This one has no switch");
+    expect(container.textContent).not.toContain("Say that it remembers callers");
   });
 
   it("puts the truthful-answer guarantee above the switches, in the server's words", async () => {

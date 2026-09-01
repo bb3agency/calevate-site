@@ -79,7 +79,10 @@ class SavedScript:
 _AGENT_SQL = (
     "SELECT a.system_prompt_id, a.live_prompt_id, a.name, a.direction, a.language_primary, "
     "a.status, a.ai_disclosure_line, a.ai_disclosure_enabled, "
-    "a.recording_notice_line, a.recording_notice_enabled "
+    "a.recording_notice_line, a.recording_notice_enabled, "
+    # Sentence three (D-507): the preview must show the opening the caller actually hears,
+    # and an agent that remembers says so as part of it.
+    "a.caller_memory_notice_line, a.caller_memory_enabled "
     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
 
@@ -110,6 +113,8 @@ def _posture(row: Any) -> DisclosurePosture:
         ai_disclosure_enabled=bool(row.ai_disclosure_enabled),
         recording_notice_line=str(row.recording_notice_line),
         recording_notice_enabled=bool(row.recording_notice_enabled),
+        caller_memory_notice_line=str(row.caller_memory_notice_line),
+        caller_memory_enabled=bool(row.caller_memory_enabled),
     )
 
 

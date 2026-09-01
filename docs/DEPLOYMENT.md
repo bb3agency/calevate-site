@@ -91,7 +91,9 @@ nginx (host) ── admin.calevate.tech ─┐
    │
 Docker Compose (project: calevate): api · voice-runtime · workers · redis
 Host: PostgreSQL 16 · pm2 (web) · certbot · GitHub Actions runner
-           (pgvector only if the D-28 bake-off fails — it is contingency, not the plan)
+           (with the pgvector EXTENSION — required since D-502, not contingency: two
+            migrations refuse without it. `apt install postgresql-16-pgvector`, then
+            `CREATE EXTENSION vector` as a superuser in the app database.)
 Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location hint `apac`
 ```
 

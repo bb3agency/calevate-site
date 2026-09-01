@@ -708,17 +708,20 @@ class RestoreDrill:
             "INSERT INTO organizations (id, name, slug, status) VALUES "
             f"('{TENANT_A}', 'Drill Tenant A', 'drill-tenant-a', 'active'), "
             f"('{TENANT_B}', 'Drill Tenant B', 'drill-tenant-b', 'active')",
-            # The three disclosure columns together (D-163): the legacy bundle plus the
-            # two halves it splits into. The drill's fixture is a real agent row and has
-            # to satisfy the same NOT NULL/non-blank constraints a client's does.
+            # The FOUR disclosure columns together (D-163, D-507): the legacy bundle, the
+            # two halves it splits into, and the memory sentence. The drill's fixture is a
+            # real agent row and has to satisfy the same NOT NULL/non-blank constraints a
+            # client's does.
             "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-            "ai_disclosure_line, recording_notice_line) VALUES "
+            "ai_disclosure_line, recording_notice_line, caller_memory_notice_line) VALUES "
             f"('{AGENT_A}', '{TENANT_A}', 'Drill A', 'inbound', "
             "'This is an AI assistant. This call is being recorded.', "
-            "'This is an AI assistant.', 'This call is being recorded.'), "
+            "'This is an AI assistant.', 'This call is being recorded.', "
+            "'I keep a short note of what you ask about.'), "
             f"('{AGENT_B}', '{TENANT_B}', 'Drill B', 'inbound', "
             "'This is an AI assistant. This call is being recorded.', "
-            "'This is an AI assistant.', 'This call is being recorded.')",
+            "'This is an AI assistant.', 'This call is being recorded.', "
+            "'I keep a short note of what you ask about.')",
             # One admin and one user per tenant, seeded ONLY because three of the eight
             # ledgers below cannot exist without them: `platform_secrets.created_by` and
             # `preference_scrub_runs.recorded_by_admin_id` point at `admin_users`, and

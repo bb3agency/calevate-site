@@ -136,6 +136,36 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 }
 
 
+#: Sentence three: **"the agent remembers you between calls"** (D-507).
+#:
+#: A THIRD OBLIGATION, and not a third TOGGLE. The two above are switchable because they
+#: are true of every call whatever this product is configured to do — the call IS AI, the
+#: call IS recorded — so a client who gives the notice in writing instead may switch off
+#: the spoken form. This one is different in kind: cross-call memory exists ONLY because
+#: `agents.caller_memory_enabled` is on, which is a choice this system records, so the
+#: sentence is bound to that switch instead of getting one of its own. There is no state
+#: in which an agent remembers a caller and does not say so.
+#:
+#: WHY SPOKEN AT ALL, when `compliance/caller_notice.py` already puts it in the client's
+#: written draft: an INBOUND caller has visited no website and agreed to no page. The
+#: written notice reaches the people who came through the client's own funnel, and inbound
+#: is the product. A notice that misses the caller it is about is not a notice.
+#:
+#: Business-agnostic like the recording sentence, and for its reason: the AI sentence has
+#: already named the caller's counterparty.
+#:
+#: Deliberately says WHAT is kept and FOR ROUGHLY HOW LONG in the caller's own vocabulary
+#: — "a short note", not "a distilled fact", and never "an embedding". The period is not
+#: interpolated from `retention_policies`: a spoken sentence that changed when a client
+#: edited a slider would make the agent's opening a moving target nobody reviewed, and the
+#: 180-day ceiling below is a platform maximum rather than a tenant setting.
+CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
+    "te-IN": "Meeru adigina daani gurinchi oka chinna note nenu gurthu pettukuntaanu.",
+    "hi-IN": "Aapne kya poocha, uska ek chhota note main yaad rakhta hoon.",
+    "en-IN": "I keep a short note of what you ask about, so I remember it if you call again.",
+}
+
+
 def _rendered(templates: dict[str, str], language: str, business: str) -> str:
     template = templates.get(language, templates[DEFAULT_LANGUAGE])
     return template.format(business=business) if "{business}" in template else template
@@ -149,6 +179,14 @@ def ai_disclosure_for(*, language: str, business: str) -> str:
 def recording_notice_for(*, language: str) -> str:
     """The recording sentence a NEW agent starts with. Always non-empty."""
     return _rendered(RECORDING_NOTICE_TEMPLATES, language, business="")
+
+
+def caller_memory_notice_for(*, language: str) -> str:
+    """The memory sentence a NEW agent starts with. Always non-empty, whether or not the
+    agent's memory switch is on — the same rule `ai_disclosure_for` follows: the sentence
+    is mandatory ON FILE so that turning the switch on can never be the moment somebody
+    discovers there is nothing to say."""
+    return _rendered(CALLER_MEMORY_NOTICE_TEMPLATES, language, business="")
 
 
 def bundled_disclosure_line(*, ai_disclosure_line: str, recording_notice_line: str) -> str:

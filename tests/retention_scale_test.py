@@ -431,11 +431,19 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         # THE VECTOR AND THE LEXEMES (D-503). `caller_chunks` stores no content and is
         # still a copy of the transcript: an embedding is derived from the text by a
         # deterministic function of it and is substantially invertible, and `tsv` is
-        # literally the caller's words as lexemes. `caller_memories.fact` rides the same
-        # clock because a memory is DISTILLED from what the caller said — `calls.summary`'s
-        # argument, one table over — and because a fifth category is a migration and a
-        # number the founder has to give, which is this test's own point.
+        # literally the caller's words as lexemes.
+        #
+        # `caller_memories.fact` AND the caller-memory scope's chunks were HERE until
+        # D-507, on the argument that a memory is distilled from what the caller said —
+        # plus this test's own point, that a fifth category is a migration and a number the
+        # founder has to give. Both halves of that were answered (180/`delete`, migration
+        # `e1a4d70c9b52`), which left the argument's weakest half standing alone: the
+        # PURPOSE of a memory is to outlive the call, so the call's clock was the wrong one
+        # rather than a convenient one. They are asserted under `caller_memory` below.
         "caller_chunks.tsv+embedding (transcript scopes)",
+    )
+    assert retention.DERIVED_COPIES["caller_memory"] == (
+        "caller_chunks.tsv+embedding (caller memory scope)",
         "caller_memories.fact",
     )
     assert retention.DERIVED_COPIES["lead"] == (

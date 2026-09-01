@@ -264,10 +264,10 @@ async def test_another_agents_number_cannot_be_the_campaigns_approved_header() -
             # an agent shape that no longer exists.
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, status, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, created_at, updated_at) "
-                "SELECT :new, tenant_id, 'Second agent', direction, status, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, now(), now() FROM agents "
-                "WHERE id = :src"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, "
+                "created_at, updated_at) SELECT :new, tenant_id, 'Second agent', direction, "
+                "status, disclosure_line, ai_disclosure_line, recording_notice_line, "
+                "caller_memory_notice_line, now(), now() FROM agents WHERE id = :src"
             ),
             {"new": other_agent, "src": agent_id},
         )

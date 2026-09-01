@@ -60,6 +60,17 @@ class AgentOut(BaseModel):
     ai_disclosure_enabled: bool
     recording_notice_line: str
     recording_notice_enabled: bool
+    #: SENTENCE THREE AND ITS ONLY SWITCH (D-507). The line is on file for every agent
+    #: whether or not memory is on; `caller_memory_enabled` is what decides whether it is
+    #: spoken, and there is deliberately no `caller_memory_notice_enabled` beside it — the
+    #: state "remembers a caller and does not say so" is not constructible, and a screen
+    #: that showed a switch for the sentence would be advertising one.
+    #:
+    #: BOTH FIELDS, not just the line: the client screen has to be able to say WHY the
+    #: sentence appears in `opening_line`, and "because this agent remembers callers" is a
+    #: fact only the flag carries.
+    caller_memory_notice_line: str
+    caller_memory_enabled: bool
     #: What a caller actually hears first, composed by the server from the two toggles.
     #: Empty string = this agent volunteers neither notice and opens on its script.
     #: Composed here rather than left to the screen because a UI that re-joined the two

@@ -100,6 +100,13 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   -- `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`, which is deliberately not data.
   ai_disclosure_line TEXT NOT NULL CHECK (length(btrim(ai_disclosure_line)) > 0),
   recording_notice_line TEXT NOT NULL CHECK (length(btrim(recording_notice_line)) > 0),
+  caller_memory_notice_line TEXT NOT NULL             -- D-507, migration e1a4d70c9b52
+    CHECK (length(btrim(caller_memory_notice_line)) > 0),
+  -- SENTENCE THREE HAS NO `*_enabled` COLUMN, and that is the decision rather than an
+  -- omission: it is spoken exactly when `caller_memory_enabled` is true, so "remembers a
+  -- caller and does not say so" is not a state this schema can hold. The two above are
+  -- independently switchable (D-163) because their obligations hold whatever this product
+  -- is configured to do; this one exists only because a switch we record is on.
   ai_disclosure_enabled BOOL NOT NULL DEFAULT true,
   recording_notice_enabled BOOL NOT NULL DEFAULT true,
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
@@ -324,8 +331,12 @@ dlt_templates(id, tenant_id, kind ENUM[voice], classification, body TEXT,
 > to persist mid-call. Its durable residue lands in the tables we already have via the
 > post-call pipeline: `calls` (summary, sentiment, outcome_tag), `transcript_turns`,
 > `call_extractions` → `leads` (H2).
-> Cross-call caller memory (H3) lives in the managed service, keyed back to our rows by
-> provider ids in `meta`. See TRD §6.1 — do not add a "conversation state" table.
+> Cross-call caller memory (H3) is `caller_memories` + the `caller_memory` scope of
+> `caller_chunks` (D-503), in OUR Postgres. ⚠ This line used to read "lives in the managed
+> service, keyed back to our rows by provider ids in `meta`" — written under D-28, which
+> D-502 reversed: there is no managed vector service. The instruction it carried is
+> UNCHANGED and still binding — do not add a "conversation state" table; H1 has no table at
+> all, because the engine holds the running dialogue and discards it at hangup.
 
 ```
 kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, uri,
@@ -681,12 +692,14 @@ consent_ledger(id, tenant_id, call_id, phone_e164,
   -- (`MESSAGING_CONSENT_VALIDITY_DAYS`) so a stale opt-in stops authorising messages
   -- while remaining in the ledger as evidence of what happened.
 retention_policies(id, tenant_id,
-  data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,copilot_memory],
+  data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,copilot_memory,
+                     caller_memory],
   ttl_days INT CHECK (ttl_days >= 90 WHERE data_category='recording'),   -- TRAI 90-day floor
   action ENUM[delete,anonymize])
   -- SEEDED defaults (`scripts/seed.DEFAULT_RETENTION_POLICIES`): recording 90/delete,
   -- transcript 365/anonymize, lead 1095/anonymize, consent_log 2555/anonymize,
-  -- engine_payload 90/delete, kb 365/delete, copilot_memory 180/delete. These
+  -- engine_payload 90/delete, kb 365/delete, copilot_memory 180/delete,
+  -- caller_memory 180/delete (D-507). These
   -- do NOT match the numbers SEC-COMP §4 prints — see the open question recorded there;
   -- the DPA quotes the doc and the sweep obeys these rows.
   -- engine_payload and kb are D-179 (migration c4d1f7b83e26), and each gave a clock to a

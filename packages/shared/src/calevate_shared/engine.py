@@ -2506,6 +2506,20 @@ class DisclosurePosture(BaseModel):
     ai_disclosure_enabled: bool
     recording_notice_line: str
     recording_notice_enabled: bool
+    #: Sentence three, and THE SWITCH IS NOT ITS OWN (D-507). There is no
+    #: `caller_memory_notice_enabled` beside this, deliberately: the two notices above are
+    #: switchable because their obligations hold whatever this product is configured to do,
+    #: so a client giving the notice in writing may switch off the spoken form. Cross-call
+    #: memory exists ONLY because `agents.caller_memory_enabled` is on — a choice this
+    #: system records — so the sentence is bound to that flag and the state "remembers a
+    #: caller without saying so" is not constructible.
+    #:
+    #: NEVER EMPTY, for `ai_disclosure_line`'s reason: the sentence is mandatory on file so
+    #: that switching memory on cannot be the moment somebody finds there is nothing to
+    #: say. Defaulted so that every existing constructor of this posture keeps working and
+    #: means what it meant — an agent that does not remember, saying nothing about memory.
+    caller_memory_notice_line: str = ""
+    caller_memory_enabled: bool = False
 
 
 def compose_opening_line(posture: DisclosurePosture) -> str:
@@ -2515,12 +2529,14 @@ def compose_opening_line(posture: DisclosurePosture) -> str:
     with" has exactly one answer in this codebase — the reason `effective_call_cap`
     resolves its own sentinel in one function rather than at each reader.
 
-    Four outcomes and all four are legitimate:
+    Outcomes, all of them legitimate — the two switches give four, and the memory sentence
+    (D-507) appends to any of them when that agent remembers callers:
 
         both on     "…AI assistant. This call is being recorded."
         AI only     "…AI assistant."
         recording   "This call is being recorded."
         neither     "" — the agent volunteers nothing and opens on its script.
+        + memory    "… I keep a short note of what you ask about…"
 
     THE EMPTY CASE IS A CHOICE, NOT A GAP (D-163). It does not reach the caller as
     silence: the engine simply has no greeting to play and the script speaks first. What
@@ -2534,6 +2550,11 @@ def compose_opening_line(posture: DisclosurePosture) -> str:
     parts = [
         posture.ai_disclosure_line.strip() if posture.ai_disclosure_enabled else "",
         posture.recording_notice_line.strip() if posture.recording_notice_enabled else "",
+        # LAST, and gated on the MEMORY switch rather than a switch of its own (D-507).
+        # Last because it is the only one of the three that is a consequence of a setting:
+        # a caller hears what the agent is and that it is recorded before they hear what it
+        # keeps, which is the order those facts become relevant to them.
+        posture.caller_memory_notice_line.strip() if posture.caller_memory_enabled else "",
     ]
     return " ".join(part for part in parts if part)
 

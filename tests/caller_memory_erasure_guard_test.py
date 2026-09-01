@@ -9,11 +9,14 @@ still there next month, which means it is still there after the call it was lear
 been scrubbed, after the transcript's own clock would have taken it, and after a DPDP §12
 erasure that never deleted a single row.
 
-**WHY A GUARD AND NOT A TEST OF THE FEATURE.** The feature is not built: no source table
-holds a distilled caller fact, nothing writes `subject_kind = 'caller_memory'`, and
-`caller_memory` is not a `DATA_CATEGORIES` value. That is the honest state and the first
-test pins it, in `KbRetrievalLog`'s shape — a mechanism landed ahead of its consumer, with
-a statement of what closes the gap, and a test that fails the day it closes wrongly.
+**THE FEATURE IS NOW BUILT, AND THIS FILE STILL GUARDS THE SAME THING.** It was written
+while the scope was a value in a CHECK and nothing else, and its first test pinned that
+honest state: no source table, no writer, and `caller_memory` not a `DATA_CATEGORIES`
+value. D-506 built the source and the writer and D-507 gave the scope its own retention
+category, so both of those pins are facts about a past release. What is NOT superseded is
+the property they existed to protect — that the scope cannot be LIVE without the two
+declarations that make it forgettable — so the first test now asserts the closing
+condition it used to name rather than the gap it used to describe.
 
 **WHY IT IS WORTH A FILE.** This exact seam has been missed twice in this repository in
 one week, both times by people who had read the erasure code:
@@ -43,7 +46,9 @@ import inspect
 from pathlib import Path
 
 from apps.api.compliance.models import DATA_CATEGORIES
+from apps.api.retrieval.caller_erasure import MEMORY_RETENTION_CATEGORY
 from apps.workers import retention
+from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 #: The `subject_kind` value under guard. Spelled as a literal rather than imported from
 #: the migration: a test that imports its subject from the thing it is testing cannot
@@ -81,30 +86,48 @@ def _mentions_caller_memory() -> set[Path]:
     return found
 
 
-def test_the_gap_is_open_and_says_what_closes_it() -> None:
-    """TODAY'S HONEST STATE, pinned so the guard below has a visible premise.
+def test_a_live_caller_memory_scope_has_a_retention_category_with_an_arm() -> None:
+    """THE CONDITION THIS TEST USED TO NAME AS THE THING THAT WOULD CLOSE THE GAP.
 
-    `caller_memory` is a value in `c6b1f0d47e83`'s `subject_kind` CHECK and nothing else:
-    no source table holds a distilled fact, no writer produces the projection, and
-    `caller_memory` is NOT a `DATA_CATEGORIES` value — which is correct, because the
-    migration puts the scope on the TRANSCRIPT clock (a distillation of what the caller
-    said belongs to the clock of the words it was distilled from, `calls.summary`'s
-    argument one table over) rather than on a category of its own.
+    It read, in the release before this one: "this test turns red the moment somebody adds
+    `caller_memory` to `DATA_CATEGORIES`, which is the change that would put the scope on a
+    clock of its own and quietly leave the transcript arm reaching nothing". D-507 made
+    exactly that change deliberately — a memory whose whole purpose is to outlive the call
+    must not inherit the call's period — so the assertion is inverted rather than deleted,
+    and what it now demands is the half the old warning was actually about: a category with
+    a real arm behind it, not a category on its own.
 
-    WHAT CLOSES IT, named rather than left to a reader (CLAUDE.md: a deferral is a
-    statement of what closes it, or it is not a deferral): a caller-memory SOURCE table,
-    a per-agent switch defaulting OFF, and a DPDP notice that says the agent remembers —
-    the last of which is a decision for the founder and their counsel, not for code.
-    This test turns red the moment somebody adds `caller_memory` to `DATA_CATEGORIES`,
-    which is the change that would put the scope on a clock of its own and quietly leave
-    the transcript arm reaching nothing.
+    THREE THINGS OR NONE. A `retention_policies` category nothing sweeps is worse than no
+    category at all, because the row makes a promise the DPA prints and the sweep does not
+    keep. So the value must exist in `DATA_CATEGORIES` (or no tenant can hold the row at
+    all), it must be reachable in `_apply_one` through `MEMORY_RETENTION_CATEGORY` (or the
+    sweep has no arm), and the seed must ship the row (or only tenants created by the
+    migration ever get one).
     """
-    assert CALLER_MEMORY_KIND not in DATA_CATEGORIES, (
-        "caller memory gained a retention category of its own. That is a real option, but "
-        "it is not the one c6b1f0d47e83 chose: the migration files the scope under "
-        "`transcript`, so a new category means the transcript arm now sweeps a scope that "
-        "no longer belongs to it and the new category has no arm at all. Give it an arm in "
-        "`retention._apply_one` and a `DERIVED_COPIES` entry in the same change."
+    if not _mentions_caller_memory():
+        return
+    assert CALLER_MEMORY_KIND in DATA_CATEGORIES, (
+        "the caller-memory scope is live in apps/ and `caller_memory` is not a "
+        "`DATA_CATEGORIES` value, so `retention_policies` cannot hold the row that expires "
+        "it. Either file the scope on an existing clock in `models.SUBJECT_RETENTION`, or "
+        "add the category here, to the seed defaults and to `_apply_one` in one change."
+    )
+    assert MEMORY_RETENTION_CATEGORY == CALLER_MEMORY_KIND, (
+        "`caller_erasure.MEMORY_RETENTION_CATEGORY` names a different clock from the one "
+        "the scope is filed under, so the arm that empties `caller_memories.fact` runs on "
+        "a category whose chunks are somebody else's."
+    )
+    assert "MEMORY_RETENTION_CATEGORY" in inspect.getsource(retention._apply_one), (
+        "no arm in `retention._apply_one` runs under the caller-memory category, so the "
+        "tenant's policy row is a promise nothing keeps. Asserted on the CONSTANT rather "
+        "than on the string, because the constant is what stops the arm and the category "
+        "drifting apart."
+    )
+    assert CALLER_MEMORY_KIND in {
+        str(policy["data_category"]) for policy in DEFAULT_RETENTION_POLICIES
+    }, (
+        "the seed ships no `caller_memory` retention policy, so a tenant onboarded after "
+        "migration e1a4d70c9b52 holds remembered facts that no clock expires."
     )
 
 
@@ -128,8 +151,8 @@ def test_a_live_caller_memory_scope_is_named_in_derived_copies() -> None:
         "the call, so nothing else expires it: not the call row (an erasure scrubs it in "
         "place and keeps it), not the `ON DELETE CASCADE` on `call_id` (it never fires "
         "for that reason), and not the transcript sweep unless this declaration puts it "
-        "there. Add the entry under 'transcript' — c6b1f0d47e83 files the scope on that "
-        "clock — in the same change that makes the scope live."
+        "there. Add the entry under 'caller_memory' — e1a4d70c9b52 files the scope on "
+        "that clock (D-507) — in the same change that makes the scope live."
     )
 
 

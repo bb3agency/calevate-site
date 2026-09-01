@@ -254,9 +254,10 @@ async def test_list_gaps_filtered_by_one_agent_excludes_the_others() -> None:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, created_at, updated_at) "
-                "VALUES (:id, :t, 'Second Agent', 'inbound', 'This is an AI.', "
-                "'This is an AI.', 'This call is recorded.', now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, "
+                "created_at, updated_at) VALUES (:id, :t, 'Second Agent', 'inbound', 'This is "
+                "an AI.', 'This is an AI.', 'This call is recorded.', 'I keep a short note of "
+                "what you ask about.', now(), now())"
             ),
             {"id": agent_b, "t": tenant_id},
         )

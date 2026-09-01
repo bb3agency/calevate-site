@@ -212,6 +212,11 @@ def test_the_published_webhook_url_is_a_route_voice_runtime_serves() -> None:
         "ai_disclosure_enabled": True,
         "recording_notice_line": "This call is recorded.",
         "recording_notice_enabled": True,
+        # Sentence three (D-507). On file even with memory OFF, which is the column's own
+        # rule: an agent that cannot say it is an agent that could be switched on without
+        # anybody noticing there was nothing to say.
+        "caller_memory_notice_line": "I keep a short note of what you ask about.",
+        "caller_memory_enabled": False,
         "stt_provider": "sarvam",
         "stt_model": "saaras:v2",
         # NULL at both model rungs — the state every agent is in until somebody chooses,

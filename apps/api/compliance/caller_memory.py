@@ -21,14 +21,24 @@ client switches the feature OFF after rows already exist, since the rows then st
 used the moment the switch moves and are destroyed by the clock rather than by a sweep
 nobody wrote.
 
-⚠ **AND THE GATE IS NOT THE WHOLE PERMISSION.** Being switched on is a client's
-CONFIGURATION decision. Whether their CALLERS were told is a NOTICE question, and this
-product currently has no notice that says an agent remembers: the two spoken sentences
-(SEC-COMP §2.1/§2.2, D-163) are about being an AI and being recorded, and
-`compliance/caller_notice._INHERENT` itemises the number, the recording, the transcript,
-the summary and the call times. D-506 records what the founder has to decide before this
-switch may be offered to anyone. The code does not decide it and must not read the
-existence of the switch as an answer to it.
+**AND THE GATE IS NOT THE WHOLE PERMISSION — THE SECOND HALF IS NOW ANSWERED (D-507).**
+Being switched on is a client's CONFIGURATION decision; whether their CALLERS were told is
+a NOTICE question, and D-506 left it open because the two spoken sentences (SEC-COMP
+§2.1/§2.2, D-163) are about being an AI and being recorded and said nothing about memory.
+D-507 answered it in three parts, and this module carries one of them:
+
+* **The agent SAYS it.** `agents.caller_memory_notice_line` is NOT NULL and non-blank, and
+  `calevate_shared.engine.compose_opening_line` appends it third — gated on
+  `caller_memory_enabled` and on NO switch of its own, so "remembers a caller without
+  saying so" is not a constructible state. An inbound caller has visited no website and
+  agreed to no page, which is why the written draft alone could not close this.
+* **It is REFUSED where a fact would be sensitive personal data** — `SPDI_REFUSED_VERTICALS`
+  below, which is this module's share of the decision.
+* **It forgets on its own 180-day clock**, not the transcript's
+  (`retrieval.caller_erasure.MEMORY_RETENTION_CATEGORY`).
+
+What is still not answered is whether anyone may be OFFERED the switch, and that is an
+engineering gap rather than a legal one — see the GAP note below.
 
 ═══ 2. A DISTILLED FACT, NEVER A QUOTE ═══
 
@@ -51,22 +61,27 @@ for six years". Three reasons, in the order they bind:
   replaced by the next distillation; a misheard sentence attributed to a caller is a
   record of something they did not say.
 
-**GAP (1 Sep 2026): NOTHING CALLS `remember()` YET, AND THAT IS DELIBERATE RATHER THAN
-UNFINISHED.** The store, both erasure arms, the retention clock and the guard
-(`tests/caller_memory_erasure_guard_test.py`) are built and tested; the PRODUCER — a
-distillation pass over a finished call — is not, and wiring it is the change that makes
-the switch offerable to a client. Offering the switch is what creates processing no notice
-names, so the producer waits on the decision D-506 records, not on engineering time.
-Recorded here in `kb/models.KbRetrievalLog`'s shape, because the module is what outlives
-the discussion.
+**GAP (1 Sep 2026): NOTHING WRITES A CALLER MEMORY TODAY, AND THE FEATURE IS STILL NOT
+OFFERABLE.** The store, both erasure arms, the 180-day clock, the spoken sentence and the
+guard (`tests/caller_memory_erasure_guard_test.py`) are built and tested. Two things are
+not, and neither is a legal question any more:
 
-WHAT CLOSES IT, in order: (1) the founder's answer on the caller notice; (2) a distillation
-pass in the shape of `workers/copilot_memory.py` — bounded facts per call, `redact()` on
-the way in, metered through `record_ai_assist_usage` (hard rule 7), and running ONLY for
-agents whose switch is on, so the default costs nothing; (3) a per-call idempotency marker,
-because a retry must not re-buy the same facts and `source_call_id` alone cannot say
-"looked at, nothing owed" — `kb_documents.gloss_state` is the worked example of why that
-third state has to exist. `recall()` is reachable the day (1) and (2) land.
+1. **The PRODUCER.** No distillation pass over a finished call exists, so `remember()` has
+   no caller and `caller_memories` is empty on every deployment. It belongs in the shape of
+   `workers/copilot_memory.py` — bounded facts per call, `redact()` on the way in, metered
+   through `record_ai_assist_usage` (hard rule 7), and running ONLY for agents whose switch
+   is on, so the default costs nothing.
+2. **THE ROUTE THAT FLIPS THE SWITCH.** `agents.caller_memory_enabled` is settable by no
+   API, so today it moves only by hand in SQL. That path is also where the per-tenant
+   attestation belongs that `SPDI_REFUSED_VERTICALS` below is a weak proxy for.
+
+A third piece lands with (1): a per-call idempotency marker, because a retry must not
+re-buy the same facts and `source_call_id` alone cannot say "looked at, nothing owed" —
+`kb_documents.gloss_state` is the worked example of why that third state has to exist.
+
+**WHAT IS NO LONGER A BLOCKER: the caller notice.** D-506 named it as the thing the founder
+had to answer before the switch could be offered to anyone, and D-507 answered it (§1
+above). The remaining two items are ours, not a decision's.
 
 **WHAT IS NOT DECIDED HERE.** How a fact is produced from a call is the distillation
 worker's business (`workers/copilot_memory.py` is the shape: a cron, bounded spend,
@@ -168,6 +183,54 @@ def clean_fact(raw: str) -> str:
     return cleaned
 
 
+#: Verticals where a distilled fact is SENSITIVE PERSONAL DATA by construction, and where
+#: cross-call memory is therefore refused however the agent's switch is set (D-507(b)).
+#:
+#: THE QUESTION WAS "IS 'ASKED ABOUT IVF PRICING' HEALTH DATA?" and the honest answer is
+#: that it depends on who the business is, which no classifier over free text can be
+#: trusted to decide — and being wrong is not recoverable. The SPDI Rules 2011 list is
+#: EXHAUSTIVE and includes "physical, physiological and mental health condition" and
+#: "medical records and history" (Rule 3), so a memory that a caller enquired about a
+#: treatment is, on a clinic, an inference about exactly that.
+#:
+#: SPDI Rule 5(1) wants consent IN WRITING for collecting sensitive personal data. A phone
+#: call cannot give one. So the refusal is not "until we word the notice better" — it is
+#: until an instrument exists that a phone call can produce, which is not a code change.
+#:
+#: ⚠ REPORTED, NOT VERIFIED HERE: the SPDI Rules stand repealed by DPDP §44(2) on a date
+#: reported as 13 May 2027 (18 months from the 13 Nov 2025 commencement gazette), which
+#: would ALSO be when DPDP §§5-6 (notice and consent) first bind. `meity.gov.in` is
+#: egress-blocked from this container, so that schedule comes from the search index of the
+#: gazette PDF and from law-firm summaries, not from reading the notification. Whichever
+#: regime governs on the day, this list is the conservative side of both, and re-reading
+#: the gazette is what would let it shrink.
+#:
+#: A PROXY AND KNOWN TO BE ONE. `vertical_template` is the extraction schema a tenant
+#: STARTED from, so a fertility clinic onboarded as `real_estate` is not caught. It is
+#: kept because it is the only structured signal that exists and it errs toward refusing;
+#: it is not represented as sufficient, and the enable path — when one is built — is where
+#: a per-tenant attestation belongs.
+SPDI_REFUSED_VERTICALS: Final[frozenset[str]] = frozenset({"clinic"})
+
+
+def spdi_refuses_memory(vertical_template: str | None) -> bool:
+    """Does D-507(b) refuse cross-call memory for a tenant on this vertical template?
+
+    ONE PREDICATE, because there are two readers and they must not drift: `memory_enabled`
+    below decides whether a row may be written, and `compliance/caller_notice.py` decides
+    whether the client's generated notice may tell their callers that the agents remember
+    them. A notice describing processing the write path refuses is a false notice, which is
+    the exact defect that module exists to avoid — so neither of them owns the test.
+
+    `organizations.vertical_template` is NULLABLE (`tenancy/models.Organization`), and a
+    tenant with none on file is NOT refused. The refusal is driven by a POSITIVE signal —
+    "this business said it is a clinic" — and an absent column says nothing at all; a NULL
+    read as a refusal would disable the feature for accounts created by a path that never
+    asked, which is a different decision from the one D-507 took.
+    """
+    return vertical_template in SPDI_REFUSED_VERTICALS
+
+
 async def memory_enabled(session: AsyncSession, *, agent_id: UUID) -> bool:
     """Is this agent allowed to remember its callers across calls?
 
@@ -179,15 +242,33 @@ async def memory_enabled(session: AsyncSession, *, agent_id: UUID) -> bool:
     A missing agent is `False`, not an exception. This is called from a worker whose
     subject may have been deleted since the job was queued, and "we did not remember
     anything" is the right outcome there — refusing loudly would retry a job that can
-    never succeed.
+    never succeed. **The SPDI refusal takes the same shape for the same reason**: it is a
+    permanent NO, and a permanent NO raised as an exception is a job that retries three
+    times and lands in the DLQ nightly for ever.
     """
-    enabled = (
+    row = (
         await session.execute(
-            text("SELECT caller_memory_enabled FROM agents WHERE id = :aid"),
+            text(
+                "SELECT a.caller_memory_enabled, o.vertical_template FROM agents a "
+                "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
+            ),
             {"aid": agent_id},
         )
-    ).scalar()
-    return bool(enabled)
+    ).first()
+    if row is None or not bool(row[0]):
+        return False
+    vertical = None if row[1] is None else str(row[1])
+    if spdi_refuses_memory(vertical):
+        # D-507(b). Not an exception, for the same reason a missing agent is not: this is
+        # a worker's question and "nothing was remembered" is the right outcome. It IS
+        # logged, because a switch that is on and a store that stays empty is otherwise an
+        # operator mystery — and the ground is a decision they can look up, not a bug.
+        log.warning(
+            "caller_memory_refused_spdi_vertical",
+            extra={"agent_id": str(agent_id), "vertical": vertical},
+        )
+        return False
+    return True
 
 
 async def remember(
@@ -313,8 +394,10 @@ __all__ = [
     "MAX_FACTS_PER_CALL",
     "MAX_FACT_CHARS",
     "RECALL_LIMIT",
+    "SPDI_REFUSED_VERTICALS",
     "clean_fact",
     "memory_enabled",
     "recall",
     "remember",
+    "spdi_refuses_memory",
 ]
