@@ -101,6 +101,15 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.insights.service import scrub_quotes_for_calls
+from apps.api.retrieval.caller_erasure import (
+    EXPIRE_CHUNKS_SQL,
+    EXPIRE_MEMORIES_SQL,
+    MEMORY_RETENTION_CATEGORY,
+    erase_subject_vectors,
+    erase_tenant_vectors,
+    erasure_sentence,
+    unreachable_generations,
+)
 from apps.workers import storage
 
 log = get_logger(__name__)
@@ -169,6 +178,19 @@ HOLD_UNTIL_KEY = "recording_hold_until"
 # certificate says the three states in three different sentences.
 KB_MATCH_KEY = "knowledge_base_documents_matched"
 
+# How many SEARCHABLE PROJECTIONS of this person's words this erasure destroyed, and how
+# many remembered facts about them went with them (D-503). Spelled the same in
+# `apps.api.compliance.deletion` and duplicated rather than imported, for the reason the
+# four keys above are: a worker has no business importing the API's compliance package to
+# name a JSON key. `tests/caller_chunks_erasure_test.py` pins the spellings.
+#
+# ABSENT IS NOT ZERO, as everywhere else on this document: every proof written before
+# `caller_chunks` existed carries no key, and a rendered `0` would tell a data principal
+# "we looked in the vector store and there was nothing" about an erasure that could not
+# look. The certificate says the two states in two different sentences.
+CALLER_VECTOR_KEY = "caller_vectors_erased"
+CALLER_MEMORY_KEY = "caller_memories_erased"
+
 # Rows touched by ONE statement. Small enough that the sweep never holds a lock long
 # enough to matter to a live call writing to the same tables.
 SWEEP_BATCH_ROWS = 1_000
@@ -221,8 +243,31 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
         # own — a category nobody sets is a category that never expires.
         "knowledge_gap_occurrences.question_redacted",
         "knowledge_gaps.example_question_redacted",
+        # THE VECTOR AND THE LEXEMES (D-503). `caller_chunks` stores no content, and it is
+        # still a copy of the transcript: an embedding is derived from the text by a
+        # deterministic function of it and is substantially invertible, and `tsv` is
+        # literally the caller's words as lexemes. A projection that outlived the turns it
+        # projects would make "transcripts are kept for N days" true of a table and false of
+        # a person — the sentence this whole mapping exists to keep true.
+        #
+        # `caller_memories.fact` rides the same clock and is here rather than under a
+        # category of its own for `calls.summary`'s reason: a memory is DISTILLED from what
+        # the caller said, so it belongs to the clock of the words it was distilled from. A
+        # new `retention_policies.data_category` would be a number the founder has to give
+        # and a row every existing tenant needs, to say something this line already says.
+        "caller_chunks.tsv+embedding (transcript scopes)",
+        "caller_memories.fact",
     ),
-    "lead": ("call_extractions.data", "webhook_deliveries.payload_ref"),
+    "lead": (
+        "call_extractions.data",
+        "webhook_deliveries.payload_ref",
+        # The same projection under the CRM clock, because the lead scope's chunks are the
+        # same class of thing as `call_extractions.data` — structured fields the client
+        # bought and keeps using after the raw transcript is gone. One table, two clocks,
+        # decided by the row's own `retention_category`, which the projection registry sets
+        # from `models.SUBJECT_RETENTION` so a scope cannot choose its own.
+        "caller_chunks.tsv+embedding (lead scope)",
+    ),
 }
 
 
@@ -289,6 +334,13 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # d4a9c17e6b02). Counted in ROWS rather than conversations: one row is one exchange or
     # one distilled fact, and there is no durable notion of a conversation to count.
     "copilot_memories": 0,
+    # Caller-data vector projections forgotten on their own category's clock (D-503), and
+    # the distilled facts that went with them. Counted apart from every other arm because
+    # they are the only copies of a caller's words that are not readable prose — nobody
+    # notices their absence, and nobody notices their survival either, which is exactly why
+    # they get their own number.
+    "caller_vectors": 0,
+    "caller_memories": 0,
     "deferred": 0,
 }
 
@@ -503,6 +555,18 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM calls c
       WHERE c.summary IS NOT NULL
         AND {_CLOCK} < now() - make_interval(days => r.ttl_days))
+      -- The vector projection and the distilled facts, on this same clock (D-503). Asked
+      -- in the PROBE and not only in the arm, because a category the probe reports as
+      -- having no work is a category whose arms never run: the projection would then be
+      -- expired only on the ticks where some OTHER transcript copy happened to be due.
+      OR EXISTS (
+      SELECT 1 FROM caller_chunks cc
+      WHERE cc.retention_category = 'transcript' AND cc.scrubbed_at IS NULL
+        AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
+      OR EXISTS (
+      SELECT 1 FROM caller_memories m
+      WHERE m.scrubbed_at IS NULL
+        AND m.occurred_at < now() - make_interval(days => r.ttl_days))
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -520,6 +584,11 @@ SELECT r.data_category, r.ttl_days, r.action,
       WHERE d.payload_ref IS NOT NULL AND d.direction = 'out'
         AND d.endpoint_id IN (SELECT id FROM outbound_webhooks)
         AND d.created_at < now() - make_interval(days => r.ttl_days))
+      OR EXISTS (
+      -- The lead scope's vector projection, on the CRM clock (D-503).
+      SELECT 1 FROM caller_chunks cc
+      WHERE cc.retention_category = 'lead' AND cc.scrubbed_at IS NULL
+        AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
     WHEN 'engine_payload' THEN EXISTS (
       SELECT 1 FROM calls c
       WHERE c.engine_payload_ref IS NOT NULL
@@ -629,6 +698,32 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
         # row was deleted, nor deferred behind a large expiry batch on a busy tenant.
         totals["recording_holds"], hold_deferred = await _sweep_recording_holds(session)
         totals["deferred"] += int(hold_deferred)
+
+        # CAN THIS DEPLOYMENT STILL ERASE WHAT IT HOLDS? (D-503.) `caller_chunks.
+        # subject_ref` is a MAC under a `PLATFORM_KEK`-derived key, so a rotation that
+        # dropped an undecodable `PLATFORM_KEK_RETIRED` leaves rows filed under a value
+        # `caller_refs()` can no longer produce — a §12 request for that person then matches
+        # nothing and reports zero, which is the one failure a certificate must never make.
+        # `envelope.build_ring` drops that key with a log line rather than refusing to boot,
+        # which is right for a deployment that must keep serving and is why the consequence
+        # has to be found HERE instead: the nightly sweep is the right moment, an erasure is
+        # the worst one. A handful of rows (one per rotation), so it costs one indexed
+        # DISTINCT however large the store is.
+        stranded = await unreachable_generations(session)
+        if stranded:
+            alert(
+                "WORKER_TERMINAL",
+                "caller_subject_key_unreachable",
+                detail=(
+                    f"{len(stranded)} caller-data key generation(s) can no longer be "
+                    "derived, so every projection and remembered fact filed under them is "
+                    "UNREACHABLE BY A DPDP ERASURE: a request for those people would match "
+                    "nothing and the certificate would report zero. Restore the retired "
+                    "PLATFORM_KEK before answering another erasure request."
+                ),
+                tenant_id=str(tenant_id),
+                generations=str(len(stranded)),
+            )
 
         policies = (
             await session.execute(
@@ -1138,6 +1233,24 @@ async def _apply_one(
         )
         counts["deferred"] += int(deferred)
         counts["knowledge_gap_quotes"] = occurrences + examples
+        # THE VECTOR AND THE LEXEMES, on the same clock as the words they were built from
+        # (D-503, `DERIVED_COPIES`). ALWAYS scrubbed and never deleted, whatever the
+        # category's action is — for the gap tables' reason plus one this store has of its
+        # own: the ingestion sweep DISCOVERS un-projected subjects, so a deleted row would
+        # be re-projected on the next tick and a vector re-bought for text this arm had just
+        # forgotten. The tombstone is what makes the forgetting durable.
+        counts["caller_vectors"], deferred = await _sweep_in_batches(
+            session, EXPIRE_CHUNKS_SQL, {"cutoff": cutoff, "category": category}
+        )
+        counts["deferred"] += int(deferred)
+        # The distilled facts, on the same clock — see `MEMORY_RETENTION_CATEGORY`. Guarded
+        # on the category rather than left to the branch it sits in, so a future arm that
+        # reached this statement from the `lead` clock would have to say so out loud.
+        if category == MEMORY_RETENTION_CATEGORY:
+            counts["caller_memories"], deferred = await _sweep_in_batches(
+                session, EXPIRE_MEMORIES_SQL, {"cutoff": cutoff}
+            )
+            counts["deferred"] += int(deferred)
         return counts
 
     if category == "lead":
@@ -1155,6 +1268,13 @@ async def _apply_one(
             finish_sql=_DELIVERY_BODY_CLEAR_SQL,
             params={"cutoff": cutoff},
             deferred_event="delivery_body_expiry_deferred",
+        )
+        counts["deferred"] += int(deferred)
+        # The lead scope's projection, on the CRM clock (D-503). One statement, one
+        # definition of "forget a caller chunk", shared with the transcript arm above and
+        # with both erasure paths — `caller_erasure.py` owns it.
+        counts["caller_vectors"], deferred = await _sweep_in_batches(
+            session, EXPIRE_CHUNKS_SQL, {"cutoff": cutoff, "category": category}
         )
         counts["deferred"] += int(deferred)
         return counts
@@ -1697,6 +1817,27 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # that would have been dialled AFTER the certificate was issued.
         contacts_erased = await _erase_campaign_contacts(session, phone=phone)
 
+        # THE VECTOR STORE (D-503), and it is a THIRD reach rather than a consequence of
+        # the two above. Scrubbing `transcript_turns` and emptying `call_extractions.data`
+        # does not touch `caller_chunks`: an embedding is a copy of the sentence in a form
+        # the erasure above cannot see, `tsv` is that sentence as lexemes, and the
+        # `ON DELETE CASCADE` on `call_id` never fires because this function empties calls
+        # rather than deleting them — the same sentence `scrub_quotes_for_calls` had to be
+        # written to say about the gap tables. `caller_memories` goes in the same statement
+        # pair, because a remembered fact and its projection must not be able to acquire two
+        # different erasure stories.
+        #
+        # KEYED ON THE NUMBER FIRST (`subject_ref = ANY(caller_refs(...))`) and on the call
+        # and lead ids only as belts: caller memory has no call to be found by, and a lead
+        # an earlier sweep already anonymized has no number left to derive from.
+        caller_vectors = await erase_subject_vectors(
+            session,
+            tenant_id=tenant_id,
+            phone=phone,
+            call_ids=list(calls),
+            lead_ids=list(leads),
+        )
+
         # LOOKED AT, never changed — see `_search_knowledge_base` for why the erasure
         # stops at a count. Run last, so a store this request could not reach has already
         # raised and the number is never reported on an erasure that then rolled back.
@@ -1737,6 +1878,13 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 # to the data principal, and an entry that carries a count needs the
                 # count in the part of the proof the renderer reads by name.
                 KB_MATCH_KEY: kb_matches,
+                # IN `scope` AND NOT ONLY IN A SENTENCE, unlike the three counts below it.
+                # A vector is the one copy of a person's words that nobody can read and
+                # nobody will miss, so "we destroyed N of them" is exactly the claim a
+                # certificate has to be able to make in a field a renderer reads by name —
+                # a number only this file knew would be a promise with no reader.
+                CALLER_VECTOR_KEY: caller_vectors.vectors,
+                CALLER_MEMORY_KEY: caller_vectors.memories,
             },
             "actions": {
                 "calls": "phone numbers, recording pointer and summary cleared",
@@ -1777,6 +1925,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     f"searched: {kb_matches} uploaded knowledge document(s) mention this "
                     "number. Client-authored content — read, not changed by this request"
                 ),
+                # Phrased around the SENTENCE and not around the vector: "6 embeddings were
+                # nulled" tells a data principal nothing about whether their words are gone.
+                # Written by `caller_erasure.erasure_sentence` so the tenant path below
+                # cannot describe the same work in different words.
+                "caller_chunks": erasure_sentence(caller_vectors),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
             },
@@ -1879,7 +2032,8 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
         f"bodies={bodies_erased} payloads={payloads_erased} "
         f"recordings={recordings_destroyed} floor_recordings={recordings_in_floor} "
-        f"campaign_contacts={contacts_erased} kb_matches={kb_matches}"
+        f"campaign_contacts={contacts_erased} kb_matches={kb_matches} "
+        f"caller_vectors={caller_vectors.vectors} caller_memories={caller_vectors.memories}"
     )
 
 
@@ -2202,6 +2356,14 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # reader to infer it from a count.
         memories = await session.execute(text("DELETE FROM copilot_memories"))
         counts["copilot_memories_erased"] = int(rowcount_of(memories) or 0)
+        # EVERY CALLER'S VECTORS AND EVERY REMEMBERED FACT (D-503). UNCONDITIONAL, for
+        # `copilot_memories`' reason one line up: when the subject is "all of them" there is
+        # nothing to match on, and a predicate would leave behind exactly the rows whose
+        # number an earlier sweep had already anonymized. Scrubbed rather than deleted, so
+        # the ingestion sweep cannot re-project what this just forgot.
+        caller_vectors = await erase_tenant_vectors(session, tenant_id=tenant_id)
+        counts["caller_vectors_erased"] = caller_vectors.vectors
+        counts["caller_memories_erased"] = caller_vectors.memories
         # BEFORE the mark, in the same transaction: see `_WITHDRAW_ROUTES_SQL`. An
         # erased account must stop acquiring caller records, and this is the half of
         # that which is ours to perform.
@@ -2263,6 +2425,7 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     f"{counts['engine_payloads_erased']} archived raw engine payload(s) "
                     "deleted from object storage and their references cleared"
                 ),
+                "caller_chunks": erasure_sentence(caller_vectors),
                 "copilot_memories": (
                     f"{counts['copilot_memories_erased']} in-app assistant memor(ies) "
                     "deleted: everything this account's staff asked the assistant, "
@@ -2357,7 +2520,9 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         f"payloads={counts['engine_payloads_erased']} "
         f"recordings={counts['recordings_destroyed']} "
         f"floor_recordings={counts['recordings_within_trai_floor']} "
-        f"campaign_contacts={counts['campaign_contacts_erased']}"
+        f"campaign_contacts={counts['campaign_contacts_erased']} "
+        f"caller_vectors={counts['caller_vectors_erased']} "
+        f"caller_memories={counts['caller_memories_erased']}"
     )
 
 
@@ -2451,6 +2616,8 @@ async def prune_reliability_tables(ctx: dict[str, Any]) -> str:
 
 __all__ = [
     "ANONYMIZED_PHONE",
+    "CALLER_MEMORY_KEY",
+    "CALLER_VECTOR_KEY",
     "DERIVED_COPIES",
     "DESTROYED_COUNT_KEY",
     "FLOOR_COUNT_KEY",

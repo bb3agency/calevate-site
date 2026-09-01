@@ -129,6 +129,17 @@ class ErasureScopeOut(Strict):
     # the client's manual step actionable, and which document is a question they answer on
     # their own knowledge screen.
     knowledge_base_documents_matched: int | None
+    # How many SEARCHABLE PROJECTIONS of this person's words this erasure destroyed, and
+    # how many remembered facts about them (D-503). NULLABLE and required, on the reasoning
+    # every count above uses: a recorded `0` is the claim "there were none", and `None`
+    # means the proof predates the vector store — the certificate says those in different
+    # sentences (`deletion_proof._caller_sentences`) rather than collapsing them.
+    #
+    # First-class fields rather than a line in `actions` because this is the copy a reader
+    # cannot check by eye: a transcript that still held the words would be obvious on the
+    # client's own screen, and an embedding that still held them would be obvious nowhere.
+    caller_vectors_erased: int | None
+    caller_memories_erased: int | None
 
 
 class ErasureLimitationOut(Strict):

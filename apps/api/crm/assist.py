@@ -175,6 +175,27 @@ ASSIST_FEATURE_KB_GLOSS: Final = "kb_gloss"
 #: of per-screen names nobody would keep in step.
 ASSIST_FEATURE_ADMIN_COPILOT: Final = "admin_copilot"
 
+#: `platform_ai_usage.meta.feature` for the CALLER-DATA INGESTION SWEEP (D-503) — the cron
+#: that buys one vector per chunk of what a client's callers said, so those conversations can
+#: be searched by meaning.
+#:
+#: A SEVENTH name, and the SECOND that is not a `usage_events.meta.feature`: **the payer is
+#: the PLATFORM.** That is a departure from where the sibling KB ingestion sweep meters
+#: (`retrieval/embedding.ASSIST_FEATURE_KB_EMBED`, on the tenant's own ledger) and it is the
+#: departure the founder asked for. D-502 could not make it because
+#: `platform_ai.record_platform_ai_usage` required an `admin_user_id` and a cron has no
+#: operator; `system_actor` (migration `c6b1f0d47e83`) is what closes that, so this spend
+#: lands where the decision said it should.
+#:
+#: WHY THE PLATFORM AND NOT THE CLIENT, said once here because it is a pricing decision and
+#: not a plumbing one: ingestion is a cost of OUR feature existing. Its quantity is a
+#: function of how many calls a client takes, which is the thing they already pay per minute
+#: for — billing them a second time for indexing the same conversation would charge them
+#: twice for one event, and a client who never opens the search screen would pay for a
+#: capability they never used. The QUERY side is theirs and stays theirs
+#: (`ASSIST_FEATURE_CALL_SEARCH`, `ASSIST_FEATURE_LEAD_SEARCH`): a person clicked.
+ASSIST_FEATURE_CALLER_EMBED: Final = "caller_embed"
+
 
 class MeterableAssist(Protocol):
     """The two things `meter_assist` needs from a completed assist, whatever the surface.
@@ -571,6 +592,7 @@ async def meter_platform_assist(
 
 __all__ = [
     "ASSIST_FEATURE_ADMIN_COPILOT",
+    "ASSIST_FEATURE_CALLER_EMBED",
     "ASSIST_FEATURE_COPILOT",
     "ASSIST_FEATURE_COPILOT_MEMORY",
     "ASSIST_FEATURE_KB_GLOSS",

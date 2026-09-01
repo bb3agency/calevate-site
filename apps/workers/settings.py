@@ -107,6 +107,7 @@ from apps.workers.kb_aggregation import (
     DIGEST_WEEKDAY,
     send_agent_knowledge_digests,
 )
+from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
 from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
@@ -493,6 +494,23 @@ CRON_JOBS = [
     cron(
         traced_job(embed_knowledge_chunks),
         minute=set(EMBED_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE CALLER-DATA INGESTION SWEEP (D-503) — the same job one corpus over: it projects
+    # what a client's CALLERS said into `caller_chunks` and buys the vector beside it. An
+    # unregistered cron here is not a dormant feature but a broken one that reads as shipped:
+    # every projection stays `pending` for ever, the CRM and transcript search screens answer
+    # from their keyword arm alone while every surface reports a hybrid store, and nothing
+    # anywhere says so.
+    #
+    # `minute` comes FROM the module for its neighbours' reason — two places writing "twice
+    # hourly" is how the module's own clearance argument (:13 and :43 are the last minutes no
+    # other O(tenants) fan-out uses) stops being true. `max_tries` EXPLICIT because `cron()`
+    # defaults it to 1 and `WorkerSettings.max_tries` does not reach a function registered
+    # here; the tick's own failure is a worklist read, which is exactly the kind a retry fixes.
+    cron(
+        traced_job(embed_caller_chunks),
+        minute=set(CALLER_EMBED_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE COMPLIANCE-FLAG SWEEP. The third drift-shaped gap and the one with a regulator
