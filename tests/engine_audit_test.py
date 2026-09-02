@@ -1847,6 +1847,16 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         # which is the definition of a word that proves nothing about a leaked shape.
         "voice",
         "voice_id",
+        # ARRIVED WITH THE PER-LANGUAGE SPEECH CHECK (`_check_multilingual_speech`), which
+        # reads `provider` off a `MultilingualLanguageEntry`'s synthesizer and transcriber
+        # to name the speech vendor in the alert. It is our word as much as theirs and by
+        # a wide margin: `ModelConfig.tts_provider`/`stt_provider`/`llm_provider` are three
+        # fields of the portability contract itself, `LlmProvider` is our own closed
+        # `Literal`, and telephony, email and object storage each have a `provider` in this
+        # tree. Finding the bare word outside the adapter proves nothing about a leaked
+        # vendor shape; the compound nouns that would (`provider_config`, `telephony_
+        # provider`) are banned above.
+        "provider",
         # A GENERIC SAMPLING PARAMETER, not a Bolna noun: every OpenAI-compatible provider
         # and our own `TEMPERATURE_MUST_BE_ONE` trap name it, and `workers/extraction.py`
         # sends one to Sarvam. Finding it outside the adapter proves nothing.

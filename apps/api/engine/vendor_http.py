@@ -319,6 +319,47 @@ async def vendor_request(
             remediation="This will be retried automatically.",
             failure_stage="CORE_LOGIC",
         )
+    if 300 <= response.status_code < 400:
+        # **A REDIRECT IS NOT AN ANSWER, AND UNTIL THIS RUNG EXISTED IT WAS A SUCCESS.**
+        # Neither adapter passes `follow_redirects` (httpx defaults it to False), so a 3xx
+        # arrives here as a response with a `Location` header and, usually, no body — and
+        # every branch below reads "not >= 400" as "the vendor did what we asked". Measured
+        # rather than reasoned: a 302 on `GET /v2/agent/{id}` produced an `AgentSnapshot`
+        # with every `*_readable` False (a drift sweep that records `unreadable` forever
+        # instead of an error), a 302 on `PUT` reported a publish that wrote nothing, and a
+        # 302 on `GET /agent/{id}/execution/{id}` produced `engine_call_id=''`,
+        # `status='failed'`, no cost and no transcript — VERBATIM the invented answer this
+        # module's own docstring says the shared ladder exists to prevent, reached by a
+        # status no clause covered.
+        #
+        # NOT FOLLOWED, and that is the decision rather than the easy fix. A 307/308
+        # re-sends the BODY, so following one on `POST /call` is how one contact is dialled
+        # twice by an edge misconfiguration nobody deployed; a cross-host redirect makes
+        # httpx strip the `Authorization` header, so what we would follow it with is an
+        # unauthenticated request; and `tests/crm_audit_test.py` already settles the
+        # doctrine for outbound calls in this tree — "a 3xx is a failure, not a delivery".
+        # Our base URLs are exact API roots the adapter pins, so a redirect off one is an
+        # edge, a proxy or a moved API — an operator's problem, and one they can only act
+        # on if it is reported.
+        #
+        # `engine_bad_response` rather than a code of its own: to every caller this is the
+        # same fact as a 200 carrying a WAF challenge — the vendor answered, and the answer
+        # is not one we can use — and the rung below already has that name, that kind and
+        # that alarm index row. `record_engine_failure` is deliberately NOT called, for the
+        # same reason it is not called on that rung: the health counter is the "is the
+        # VENDOR broken" signal, and an intermediary answering 302 is not evidence about
+        # the vendor's own health.
+        log.warning(
+            "engine_redirect_response",
+            extra={"engine": engine, "status": response.status_code, "route": path},
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_bad_response",
+            title="Voice engine returned an unreadable response",
+            detail="The voice platform redirected the request instead of answering it.",
+            failure_stage="CORE_LOGIC",
+        )
     if absent_is_success and response.status_code == 404:
         # NOT a swallowed error: the caller declared that an absent object satisfies
         # it. Logged at info so a compensation that found nothing to compensate is

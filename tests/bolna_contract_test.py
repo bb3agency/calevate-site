@@ -1126,3 +1126,82 @@ async def test_a_language_tab_with_no_prompt_of_its_own_is_not_a_gap() -> None:
 
     assert snapshot.alternate_prompts == ()
     assert snapshot.every_prompt_carries("marker-truthful") is True
+
+
+def _speech_alerts(caplog: pytest.LogCaptureFixture) -> list[dict[str, Any]]:
+    return [
+        record.__dict__
+        for record in caplog.records
+        if record.message == "alert"
+        and record.__dict__.get("code") == "engine_agent_multilingual_speech_override"
+    ]
+
+
+async def test_a_console_added_language_voice_is_paged_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The OTHER half of the same click, and `AgentSnapshot` has no field for it.
+
+    `MultilingualLanguageEntry` declares `synthesizer` REQUIRED
+    (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:1064-1120`), so every
+    language added in their console brings a text-to-speech provider of its own — and
+    their own example puts `elevenlabs` on one language. `_agent_models` reads the
+    conversation task's synthesizer and nothing else, so `judge` scores `voice_applied`
+    True while a caller who switches language is answered by a voice this product never
+    published, on a speech vendor no client agreement names.
+    """
+    payload = _multilingual_agent(enabled=True, te_prompt="మీరు ఒక AI. marker-truthful")
+    entry = payload["tasks"][0]["tools_config"]["multilingual_config"]["languages"]["te"]
+    entry["synthesizer"] = {"provider": "elevenlabs", "provider_config": {"voice_id": "21m00"}}
+    entry["transcriber"] = {"provider": "deepgram", "language": "te"}
+    engine = _engine(lambda request: httpx.Response(200, json=payload))
+
+    with caplog.at_level("ERROR"):
+        snapshot = await engine.get_agent("a1")
+
+    raised = _speech_alerts(caplog)
+    assert raised, (
+        "a language tab carrying its own voice and its own transcriber raised nothing — "
+        "the caller hears a vendor nobody here chose and every read-back reads green"
+    )
+    detail = raised[0]["detail"]
+    assert "elevenlabs" in detail and "deepgram" in detail, (
+        "the alert must name the providers, or the operator cannot tell a legitimate "
+        "per-language Sarvam voice from a speech vendor no DPA of ours covers"
+    )
+    assert "te" in detail
+    # Hard rule 6: the entry's prompt is business content and the alert is a message we
+    # authored about configuration, never a copy of it.
+    assert "మీరు" not in detail
+    # The floor verdict is unchanged by any of this: it is the prompt's question.
+    assert snapshot.every_prompt_carries("marker-truthful") is True
+
+
+async def test_a_disabled_language_tab_raises_no_speech_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`enabled: false` ⇒ the object is ignored (`get.md:594-599`), so nothing is running
+    and an alarm would be a page an operator cannot act on — the shape that teaches people
+    to ignore the next one."""
+    engine = _engine(lambda request: httpx.Response(200, json=_multilingual_agent(enabled=False)))
+
+    with caplog.at_level("ERROR"):
+        await engine.get_agent("a1")
+
+    assert not _speech_alerts(caplog)
+
+
+async def test_an_agent_this_tree_published_raises_no_speech_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`_agent_body` sends `multilingual_config: None`, so the ordinary read-back of an
+    agent we published must be silent. An alarm that fires on the normal case is noise
+    with a compliance label on it."""
+    payload = _multilingual_agent(enabled=True)
+    payload["tasks"][0]["tools_config"]["multilingual_config"] = None
+    engine = _engine(lambda request: httpx.Response(200, json=payload))
+
+    with caplog.at_level("ERROR"):
+        await engine.get_agent("a1")
+
+    assert not _speech_alerts(caplog)
