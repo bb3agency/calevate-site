@@ -748,6 +748,24 @@ async def _dispatch_for_campaign(
     async with tenant_session(tenant_id) as session:
         await _reap_stuck_dialing(session, campaign_id, tenant_id=tenant_id)
 
+        # **FINISHING IS NOT DIALLING, AND IT MUST NOT SIT BEHIND THE DIAL GATE.** This
+        # runs BEFORE the two campaign-level gates below, and that ordering is the whole
+        # fix: both of them `return` early, so a campaign with nothing left to dial whose
+        # paperwork lapsed after its last call never reached the completion check at the
+        # bottom of this function — for ever. The reachable sequence is ordinary and needs
+        # nobody to make a mistake: the last contact settles at 23:55, the national DND
+        # scrub expires at midnight IST (`preference_scrub.scrub_expiry`), and from the
+        # next tick on `dispatch_blockers` refuses the campaign every thirty seconds. The
+        # campaign stays `running` on the client's screen with zero contacts left, and
+        # `campaign.completed` — which a client can subscribe an endpoint or a spreadsheet
+        # to — never fires. Nothing re-scrubs a list that has nothing left to dial, so the
+        # blocker never clears on its own either.
+        #
+        # It is also the cheap order: a finished campaign now costs one count instead of
+        # the entity/template/number/scrub reads it can no longer act on.
+        if await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id):
+            return {"dialled": 0, "blocked": 0, "exhausted": 0}
+
         # THE STANDING COMPLIANCE GATE (hard rule 5), asked in the SAME transaction
         # that claims the contacts, so a registration revoked a moment ago cannot slip
         # between the check and the claim.
@@ -962,37 +980,54 @@ async def _dispatch_for_campaign(
             dialled += 1
 
     async with tenant_session(tenant_id) as session:
-        # Campaign auto-complete: nothing pending and nothing dialing left.
-        remaining = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
-                    "AND status IN ('pending', 'dialing')"
-                ),
-                {"cid": campaign_id},
-            )
-        ).scalar()
-        if not remaining:
-            # `complete_or_rearm`, not an UPDATE to 'completed': a campaign carrying a
-            # REPEAT is not finished when this run is, it is waiting for its next
-            # occurrence — and `due_schedules`/`dispatch_scan()` only look at `scheduled`,
-            # so completing it would silently retire the repeat after one run. What the
-            # column means stays `campaigns.scheduling`'s question.
-            settled = await complete_or_rearm(session, campaign_id=campaign_id)
-            if settled == "completed":
-                # IN THIS TRANSACTION, beside the status write that justifies it — the
-                # transactional-outbox property (BACKEND-PATTERNS §4) that makes "the
-                # campaign completed but the CRM never heard" and "the CRM heard about a
-                # completion that rolled back" both unrepresentable. A tick that dies
-                # between the UPDATE and the enqueue rolls both back and the next tick
-                # re-completes the campaign, because `complete_or_rearm` is a CAS off
-                # `running`.
-                await emit_campaign_completed(session, tenant_id=tenant_id, campaign_id=campaign_id)
-                log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
-            elif settled == "scheduled":
-                log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})
+        await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
     return {"dialled": dialled, "blocked": blocked, "exhausted": exhausted}
+
+
+async def _settle_finished_campaign(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> bool:
+    """Campaign auto-complete: nothing pending and nothing dialing left. True if settled.
+
+    ONE WRITER, TWO CALLERS — the top of `_dispatch_for_campaign` (so a finished campaign
+    is settled even when a gate below would refuse to dial it) and the bottom (so the tick
+    that empties the list closes it out). Two copies of this block would be two answers to
+    "is this campaign over", and the version that had to be added second is exactly the
+    one a reader would not know to keep in step.
+
+    `complete_or_rearm`, not an UPDATE to 'completed': a campaign carrying a REPEAT is not
+    finished when this run is, it is waiting for its next occurrence — and
+    `due_schedules`/`dispatch_scan()` only look at `scheduled`, so completing it would
+    silently retire the repeat after one run. What the column means stays
+    `campaigns.scheduling`'s question. It is a CAS off `running`, so a campaign somebody
+    paused or cancelled between the tick's read and this statement settles nothing and
+    returns False.
+    """
+    remaining = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
+                "AND status IN ('pending', 'dialing')"
+            ),
+            {"cid": campaign_id},
+        )
+    ).scalar()
+    if remaining:
+        return False
+    settled = await complete_or_rearm(session, campaign_id=campaign_id)
+    if settled == "completed":
+        # IN THIS TRANSACTION, beside the status write that justifies it — the
+        # transactional-outbox property (BACKEND-PATTERNS §4) that makes "the campaign
+        # completed but the CRM never heard" and "the CRM heard about a completion that
+        # rolled back" both unrepresentable. A tick that dies between the UPDATE and the
+        # enqueue rolls both back and the next tick re-completes the campaign, because
+        # `complete_or_rearm` is a CAS off `running`.
+        await emit_campaign_completed(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
+    elif settled == "scheduled":
+        log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})
+    return settled is not None
 
 
 # The `data` keys a `campaign.completed` outbound event carries (docs/WEBHOOKS.md §1.2),

@@ -141,7 +141,22 @@ BIG_RED_SWITCH_REASON = "Outbound calling is halted platform-wide by the operati
 #: make a US number Indian. Lifting the freeze would leave these rows settled — but that
 #: is a scope decision (LEGAL-OPS-PLAYBOOK §14/§18) that has to move contacts by
 #: migration anyway, not something a retry ladder should be holding open in the meantime.
-PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset({"dnc", "no_consent", "destination_not_india"})
+#: `consent_expired` is the FOURTH, and it is here because keeping it out was the same
+#: defect a third time. The comment that excluded it argued "a re-grant makes the number
+#: dialable again, so a batch dialler keeps such a contact on the retry ladder" — which is
+#: true, and is ALSO true word for word of `no_consent`, whose `withdrawn` arm is lifted by
+#: exactly the same re-grant and which is settled. Two contradictory doctrines for one
+#: ledger, and the transient half produced the livelock this constant was written about:
+#: an `expires_at` in the past only ever recedes further, so nothing the dispatcher does
+#: or waits for lifts it, and the contact was re-claimed, re-gated and refunded every
+#: thirty minutes for the life of the campaign while the campaign never auto-completed.
+#: The membership test holds on the reading that decides settlements — "can waiting help?"
+#: — rather than on the surface word "clock": `calling_hours` is about the clock and
+#: becomes FALSE by waiting; a lapsed permission becomes more true. Only an affirmative
+#: act by the PERSON lifts it, which is the definition of a person-level fact.
+PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset(
+    {"dnc", "no_consent", "destination_not_india", "consent_expired"}
+)
 
 #: The India-only freeze, as a dial predicate. LEGAL-OPS-PLAYBOOK's scope is frozen to
 #: Andhra Pradesh + Telangana / India-only B2B: no foreign clients, and its stop-list is
@@ -583,9 +598,10 @@ async def check_dispatch(
         # record itself set: a `granted` row whose `expires_at` has already passed no longer
         # authorises a dial, mirroring `consent.py`'s own expiry check. An ABSENT `expires_at`
         # is unchanged behaviour — allowed — with the per-tick DND/DLT re-scrub as the
-        # freshness control. Transient, not person-level: a re-grant makes the number
-        # dialable again, so `consent_expired` is intentionally NOT in `PERSON_LEVEL_REFUSALS`
-        # and a batch dialler keeps such a contact on the retry ladder rather than settling it.
+        # freshness control. PERSON-LEVEL: a lapsed permission is not undone by waiting, so
+        # a batch dialler SETTLES such a contact rather than re-claiming it every thirty
+        # minutes for ever — see `PERSON_LEVEL_REFUSALS`, which records why the opposite
+        # classification this line used to assert was the same livelock a third time.
         if expires_at is not None and expires_at <= datetime.now(UTC):
             return DispatchDecision(
                 allowed=False,

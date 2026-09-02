@@ -369,7 +369,14 @@ def first_dial_not_before(
         opens_ist = start_ist.replace(
             hour=window_start.hour, minute=window_start.minute, second=0, microsecond=0
         )
-    elif start_ist.time() > window_end:
+    # HALF-OPEN AT THE END (D-311), and this comparison used to be `>`. The window the
+    # dispatcher enforces is `start <= t < end`: 21:00:00 IST is the FIRST FORBIDDEN
+    # INSTANT, not the last permitted one. With `>`, a start of exactly 21:00 fell into
+    # the `else` arm and this function promised a first dial AT 21:00 — a promise
+    # `within_calling_hours` refuses, so the campaign started, dialled nothing, and only
+    # rang at 09:00 the next morning while the screen said otherwise. The same asymmetry
+    # holds at the other end: 09:00:00 is inside, so the `<` above stays strict.
+    elif start_ist.time() >= window_end:
         opens_ist = (start_ist + timedelta(days=1)).replace(
             hour=window_start.hour, minute=window_start.minute, second=0, microsecond=0
         )
@@ -464,21 +471,33 @@ def _validated_rule(days: Sequence[int], at: time, until: datetime | None) -> Re
         )
 
     window_start, window_end = DEFAULT_WINDOW
-    if not window_start <= at <= window_end:
+    # HALF-OPEN AT THE END, for the reason `first_dial_not_before` states and for the
+    # reason this refusal's own wording gives: a repeat armed at exactly 21:00 IST "would
+    # never dial at the time it says", because `within_calling_hours` puts 21:00:00 inside
+    # the forbidden band (D-311). The inclusive bound this used to carry accepted precisely
+    # the schedule the sentence below promises to reject.
+    if not window_start <= at < window_end:
         raise ProblemError(
             kind="validation",
             code=_RECURRENCE_OUTSIDE_HOURS,
             title="That time is outside calling hours",
+            # The wording names the END as excluded, because the half-open bound is
+            # exactly what a client picking 21:00 has just hit, and "between 09:00 and
+            # 21:00" reads as though they had picked a time inside it.
             detail=(
-                f"Calls may only be placed between {window_start:%H:%M} and "
-                f"{window_end:%H:%M} IST, so a campaign that repeats at {at:%H:%M} would "
-                "never dial at the time it says. Pick a time inside those hours."
+                f"Calls may only be placed from {window_start:%H:%M} IST up to (but not "
+                f"including) {window_end:%H:%M} IST — {window_end:%H:%M} is the first "
+                f"minute of the quiet period. A campaign that repeats at {at:%H:%M} would "
+                "never dial at the time it says. Pick an earlier time."
             ),
             fields=[
                 {
                     "field": "at",
                     "rule": "calling_hours",
-                    "message": f"between {window_start:%H:%M} and {window_end:%H:%M} IST",
+                    "message": (
+                        f"from {window_start:%H:%M} IST up to (but not including) "
+                        f"{window_end:%H:%M} IST"
+                    ),
                 }
             ],
         )

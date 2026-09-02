@@ -1118,6 +1118,139 @@ async def test_a_withdrawn_consent_settles_the_contact_rather_than_re_claiming_i
     assert final == "completed", "the consent-refused contact was holding the campaign open forever"
 
 
+async def test_an_expired_consent_settles_the_contact_rather_than_re_claiming_it_forever() -> None:
+    """The THIRD livelock of the class `tests/dispatch_refusal_settlement_test.py` names.
+
+    `consent_expired` was classified transient on the argument that "a re-grant makes the
+    number dialable again" — which is true, and is true word for word of `no_consent`'s
+    `withdrawn` arm one test above, which is settled. An `expires_at` already in the past
+    only ever recedes further, so nothing the dispatcher does or waits for lifts it: the
+    contact was re-claimed, re-gated and REFUNDED every thirty minutes, the ladder could
+    never exhaust it, and the `pending` row it left behind held the campaign open for ever
+    — no completion, no `campaign.completed`, and a screen that says "running".
+
+    Asserted as the whole loop, exactly like the withdrawn case: the contact settles, and
+    the campaign it was holding open finishes once the dialable contact resolves.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876690001", "9876690002"))
+    async with tenant_session(tenant_id) as session:
+        # A permission that WAS granted and has since lapsed — the row `consent.py` writes
+        # with an explicit validity window, aged past its own expiry.
+        await session.execute(
+            text(
+                # `evidence` is not decoration: `ck_consent_ledger_granted_consent_
+                # carries_evidence` refuses a `granted` row that names no proof of the
+                # grant, so the fixture has to be a real opt-in that has since lapsed.
+                "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
+                "consent_source, evidence, captured_at, expires_at, created_at) VALUES "
+                "(:id, :tid, :p, 'callback', 'granted', 'web_form_optin', "
+                "CAST(:evidence AS jsonb), now() - interval '400 days', "
+                "now() - interval '35 days', now())"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "p": "+919876690002",
+                "evidence": '{"form": "lead-ad", "field": "may_we_call_you"}',
+            },
+        )
+
+    result = await _tick_one_campaign(tenant_id, campaign_id)
+
+    # POSITIVE half: the other contact on the same list rang, so the refusal below is
+    # about the expiry rather than about the fixture.
+    assert result["dialled"] == 1 and result["blocked"] == 1, result
+    async with tenant_session(tenant_id) as session:
+        statuses = dict(
+            (
+                await session.execute(
+                    text("SELECT phone_e164, status FROM campaign_contacts WHERE campaign_id = :c"),
+                    {"c": campaign_id},
+                )
+            ).all()
+        )
+    assert statuses["+919876690002"] == "dnc_blocked", (
+        "a lapsed permission is settled, not put back on the ladder for ever"
+    )
+
+    async with tenant_session(tenant_id) as session:
+        call_id = (
+            await session.execute(
+                text("SELECT id FROM calls WHERE to_e164 = :p"), {"p": "+919876690001"}
+            )
+        ).scalar()
+        await campaign_dispatch.resolve_campaign_contact(
+            session, tenant_id=tenant_id, call_id=uuid.UUID(str(call_id)), call_status="completed"
+        )
+    await _tick_one_campaign(tenant_id, campaign_id)
+    async with tenant_session(tenant_id) as session:
+        final = (
+            await session.execute(
+                text("SELECT status FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar()
+    assert final == "completed", "the expired-consent contact was holding the campaign open"
+
+
+async def test_a_finished_campaign_completes_even_though_its_paperwork_has_lapsed() -> None:
+    """FINISHING IS NOT DIALLING, and it must not sit behind the dial gate.
+
+    Every §3 blocker above makes `_dispatch_for_campaign` return early. Completion used to
+    live at the BOTTOM of that function, so a campaign whose last contact had already
+    settled and whose paperwork then lapsed never reached it — for ever. The sequence needs
+    nobody to make a mistake: the last call ends at 23:55, the national DND scrub expires
+    at midnight IST, and from the next tick on the campaign is refused every thirty seconds
+    with nothing left to dial. The client's screen says "running" over an empty list and
+    the `campaign.completed` event they subscribed an endpoint to never fires; nothing
+    re-scrubs a list with nothing on it, so the blocker never clears either.
+
+    The template is revoked here rather than the scrub expired because it is the same
+    early return by the cheapest fixture — `dispatch_blockers` is one list.
+    """
+    tenant_id, _, campaign_id, _, template_id = await _launched(phones=("9876700001",))
+    async with tenant_session(tenant_id) as session:
+        # The post-call pipeline's own write: the one contact reached a human and is done.
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET status = 'connected', updated_at = now() "
+                "WHERE campaign_id = :c"
+            ),
+            {"c": campaign_id},
+        )
+        await campaigns.set_template_status(session, template_id=template_id, status="rejected")
+
+    result = await _tick_one_campaign(tenant_id, campaign_id)
+
+    assert result == {"dialled": 0, "blocked": 0, "exhausted": 0}, result
+    assert await _calls_placed(tenant_id) == 0, "a finished campaign dials nobody either"
+    async with tenant_session(tenant_id) as session:
+        final = (
+            await session.execute(
+                text("SELECT status FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar()
+        queued = int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM outbox_messages WHERE "
+                        "payload->>'event' = 'campaign.completed' "
+                        "AND payload->>'campaign_id' = :c"
+                    ),
+                    {"c": str(campaign_id)},
+                )
+            ).scalar()
+            or 0
+        )
+    assert final == "completed", (
+        "a campaign with nothing left to dial is finished whatever its paperwork says — "
+        "it stayed `running` for ever behind the standing gate"
+    )
+    # The event is only queued when an endpoint subscribed to it; this tenant has none, so
+    # the assertion is that completion happened without one, not that a row exists.
+    assert queued == 0, "no endpoint subscribed, so nothing should have been enqueued"
+
+
 async def test_every_blocked_dial_records_the_rule_the_runbook_sends_operators_to(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

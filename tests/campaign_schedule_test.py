@@ -341,6 +341,35 @@ def test_a_late_evening_start_waits_for_the_window_rather_than_being_refused() -
     assert (opens + IST_OFFSET).date() == datetime(2026, 8, 18).date()
 
 
+def test_a_start_at_exactly_nine_pm_is_the_first_forbidden_instant_not_the_last_allowed() -> None:
+    """THE HALF-OPEN END, on the promise side (D-311).
+
+    `within_calling_hours` is `start <= t < end`, because TCCCPR forbids a commercial
+    call "between 2100 hours and 0900 hours": 21:00:00 IST is the first instant of the
+    forbidden band. This function used to compare `> window_end`, so a start of exactly
+    21:00 fell through to the "already inside the window" arm and the client was promised
+    a first dial AT 21:00 — an instant the dispatcher's own gate refuses. Nothing rang
+    until 09:00 the next morning, and the screen had said otherwise for twelve hours.
+
+    The lower bound stays inclusive and that asymmetry is the rule's, so 09:00:00 is
+    answered with itself.
+    """
+    start = datetime(2026, 8, 17, 21, 0, tzinfo=UTC) - IST_OFFSET  # 21:00:00 IST exactly
+    opens = first_dial_not_before(start)
+    assert (opens + IST_OFFSET).time() == time(9, 0)
+    assert (opens + IST_OFFSET).date() == datetime(2026, 8, 18).date()
+
+    opening = datetime(2026, 8, 17, 9, 0, tzinfo=UTC) - IST_OFFSET  # 09:00:00 IST exactly
+    assert first_dial_not_before(opening) == opening
+
+    # And the same boundary on a campaign's OWN narrowed window, which is the one a client
+    # picks by hand: 14:00 is the end of 12:00-14:00, so it waits for tomorrow's 12:00.
+    edge = datetime(2026, 8, 17, 14, 0, tzinfo=IST_TZ)
+    narrowed = first_dial_not_before(edge, {"start": "12:00", "end": "14:00"})
+    assert (narrowed + IST_OFFSET).time() == time(12, 0)
+    assert (narrowed + IST_OFFSET).date() == datetime(2026, 8, 18).date()
+
+
 def test_an_early_morning_start_waits_for_the_same_days_window() -> None:
     start = datetime(2026, 8, 17, 6, 0, tzinfo=UTC) - IST_OFFSET
     opens = first_dial_not_before(start)
