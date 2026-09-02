@@ -27,6 +27,7 @@ from apps.api.copilot import service as copilot_service
 from apps.api.copilot.schemas import CopilotAskIn
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.api.kb import service as kb_service
 
 
 async def _tenant(name: str = "Tool Clinic") -> tuple[uuid.UUID, uuid.UUID]:
@@ -98,6 +99,11 @@ def _owner(tenant_id: uuid.UUID) -> tools.ToolContext:
     return tools.ToolContext(tenant_id=tenant_id, role="owner")
 
 
+async def _resolved(value: object) -> object:
+    """An already-computed value as the awaitable an async reader would have returned."""
+    return value
+
+
 async def _run(name: str, tenant_id: uuid.UUID, **args: object) -> str:
     return await tools.run_read_tool(name, json.dumps(args), context=_owner(tenant_id))
 
@@ -164,14 +170,23 @@ async def test_leads_search_reports_a_total_and_a_full_status_breakdown() -> Non
     assert "hot 1" in hot
 
 
-async def test_leads_search_states_the_total_even_when_it_returns_no_rows() -> None:
-    """ZERO IS A COUNT AND MUST BE SAID AS ONE. `_listing` collapses an empty page to "No
-    rows", which is a good sentence about a LIST and a non-answer to "how many". A brand
-    new account asking "how many leads do I have?" must be told nought, not told that the
-    assistant could not see."""
+async def test_leads_search_answers_the_count_in_words_on_an_empty_account() -> None:
+    """ZERO IS A COUNT AND MUST BE SAID AS ONE — AND SAID AS A SENTENCE. D-497 answered the
+    first half by making the total unconditional, which on the account that has nothing
+    produced "This account has 0 lead(s) in total (new 0, contacted 0, interested 0, hot 0,
+    won 0, lost 0). No rows": seven zeros, out of which the best answer a model can compose
+    is a recital. The count is still ANSWERED — "no leads yet" is the answer to "how many do
+    I have" — and it now carries the next move, which a row of noughts cannot.
+
+    FAILS AGAINST THE OLD BEHAVIOUR both ways: the digits are gone and the sentence is new.
+    """
     tenant_id, _ = await _tenant()
     result = await _run("leads_search", tenant_id)
-    assert "This account has 0 lead(s) in total" in result
+    assert result == (
+        "This account has no leads yet. A lead is created automatically when a caller "
+        "reaches an agent, and one can be added by hand on the Leads screen."
+    )
+    assert "0 lead(s)" not in result
 
 
 async def test_leads_search_masks_the_phone_number_it_returns() -> None:
@@ -189,6 +204,45 @@ async def test_leads_search_masks_the_phone_number_it_returns() -> None:
 
     assert "9876500001" not in result
     assert "[phone ••01]" in result
+
+
+async def test_no_renderer_puts_the_extraction_payload_in_front_of_the_model() -> None:
+    """HARD RULE 6, ON THE WAY OUT. `leads.data` is the tenant's extraction payload — the one
+    thing that rule names beside transcripts — and `_lead_line` leaves it out BY FIELD LIST
+    rather than by redaction, which is the property that has to be pinned: `_clean` masks a
+    number it recognises, and it cannot mask a free-text answer a caller gave.
+
+    FAILS IF: a future renderer widens the field list to "everything on the row"."""
+    tenant_id, agent_id = await _tenant()
+    await _lead(tenant_id, agent_id, name="Ramesh", status="hot")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("""UPDATE leads SET data = '{"budget": "SECRETPAYLOADTOKEN"}'::jsonb""")
+        )
+
+    for tool_name, args in (
+        ("leads_search", {"status": None, "limit": None}),
+        ("leads_semantic_search", {"question": "budget", "status": None, "limit": None}),
+    ):
+        result = await _run(tool_name, tenant_id, **args)
+        assert "SECRETPAYLOADTOKEN" not in result, tool_name
+
+
+async def test_a_model_supplied_status_is_bounded_before_it_is_echoed_back() -> None:
+    """THE ECHO IS A LOOP. The `status` argument comes from the model and is put back in
+    front of the model in the empty sentence, so an unbounded one is an unbounded run of
+    model-chosen text in the prompt for the rest of the request — and a tag-block character
+    in it is a prompt-injection carrier (OWASP LLM01 #5). Bounded once, in `_asked_status`,
+    for all three tools that take a status; `_clean` strips the invisibles."""
+    tenant_id, agent_id = await _tenant()
+    await _call(tenant_id, agent_id, status="completed")
+    poison = "z" * 400 + "\u200b"
+
+    result = await _run("calls_recent", tenant_id, status=poison, limit=None)
+
+    assert "z" * 40 in result
+    assert "z" * 41 not in result
+    assert "\u200b" not in result
 
 
 async def test_calls_recent_returns_calls_and_never_a_raw_number() -> None:
@@ -288,15 +342,319 @@ async def test_agents_list_excludes_the_archive_because_the_roster_reader_does()
     result = await _run("agents_list", tenant_id, limit=None)
 
     assert "Retired Line" not in result
-    assert "No rows" in result
+    # AND THE EMPTY SENTENCE IS THE ONE ABOUT THE ARCHIVE, not the one about a new account.
+    # "This account has no working voice agents yet" is FALSE for a client who retired the
+    # only agent they had last week, and it is the sentence they would have been given.
+    assert "retired (archived)" in result
+    assert "no working roster" in result
+
+
+# --- the empty account: every read tool, one sentence each ------------------------------
+#
+# THE FIRST WEEK IS THE FIRST IMPRESSION. A brand-new account is not an edge case in this
+# product — it is what every client sees before their first call connects — so each of these
+# asserts on the RENDERED STRING that the tool hands the model, because that string is also
+# what the person reads: `service._preview` puts it verbatim into the step list on screen.
 
 
 async def test_an_account_with_nothing_yet_gets_a_sentence_not_an_empty_string() -> None:
     """An empty tool result reads to a model as a failure. "There is nothing yet" is a real
     answer on a new account and is the one the person should be given."""
     tenant_id, _ = await _tenant()
-    assert "No rows" in await _run("leads_search", tenant_id)
-    assert "No rows" in await _run("calls_recent", tenant_id)
+    for tool_name in ("leads_search", "calls_recent", "campaigns_list"):
+        result = await _run(tool_name, tenant_id)
+        assert result.startswith("This account has no "), result
+        # The sentence a person can act on: every "nothing yet" carries the next move.
+        assert result.rstrip().endswith("."), result
+        assert "No rows" not in result
+
+
+async def test_the_snapshot_of_an_account_that_has_never_taken_a_call_says_so() -> None:
+    """THE OBSERVED DEFECT, at the tool that produced it. Asked for a business overview, a
+    real account with zero calls was handed "Last 7 days: 0 calls, 0 connected (n/a of
+    calls), 0 leads qualified (n/a of connected). Direction: 0 inbound, 0 outbound. Average
+    completed call: n/a." — four `n/a`s and six zeros, from which no model can compose
+    anything but arithmetic about nothing.
+
+    The distinction that has to survive: a rate over no calls is UNDEFINED, not zero, and
+    the sentence has to say which."""
+    tenant_id, _ = await _tenant()
+
+    result = await _run("business_snapshot", tenant_id, days=7)
+
+    assert "not taken a single call yet" in result
+    assert "n/a" not in result
+    assert "0 calls" not in result
+    assert "0 connected" not in result
+    # The undefined measures are named as undefined rather than emitted as holes.
+    assert "no average call length exist rather than being zero" in result
+
+
+async def test_the_snapshot_never_tells_an_account_with_older_calls_that_it_has_none() -> None:
+    """THE OTHER EMPTY, AND IT IS THE OPPOSITE ADVICE. A window with no calls in it and an
+    account with no calls at all reach this renderer as the same zeros — and telling a
+    client who was busy last month that they have no calls is a false statement about their
+    business made in the assistant's own voice. The second query runs only on this path."""
+    tenant_id, agent_id = await _tenant()
+    await _call(tenant_id, agent_id, status="completed", duration_s=120)
+    async with tenant_session(tenant_id) as session:
+        # Older than the window asked for, and by more than a day so the date is stable.
+        await session.execute(
+            text(
+                "UPDATE calls SET created_at = now() - interval '40 days', "
+                "started_at = now() - interval '40 days'"
+            )
+        )
+
+    result = await _run("business_snapshot", tenant_id, days=7)
+
+    assert "No calls at all in the last 7 days" in result
+    assert "is NOT new" in result
+    assert "most recent call was on" in result
+
+
+async def test_the_snapshot_says_which_rate_is_undefined_when_nothing_connected() -> None:
+    """A DIAL THAT NEVER CONNECTS IS A MEASUREMENT, NOT A GAP. Connect rate is 0% — real,
+    measured, and worth saying — while the qualification rate over zero connected calls does
+    not exist. `_pct` used to render both denominators the same way, as `n/a`."""
+    tenant_id, agent_id = await _tenant()
+    await _call(tenant_id, agent_id, status="no_answer", duration_s=None, outcome=None)
+
+    result = await _run("business_snapshot", tenant_id, days=30)
+
+    assert "1 calls, 0 connected (0% of calls)" in result
+    assert "no qualification rate to work out" in result
+    assert "no average call length yet" in result
+    assert "n/a" not in result
+
+
+async def test_the_snapshot_reads_calls_without_leads_as_a_state_of_the_business() -> None:
+    """PARTIAL DATA: the phone is working and nothing has progressed. "0 leads qualified
+    (0% of connected)" is arithmetic; "the pipeline is filling and nothing has progressed"
+    is the same fact as something an owner can act on."""
+    tenant_id, agent_id = await _tenant()
+    await _call(tenant_id, agent_id, status="completed", duration_s=120)
+
+    result = await _run("business_snapshot", tenant_id, days=30)
+
+    assert "no lead has moved past 'new'" in result
+    assert "Average completed call: 120s" in result
+
+
+# --- "none yet" is not "none matching" --------------------------------------------------
+#
+# THE MOST EXPENSIVE CONFUSION IN THIS FILE. A filter that matched nothing and an account
+# that has nothing arrive at every renderer as the same empty list, and the assistant tells
+# the client one sentence about it. Told the wrong one, somebody with four hundred leads is
+# informed that they have none — in the confident voice of a tool that just read their
+# database.
+
+
+async def test_a_status_filter_that_matches_nothing_never_says_the_account_has_none() -> None:
+    tenant_id, agent_id = await _tenant()
+    await _lead(tenant_id, agent_id, name="Ramesh", status="new")
+
+    result = await _run("leads_search", tenant_id, status="won", limit=None)
+
+    assert "No leads with status won" in result
+    assert "The account does have other leads" in result
+    # The count line survives, so the model still has the real answer to "how many".
+    assert "This account has 1 lead(s) in total" in result
+
+
+async def test_a_call_filter_that_matches_nothing_is_told_apart_from_an_empty_account() -> None:
+    """BOTH ARMS, because the point is the DIFFERENCE and one of them alone proves nothing.
+    The account with a completed call is told its filter missed; the account with no calls
+    at all is told it has no calls — and only the second is offered how to get started."""
+    busy, agent_id = await _tenant()
+    await _call(busy, agent_id, status="completed", outcome="resolved")
+    empty, _ = await _tenant()
+
+    missed_on_busy = await _run("calls_recent", busy, status="no_answer", limit=None)
+    missed_on_empty = await _run("calls_recent", empty, status="no_answer", limit=None)
+
+    assert "The account does have other calls" in missed_on_busy
+    assert "no calls at all yet, so none with status no_answer either" in missed_on_empty
+    assert "does have other calls" not in missed_on_empty
+
+
+async def test_an_unfiltered_empty_call_list_pays_for_no_second_query() -> None:
+    """The ambiguity only exists when a filter was applied: an unfiltered reader that came
+    back empty has already proved the account has no calls. Asserting the SENTENCE is how
+    this pins the branch — the "filter" wording cannot appear."""
+    tenant_id, _ = await _tenant()
+
+    result = await _run("calls_recent", tenant_id, status=None, limit=None)
+
+    assert result.startswith("This account has no calls yet.")
+    assert "filter" not in result
+
+
+async def test_an_account_whose_agents_are_all_retired_is_not_told_it_has_none() -> None:
+    """`roster.list_agents` excludes the archive by default, so a retired-only account and a
+    brand-new one return the same empty roster — and the two need opposite sentences. The
+    archived probe runs only on the empty path."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'archived', archived_at = now() WHERE id = :i"),
+            {"i": agent_id},
+        )
+
+    result = await _run("agents_list", tenant_id, limit=None)
+
+    assert "has been retired (archived)" in result
+    assert "no working roster" in result
+
+
+# --- partial data: the states between "nothing" and "working" ---------------------------
+
+
+async def test_a_roster_that_cannot_take_a_call_says_so_once_rather_than_per_row() -> None:
+    """THE COMMONEST PARTIAL STATE ON A NEW ACCOUNT, and it is invisible per row: every line
+    says "not published" and nothing says what that ADDS UP TO. This is the sentence that
+    answers "why is nothing happening?" without the model having to infer it from N rows."""
+    tenant_id, _ = await _tenant()
+
+    result = await _run("agents_list", tenant_id, limit=None)
+
+    assert "None of these agents has been published to the phone system yet" in result
+    assert "no call can reach any of them" in result
+
+
+async def test_a_campaign_with_no_contacts_reads_as_a_state_not_as_two_zeros() -> None:
+    """ "0 contacts · 0 connected" is two failed measurements where the truth is one fact:
+    the list has not been uploaded. The connected count is meaningless until it is, so it is
+    not printed at all — and `launched_at` is the only thing that tells a campaign that
+    never dispatched from one that ran and finished."""
+    tenant_id, agent_id = await _tenant()
+    from apps.api.campaigns import service as campaigns_service
+
+    async with tenant_session(tenant_id) as session:
+        await campaigns_service.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Diwali offers",
+            classification="promotional",
+            number_id=None,
+            dlt_template_id=None,
+            concurrency=1,
+        )
+
+    result = await _run("campaigns_list", tenant_id)
+
+    assert "no contacts loaded yet" in result
+    assert "never launched" in result
+    assert "0 contacts" not in result
+    assert "0 connected" not in result
+
+
+# --- the three searches: "nothing matched" is not "nothing to search" -------------------
+#
+# A SEARCH HAS ONE MORE EMPTY THAN A LISTING DOES, and it is the one a new account always
+# hits: there is no corpus. `search_calls` used to answer that account with "either no
+# caller said anything like it, or those conversations are past the account's transcript
+# retention period and the words are gone" — a description of a corpus they have never had,
+# whose second half reads as data loss. Each of these asserts the corpus-level sentence AND
+# that the match-level one did not fire.
+
+
+async def test_a_knowledge_search_on_an_account_with_no_knowledge_says_which_empty() -> None:
+    tenant_id, _ = await _tenant()
+
+    result = await _run("search_knowledge", tenant_id, question="what are your opening hours")
+
+    assert "has not added anything to its knowledge base yet" in result
+    assert "Nothing in this account's published knowledge matches that" not in result
+
+
+async def test_knowledge_on_file_but_unapproved_is_a_step_outstanding_on_our_side() -> None:
+    """THE PARTIAL STATE THAT MUST NOT READ AS THE CLIENT'S FAULT. A source sitting in the
+    review queue is knowledge the client HAS WRITTEN and that we have not published, and the
+    retrieval result is empty either way. Told "nothing on file matches that", they go
+    looking for a fact they already wrote."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await kb_service.submit_source(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Hours",
+            body="We are open from nine in the morning until seven in the evening.",
+        )
+
+    result = await _run("search_knowledge", tenant_id, question="what are your opening hours")
+
+    assert "1 knowledge source(s) on file but NONE of them is published" in result
+    assert "waiting for approval" in result
+    assert "not a gap in what they wrote" in result
+
+
+async def test_a_lead_search_with_no_leads_to_search_says_so_rather_than_no_match() -> None:
+    tenant_id, _ = await _tenant()
+
+    result = await _run(
+        "leads_semantic_search", tenant_id, question="3BHK in Gachibowli", status=None, limit=None
+    )
+
+    assert result.startswith("This account has no leads yet.")
+    assert "No lead's captured answers match that" not in result
+
+
+async def test_a_call_search_with_no_calls_never_blames_the_retention_period() -> None:
+    tenant_id, _ = await _tenant()
+
+    result = await _run("search_calls", tenant_id, question="weekend appointment", limit=None)
+
+    assert result.startswith("This account has no calls yet.")
+    assert "retention" not in result
+
+
+# --- the admin realm: the same rule, a different population -----------------------------
+
+
+async def test_the_platform_directory_says_zeros_as_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AN OPERATOR'S QUESTION ABOUT THIS LIST IS ALMOST ALWAYS "WHICH OF THESE HAS NOT
+    STARTED", and a row of digits makes them count noughts. "no live agent, no calls in 7d,
+    no leads yet" is the same fact stated as the finding it is.
+
+    The directory reader is STUBBED rather than seeded, and that is deliberate: this asserts
+    the RENDERER, and `tenant_overview` walks every account on the platform (it is N+1 by
+    construction and says so), so a seeded version of this test would grow with the shared
+    database while proving the same one line. Its own correctness is `admin/service`'s.
+    """
+    monkeypatch.setattr(
+        admin_service,
+        "tenant_overview",
+        lambda session: _resolved(
+            [
+                {
+                    "name": "Quiet Clinic",
+                    "slug": "quiet-clinic",
+                    "status": "active",
+                    "vertical_template": "clinic",
+                    "live_agents": 0,
+                    "calls_7d": 0,
+                    "leads": 0,
+                    "last_call_at": None,
+                    "capped": False,
+                    "holds": [],
+                }
+            ]
+        ),
+    )
+
+    result = await tools.run_read_tool(
+        "platform_tenants",
+        json.dumps({"limit": None}),
+        context=tools.ToolContext(tenant_id=None, role="operator"),
+        registry=copilot_service._read_tool_registry("admin"),
+    )
+
+    assert "no live agent, no calls in 7d, no leads yet" in result
+    assert "last call never" in result
+    assert "0 " not in result
 
 
 # --- the cap ----------------------------------------------------------------------------
