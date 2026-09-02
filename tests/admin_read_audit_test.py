@@ -211,7 +211,16 @@ def test_every_direct_per_tenant_admin_read_records_one() -> None:
     for route in iter_api_routes(app):
         if not route.path.startswith(("/v1/admin/", "/v1/ops/")):
             continue
-        if "{tenant_id}" not in route.path and "{org_id}" not in route.path:
+        # ANY path parameter, not only `{tenant_id}`/`{org_id}`.
+        #
+        # THE TENANT IS NOT ALWAYS IN THE PATH, and that was the blind spot: a route can
+        # take some OTHER id and resolve the tenant from the row it names.
+        # `GET /v1/admin/qa-samples/{sample_id}` is exactly that — it reads one client's
+        # sampled call, and the narrower filter skipped it entirely, so the guard could not
+        # have noticed if its audit row were ever removed. It writes one today
+        # (`qa_sample.read`, in the same transaction as the read), which is why widening
+        # this costs nothing now; the point is that the NEXT such route is seen.
+        if "{" not in route.path:
             continue
         methods = sorted(m for m in (route.methods or []) if m in {"GET"})
         if not methods:
@@ -224,13 +233,18 @@ def test_every_direct_per_tenant_admin_read_records_one() -> None:
             source = inspect.getsource(route.endpoint)
         except OSError:  # pragma: no cover — source is always on disk here
             continue
-        if "record_admin_tenant_read" not in source:
+        # EITHER helper counts. `record_admin_tenant_read` is the coalescing one most
+        # admin reads use; a route disclosing a single named object writes a specific
+        # `write_audit` action instead (`qa_sample.read`), which is a better ledger entry
+        # for that case, not a weaker one. What the ledger needs is a row, not a spelling.
+        if "record_admin_tenant_read" not in source and "write_audit" not in source:
             missing.append(name)
 
     assert seen, "found no per-tenant admin GET routes — this walk sees nothing"
     assert not missing, (
         "these admin-realm GETs read one client's tenant-scoped rows and leave no "
-        f"`admin.tenant_read` row (SEC-COMP §5, D-482 L-1): {missing}. Call "
-        "`record_admin_tenant_read` inside the route's transaction, or record in "
-        "_NOT_A_PER_TENANT_READ why the route reads nothing of the client's."
+        f"audit row (SEC-COMP §5, D-482 L-1): {missing}. Call "
+        "`record_admin_tenant_read` inside the route's transaction — or `write_audit` "
+        "with an action naming what was disclosed — or record in _NOT_A_PER_TENANT_READ "
+        "why the route reads nothing of the client's."
     )
