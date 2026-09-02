@@ -209,9 +209,10 @@ def _created_before(source: str, table: str, line: int, forced: list[int]) -> bo
     if re.search(rf"""create_table\(\s*["']{table}["']""", source):
         return not forced or line < min(forced)
     # `op.create_table(TABLE, ...)` with `TABLE = "<name>"` a module constant.
-    if re.search(rf"""^TABLE\s*(?::[^=]+)?=\s*["']{table}["']""", source, re.MULTILINE):
-        if re.search(r"create_table\(\s*TABLE\b", source):
-            return not forced or line < min(forced)
+    if re.search(
+        rf"""^TABLE\s*(?::[^=]+)?=\s*["']{table}["']""", source, re.MULTILINE
+    ) and re.search(r"create_table\(\s*TABLE\b", source):
+        return not forced or line < min(forced)
     return False
 
 

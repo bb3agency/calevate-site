@@ -149,7 +149,7 @@ def test_every_table_the_repair_touches_is_bracketed_and_unbracketed_again() -> 
 async def test_an_agent_with_no_split_disclosure_gets_one() -> None:
     """Hard rule 5's columns, filled. The dial gate refuses an agent with no AI sentence, so
     an agent left in this state by the swallowed migration cannot make a call at all."""
-    tenant_id, agent_id = await _tenant()
+    _, agent_id = await _tenant()
     async with _owner_tx() as session:
         # The pre-repair state: the legacy bundled line present, the two columns empty. The
         # NOT NULL and CHECK on `ai_disclosure_line` are dropped for the duration — the
@@ -194,7 +194,7 @@ async def test_an_agent_already_split_is_not_touched() -> None:
     repair without the `IS NULL` guard — silently rewriting a compliance sentence somebody
     chose, on a database that was never broken.
     """
-    tenant_id, agent_id = await _tenant()
+    _, agent_id = await _tenant()
     mine = "Namaskaram, this is Dr Rao's clinic assistant, an AI."
     async with _owner_tx() as session:
         await session.execute(
