@@ -62,17 +62,25 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.core.settings import get_settings
 from calevate_shared.client_address import client_ip
-from engine_intake import engine_label, execution_key, verify_source
+from engine_intake import engine_label, execution_key, scalar_hint, verify_source
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
 
-# The ack accounting, the bounded read and the deadlines, from the receiver that already
-# owns them. Private by convention, not by intent — see the module docstring. `TOOL_ACK`
-# is what tells the two endpoints apart inside those shared helpers: this one's acks land
-# in `tool_ack_ms` and its breaches are named `tool_*`, so the in-call budget (TRD §6.2,
+# The ack accounting and the bounded read, from the receiver that already owns them.
+# Private by convention, not by intent — see the module docstring. `TOOL_ACK` is what
+# tells the two endpoints apart inside those shared helpers: this one's acks land in
+# `tool_ack_ms` and its breaches are named `tool_*`, so the in-call budget (TRD §6.2,
 # 100ms) can be read off a series of its own instead of being averaged into the post-call
 # receiver's `webhook_ack_ms`.
-from webhook_routes import _DURABLE_DEADLINE_S, TOOL_ACK, _ack, _read_bounded, measured
+#
+# **AND THE DEADLINES AND THE SIZE CAP TRAVEL WITH IT NOW.** This module used to import
+# `_DURABLE_DEADLINE_S` by name and inherit `_BODY_DEADLINE_S` through a default argument
+# — the RECEIVER's two seconds each, on the one endpoint in this service where a person
+# is listening to the wait. Four seconds of dead air mid-call, on numbers justified by a
+# sentence ("the cost of being wrong is one poller cycle") that this file's own docstring
+# contradicts one paragraph later. They are per-surface facts and they now sit on the
+# per-surface descriptor, argued where it is declared.
+from webhook_routes import TOOL_ACK, _ack, _read_bounded, measured
 
 log = get_logger(__name__)
 
@@ -84,11 +92,6 @@ router = APIRouter(prefix="/tools/v1", tags=["in-call-tools"])
 # `ingest_engine_event` the same way for the same reason. The two are asserted equal in
 # `tests/call_optout_test.py`, so the duplication cannot drift.
 OPTOUT_JOB = "record_in_call_optout"
-
-# A tool call is an execution id, a language tag and a sentence of reason. A kilobyte is
-# already generous; the receiver's megabyte is sized for a transcript-bearing webhook and
-# would be an absurd allocation to accept from a stranger here.
-_MAX_TOOL_BODY = 4096
 
 
 class ToolAckOut(BaseModel):
@@ -140,7 +143,7 @@ async def _opt_out(
         )
         raise ProblemError.unauthorized("This caller is not permitted to call this tool.")
 
-    raw = await _read_bounded(request, engine=engine, limit=_MAX_TOOL_BODY, meter=TOOL_ACK)
+    raw = await _read_bounded(request, engine=engine, meter=TOOL_ACK)
     if raw is None:
         alert("ROUTE_HANDLER", "tool_payload_too_large", engine=engine)
         raise ProblemError(
@@ -178,7 +181,7 @@ async def _opt_out(
         )
 
     try:
-        async with asyncio.timeout(_DURABLE_DEADLINE_S):
+        async with asyncio.timeout(TOOL_ACK.durable_deadline_s):
             job_id = await enqueue(
                 OPTOUT_JOB,
                 {
@@ -187,8 +190,15 @@ async def _opt_out(
                     # HINTS ONLY, both bounded and both re-derived downstream where it
                     # matters: the worker reads the number, the direction and the tenant
                     # from the authenticated fetch. These two only become evidence text.
-                    "reason": str(payload.get("reason") or "")[:200],
-                    "language": str(payload.get("language") or "")[:8],
+                    #
+                    # `scalar_hint`, NOT `str(...)`. `str()` renders a CONTAINER with
+                    # Python's repr, so a caller sending `{"reason": {"a": 1}}` filed
+                    # `"{'a': 1}"` as the words a caller used to withdraw consent — into
+                    # `consent_ledger`, which is append-only (hard rule 4) and is the
+                    # evidence this platform would show a regulator. A reason we cannot
+                    # read is no reason at all, and an empty one is honest.
+                    "reason": (scalar_hint(payload.get("reason")) or "")[:200],
+                    "language": (scalar_hint(payload.get("language")) or "")[:8],
                 },
                 # One suppression per execution: the model invoking the function twice,
                 # or the engine retrying it, must not queue two jobs. Not a correctness

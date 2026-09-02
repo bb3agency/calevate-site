@@ -42,6 +42,7 @@ import sys
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -375,7 +376,11 @@ async def _drive(http: AsyncClient, tag: str) -> None:
 
     await _hang_up_mid_body(HOOK)  # 400: ClientDisconnect out of the stream
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(webhook_routes, "_BODY_DEADLINE_S", 0.05)
+        patch.setattr(
+            webhook_routes,
+            "WEBHOOK_ACK",
+            replace(webhook_routes.WEBHOOK_ACK, body_deadline_s=0.05),
+        )
         await http.post(HOOK, content=_trickle(), headers=headers)  # 408
         patch.setattr(webhook_routes, "claim_inbox_event", _conflict)
         await http.post(HOOK, json=body, headers=headers)  # 409 from the inbox

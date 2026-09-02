@@ -119,7 +119,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import pytest
@@ -596,7 +596,9 @@ async def test_a_storm_that_all_times_out_leaks_no_connection_and_loses_no_event
     `pg_sleep` inside the claim's own transaction, because the property is that a query
     IN FLIGHT can be abandoned — not that an `asyncio.sleep` can be cancelled.
     """
-    monkeypatch.setattr(webhook_routes, "_DURABLE_DEADLINE_S", 0.35)
+    monkeypatch.setattr(
+        webhook_routes, "WEBHOOK_ACK", replace(webhook_routes.WEBHOOK_ACK, durable_deadline_s=0.35)
+    )
     real_claim = webhook_routes.claim_inbox_event
 
     async def _stalled(session: Any, **kwargs: Any) -> Any:
