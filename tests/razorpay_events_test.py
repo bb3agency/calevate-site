@@ -1055,3 +1055,189 @@ async def test_a_partial_refund_of_a_pack_takes_back_that_share_of_the_bonus(
     assert await _balance(tenant_id) == Decimal("0.0000"), (
         "the clawbacks sum to exactly the bonus granted, with no rounding residue"
     )
+
+
+# ============================================================================
+# The refund ceiling under CONCURRENCY — the half the aggregate ceiling did not hold
+# ============================================================================
+#
+# `test_partial_refunds_may_not_exceed_the_payment_in_aggregate` above proves the
+# SEQUENTIAL case: the second request runs after the first has recorded its compensating
+# entry, so a read of `credit_ledger` sees it. That was the whole of the ceiling, and it
+# was checked inside a `tenant_session` while the provider was called AFTER that block
+# ended — and `pg_advisory_xact_lock` is released by COMMIT. So two operators acting at
+# the same moment both read "nothing refunded yet" and both reached the provider.
+#
+# The reproduction below does not need threads: it starts the second refund from INSIDE
+# the first one's provider call, which is exactly the window the released lock left open —
+# the first request's transaction has committed and its ledger entry does not exist yet.
+
+
+async def test_a_second_refund_started_mid_flight_cannot_cross_the_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """₹2,000 and ₹1,000 against a ₹2,500 payment, the second issued while the first is
+    still at the provider. Before the claim table both reached the wire and ₹500 the
+    client never paid went back."""
+    tenant_id = await _tenant()
+    pid = _payment_id("RACE")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    inner: list[ProblemError] = []
+    settled = _refund_by_amount("rfnd_RACE")
+
+    async def racing(request: httpx.Request) -> httpx.Response:
+        # ONE reentry only: the second refund's own provider call must not recurse.
+        if not inner and len(seen) == 1:
+            with pytest.raises(ProblemError) as raised:
+                await issue_tenant_refund(
+                    tenant_id,
+                    RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="concurrent"),
+                    _request(),
+                    _admin(),
+                )
+            inner.append(raised.value)
+        return settled(request)
+
+    seen = _install_refund(monkeypatch, racing)
+
+    first = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    assert first.recorded is True
+    assert [problem.code for problem in inner] == ["refund_exceeds_payment"]
+    assert len(seen) == 1, "the concurrent refund must never reach the provider"
+    assert await _balance(tenant_id) == Decimal("500.0000")
+
+
+async def test_the_claim_is_committed_before_the_provider_is_called(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ceiling can only span the vendor call if the row it counts is already
+    committed when the call is made — a read inside the request's own transaction is
+    invisible to everyone else and gone by then."""
+    tenant_id = await _tenant()
+    pid = _payment_id("CLAIM")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    claimed: list[Decimal] = []
+    settled = _refund_by_amount("rfnd_CLAIM")
+
+    async def observing(request: httpx.Request) -> httpx.Response:
+        async with tenant_session(tenant_id) as session:
+            claimed.append(
+                await payments.claimed_refund_total_inr(
+                    session, tenant_id=tenant_id, payment_id=pid
+                )
+            )
+        return settled(request)
+
+    _install_refund(monkeypatch, observing)
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    assert claimed == [Decimal("2000.0000")]
+
+
+async def test_a_refund_the_provider_refuses_releases_its_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No money moved, so nothing may go on being reserved: one vendor 500 must not
+    permanently shrink what this client can be refunded."""
+    tenant_id = await _tenant()
+    pid = _payment_id("RELEASE")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    def broken(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": {"description": "provider is down"}})
+
+    _install_refund(monkeypatch, broken)
+    with pytest.raises(ProblemError):
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    async with tenant_session(tenant_id) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=pid
+        ) == Decimal("0")
+
+    # And the whole payment is still refundable once the provider is back.
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_RETRY"))
+    out = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="retry"),
+        _request(),
+        _admin(),
+    )
+    assert out.recorded is True
+    assert await _balance(tenant_id) == Decimal("0.0000")
+
+
+async def test_a_second_click_on_one_refund_is_still_a_replay_and_not_a_breach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The provider's idempotency key is `(payment_id, amount)`, so the same amount asked
+    twice can only collapse onto the refund that exists. It must stay the no-op it was
+    and must not be refused as a breach of a ceiling it does not move."""
+    tenant_id = await _tenant()
+    pid = _payment_id("REPLAY")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_REPLAY"))
+
+    first = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+        _request(),
+        _admin(),
+    )
+    second = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+        _request(),
+        _admin(),
+    )
+    assert first.recorded is True
+    assert second.recorded is False
+    async with tenant_session(tenant_id) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=pid
+        ) == Decimal("2500.0000"), "a replay adds nothing to what the ceiling counts"
+
+
+async def test_one_tenants_refund_claims_are_invisible_to_another(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hard rule 1's cross-tenant zero-rows test for `refund_intents`.
+
+    It matters more here than the shape suggests: the ceiling is a SUM over this table,
+    so a claim leaking across tenants would refuse a refund one client is owed because
+    another client had already been refunded."""
+    tenant_a = await _tenant()
+    tenant_b = await _tenant()
+    pid = _payment_id("RLS")
+    await _fund(tenant_a, payment_id=pid, amount_inr="2500.00")
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_RLS"))
+    await issue_tenant_refund(
+        tenant_a,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+        _request(),
+        _admin(),
+    )
+
+    async with tenant_session(tenant_a) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_a, payment_id=pid
+        ) == Decimal("2500.0000")
+    async with tenant_session(tenant_b) as session:
+        assert (await session.execute(text("SELECT count(*) FROM refund_intents"))).scalar() == 0, (
+            "another tenant's claims must not be readable"
+        )

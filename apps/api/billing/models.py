@@ -685,4 +685,76 @@ class PlatformListRate(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class RefundIntent(PKMixin, Base):
+    """A refund this platform has COMMITTED TO ASKING THE PROVIDER FOR, written before
+    the ask (D-511).
+
+    **WHY A CLAIM TABLE AND NOT A READ OF `credit_ledger`.** The refund ceiling — "the
+    refunds of one payment may not add up to more than the payment" — used to be checked
+    against the `refund` rows already on the wallet. That check is correct and it was in
+    the wrong place: `issue_tenant_refund` read it inside one `tenant_session`, and
+    `pg_advisory_xact_lock` is released by that transaction's COMMIT, so the lock was gone
+    before the provider was called. Two operators refunding ₹2,000 and ₹1,000 against a
+    ₹2,500 top-up at the same moment both read "nothing refunded yet", both passed the
+    ceiling, and both issued a provider refund — ₹500 returned that the client never paid,
+    as two compensating entries an append-only ledger cannot take back (hard rule 4). The
+    sequential case was closed; the concurrent one was not, and the comment on the route
+    said otherwise.
+
+    A ledger row cannot close it, because the money movement it records does not exist
+    yet: the provider has not been called, and the refund id the entry is keyed on is the
+    provider's answer. So the claim is its own fact, taken and COMMITTED before the
+    network call, and the ceiling is checked against claims rather than against
+    settlements. Nothing else reads this table; `credit_ledger` remains the record of
+    money.
+
+    **NOT append-only, deliberately, and it must never join
+    `db/registry.APPEND_ONLY_TABLES`.** It is a claim, in the sense
+    `outbox_messages`/`webhook_inbox_events` are (BACKEND-PATTERNS §4): a claim whose
+    provider call then FAILED has to be released, or a transient 502 would permanently
+    shrink what a client can be refunded. `payments.release_refund_claim` is that DELETE
+    and it is the only one.
+
+    `refund_key` is `payments.refund_idempotency_key(payment_id, amount)` — the very key
+    sent to the provider — so the unique index and the provider's own idempotency collapse
+    the SAME set of requests: a second click on one refund is one row here and one refund
+    there. That is what lets the route keep treating a repeat of an amount already claimed
+    as a replay rather than as a breach of the ceiling.
+    """
+
+    __tablename__ = "refund_intents"
+    __table_args__ = (
+        # A refund of nothing, or of a negative amount, is not a refund. The route
+        # refuses both; this is the database saying so where a future writer cannot
+        # forget it.
+        CheckConstraint("amount_inr > 0", name="amount_positive"),
+        # THE claim. One row per (tenant, provider idempotency key) — so a re-click, a
+        # retried request and two concurrent identical asks are one claim, and the loser
+        # of the race blocks on the index rather than adding to the total.
+        Index("ux_refund_intents_tenant_key", "tenant_id", "refund_key", unique=True),
+        # The ceiling's own read: everything claimed against one payment.
+        Index("ix_refund_intents_tenant_payment", "tenant_id", "payment_ref", unique=False),
+    )
+
+    # No `index=True`: both composites above lead with this column (the argument
+    # `one_time_charges` records).
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The provider payment this refund is against — the same value `credit_ledger`
+    #: carries as a `topup` row's `ref`.
+    payment_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `payments.refund_idempotency_key(payment_id, amount)`. Stored rather than derived
+    #: on read so the unique index is over the exact string the provider was given.
+    refund_key: Mapped[str] = mapped_column(Text, nullable=False)
+    #: INR, NUMERIC never float (hard rule 7), at the ledger's own storage scale so a
+    #: claim and the compensating entry it becomes are the same number.
+    amount_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: WHEN the claim was taken, which is `created_at` and nothing else. There is
+    #: deliberately no second `claimed_at` beside it: a claim exists from the instant it
+    #: is written, so the two would be one moment stored twice — a column nothing reads,
+    #: which `scripts/check_half_wired.py` refuses, correctly, and which it caught here.
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

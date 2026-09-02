@@ -91,6 +91,11 @@ TENANT_TABLES = [
     # what this client was billed once, read by the invoice.
     "one_time_charges",
     "spend_state",
+    # A refund this platform has committed to asking the provider for, written BEFORE the
+    # ask (migration c4b8e91d7a05). Tenant money: which of this client's payments is being
+    # returned and how much. NOT append-only — a claim whose provider call failed is
+    # released, which is why it is here and not in APPEND_ONLY_TABLES.
+    "refund_intents",
     "consent_ledger",
     # The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7): our own customer's owner
     # agreeing to receive hot-lead alerts from the Calevate WABA. Tenant data — it names

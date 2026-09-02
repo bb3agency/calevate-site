@@ -71,6 +71,7 @@ from apps.api.billing.payments import (
     SIGNATURE_HEADER,
     SUPPORTED_CURRENCY,
     RefundEvent,
+    claim_refund,
     credit_captured_payment,
     credit_refund,
     event_name,
@@ -84,7 +85,7 @@ from apps.api.billing.payments import (
     payments_not_configured,
     razorpay_api_secret,
     razorpay_orders,
-    refunded_amounts_inr,
+    release_refund_claim,
     topup_receipt,
     verify_checkout_signature,
     verify_signature,
@@ -891,11 +892,27 @@ async def issue_tenant_refund(
 
     1. Resolve the amount — a full refund is the top-up recorded for this payment, read
        from the ledger, so an operator need not retype it and cannot fat-finger it.
-    2. `issue_refund` calls the provider OUTSIDE any transaction (BACKEND-PATTERNS §5).
-    3. Only if the provider reports the refund already PROCESSED do we write the
+    2. CLAIM the refund and COMMIT the claim (`claim_refund`), which is where the ceiling
+       is now enforced. It has to be a committed row rather than a read, because the act
+       it guards happens after the transaction ends — see below.
+    3. `issue_refund` calls the provider OUTSIDE any transaction (BACKEND-PATTERNS §5).
+       If it raises, the claim this request took is RELEASED: no money moved, so nothing
+       may go on counting against what the client can still be refunded.
+    4. Only if the provider reports the refund already PROCESSED do we write the
        compensating entry now (`credit_refund`, idempotent on the refund id). Otherwise
        the `refund.processed` webhook writes it — same single writer, deduped on the same
        ref, so the entry lands exactly once whichever path gets there first.
+
+    **WHY STEP 2 IS A COMMITTED ROW AND NOT THE LEDGER READ IT REPLACES.** This route used
+    to read the refunds already on `credit_ledger` under `lock_tenant_credits` and call
+    that "the check half of a check-then-write". It was not: `pg_advisory_xact_lock` is
+    released by COMMIT, and the transaction ended at the `async with` before the provider
+    was called. Two operators refunding ₹2,000 and ₹1,000 against a ₹2,500 top-up at the
+    same moment both read "nothing refunded yet", both passed, and both issued a provider
+    refund — ₹500 the client never paid, as two entries an append-only ledger cannot take
+    back. `billing/payments.claim_refund` carries the whole argument and migration
+    `c4b8e91d7a05` carries why neither an advisory lock nor a Redis lease can span a
+    vendor call.
 
     Audited on the operator's issuance regardless of whether the entry landed here, because
     the privileged act is asking for the refund; the system-actor `credit.refund` audit
@@ -910,12 +927,6 @@ async def issue_tenant_refund(
             # row would be a compensating entry against nothing — an ops error, not a route.
             raise ProblemError.not_found("Payment")
         topup_amount = existing_topup.amount_inr
-        # Under the credit lock, and read in the same breath as the payment: this is the
-        # check half of a check-then-write, and the write it guards is a provider call that
-        # cannot be undone. `find_topup` has already taken the lock.
-        already_refunded = await refunded_amounts_inr(
-            session, tenant_id=tenant_id, payment_id=payload.payment_id
-        )
 
     amount = payload.amount_inr if payload.amount_inr is not None else topup_amount
     if amount <= 0:
@@ -924,29 +935,38 @@ async def issue_tenant_refund(
             "A refund amount must be positive.",
             remediation="Send a positive amount, or omit it to refund the whole payment.",
         )
-    # THE CEILING IS ON THE TOTAL, NOT ON THIS REQUEST, and it used to be on this request
-    # alone: ₹2,000 and then ₹1,000 against a ₹2,500 payment each passed `amount >
-    # topup_amount` and together returned ₹500 the client never paid, as two compensating
-    # entries that an append-only ledger cannot take back (hard rule 4).
-    #
-    # The one amount that may exceed the remainder is one ALREADY RECORDED: the provider's
-    # idempotency key is derived from `(payment_id, amount)`, so a second click on the same
-    # refund is the same amount and must stay the no-op replay it is today rather than
-    # becoming a refusal. Two genuinely distinct refunds of one payment for the identical
-    # amount cannot exist — they collapse onto one provider refund — so this admits a replay
-    # and nothing else.
-    remaining = topup_amount - sum(already_refunded, Decimal("0.00"))
-    if amount > remaining and amount not in already_refunded:
-        raise ProblemError.business_rule(
-            "refund_exceeds_payment",
-            f"That payment was ₹{to_paise(topup_amount)}, ₹{to_paise(topup_amount - remaining)} "
-            f"of it has already been refunded, and this asks to refund ₹{to_paise(amount)}.",
-            remediation=f"Refund at most the ₹{to_paise(remaining)} still outstanding on it.",
+
+    # THE CEILING IS ON THE TOTAL, NOT ON THIS REQUEST, and it is enforced by a COMMITTED
+    # CLAIM rather than by a read (`claim_refund`, and the docstring above for why the
+    # read could not hold it). A repeat of an amount already claimed comes back
+    # `claimed=False` and is let through as the replay it is: the provider's own
+    # idempotency key is `(payment_id, amount)`, so it can only collapse onto the refund
+    # that already exists.
+    async with tenant_session(tenant_id) as session:
+        claim = await claim_refund(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payload.payment_id,
+            amount_inr=amount,
+            payment_total_inr=topup_amount,
         )
 
-    refund = await issue_refund(
-        tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
-    )
+    try:
+        refund = await issue_refund(
+            tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
+        )
+    except Exception:
+        # NOTHING MOVED, SO NOTHING MAY GO ON BEING RESERVED. A claim left behind by a
+        # vendor timeout would shrink what this client can be refunded for ever — money
+        # withheld by an outage, which is a worse failure than the double refund the
+        # claim exists to prevent. Only a claim THIS request took is released; a replay's
+        # belongs to the refund that already exists.
+        if claim.claimed:
+            async with tenant_session(tenant_id) as session:
+                await release_refund_claim(
+                    session, tenant_id=tenant_id, refund_key=claim.refund_key
+                )
+        raise
     ip = client_request_ip(request)
 
     recorded = False
