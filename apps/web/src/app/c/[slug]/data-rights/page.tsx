@@ -27,6 +27,7 @@ import {
   DANGER_BUTTON,
   formatCount,
   formatIST,
+  istDateStamp,
 } from "@/components/ui";
 import {
   DELETION_REQUEST_LIST_LIMIT,
@@ -256,7 +257,7 @@ function SubjectExportCard({ session }: { session: Session }) {
         <Field
           id="subject-export-phone"
           label="Their phone number"
-          hint="Ten digits, or the full number starting with +. It is sent in the request body and never appears in a web address."
+          hint="Ten digits, or the full number starting with +. We send it privately — it never appears in the web address at the top of your browser, and never in your history."
         >
           <input
             required
@@ -350,8 +351,10 @@ function SubjectExportCard({ session }: { session: Session }) {
                 downloadJson(
                   exportDocument.data,
                   // Named for the day, never for the number (hard rule 6): filenames end
-                  // up in mail clients, chat threads and shared folders.
-                  `subject-access-export-${new Date().toISOString().slice(0, 10)}.json`,
+                  // up in mail clients, chat threads and shared folders. The IST day —
+                  // `toISOString()` is still on yesterday until 05:30 IST, and this is a
+                  // statutory record whose date somebody may later have to place.
+                  `subject-access-export-${istDateStamp()}.json`,
                 )
               }
               className={`${SECONDARY_BUTTON_SM} mt-3`}

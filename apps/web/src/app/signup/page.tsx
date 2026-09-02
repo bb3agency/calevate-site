@@ -523,9 +523,13 @@ function SignupForm() {
                 ))}
               </ul>
             )}
-            {problem.traceId && (
-              <p className="font-mono text-[11px]">ref {problem.traceId}</p>
-            )}
+            {/* NO TRACE REFERENCE ON THIS BRANCH. This arm is reached only when the
+                server named specific answers to change, which is a refusal the person
+                can clear themselves — and a 32-character id printed beside "check the
+                answers marked below" competes with the only line that helps, and makes a
+                fixable form look like an outage. `ProblemNotice` (the branch above, for a
+                refusal that names nothing to fix) applies the same rule and still carries
+                the reference where it is genuinely ours to look up. */}
           </div>
         </NoticeBox>
       )}

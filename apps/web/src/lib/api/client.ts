@@ -19,6 +19,20 @@ import type { components } from "./schema";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+/**
+ * A problem+json string, or nothing — where "nothing" includes the empty string.
+ *
+ * Every field this reads is prose destined for a screen, and a blank one is not a
+ * sentence: it is the ABSENCE of one, and must fall through to whatever the caller has
+ * to say instead. Treating `""` as a value is how a refusal reaches a client with no
+ * words in it (see the constructor).
+ */
+function text(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 export class ApiProblem extends Error {
   readonly status: number;
   readonly kind: string;
@@ -29,16 +43,23 @@ export class ApiProblem extends Error {
   readonly traceId?: string;
 
   constructor(status: number, body: Record<string, unknown>) {
-    super(String(body.detail ?? body.title ?? "Request failed"));
+    // `??` alone was not enough and the gap only opened in production: `??` falls
+    // through `null`/`undefined` and NOT through `""`, so a body carrying an empty
+    // `detail` — which is what `problemFrom`'s fallback produced over HTTP/2, see below
+    // — became an `Error` whose message was the empty string, and `ProblemNotice`
+    // rendered a red box with no words in it.
+    super(text(body.detail) ?? text(body.title) ?? "We could not finish that.");
     this.name = "ApiProblem";
     this.status = status;
-    this.kind = String(body.kind ?? "internal");
-    // `type` is a URL whose last segment is the stable machine code.
-    this.code = String(body.type ?? "").split("/").pop() ?? "unknown";
+    this.kind = text(body.kind) ?? "internal";
+    // `type` is a URL whose last segment is the stable machine code. `"".split("/").pop()`
+    // is `""`, not `undefined`, so the fallback beside it never fired on a body with no
+    // `type` and callers comparing `code` met an empty string instead of "unknown".
+    this.code = text(String(body.type ?? "").split("/").pop()) ?? "unknown";
     this.retryable = Boolean(body.retryable);
-    this.remediation = body.remediation as string | undefined;
+    this.remediation = text(body.remediation);
     this.fields = body.fields as ApiProblem["fields"];
-    this.traceId = body.trace_id as string | undefined;
+    this.traceId = text(body.trace_id);
   }
 }
 
@@ -493,9 +514,69 @@ export async function problemFrom(response: Response): Promise<ApiProblem> {
   try {
     problem = await response.json();
   } catch {
-    problem = { detail: response.statusText };
+    problem = transportProblem(response.status);
   }
   return new ApiProblem(response.status, problem);
+}
+
+/**
+ * A failure something between the browser and our app produced, said in a person's words.
+ *
+ * ## Why `response.statusText` is not read here any more
+ *
+ * It used to be the whole of this fallback, and it is unusable in production for two
+ * reasons that only appear once TLS and HTTP/2 are in front of the app —
+ * `infra/nginx/calevate.conf.template` sets `http2 on` on every server block, so this is
+ * the ordinary case rather than an exotic one:
+ *
+ * - **HTTP/2 carries no reason phrase.** RFC 9113 §8.3.2: it "does not define a way to
+ *   carry the version or reason phrase that is included in an HTTP/1.1 status line". The
+ *   Fetch Standard therefore leaves `statusText` empty and Chrome returns `""`
+ *   (whatwg/fetch#599, read 2 Sep 2026) — so the sentence a client met on a 502 was the
+ *   empty string, rendered as a red box with nothing in it.
+ * - **Where it is NOT empty it is wire text.** Safari has returned the whole status line,
+ *   `"HTTP/2.0 502"` (WebKit bug 176479), and an HTTP/1.1 hop gives "Bad Gateway". Both
+ *   are protocol vocabulary printed at a shop owner as if it were an explanation.
+ *
+ * The STATUS is the only thing every transport guarantees us, so the sentence is derived
+ * from it and nothing else. Each arm says whose problem it is and what happens next,
+ * because that is the difference between a refusal a person can act on and a dead end.
+ *
+ * `retryable` is set here for the same reason: a body we did not write carries none, and
+ * `Boolean(undefined)` said "do not offer to try again" on exactly the failures — a
+ * gateway that blinked, a restart mid-deploy — that a second attempt fixes.
+ */
+function transportProblem(status: number): Record<string, unknown> {
+  if (status === 429)
+    return {
+      kind: "rate_limited",
+      detail: "Too many requests from this account just now.",
+      remediation: "Wait a minute and try again.",
+      retryable: true,
+    };
+  if (status === 413)
+    return {
+      kind: "too_large",
+      detail: "That file is too big for us to accept.",
+      remediation: "Send a smaller one, or split it in two.",
+      retryable: false,
+    };
+  if (status >= 500)
+    return {
+      kind: "unavailable",
+      detail: "Calevate is not answering right now.",
+      // True and useful together: these clear on their own, and the client is not the
+      // one who can clear them. Saying "check your connection" here would be a wrong
+      // diagnosis — the connection reached us, which is how we got a status at all.
+      remediation: "This is at our end, not yours. Try again in a moment.",
+      retryable: true,
+    };
+  return {
+    kind: "refused",
+    detail: "That did not go through.",
+    remediation: "Try again, and tell us if it keeps happening.",
+    retryable: false,
+  };
 }
 
 /** A 2xx body: `undefined` for 204, text for anything non-JSON, otherwise the JSON. */

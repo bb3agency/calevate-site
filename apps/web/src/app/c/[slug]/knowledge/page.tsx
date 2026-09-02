@@ -441,7 +441,12 @@ export default function KnowledgePage() {
                                     key={chunk.idx}
                                     className="rounded-md border border-line bg-surface p-2 text-xs text-ink-muted"
                                   >
-                                    <p>{chunk.content}</p>
+                                    {/* The client's OWN words, at whatever length and in
+                                        whatever script they typed them. A price list or a
+                                        URL with no space in it walked this card off the
+                                        side of a phone; `break-words` is the only thing
+                                        between an unbroken token and a sideways page. */}
+                                    <p className="break-words">{chunk.content}</p>
                                     {/* THE GLOSS, AND IT IS LABELLED AS A MACHINE'S WORK.
                                         It is a SEARCH AID, not something the agent says:
                                         it exists so a caller who asks in Telugu typed in
@@ -451,7 +456,7 @@ export default function KnowledgePage() {
                                         the label is part of the feature rather than
                                         decoration. */}
                                     {chunk.gloss ? (
-                                      <p className="mt-2 border-t border-line pt-2 text-ink-faint">
+                                      <p className="mt-2 break-words border-t border-line pt-2 text-ink-faint">
                                         <span className="font-medium">
                                           Auto-translated for search
                                         </span>{" "}
