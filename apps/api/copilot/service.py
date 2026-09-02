@@ -44,6 +44,11 @@ from apps.api.copilot import admin_prompt as admin_prompt_module
 from apps.api.copilot import admin_tools, write_tools
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import tools as tools_module
+from apps.api.copilot.identity import (
+    IdentityEgress,
+    identity_answer,
+    question_touches_model_identity,
+)
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -1481,7 +1486,7 @@ async def _run_tool_loop(
     )
 
 
-async def run_copilot(
+async def _answer_stream(
     payload: CopilotAskIn,
     *,
     tenant_leg: TenantModelLeg | None = None,
@@ -1601,6 +1606,109 @@ async def run_copilot(
 
     async for event in _answer_via_sarvam(payload, capability, live=live, realm=realm):
         yield event
+
+
+async def run_copilot(
+    payload: CopilotAskIn,
+    *,
+    tenant_leg: TenantModelLeg | None = None,
+    quota_exhausted: bool = False,
+    realm: CopilotRealm = "client",
+    tool_context: ToolContext | None = None,
+    live: str = "",
+    principal: Principal | None = None,
+    seed: str = "",
+    ip: str | None = None,
+) -> AsyncIterator[CopilotEvent]:
+    """`_answer_stream`, with the two identity controls around it (`copilot/identity.py`).
+
+    THIS IS THE ONE CHOKEPOINT AND THAT IS WHY IT IS HERE rather than in either route.
+    Both realms' routes consume this generator and neither composes an answer of its own,
+    so a control at this seam covers the client dashboard, the admin console, all three
+    provider legs and the Sarvam fallback — and a fourth leg added tomorrow inherits it
+    without anybody remembering to. Wrapping in a route would have been two copies of one
+    rule, which is the arrangement they drift apart from.
+
+    CONTROL 1, BEFORE THE GATE AND BEFORE THE SELECTOR. A question that is asking what the
+    assistant IS is answered from `CANONICAL_IDENTITY_ANSWER` here — no capability lookup,
+    no provider, no tokens, no `CopilotSpend`. It precedes `assist_capability`
+    deliberately: an account whose provider is down or whose quota is spent still gets a
+    true answer to "who are you", because this answer costs nothing to give and refusing
+    it would be an outage in a sentence that never needed a model. The route already
+    handles a run that emits no spend — `_record` writes nothing when `spends` is empty.
+
+    CONTROL 2, ON EVERY FRAGMENT THAT COMES BACK. `IdentityEgress` is the belt: it holds
+    the sentence in flight, and text asserting that this assistant is some vendor's model
+    never reaches the browser whatever the model emitted. Only `text` is filtered — a
+    `fill`, a `proposal`, an `action` and the `spend` are structured events with no prose
+    in them, and a run that leaked one sentence still filled the field it was asked to.
+    """
+    canned = identity_answer(payload.question)
+    if canned is not None:
+        yield CopilotEvent(text=canned)
+        return
+
+    egress = IdentityEgress(strict=question_touches_model_identity(payload.question))
+    inner = _answer_stream(
+        payload,
+        tenant_leg=tenant_leg,
+        quota_exhausted=quota_exhausted,
+        realm=realm,
+        tool_context=tool_context,
+        live=live,
+        principal=principal,
+        seed=seed,
+        ip=ip,
+    )
+    try:
+        async for event in inner:
+            if event.text is not None:
+                released = egress.feed(event.text)
+                if released:
+                    yield CopilotEvent(text=released)
+                continue
+            if event.spend is not None:
+                # THE HELD TAIL GOES OUT BEFORE THE SPEND, not after the generator
+                # ends. `spend` is emitted last on every path that reached a provider, so
+                # this is where an answer finishes; flushing after the loop instead would
+                # print the last sentence of the answer AFTER the event that says the
+                # answer is paid for and done, which is the wrong order on the wire and
+                # reads as a second answer in the panel. Emitting it twice is not possible
+                # — `close` clears what it released — and the fallback leg's second spend
+                # flushes its own.
+                tail = egress.close()
+                if tail:
+                    yield CopilotEvent(text=tail)
+            yield event
+    except Exception:
+        # `Exception` AND NOT `BaseException`, which is not a stylistic choice: a browser
+        # that closes the panel throws `GeneratorExit` into this generator, and yielding
+        # inside a `GeneratorExit` handler is a `RuntimeError` ("async generator ignored
+        # GeneratorExit"). There is also nobody left to yield to. Cancellation is the same
+        # argument. A provider failure is an ordinary `Exception` (`httpx.HTTPError`,
+        # `TimeoutError`) and is the only case this arm is for.
+        #
+        # A PROVIDER THAT DIED MID-ANSWER STILL OWES THE PERSON WHAT IT ALREADY SAID, and
+        # without this arm the buffer would swallow it. `run_copilot`'s whole fallback rule
+        # turns on whether anything reached the screen, and the fragment held here IS what
+        # reached it as far as `_answer_stream` is concerned — so it goes out, judged, in
+        # front of the failure rather than being dropped by the guard that was only ever
+        # meant to delay it. Yielded before the re-raise, which is the order the route's
+        # `except` arm already expects (`routes.py`: text frames, then a problem body).
+        held = egress.close()
+        if held:
+            yield CopilotEvent(text=held)
+        raise
+    # A path that ended without a spend (the selector refused before any leg) can still
+    # be holding text. Never reached in production; cheaper than reasoning about whether.
+    remainder = egress.close()
+    if remainder:
+        yield CopilotEvent(text=remainder)
+    if egress.substituted:
+        # An operator's line, not a person's. Ids and shapes only (hard rule 6): the
+        # offending sentence is exactly the text this control exists to keep out of
+        # places it does not belong, so it is counted and never quoted.
+        log.warning("copilot_identity_substituted", extra={"realm": realm})
 
 
 def disclosure_for(capability: AssistCapability) -> str | None:

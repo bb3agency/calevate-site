@@ -231,11 +231,16 @@ async def test_the_loop_is_capped_and_says_so_rather_than_spinning(
     events = await _drain()
 
     assert len(sent) == service.MAX_TURNS
-    said = [e.text for e in events if e.text]
-    assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
+    # JOINED, NOT `said[-1]`. The out-of-turns message is composed as one string and can
+    # now reach the caller as more than one `text` event: `service.run_copilot`'s identity
+    # egress guard (`copilot/identity.py`) holds the sentence in flight, so a message whose
+    # authored detail follows a full stop is released in two pieces. What is promised to a
+    # person is the ANSWER, which is what the route concatenates and what this reads.
+    said = "".join(e.text for e in events if e.text)
+    assert said.startswith(service.EXHAUSTED_MESSAGE)
     # The reason travels with it: "narrow the request" is unhelpful advice to somebody
     # whose real problem is that the field is read-only.
-    assert "`status` is not writable" in said[-1]
+    assert "`status` is not writable" in said
     assert not [e.fill for e in events if e.fill]
     assert events[-1].spend is not None
 
@@ -803,8 +808,12 @@ async def test_a_model_that_only_ever_looks_things_up_still_ends_with_a_sentence
     events = await _drain_with_tools()
 
     assert len(sent) == service.MAX_TURNS
-    said = [e.text for e in events if e.text]
-    assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
+    # JOINED, NOT `said[-1]`. The out-of-turns message is composed as one string and can
+    # now reach the caller as more than one `text` event: `service.run_copilot`'s identity
+    # egress guard (`copilot/identity.py`) holds the sentence in flight, so a message whose
+    # authored detail follows a full stop is released in two pieces. What is promised to a
+    # person is the ANSWER, which is what the route concatenates and what this reads.
+    assert "".join(e.text for e in events if e.text).startswith(service.EXHAUSTED_MESSAGE)
     assert events[-1].spend is not None
 
 
@@ -830,12 +839,17 @@ async def test_the_exhaustion_message_is_stripped_and_the_model_cannot_pad_it(
     _scripted(monkeypatch, [refusal for _ in range(service.MAX_TURNS + 2)])
     events = await _drain()
 
-    said = [e.text for e in events if e.text]
-    assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
-    assert not has_invisible(said[-1])
+    # JOINED, NOT `said[-1]`. The out-of-turns message is composed as one string and can
+    # now reach the caller as more than one `text` event: `service.run_copilot`'s identity
+    # egress guard (`copilot/identity.py`) holds the sentence in flight, so a message whose
+    # authored detail follows a full stop is released in two pieces. What is promised to a
+    # person is the ANSWER, which is what the route concatenates and what this reads.
+    said = "".join(e.text for e in events if e.text)
+    assert said.startswith(service.EXHAUSTED_MESSAGE)
+    assert not has_invisible(said)
     # Bounded, and bounded well under what the model sent — a real field id is 200 long
     # (`schemas._MAX_ID`), so nothing legitimate is being cut here.
-    assert len(said[-1]) < len(padded)
+    assert len(said) < len(padded)
 
 
 # --- a turn that produced no answer (the contentless candidate) --------------------------

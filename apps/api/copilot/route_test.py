@@ -505,9 +505,13 @@ async def test_a_tool_call_naming_a_non_writable_field_reaches_the_browser_as_no
         events = await _events(http, token, slug)
 
     assert "fill" not in [name for name, _ in events]
-    said = [data["delta"] for name, data in events if name == "text"]
-    assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
-    assert "`status` is not writable" in said[-1]
+    # THE FRAMES ARE JOINED, because what a person reads is the concatenation of the SSE
+    # deltas and not any one of them. `service.run_copilot`'s identity egress guard
+    # (`copilot/identity.py`) holds the sentence in flight, so the authored detail after
+    # the full stop arrives as its own frame — the browser appends it either way.
+    said = "".join(data["delta"] for name, data in events if name == "text")
+    assert said.startswith(service.EXHAUSTED_MESSAGE)
+    assert "`status` is not writable" in said
     # Still metered: every one of those turns was paid for.
     assert await _usage_rows(tenant_id)
 
