@@ -13,6 +13,7 @@ import uuid
 from collections.abc import Sequence
 
 from apps.api.admin import service as admin_service
+from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.compliance.export import (
     FOREIGN_NUMBER_MARK,
     REDACTION_PENDING,
@@ -220,6 +221,11 @@ async def test_the_export_carries_the_lead_the_calls_and_the_transcript() -> Non
         "transcript_turns": 3,
         "consent_records": 1,
         "recordings_available": 1,
+        # D-510: the uploaded list and what an agent remembers. Zero here because this
+        # fixture builds neither — the point of the equality is that a new section of a
+        # DISCLOSURE cannot appear without a test saying so.
+        "campaign_contacts": 0,
+        "remembered_facts": 0,
     }
 
 
@@ -275,6 +281,8 @@ async def test_a_number_we_hold_nothing_about_gets_an_empty_but_valid_document()
         "transcript_turns": 0,
         "consent_records": 0,
         "recordings_available": 0,
+        "campaign_contacts": 0,
+        "remembered_facts": 0,
     }
 
 
@@ -361,6 +369,8 @@ async def test_an_undeclared_field_in_the_document_is_refused_not_dropped() -> N
                     "transcript_turns": 0,
                     "consent_records": 0,
                     "recordings_available": 0,
+                    "campaign_contacts": 0,
+                    "remembered_facts": 0,
                 },
                 "whatsapp_threads": [{"text": "raw message body"}],
             }
@@ -459,3 +469,114 @@ async def test_a_digit_run_too_short_to_be_a_number_is_left_as_the_subject_wrote
 
     assert masked == "Quoted a budget of 20 00 000 for the flat.", masked
     assert FOREIGN_NUMBER_MARK not in masked
+
+
+async def test_a_person_on_an_uploaded_list_who_never_called_is_not_told_we_hold_nothing() -> None:
+    """§11 REPORTED NOTHING ABOUT A RECORD §12 ERASES, and this is who it failed.
+
+    `campaign_contacts` is scrubbed by a subject erasure and appeared nowhere in the
+    disclosure. So a person whose number a client uploaded, and who never rang us, asked
+    what we hold and was told: nothing. That sentence was false, and false for the one
+    group least able to know better — they have had no contact with this product through
+    which to learn that it holds their number, which is exactly why they are the ones who
+    write in and ask.
+
+    The `custom` column is deliberately NOT disclosed field-by-field: it holds whatever
+    columns the client uploaded as merge variables, in shapes we do not model and cannot
+    promise to render safely (hard rule 6 — a disclosure is not a dump). The subject is
+    told such data EXISTS so they can ask for it specifically, which is the same halfway
+    house the recording boolean and the consent-evidence boolean already take.
+
+    FAILS IF: the export stops reading `campaign_contacts`, or starts returning `custom`.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    stranger = f"+91906{uuid.uuid4().int % 10000000:07d}"
+    campaign_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, "
+                "status, concurrency, created_at, updated_at) VALUES (:i, :t, :a, "
+                "'Diwali offers', 'service', 'draft', 3, now(), now())"
+            ),
+            {"i": campaign_id, "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, "
+                "name, custom, status, attempts, created_at, updated_at) VALUES "
+                "(:i, :t, :c, :p, 'Anitha', '{\"city\": \"Guntur\"}'::jsonb, 'pending', 0, "
+                "now(), now())"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "c": campaign_id, "p": stranger},
+        )
+        await session.commit()
+
+    async with tenant_session(tenant_id) as session:
+        document = await build_subject_export(session, tenant_id=tenant_id, phone_e164=stranger)
+
+    assert document["counts"]["calls"] == 0, "the fixture must be someone who never called"
+    listed = document["campaign_contacts"]
+    assert len(listed) == 1, "a number on an uploaded list was reported as nothing held"
+    entry = listed[0]
+    assert entry["campaign_name"] == "Diwali offers"
+    assert entry["status"] == "pending"
+    assert entry["has_custom_fields"] is True
+    assert document["counts"]["campaign_contacts"] == 1
+
+    # The client's own uploaded columns must not be in the document, by value or by key.
+    rendered = json.dumps(document)
+    assert "Guntur" not in rendered, "a client's uploaded merge variable reached the export"
+    assert "custom" not in {k for e in listed for k in e}
+
+
+async def test_what_an_agent_remembers_is_disclosed_and_a_scrubbed_memory_is_not() -> None:
+    """OUR sentence about a person, which a subject access request exists to surface.
+
+    Unlike a campaign's `custom` fields — the client's data about the person — a caller
+    memory is a sentence WE wrote about them, so it is disclosed in full rather than as a
+    boolean. A scrubbed row is excluded: an erased memory is gone, and listing it as an
+    empty string would imply we still hold something.
+
+    Nothing writes these today (the producer is unbuilt, `caller_memory_enabled` defaults
+    false), so this drives the store directly. That is the point — the disclosure has to be
+    complete on the day the producer lands, not after somebody notices it is not.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    caller = f"+91905{uuid.uuid4().int % 10000000:07d}"
+    ref = active_caller_ref(tenant_id, caller)
+    async with tenant_session(tenant_id) as session:
+        # THE SCRUBBED ROW CARRIES AN EMPTY FACT, and it is not a choice of this fixture:
+        # `ck_caller_memories_scrubbed_is_empty` refuses a scrubbed row that still holds
+        # text, so "forgotten but still readable" is unconstructible in this database. The
+        # exclusion below is therefore belt-and-braces over a constraint, which is the
+        # right order — but a reader should know the database is the one holding the line.
+        for fact, scrubbed in (("asked about weekend appointments", None), ("", "now()")):
+            await session.execute(
+                text(
+                    "INSERT INTO caller_memories (id, tenant_id, agent_id, subject_ref, "
+                    "subject_ref_kek_id, fact, occurred_at, scrubbed_at, created_at, "
+                    f"updated_at) VALUES (:i, :t, :a, :r, :k, :f, now(), {scrubbed or 'NULL'}, "
+                    "now(), now())"
+                ),
+                {
+                    "i": uuid.uuid4(),
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "r": ref.ref,
+                    "k": ref.kek_id,
+                    "f": fact,
+                },
+            )
+        await session.commit()
+
+    async with tenant_session(tenant_id) as session:
+        document = await build_subject_export(session, tenant_id=tenant_id, phone_e164=caller)
+
+    facts = [entry["fact"] for entry in document["remembered"]]
+    assert facts == ["asked about weekend appointments"]
+    assert document["counts"]["remembered_facts"] == 1
+    assert document["counts"]["remembered_facts"] == 1, "a scrubbed memory was disclosed"
+    assert all(entry["fact"] for entry in document["remembered"]), (
+        "an emptied memory was listed, which tells the subject we hold something we do not"
+    )

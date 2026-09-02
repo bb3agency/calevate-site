@@ -299,10 +299,10 @@ export interface paths {
          *     the impersonated account, which is proven by the grant rather than claimed in a body.
          *
          *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
-         *     `text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this
-         *     realm today, will not be offered: the write tools need an account-scoped identity that an
-         *     admin session does not carry, and inside a view-as session they are refused outright
-         *     because impersonation is read-only.
+         *     `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+         *     change and, in this realm today, neither a `proposal` nor an `action` will be offered: the
+         *     write tools need an account-scoped identity that an admin session does not carry, and
+         *     inside a view-as session they are refused outright because impersonation is read-only.
          *
          *     **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
          *     platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
@@ -12082,6 +12082,34 @@ export interface components {
             summary: string | null;
         };
         /**
+         * SubjectExportCampaignContactOut
+         * @description This number on a client's uploaded calling list, whether or not it was ever called.
+         *
+         *     Present for `SubjectExportDoNotCallOut`'s reason, and the case is starker: §12 erases
+         *     `campaign_contacts` and §11 reported it nowhere, so a person whose number a client
+         *     uploaded and who NEVER CALLED was told we hold nothing about them. They are the least
+         *     likely of anyone to know otherwise, having had no contact through which to find out.
+         *
+         *     `has_custom_fields` rather than the fields themselves: `campaign_contacts.custom` holds
+         *     whatever columns the client uploaded as merge variables, in shapes we do not model. The
+         *     boolean tells the subject such data exists so they can ask for it specifically — the
+         *     same halfway house as `recording_available` and `evidence_recorded`.
+         */
+        SubjectExportCampaignContactOut: {
+            /** Added At */
+            added_at: string | null;
+            /** Attempts */
+            attempts: number;
+            /** Campaign Name */
+            campaign_name: string;
+            /** Has Custom Fields */
+            has_custom_fields: boolean;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
          * SubjectExportConsentOut
          * @description One consent-ledger entry. `evidence_recorded` is a boolean for the same reason
          *     the recording is: the evidence is a transcript SPAN, raw by construction, and it
@@ -12110,12 +12138,16 @@ export interface components {
         SubjectExportCountsOut: {
             /** Calls */
             calls: number;
+            /** Campaign Contacts */
+            campaign_contacts: number;
             /** Consent Records */
             consent_records: number;
             /** Leads */
             leads: number;
             /** Recordings Available */
             recordings_available: number;
+            /** Remembered Facts */
+            remembered_facts: number;
             /** Transcript Turns */
             transcript_turns: number;
         };
@@ -12215,6 +12247,8 @@ export interface components {
         SubjectExportOut: {
             /** Calls */
             calls: components["schemas"]["SubjectExportCallOut"][];
+            /** Campaign Contacts */
+            campaign_contacts: components["schemas"]["SubjectExportCampaignContactOut"][];
             /** Consent */
             consent: components["schemas"]["SubjectExportConsentOut"][];
             counts: components["schemas"]["SubjectExportCountsOut"];
@@ -12225,8 +12259,30 @@ export interface components {
             lead: components["schemas"]["SubjectExportLeadOut"] | null;
             /** Phone E164 */
             phone_e164: string;
+            /** Remembered */
+            remembered: components["schemas"]["SubjectExportRememberedOut"][];
             /** Transcripts */
             transcripts: components["schemas"]["SubjectExportTranscriptOut"][];
+        };
+        /**
+         * SubjectExportRememberedOut
+         * @description A fact one of this account's agents had remembered about the subject (D-506/D-507).
+         *
+         *     THE SENTENCE ITSELF IS DISCLOSED, unlike a campaign's `custom` fields, and the
+         *     difference is who wrote it: `custom` is the client's data about the person, while this
+         *     is OUR distilled sentence about them. A subject access request is precisely the
+         *     instrument for reading what a company has written down about you.
+         *
+         *     Nothing writes these yet — the producer is unbuilt and `agents.caller_memory_enabled`
+         *     defaults false — so this list is empty on every account today. It is modelled anyway,
+         *     because a disclosure that silently lags a new store is the exact defect that made this
+         *     document incomplete in the first place.
+         */
+        SubjectExportRememberedOut: {
+            /** Fact */
+            fact: string;
+            /** Occurred At */
+            occurred_at: string | null;
         };
         /** SubjectExportTranscriptOut */
         SubjectExportTranscriptOut: {

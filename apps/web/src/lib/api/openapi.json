@@ -15956,6 +15956,60 @@
         "title": "SubjectExportCallOut",
         "type": "object"
       },
+      "SubjectExportCampaignContactOut": {
+        "additionalProperties": false,
+        "description": "This number on a client's uploaded calling list, whether or not it was ever called.\n\nPresent for `SubjectExportDoNotCallOut`'s reason, and the case is starker: \u00a712 erases\n`campaign_contacts` and \u00a711 reported it nowhere, so a person whose number a client\nuploaded and who NEVER CALLED was told we hold nothing about them. They are the least\nlikely of anyone to know otherwise, having had no contact through which to find out.\n\n`has_custom_fields` rather than the fields themselves: `campaign_contacts.custom` holds\nwhatever columns the client uploaded as merge variables, in shapes we do not model. The\nboolean tells the subject such data exists so they can ask for it specifically \u2014 the\nsame halfway house as `recording_available` and `evidence_recorded`.",
+        "properties": {
+          "added_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added At"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "campaign_name": {
+            "title": "Campaign Name",
+            "type": "string"
+          },
+          "has_custom_fields": {
+            "title": "Has Custom Fields",
+            "type": "boolean"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_name",
+          "status",
+          "attempts",
+          "last_attempt_at",
+          "has_custom_fields",
+          "added_at"
+        ],
+        "title": "SubjectExportCampaignContactOut",
+        "type": "object"
+      },
       "SubjectExportConsentOut": {
         "additionalProperties": false,
         "description": "One consent-ledger entry. `evidence_recorded` is a boolean for the same reason\nthe recording is: the evidence is a transcript SPAN, raw by construction, and it\nstays behind the audited raw-transcript path.",
@@ -16027,6 +16081,10 @@
             "title": "Calls",
             "type": "integer"
           },
+          "campaign_contacts": {
+            "title": "Campaign Contacts",
+            "type": "integer"
+          },
           "consent_records": {
             "title": "Consent Records",
             "type": "integer"
@@ -16039,6 +16097,10 @@
             "title": "Recordings Available",
             "type": "integer"
           },
+          "remembered_facts": {
+            "title": "Remembered Facts",
+            "type": "integer"
+          },
           "transcript_turns": {
             "title": "Transcript Turns",
             "type": "integer"
@@ -16049,7 +16111,9 @@
           "calls",
           "transcript_turns",
           "consent_records",
-          "recordings_available"
+          "recordings_available",
+          "campaign_contacts",
+          "remembered_facts"
         ],
         "title": "SubjectExportCountsOut",
         "type": "object"
@@ -16288,6 +16352,13 @@
             "title": "Calls",
             "type": "array"
           },
+          "campaign_contacts": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportCampaignContactOut"
+            },
+            "title": "Campaign Contacts",
+            "type": "array"
+          },
           "consent": {
             "items": {
               "$ref": "#/components/schemas/SubjectExportConsentOut"
@@ -16329,6 +16400,13 @@
             "title": "Phone E164",
             "type": "string"
           },
+          "remembered": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportRememberedOut"
+            },
+            "title": "Remembered",
+            "type": "array"
+          },
           "transcripts": {
             "items": {
               "$ref": "#/components/schemas/SubjectExportTranscriptOut"
@@ -16346,9 +16424,38 @@
           "transcripts",
           "consent",
           "do_not_call",
+          "campaign_contacts",
+          "remembered",
           "counts"
         ],
         "title": "SubjectExportOut",
+        "type": "object"
+      },
+      "SubjectExportRememberedOut": {
+        "additionalProperties": false,
+        "description": "A fact one of this account's agents had remembered about the subject (D-506/D-507).\n\nTHE SENTENCE ITSELF IS DISCLOSED, unlike a campaign's `custom` fields, and the\ndifference is who wrote it: `custom` is the client's data about the person, while this\nis OUR distilled sentence about them. A subject access request is precisely the\ninstrument for reading what a company has written down about you.\n\nNothing writes these yet \u2014 the producer is unbuilt and `agents.caller_memory_enabled`\ndefaults false \u2014 so this list is empty on every account today. It is modelled anyway,\nbecause a disclosure that silently lags a new store is the exact defect that made this\ndocument incomplete in the first place.",
+        "properties": {
+          "fact": {
+            "title": "Fact",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          }
+        },
+        "required": [
+          "fact",
+          "occurred_at"
+        ],
+        "title": "SubjectExportRememberedOut",
         "type": "object"
       },
       "SubjectExportTranscriptOut": {
@@ -19435,7 +19542,7 @@
     },
     "/v1/admin/copilot/ask": {
       "post": {
-        "description": "The admin console's own assistant. Answers about the screen the operator is on, about\nPLATFORM state (the client roster, the triage board, whether outbound dialling is halted,\nwhether our telemarketer registration is live, how much of this month's AI budget is\nspent), about the ONE account named in `tenant_id` when one is open, and about Calevate's\nown runbooks \u2014 every one of those by calling a read tool, never from memory.\n\n`tenant_id` is the account whose admin page is open, or null. It scopes the account tools,\nthe live-state block and memory recall. Inside a view-as session it is ignored in favour of\nthe impersonated account, which is proven by the grant rather than claimed in a body.\n\nStreams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents \u2014\n`text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this\nrealm today, will not be offered: the write tools need an account-scoped identity that an\nadmin session does not carry, and inside a view-as session they are refused outright\nbecause impersonation is read-only.\n\n**BILLING: this never touches a client's AI allowance.** Operator spend is metered to the\nplatform's own ledger under the cost name `admin_copilot`. It is still bounded by the\nplatform-wide AI brake, which pauses this console's assistant exactly as it pauses every\nclient's.\n\nRequires `copilot:admin` \u2014 held by operators and superadmins.",
+        "description": "The admin console's own assistant. Answers about the screen the operator is on, about\nPLATFORM state (the client roster, the triage board, whether outbound dialling is halted,\nwhether our telemarketer registration is live, how much of this month's AI budget is\nspent), about the ONE account named in `tenant_id` when one is open, and about Calevate's\nown runbooks \u2014 every one of those by calling a read tool, never from memory.\n\n`tenant_id` is the account whose admin page is open, or null. It scopes the account tools,\nthe live-state block and memory recall. Inside a view-as session it is ignored in favour of\nthe impersonated account, which is proven by the grant rather than claimed in a body.\n\nStreams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents \u2014\n`text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a\nchange and, in this realm today, neither a `proposal` nor an `action` will be offered: the\nwrite tools need an account-scoped identity that an admin session does not carry, and\ninside a view-as session they are refused outright because impersonation is read-only.\n\n**BILLING: this never touches a client's AI allowance.** Operator spend is metered to the\nplatform's own ledger under the cost name `admin_copilot`. It is still bounded by the\nplatform-wide AI brake, which pauses this console's assistant exactly as it pauses every\nclient's.\n\nRequires `copilot:admin` \u2014 held by operators and superadmins.",
         "operationId": "ask_admin_copilot_v1_admin_copilot_ask_post",
         "requestBody": {
           "content": {
