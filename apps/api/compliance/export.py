@@ -381,16 +381,23 @@ async def build_subject_export(
         },
     }
 
-    # Ids and counts only (hard rule 6) — the number itself never reaches a log line,
-    # which is precisely why `subject_ref` exists.
+    # Ids and counts only (hard rule 6) — AND NOT THE `subject_ref` EITHER, which this
+    # line used to carry on the argument that a hash is not a number.
+    #
+    # `subject_ref`'s own docstring withdrew that argument: the construction is unsalted
+    # and Indian mobile E.164 is a ~10^9 space anyone can enumerate in seconds, so the ref
+    # is PSEUDONYMOUS — it confirms a number to a reader who already has one in mind, which
+    # is exactly what a log stream forwarded to a third-party sink must not do.
+    # `deletion.list_requests` states the rule ("behind `org:read` and out of every log
+    # line"); this was one of the three lines contradicting it.
+    #
+    # NOTHING IS LOST THAT MATTERS. The disclosure's subject correlation lives in the
+    # `audit_log` row `export_routes.subject_export` writes in the same transaction —
+    # access-controlled, durable, and the record a regulator would actually be shown. This
+    # line's job is "an export ran, and it was this big", which needs no subject at all.
     log.info(
         "subject_export_built",
-        extra={
-            "tenant_id": str(tenant_id),
-            "subject_ref": subject_ref(phone_e164),
-            "calls": len(calls),
-            "turns": turn_total,
-        },
+        extra={"tenant_id": str(tenant_id), "calls": len(calls), "turns": turn_total},
     )
     return document
 

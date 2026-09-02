@@ -102,7 +102,10 @@ Both doors out are therefore written by hand, and they are written ONCE, in
 `apps/api/retrieval/caller_erasure.py` — `erase_subject_vectors` (DPDP §12, keyed on
 `caller_ref.caller_refs()` so it still resolves after `calls.from_e164` is NULL, and
 walking every KEK generation so a rotation cannot hide a row), `erase_tenant_vectors`, and
-`EXPIRE_MEMORIES_SQL` on the tenant's own `transcript` policy.
+`EXPIRE_MEMORIES_SQL` on the tenant's own `caller_memory` policy — 180 days, NOT the
+transcript's 365, which is what these two sentences used to say and what D-507 moved
+(`retrieval.caller_erasure.MEMORY_RETENTION_CATEGORY` is the one place that clock is
+named, so neither this file nor the sweep can pick a different one).
 
 **THIS MODULE DELIBERATELY DOES NOT HAVE ITS OWN COPY OF THEM**, and the reason is that
 module's own: `caller_chunks` holds the derived keys and `caller_memories` holds the fact
@@ -348,9 +351,10 @@ async def recall(
 
     GATED AGAIN, and this is the arm that matters when a client switches the feature OFF
     with rows already on file: recall stops the same instant the switch moves, and the
-    rows are destroyed by the transcript clock rather than by a sweep nobody wrote. A
-    read-side check is not redundant with the write-side one — they answer at different
-    times about different rows.
+    rows are destroyed by the `caller_memory` clock (180 days — D-507; this sentence used
+    to say "the transcript clock", which was true before that decision and is not now)
+    rather than by a sweep nobody wrote. A read-side check is not redundant with the
+    write-side one — they answer at different times about different rows.
 
     RECENCY ONLY, with no relevance channel, and the omission is argued rather than
     deferred. `copilot/memory.recall` blends recency and relevance because it is answering

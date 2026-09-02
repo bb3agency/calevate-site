@@ -1892,11 +1892,19 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 "calls": [_hash(str(c)) for c in calls],
                 "leads": [_hash(str(lead)) for lead in leads],
                 "transcript_turns_erased": turns_erased,
-                # ON THE CERTIFICATE, not just in the log. The proof is what the subject
-                # is handed, so a copy of their words that this erasure destroyed has to
-                # be counted where they can see it — otherwise the certificate attests to
-                # less than we actually did, and the next reader cannot tell whether the
-                # gap tables were reached or merely forgotten again.
+                # IN THE STORED PROOF, which is the durable record and not yet the
+                # document. ⚠ THIS COMMENT USED TO SAY "ON THE CERTIFICATE, not just in
+                # the log", AND THAT WAS NOT TRUE OF EITHER RENDERER: `scope` is a
+                # WHITELIST both `deletion_proof.certificate` and `deletion_routes.
+                # ErasureScopeOut` enumerate field by field, and neither enumerates this
+                # one — so the number reached the row and stopped there, and a reader of
+                # the certificate still could not tell whether the gap tables were reached
+                # or forgotten again. The key stays (hard rule 4: proofs already carry it,
+                # and nothing back-fills a durable row), and the SENTENCE in `actions`
+                # below is what actually carries it to the reader — the same route
+                # `webhook_deliveries`, `engine_payloads` and `campaign_contacts` take,
+                # for the same reason: `actions` passes through verbatim, so a count added
+                # there is not a wire-shape change.
                 "knowledge_gap_quotes_erased": gap_quotes_erased,
                 "call_extractions_erased": extractions_erased,
                 # How many of those calls still held a recording pointer INSIDE the
@@ -1936,6 +1944,18 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     f"{RECORDING_FLOOR_DAYS}-day retention floor"
                 ),
                 "transcript_turns": "text and text_redacted replaced",
+                # THE CALLER'S OWN QUESTION, which the gap tables copied out of
+                # `transcript_turns.text_redacted` at detection time and which no other
+                # line of this certificate accounts for. Counted in the sentence rather
+                # than in `scope` for the reason the three below are, and reported at all
+                # because "redacted is not erased": the sentence survived redaction
+                # intact, so destroying it is work this document has to be able to state.
+                "knowledge_gaps": (
+                    f"{gap_quotes_erased} quoted caller question(s) and the agent's "
+                    "replies to them removed from the knowledge-gap records; the counts "
+                    "behind those records are kept, because the count is not this "
+                    "person's data and the sentence is"
+                ),
                 "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
                 # Counted in the sentence rather than in `scope`, because the
@@ -2452,6 +2472,17 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     f"destruction on expiry of the {RECORDING_FLOOR_DAYS}-day retention floor"
                 ),
                 "transcript_turns": "text and text_redacted replaced",
+                # THE SAME ACCOUNT AS THE PER-SUBJECT CERTIFICATE GIVES. This path erases
+                # the gap quotes on every page of calls (`_erase_tenant_calls`) and its
+                # certificate reported the work NOWHERE: `knowledge_gap_quotes_erased` is
+                # not in `tenant_erasure._SCOPE_COUNTS` and there was no sentence either,
+                # so a client winding down was told less than had actually been done for
+                # their callers.
+                "knowledge_gaps": (
+                    f"{counts['knowledge_gap_quotes_erased']} quoted caller question(s) "
+                    "and the agent's replies to them removed from the knowledge-gap "
+                    "records; the counts behind those records are kept"
+                ),
                 "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
                 "campaign_contacts": (
