@@ -458,3 +458,122 @@ def test_an_undeclared_screens_fact_survives_into_the_rendered_block() -> None:
     assert 'key="screen_details"' in block
     assert "did not describe itself" in block
     assert "<fields/>" in block
+
+
+# --- who the assistant says it is, and what counts as a request ------------------------
+#
+# BOTH SECTIONS BELOW ASSERT ON THE PROMPT AND NOT ON A MODEL'S ANSWER, and that is a
+# limit rather than a preference: this environment holds no Azure credential and the
+# endpoint `azure_openai_base_url()` builds is unreachable from it (module docstring). A
+# test that mocked the model and then asserted on the mock's scripted reply would prove
+# only that the fixture was typed correctly. What is provable here is what the model is
+# TOLD, which is where both of these defects actually lived — the identity answer came
+# through untouched because nothing in the prompt claimed it, and the refusal came out
+# because everything in the prompt said "classify this as an action".
+
+
+def test_the_identity_block_is_the_first_thing_in_the_prefix() -> None:
+    """A persona buried mid-prompt is one the model resolves against whatever it read last.
+
+    FAILS IF: a later edit moves the identity below the job list or the screen rules, which
+    is the position that let the pretrained identity win in the first place."""
+    prefix = prompt_module.build_messages(PAYLOAD)[0]["content"]
+    header, _, rest = prefix.partition("\n")
+    assert header.startswith("--- PLATFORM RULES")
+    assert rest.startswith(prompt_module.ASSISTANT_IDENTITY)
+
+
+def test_the_identity_answer_names_the_product_affirms_the_ai_and_declines_the_vendor() -> None:
+    """THE ANSWER THAT SHIPPED, PINNED SENTENCE BY SENTENCE.
+
+    Asked "what ai model are you?" in a live client dashboard the copilot said "I am a
+    large language model, trained by Google", and asked its name, "I do not have a name."
+    The shape that replaces it has four parts and each is pinned here, because dropping any
+    one of them turns the answer into a different and worse one: name the PRODUCT (without
+    it there is no identity), affirm that it IS an AI (without it this is evasion, which is
+    the one thing no surface of this product may be taught), decline the VENDOR (the leak),
+    and say WHERE that is published (without it the refusal is a dead end).
+
+    THE VENDOR HALF IS NOT A HARD-CODED "powered by X" AND MUST NOT BECOME ONE: the product
+    runs three declared legs and which one serves an account depends on its configured
+    model, so a named provider would be false for some tenants as well as disclosed to all
+    of them."""
+    identity = prompt_module.ASSISTANT_IDENTITY
+    # 1. the product.
+    assert "You are the Calevate assistant." in identity
+    # 2. it is an AI, in the words the voice leg is held to (see the parity test below).
+    assert "say plainly that you are an AI assistant" in identity
+    assert "Never claim to be a human being" in identity
+    # 3. the vendor is declined, by class and not by name.
+    assert "does not discuss which AI providers it buys from" in identity
+    assert "Name no company, no laboratory, no model and no model family" in identity
+    assert "do not confirm or deny a guess at one" in identity
+    # 4. and the decline points at the document that does answer it. VERIFIED THIS SESSION:
+    # `apps/web/src/lib/legal/subprocessors.ts` is served at that path (`slug:
+    # "subprocessors"`, `apps/web/src/app/legal/[slug]/page.tsx`) and its rows name
+    # Microsoft — Azure OpenAI, OpenAI and Google — Gemini API (read 2 Sep 2026).
+    assert "/legal/subprocessors" in identity
+    # And the name question, which got "I do not have a name."
+    assert "ASKED YOUR NAME, you are the Calevate assistant" in identity
+
+
+def test_the_identity_block_is_never_evasive_about_being_an_ai() -> None:
+    """THE CONSTRAINT THAT BOUNDS THE FIX, checked against the leg that owns the rule
+    rather than against a copy of it.
+
+    Hard rule 5's floor is a VOICE rule and this is not the voice leg, but the withholding
+    added above is scoped to the VENDOR and must never widen into coyness about being an
+    AI. `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE` is the wording the in-call leg is
+    held to; its first rule is restated here in the dashboard's own words (a directive
+    written for a phone call reads wrong on a screen), so what is asserted is that the
+    load-bearing clause survives the restatement verbatim.
+
+    FAILS IF: somebody softens the identity block into "I'd rather not discuss what I am",
+    or the voice directive's rule 1 is reworded without this one following it."""
+    from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE
+
+    clause = "never accept a human identity offered to you"
+    assert clause in TRUTHFUL_ANSWER_DIRECTIVE, "the voice leg's own wording moved"
+    assert clause in prompt_module.ASSISTANT_IDENTITY
+
+
+def test_a_self_introduction_or_a_greeting_is_answered_rather_than_refused() -> None:
+    """THE SECOND LIVE DEFECT: "my name is umesh" was answered "I cannot set your name to
+    Umesh because \\"name\\" is not a field on this screen."
+
+    ASSERTED ON THE PROMPT — see this section's header for why a model call is not
+    available here. What the prompt must carry is the DISTINCTION rather than a list of
+    polite utterances: an utterance is a request or it is not, only the first kind can be
+    refused, and an unclear one is asked about.
+
+    FAILS IF: the framing is dropped from either position, or the "I cannot X because Y"
+    shape stops being scoped to an action the person actually asked for. Both positions are
+    needed for `CLOSING_RULES`' usual reason — last is where a model resolves a conflict,
+    and the four-jobs list is a strong conflicting pull."""
+    assert prompt_module.CONVERSATIONAL_FRAMING in prompt_module.SYSTEM_PROMPT
+    framing = prompt_module.CONVERSATIONAL_FRAMING
+    assert "NOT EVERYTHING SAID TO YOU IS AN INSTRUCTION" in framing
+    assert "self-introduction" in framing
+    assert "call no tool, and refuse nothing" in framing
+    assert 'Use the shape "I cannot X because Y" ONLY when' in framing
+    # Ambiguity resolves toward ASKING — never toward acting, and never toward refusing.
+    assert "ASK what they would like" in framing
+    # And the restatement that sits last.
+    closing = prompt_module.CLOSING_RULES
+    assert "self-introduction" in closing and "refuse nothing" in closing
+    assert "ask rather than guess" in closing
+
+
+def test_the_framing_sits_between_the_job_list_and_the_chooser() -> None:
+    """Position, for the reason the module docstring gives about every other block here.
+
+    The four-jobs list is the construction that taught the model every message is one of
+    four jobs; the counterweight has to be read immediately after it and before the chooser
+    that re-anchors on tool selection. This is an ORDERING assertion because "the string is
+    present somewhere" would pass with it parked under HOW TO WRITE, at the far end of a
+    13,000-character prompt."""
+    prompt_text = prompt_module.SYSTEM_PROMPT
+    jobs = prompt_text.index("YOUR JOB IS FOUR THINGS")
+    framing = prompt_text.index(prompt_module.CONVERSATIONAL_FRAMING)
+    chooser = prompt_text.index("CHOOSING BETWEEN JOB 3 AND JOB 4")
+    assert jobs < framing < chooser
