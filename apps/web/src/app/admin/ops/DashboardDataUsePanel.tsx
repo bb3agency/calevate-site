@@ -30,6 +30,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   MonoValue,
   TypeToConfirm,
@@ -328,19 +329,22 @@ function AttestForm({
   // <provider>`) still goes on the wire, set inside `useAttestDashboardDataUse`; conflating
   // the two is how a copy change would quietly become an API change.
   const word = "CONFIRM";
+  const valid = useFormValidation();
   // The two booleans are NOT required to be true: a negative answer is a valid and useful
-  // attestation ("somebody looked and it is not on the paid tier"), so only the account ref,
-  // the evidence note and the typed word arm the save.
-  const ready =
-    vendorAccountRef.trim().length > 0 &&
-    sourceNote.trim().length >= 3 &&
-    confirmMatches(confirm, word);
+  // attestation ("somebody looked and it is not on the paid tier"), so they carry no rule.
+  //
+  // The account ref and the evidence note used to live HERE, in `ready`, which meant the
+  // button simply went dead and the screen never said which of the two boxes it was
+  // waiting on. They are `required` on the controls now and answered by
+  // `useFormValidation`, so a press produces a sentence beside the box. What is left in
+  // `ready` is the typed confirmation, which is a gate rather than an answer on the form.
+  const ready = confirmMatches(confirm, word);
 
   return (
     <form
       className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         if (!ready || save.isPending) return;
         save.mutate(
           {
@@ -352,7 +356,7 @@ function AttestForm({
           },
           { onSuccess: onDone },
         );
-      }}
+      })}
     >
       {save.error && (
         <WriteFailure error={save.error} actionLabel="Record attestation" />
@@ -368,11 +372,14 @@ function AttestForm({
       <label className="block">
         <span className={FIELD_LABEL}>Vendor project or account</span>
         <input
+          {...valid.field("vendorAccountRef", "Name the vendor project or account.")}
+          required
           value={vendorAccountRef}
           onChange={(e) => setVendorAccountRef(e.target.value)}
           placeholder="e.g. the project id our Google key belongs to"
           className={`${FIELD} font-mono`}
         />
+        {valid.error("vendorAccountRef")}
         <span className={FIELD_HINT}>
           The project or account our API key for this provider belongs to. Required — it is
           what lets this claim be re-checked later rather than only re-made. For Google, it is
@@ -415,11 +422,15 @@ function AttestForm({
       <label className="block">
         <span className={FIELD_LABEL}>Source</span>
         <input
+          {...valid.field("sourceNote", "Say where you read this.")}
+          required
+          minLength={3}
           value={sourceNote}
           onChange={(e) => setSourceNote(e.target.value)}
           placeholder="e.g. AI Studio Projects page read today, project 'calevate-prod'"
           className={FIELD}
         />
+        {valid.error("sourceNote")}
         <span className={FIELD_HINT}>
           Where you read this, in your own words. Saved with the attestation, so a later reader
           knows who looked and where.

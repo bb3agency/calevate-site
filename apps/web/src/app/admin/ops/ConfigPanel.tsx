@@ -29,6 +29,7 @@ import {
   formatIST,
   type NoticeTone,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   MonoValue,
   ProvenanceBadge,
@@ -970,7 +971,12 @@ function ConfigForm({
   // between two reads has, as far as this form can tell, moved — which is the safe
   // reading and the one that stops the write.
   const conflicted = (etagOf(field) ?? "") !== basisTag || refused;
-  const ready = reason.trim().length >= 3 && confirmMatches(confirm, word) && !conflicted;
+  const valid = useFormValidation();
+  // The reason's minimum length is answered AT THE FIELD now (`minLength={3}` plus
+  // `useFormValidation`), so it is no longer part of what deadens the button. What is
+  // left here are the two gates that are not about an answer on this form: the typed
+  // confirmation and the precondition conflict.
+  const ready = confirmMatches(confirm, word) && !conflicted;
   const verdict = appliesVerdict(field);
 
   /** Continue from a stated current value: re-base the precondition, re-arm the typing. */
@@ -984,8 +990,8 @@ function ConfigForm({
   return (
     <form
       className="mt-3 space-y-3 border-t border-line pt-3"
-      onSubmit={(e) => {
-        e.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         // Belt and braces with the button's `disabled`: Enter in a text input submits a
         // form, and a conflict that only disabled the button would still be overridable
         // from the keyboard.
@@ -1014,7 +1020,7 @@ function ConfigForm({
             },
           },
         );
-      }}
+      })}
     >
       {/* The conflict comes FIRST — above the inputs, because it decides whether anything
           below them may be sent. */}
@@ -1079,6 +1085,7 @@ function ConfigForm({
       <label className="block">
         <span className={FIELD_LABEL}>Reason</span>
         <input
+          {...valid.field("reason", "Say why this value is changing.")}
           required
           minLength={3}
           maxLength={500}
@@ -1087,6 +1094,7 @@ function ConfigForm({
           placeholder="e.g. 'Q3 price change, approved in #pricing'"
           className={FIELD}
         />
+        {valid.error("reason")}
         <span className={FIELD_HINT}>
           Saved with this change and in the audit log. Whoever finds this value in force
           later reads it to decide whether the reason still holds.

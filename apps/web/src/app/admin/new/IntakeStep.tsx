@@ -327,6 +327,12 @@ export function IntakeStep({
 
       <form
         className="space-y-4"
+        // This sheet's refusals come from the SERVER and are placed by `placed.messageAt`
+        // (see `Field`), so there is no client rule to word — the one constraint attribute
+        // on it is a `maxLength`, which the browser enforces by not accepting the keystroke
+        // rather than by refusing the submit. `noValidate` all the same, so a rule added
+        // here later cannot quietly be answered by the browser in the browser's language.
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           // Prune BEFORE sending and put the pruned draft on screen, so a field refusal

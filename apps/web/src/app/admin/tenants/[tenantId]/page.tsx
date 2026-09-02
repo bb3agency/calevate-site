@@ -43,6 +43,7 @@ import {
   formatIST,
   istDateToInstant,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   useKbDecision,
   useKbPreview,
@@ -426,6 +427,7 @@ export default function TenantDetailPage({
                 {rejecting === source.id && (
                   <form
                     className="mt-3 space-y-2 rounded-card border border-rose-200 bg-rose-50/40 p-3 dark:border-rose-900 dark:bg-rose-950/20"
+                    noValidate
                     onSubmit={(event) => {
                       event.preventDefault();
                       decide.mutate(
@@ -1083,6 +1085,10 @@ function SpendCapPanel({
 
           <form
             className="space-y-3"
+            // A typed confirmation is the only gate and it is not a rule about an answer,
+            // so there is nothing for `useFormValidation` to word. `noValidate` all the
+            // same, so a rule added later cannot be answered by the browser.
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               recompute.mutate(undefined, { onSuccess: () => setConfirm("") });
@@ -1255,6 +1261,7 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
 
       <form
         className="space-y-2"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           record.mutate({
@@ -1370,11 +1377,13 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const write = useAdminAccess("admin:tenants", "change this client's telecom setup");
 
   const [e164, setE164] = useState("");
+  const numberValid = useFormValidation();
   const [series, setSeries] = useState<"140" | "160" | "standard">("160");
   const [classification, setClassification] = useState<
     "promotional" | "transactional" | "service"
   >("service");
   const [body, setBody] = useState("");
+  const templateValid = useFormValidation();
   const [dltRef, setDltRef] = useState("");
 
   return (
@@ -1438,13 +1447,15 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           )}
           <form
             className="flex flex-wrap gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={numberValid.onSubmit(() => {
               provision.mutate({ e164, series }, { onSuccess: () => setE164("") });
-            }}
+            })}
           >
             <input
+              {...numberValid.field("e164", "Enter the number to record.")}
               required
+              minLength={8}
               aria-label="Number to record"
               value={e164}
               disabled={!write.allowed}
@@ -1465,9 +1476,12 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
               <option value="160">160 — service</option>
               <option value="standard">standard</option>
             </select>
+            {numberValid.error("e164")}
             <PrimaryButton
               type="submit"
-              disabled={provision.isPending || e164.length < 8 || !write.allowed}
+              /* The length rule is answered at the field now, so the button stays live
+                 and a press produces a sentence rather than nothing. */
+              disabled={provision.isPending || !write.allowed}
             >
               Add
             </PrimaryButton>
@@ -1519,8 +1533,8 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           )}
           <form
             className="space-y-2"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={templateValid.onSubmit(() => {
               register.mutate(
                 { classification, body, dlt_ref: dltRef || null },
                 {
@@ -1530,7 +1544,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
                   },
                 },
               );
-            }}
+            })}
           >
             <div className="flex gap-2">
               <select
@@ -1554,6 +1568,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
               />
             </div>
             <textarea
+              {...templateValid.field("body", "Type the wording registered with the registrar.")}
               required
               aria-label="Template wording"
               minLength={10}
@@ -1564,9 +1579,11 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
               placeholder="The exact wording registered with the DLT registrar."
               className={`w-full ${FIELD}`}
             />
+            {templateValid.error("body")}
             <PrimaryButton
               type="submit"
-              disabled={register.isPending || body.length < 10 || !write.allowed}
+              /* The ten-character rule is the field's now. */
+              disabled={register.isPending || !write.allowed}
             >
               Register template
             </PrimaryButton>

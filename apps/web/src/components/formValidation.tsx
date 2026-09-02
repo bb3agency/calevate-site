@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Our own words when a form is submitted with something missing (client realm).
+ * Our own words when a form is submitted with something missing — both realms.
  *
  * ## What this replaces
  *
@@ -40,13 +40,27 @@
  * rule. So that one is passed in and everything else — the length rule, the email rule,
  * the number range — is worded here, once.
  *
+ * ## The ADMIN realm was converted second, and it needed MORE than `noValidate`
+ *
+ * The client realm's defect was the browser speaking. The admin console's thirty-three
+ * forms mostly had a different one wearing the same clothes: the rule lived in a `ready`
+ * boolean that deadened the submit button, so an operator with an empty reason box got a
+ * button that did nothing and no sentence anywhere on the screen. That is not a gentler
+ * refusal than Chrome's bubble — it is a refusal with no words in it at all.
+ *
+ * So a converted admin form moves the ANSWER rules onto the controls (`required`,
+ * `minLength`, `type`) and leaves only the GATES in `ready`: a typed confirmation, a
+ * permission, a stale-precondition conflict. The distinction is worth stating because it
+ * is the one a reader has to make on the next form: a gate is not about a value the
+ * person can supply in a box, so there is nothing for this module to word.
+ *
  * ## What a converted form gets, and what it must keep
  *
  * `aria-invalid` on the control, the message associated through `aria-describedby`, and
  * focus moved to the first invalid control on submit. The browser bubble did announce
  * itself, so a message that did not would be a REGRESSION rather than an improvement —
  * `tests/formValidation.test.tsx` asserts each of those three on a real form rather than
- * on this module in isolation.
+ * on this module in isolation — one from each realm, plus a source sweep over both.
  */
 
 import { useCallback, useId, useRef, useState, type FormEvent, type ReactNode } from "react";

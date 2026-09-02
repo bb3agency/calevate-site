@@ -43,6 +43,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   ADMIN_ROLES,
   ROLE_COPY,
@@ -492,18 +493,18 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
   const copy = lookup(ROLE_COPY, role);
   /** What a PERSON types. The tier, in the words the picker shows. */
   const confirmPhrase = (copy?.label ?? role).toUpperCase();
-  const ready =
-    !disabled &&
-    email.trim().length >= 3 &&
-    reason.trim().length >= 3 &&
-    confirmationMatches(typed, confirmPhrase);
+  const valid = useFormValidation();
+  // The address and the reason are answered at their own controls now, so pressing Add
+  // with either one missing SAYS which one instead of doing nothing. What stays here is
+  // the permission gate and the typed phrase — neither is an answer on a control.
+  const ready = !disabled && confirmationMatches(typed, confirmPhrase);
 
   return (
     <Card title="Add an admin">
       <form
         className="space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           add.mutate(
             {
               email: email.trim(),
@@ -523,7 +524,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
               },
             },
           );
-        }}
+        })}
       >
         {/* A GRID, NOT `flex flex-wrap` WITH HAND-PICKED WIDTHS. The three fields
             were `sm:w-72`, `sm:w-56` and full-width — three arbitrary numbers giving
@@ -534,6 +535,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
           <label className="block">
             <span className={FIELD_LABEL}>Their email address</span>
             <input
+              {...valid.field("email", "Enter the address this admin signs in with.")}
               required
               type="email"
               value={email}
@@ -550,6 +552,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
               // desktop field and lets the phone have the row.
               className={FIELD}
             />
+            {valid.error("email")}
           </label>
           <label className="block">
             <span className={FIELD_LABEL}>Their name (optional)</span>
@@ -635,6 +638,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
         <label className="block">
           <span className={FIELD_LABEL}>Why</span>
           <input
+            {...valid.field("reason", "Say why this admin is being added.")}
             required
             minLength={3}
             maxLength={500}
@@ -645,6 +649,7 @@ function AddOperatorCard({ disabled }: { disabled: boolean }) {
             placeholder="e.g. 'joining as our second onboarding operator'"
             className={FIELD}
           />
+          {valid.error("reason")}
           <span className={FIELD_HINT}>
             Recorded in the audit log beside who asked for it. Whoever reads
             this row in a year has to be able to decide whether the reason still

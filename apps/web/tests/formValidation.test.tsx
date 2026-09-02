@@ -6,12 +6,14 @@ import { describe, expect, it } from "vitest";
 
 import { relPosix } from "./repoPaths";
 
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import AddOperatorsPage from "@/app/admin/operators/page";
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import { fieldProblem } from "@/components/formValidation";
 import type { Me } from "@/lib/api/client";
 
-import { renderClientPage } from "./harness";
+import { renderAdminPage, renderClientPage } from "./harness";
 
 /**
  * The forms answer in OUR words now, and the browser answers in none.
@@ -101,14 +103,81 @@ describe("an address that is not one", () => {
 });
 
 /**
+ * THE ADMIN REALM, driven the same way — because it was the realm this rule missed.
+ *
+ * "Add an admin" is the right screen to prove it on: it carries the two rule shapes the
+ * admin console uses everywhere (an address and a minimum-length reason), and its button
+ * used to go dead on BOTH of them at once, so an operator who left the reason blank got a
+ * dead button beside a filled-in form and no sentence anywhere on the screen. That is the
+ * failure this conversion is for, and it is not the browser-bubble one — it is the same
+ * defect wearing no words at all.
+ */
+describe("an admin form with two answers missing", () => {
+  const SUPERADMIN: AdminMe = {
+    user_id: "admin-1",
+    realm: "admin",
+    role: "superadmin",
+    permissions: ["ops:manage", "admin:operators"],
+  };
+
+  function renderOperators() {
+    return renderAdminPage(<AddOperatorsPage />, {
+      [ADMIN_ME_PATH]: SUPERADMIN,
+      "/v1/admin/operators": [],
+    });
+  }
+
+  it("names both in our words, sends nothing, and focuses the first", async () => {
+    const page = renderOperators();
+    const email = (await screen.findByLabelText(
+      "Email address of the admin to add",
+    )) as HTMLInputElement;
+    const reason = screen.getByLabelText("Why you are adding this admin") as HTMLInputElement;
+
+    // SUBMITTED, not clicked. The typed-phrase gate still deadens the button — it is a
+    // gate on the act rather than an answer on a control, so it stays there — and Enter
+    // in a text input submits the form past a disabled button anyway. That keyboard path
+    // is exactly what this validation has to catch, so it is what is driven.
+    const form = email.closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+
+    const emailMessage = await screen.findByText("Enter the address this admin signs in with.");
+    await screen.findByText("Say why this admin is being added.");
+    expect(page.calls.some((c) => c.method === "POST")).toBe(false);
+
+    expect(email.getAttribute("aria-invalid")).toBe("true");
+    expect(email.getAttribute("aria-describedby")).toBe(emailMessage.id);
+    expect(emailMessage.getAttribute("role")).toBe("alert");
+    // DOM order, not registration order: the address is above the reason on the screen.
+    expect(document.activeElement).toBe(email);
+
+    // And the address rule is the SHAPE rule, not merely emptiness.
+    fireEvent.change(email, { target: { value: "asha" } });
+    fireEvent.input(email, { target: { value: "asha" } });
+    await screen.findByText("Enter an email address, like name@example.com.");
+
+    fireEvent.change(email, { target: { value: "asha@calevate.tech" } });
+    fireEvent.input(email, { target: { value: "asha@calevate.tech" } });
+    fireEvent.change(reason, { target: { value: "joining ops" } });
+    fireEvent.input(reason, { target: { value: "joining ops" } });
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(
+        page.calls.some((c) => c.method === "POST" && c.path === "/v1/admin/operators"),
+      ).toBe(true),
+    );
+  });
+});
+
+/**
  * THE INVARIANT, asserted over the SOURCE rather than over one screen.
  *
  * A behavioural test can only prove the forms it renders. The rule is about every form in
- * the client realm, including the one added next week: the browser never writes a refusal
- * on a Calevate screen. It is a tripwire on the obvious spelling — a `<form>` opening tag
+ * EITHER realm, including the one added next week: the browser never writes a refusal on a
+ * Calevate screen. It is a tripwire on the obvious spelling — a `<form>` opening tag
  * without `noValidate` — which is the spelling a well-meaning change actually takes.
  */
-describe("no client-realm form leaves its refusals to the browser", () => {
+describe("no form in either realm leaves its refusals to the browser", () => {
   const SRC = join(process.cwd(), "src");
 
   function tsxUnder(dir: string): string[] {
@@ -148,9 +217,15 @@ describe("no client-realm form leaves its refusals to the browser", () => {
     return tags;
   }
 
-  it("carries noValidate on every form a client can reach", () => {
+  it("carries noValidate on every form either realm can reach", () => {
+    // `app/admin` is here for the same reason `app/c` is, and it was added second: the
+    // ADMIN realm kept all thirty-three of its forms on browser validation for a round
+    // after the client realm was converted, so this sweep was green while a third of the
+    // product's forms still answered in Chrome's words. A sweep scoped to one realm reads
+    // exactly like a clean tree.
     const files = [
       ...tsxUnder(join(SRC, "app", "c")),
+      ...tsxUnder(join(SRC, "app", "admin")),
       ...tsxUnder(join(SRC, "app", "signup")),
       ...tsxUnder(join(SRC, "components")),
     ];
@@ -165,7 +240,7 @@ describe("no client-realm form leaves its refusals to the browser", () => {
         if (!/noValidate/.test(tag)) offenders.push(`${relPosix(process.cwd(), file)}:${line}`);
       }
     }
-    expect(seen).toBeGreaterThan(20);
+    expect(seen).toBeGreaterThan(50);
     expect(offenders).toEqual([]);
   });
 });
