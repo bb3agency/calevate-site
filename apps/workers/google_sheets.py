@@ -102,6 +102,7 @@ spreadsheet id, a credential reference, an access token or a vendor error string
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from urllib.parse import quote
 
@@ -162,6 +163,23 @@ WORKSHEET_REJECTED_REASON = "worksheet_not_found"
 RATE_LIMITED_REASON = "google_rate_limited"
 UNAVAILABLE_REASON = "google_unavailable"
 PROBE_FAILED_REASON = "dedupe_probe_failed"
+APPEND_DEADLINE_REASON = "google_deadline_exceeded"
+
+# THE WHOLE-APPEND DEADLINE, and the reason it exists rather than being left to httpx.
+# `httpx.Timeout(10.0)` is FOUR ten-second budgets — connect, write, read and pool — and
+# the READ one is the maximum wait for A CHUNK, not for the response: it restarts on every
+# byte that arrives. Measured on the sibling path (`integrations/service.deliver`,
+# `tests/outbound_delivery_deadline_test.py`), a counterparty dribbling one byte every
+# three seconds held that call for over 45 seconds under a "10 second" timeout. An append
+# is up to FOUR round trips (token, dedupe probe, header read, header write, append), so
+# the same stall multiplies, and the only thing that would ever stop it is arq's
+# 300-second `job_timeout` — which cancels the JOB, so `record_delivery` never runs and
+# the attempt is missing from the client's delivery screen rather than failed on it.
+#
+# 30 seconds = three `DELIVERY_TIMEOUT_S` round trips, which is the steady state plus one.
+# It sits well inside `job_timeout` and inside the shared ladder's 30s first backoff, so
+# an attempt that hits this deadline still leaves room for the two that follow it.
+APPEND_BUDGET_S = 3 * service.DELIVERY_TIMEOUT_S
 
 # HTTP statuses that mean "the request was fine, the moment was not".
 _TRANSIENT_STATUS = frozenset({408, 429})
@@ -280,13 +298,25 @@ class GoogleSheetsTransport:
             timeout=service.DELIVERY_TIMEOUT_S, follow_redirects=False
         )
         try:
-            token = await access_token(http, account, scope=SCOPE)
-            if token is None:
-                # Could be a network blip or a bad key; the token endpoint does not let
-                # us tell those apart without reading a body we will not read. Transient
-                # so the shared ladder tries twice more, then alerts loudly.
-                return AppendResult(AppendStatus.TRANSPORT_FAILED, reason=AUTH_FAILED_REASON)
-            return await self._append_with_token(http, token, request)
+            # A WALL-CLOCK DEADLINE OVER THE WHOLE APPEND — see `APPEND_BUDGET_S`. httpx
+            # has no whole-request deadline at all, so without this an append is four
+            # round trips each of which a stalled response can hold indefinitely.
+            async with asyncio.timeout(APPEND_BUDGET_S):
+                token = await access_token(http, account, scope=SCOPE)
+                if token is None:
+                    # Could be a network blip or a bad key; the token endpoint does not
+                    # let us tell those apart without reading a body we will not read.
+                    # Transient so the shared ladder tries twice more, then alerts loudly.
+                    return AppendResult(AppendStatus.TRANSPORT_FAILED, reason=AUTH_FAILED_REASON)
+                return await self._append_with_token(http, token, request)
+        except TimeoutError:
+            # Reported like any other transport failure, and TRANSIENT: a deadline says
+            # Google was slow, not that this row may never be written. Crucially it must
+            # NOT be allowed to escape — an exception out of here is not a `Retry`, so arq
+            # would finish the job after one attempt and no delivery row would ever say
+            # what happened (`outbound_webhooks.py` documents that mechanism at length).
+            log.warning("sheet_append_deadline", extra={"worksheet": request.worksheet})
+            return AppendResult(AppendStatus.TRANSPORT_FAILED, reason=APPEND_DEADLINE_REASON)
         finally:
             if owns_client:
                 await http.aclose()
@@ -449,6 +479,23 @@ def _classify(status: int) -> AppendResult:
         # 401 is a statement about the KEY.
         return AppendResult(AppendStatus.REJECTED, reason=AUTH_FAILED_REASON)
     if status == 403:
+        # ⚠ MARKED ASSUMPTION, NOT A VERIFIED FACT (CLAUDE.md hard rule 11). This treats
+        # 403 as "the client has not shared the document" — permanent, and the client-
+        # facing sentence tells them to share it. Google's APIs have historically also
+        # answered 403 for QUOTA (`rateLimitExceeded` / `userRateLimitExceeded` /
+        # `quotaExceeded`), which would be TRANSIENT and would need the opposite verdict
+        # and a different sentence. Whether Sheets v4 does that TODAY is UNKNOWN here:
+        # `developers.google.com` is refused by this environment's egress proxy
+        # (WebFetch → EGRESS_BLOCKED, re-measured 2 Sep 2026), so nobody in this repo has
+        # read the page, and the quota figures in this module's docstring are
+        # documentation-sourced for the same reason.
+        #
+        # Deliberately NOT guessed either way. Telling a quota-limited client to re-share
+        # a document they already shared is a wrong instruction; classifying a genuine
+        # permission failure as transient buries it under three silent retries and an
+        # `google_unavailable` that nobody can act on. Closing this needs one reading of
+        # the live API — the `error.status`/`errors[].reason` a real 403 carries — which
+        # is the same operator errand as the other Google claims here.
         return AppendResult(AppendStatus.REJECTED, reason=SHEET_NOT_SHARED_REASON)
     if status == 404:
         return AppendResult(AppendStatus.REJECTED, reason=SPREADSHEET_NOT_FOUND_REASON)
@@ -459,6 +506,8 @@ def _classify(status: int) -> AppendResult:
 
 
 __all__ = [
+    "APPEND_BUDGET_S",
+    "APPEND_DEADLINE_REASON",
     "AUTH_FAILED_REASON",
     "CREDENTIAL_REF_PREFIX",
     "CREDENTIAL_REF_UNKNOWN_REASON",

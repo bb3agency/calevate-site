@@ -53,7 +53,11 @@ type:
 - **`phone` is masked by default** — the literal string `"[redacted]"`. Receiving the
   raw E.164 number is a per-endpoint opt-in you make explicitly with us; it is recorded
   in your endpoint config, not assumed.
-- `created_at` is UTC, ISO-8601.
+- **`created_at` is when the event happened, not when we posted it.** UTC, ISO-8601, and
+  identical on every retry of the same `id`. Order by it if your system applies
+  last-write-wins to a lead: deliveries can arrive out of order — a retried event is
+  posted minutes after the edit that caused it, and an unrelated later edit may reach you
+  first — and this is the field that tells you which one is newer.
 
 A `lead.updated` envelope carries the same `data` keys as `lead.created`, with the values
 as they stand AFTER the edit.

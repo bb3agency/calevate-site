@@ -190,6 +190,10 @@ SHEET_FAILURE_REMEDIES: dict[str, str] = {
         "Google Sheets was unavailable. We will keep trying; no action needed unless "
         "this repeats for hours."
     ),
+    "google_deadline_exceeded": (
+        "Google took too long to accept the row, so we stopped waiting rather than hold "
+        "up your other leads. We will keep trying; no action needed unless this repeats."
+    ),
     "dedupe_probe_failed": (
         "We could not check your sheet before writing, so we did not write — that is "
         "deliberate, it prevents a duplicate row. We will try again."

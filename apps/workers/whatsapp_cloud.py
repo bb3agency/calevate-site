@@ -150,6 +150,7 @@ about the recipient, and is the one string their support asks for.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -279,12 +280,23 @@ class CloudApiWhatsAppTransport:
         owns_client = self._client is None
         http = self._client or httpx.AsyncClient(timeout=SEND_TIMEOUT_S, follow_redirects=False)
         try:
-            response = await http.post(
-                url,
-                json=_body(message),
-                headers={"Authorization": f"Bearer {self._access_token}"},
-            )
-        except httpx.HTTPError as exc:
+            # A WALL-CLOCK DEADLINE, because `httpx.Timeout(10.0)` is not one: it is four
+            # ten-second budgets, and the READ one is the maximum wait for A CHUNK, not
+            # for the response — it restarts on every byte that arrives. Measured on the
+            # sibling path (`integrations/service.deliver`, `tests/
+            # outbound_delivery_deadline_test.py`): a receiver dribbling one byte every
+            # three seconds held that call for over 45 seconds under a "10 second"
+            # timeout. It matters more here than there, because `whatsapp.py` calls this
+            # INSIDE an open `tenant_session` — the atomicity argument its own docstring
+            # makes — so an unbounded response parks a pooled connection as well as a
+            # worker slot, and the only backstop is arq's 300-second `job_timeout`.
+            async with asyncio.timeout(SEND_TIMEOUT_S):
+                response = await http.post(
+                    url,
+                    json=_body(message),
+                    headers={"Authorization": f"Bearer {self._access_token}"},
+                )
+        except (httpx.HTTPError, TimeoutError) as exc:
             # The exception TYPE, never its string: an httpx error message can carry the
             # request URL, and a timeout's repr can carry the request itself.
             log.warning("whatsapp_cloud_transport_error", extra={"error": type(exc).__name__})
