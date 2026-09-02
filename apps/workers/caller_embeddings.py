@@ -116,11 +116,16 @@ from apps.api.retrieval.embedding import (
     EMBEDDING_MODEL,
     embedding_leg,
     embedding_price_is_billable,
+    stored_vector_width,
 )
 from apps.api.retrieval.models import EMBED_READY, EMBED_REFUSED
 from apps.workers import chat
 
 log = get_logger(__name__)
+
+#: The table this sweep fills. Named once because the width preflight reads its column
+#: type out of the catalogue and a second spelling would check a table nobody writes.
+_PROJECTION_TABLE: Final = "caller_chunks"
 
 #: `platform_ai_usage.system_actor` — WHO this job is, on an append-only ledger. The module
 #: path rather than a friendly name: an operator reading a row two years from now needs to
@@ -395,6 +400,43 @@ async def _sweep_tenant(
     return projected, embedded
 
 
+async def _column_can_hold_our_vectors() -> bool:
+    """Will `caller_chunks.embedding` accept a vector of the width this deployment buys?
+
+    **THE PRICE GATE'S ARGUMENT POINTED AT THE SCHEMA, and `kb_embeddings.
+    _column_can_hold_our_vectors` carries the full reasoning and the reproduction.** In
+    short: `EMBEDDING_DIMS` both sized the column in a migration and is sent as the
+    request's `dimensions`, so changing the constant without the migration makes every
+    purchase in the tick die in `_STORE_SQL` on `DataError: expected 1536 dimensions` —
+    which rolls back the claim AND the ledger row beside it, so the sweep spends money,
+    records none of it, and repeats for ever. One catalogue read stops it before the first
+    request.
+
+    It ends the whole tick rather than only the embedding phase, exactly as the tripped
+    brake above does: discovery is cheap but it is not what this job is for, and a sweep
+    that quietly kept projecting under a broken schema would look like it was working.
+    """
+    async with untenanted_session() as session:
+        width = await stored_vector_width(session, table=_PROJECTION_TABLE)
+    if width == EMBEDDING_DIMS:
+        return True
+    log.error(
+        "caller_embed_width_mismatch",
+        extra={"want": EMBEDDING_DIMS, "column": width, "table": _PROJECTION_TABLE},
+    )
+    alert(
+        "CORE_LOGIC",
+        "caller_embed_width_mismatch",
+        detail=(
+            f"the caller-chunk embedding column is {width!r} wide and this deployment buys "
+            f"vectors of {EMBEDDING_DIMS} — no caller chunk can be embedded until the two "
+            "agree, and nothing was bought. Apply the migration that resizes the column, "
+            "or restore the previous EMBEDDING_DIMS."
+        ),
+    )
+    return False
+
+
 async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
     """Twice hourly. Project and vectorise what this fleet's callers said, within a budget.
 
@@ -423,6 +465,8 @@ async def embed_caller_chunks(ctx: dict[str, Any]) -> str:
         # `/healthz/ready`.
         log.info("caller_embed_no_provider")
         return "no_provider"
+    if not await _column_can_hold_our_vectors():
+        return "width_mismatch"
 
     try:
         tenants = await tenants_with_caller_data()

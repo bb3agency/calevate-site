@@ -73,6 +73,87 @@ MIN_CHUNK_CHARS = 80
 SUPPORTED_SUBMISSION_KINDS: frozenset[str] = frozenset({"text"})
 
 
+#: Characters a reviewer cannot see and a downstream reader still acts on.
+#:
+#: **THE APPROVAL GATE IS A HUMAN READING A PREVIEW, so a character that makes the preview
+#: and the published text say different things is a bypass of it — not a formatting
+#: nuisance.** The named attack is Trojan Source (Boucher & Anderson, 2021, CVE-2021-42574):
+#: `U+202E RIGHT-TO-LEFT OVERRIDE` and its relatives reorder a run VISUALLY while leaving
+#: the stored order untouched, so "Refunds are ‮never‬ given" is read one way by the admin
+#: who approves it and spoken the other way by the agent. Every other consumer of this text
+#: — the [T0 FACTS] block the agent actually speaks from, the engine document, the dashboard
+#: copilot's quotation — takes the logical order.
+#:
+#: THE THREE GROUPS, AND WHY EACH IS IN:
+#:
+#: * **Bidi formatting, overrides and isolates** (U+202A-U+202E, U+2066-U+2069, U+200E,
+#:   U+200F, U+061C) — the attack above. Our market writes Telugu, English and Hindi, none
+#:   of which needs an explicit direction mark in a knowledge sentence.
+#: * **C0 and C1 controls except tab, LF and CR** — a vertical tab or a form feed is
+#:   invisible in a text box, and `\x00` is not merely invisible: a Postgres text column
+#:   REFUSES it, so a submission carrying one used to die on the INSERT as a
+#:   `psycopg.DataError`, reach the generic handler, and answer a client 500 with a crash
+#:   alert behind it. A named 422 is the honest answer to text we will not store.
+#: * **Zero-width and invisible spacing** — U+200B, U+2060, U+FEFF. They split a word for
+#:   the tokeniser (and therefore for the sparse arm) while looking like nothing at all.
+#:
+#: AND THE TWO THAT ARE DELIBERATELY NOT HERE. `U+200C ZERO WIDTH NON-JOINER` and
+#: `U+200D ZERO WIDTH JOINER` are ORTHOGRAPHY in Telugu and every other Indic script — they
+#: decide whether a conjunct forms — so refusing them would refuse correctly spelled Telugu,
+#: which is the language this product is built for. `U+00AD SOFT HYPHEN` stays allowed too:
+#: it arrives in honest pastes out of word processors and cannot reorder anything.
+_FORBIDDEN_CODEPOINTS: frozenset[int] = frozenset(
+    {0x061C, 0x200B, 0x200E, 0x200F, 0x2060, 0xFEFF}
+    | set(range(0x00, 0x20))
+    | set(range(0x7F, 0xA0))
+    | set(range(0x202A, 0x202F))
+    | set(range(0x2066, 0x206A))
+) - {0x09, 0x0A, 0x0D}
+
+
+def _reject_invisible_characters(value: str, *, field: str) -> None:
+    """Refuse text carrying a character the reviewer cannot see. See `_FORBIDDEN_CODEPOINTS`.
+
+    REFUSED RATHER THAN STRIPPED, which is this repository's doctrine for a guard on
+    something that matters (`sanitize.assert_redacted`: a guard that silently repairs its
+    input teaches the caller nothing). Stripping would be worse than usual here — the client
+    would have approved wording they never see us change, and a bidi run that survives one
+    stripping pass and not another is exactly the ambiguity the gate exists to remove.
+
+    THE CODEPOINTS ARE NAMED AND THE TEXT IS NOT (hard rule 6, and it is also the only
+    actionable half): "there is an invisible character at U+202E" is something a person can
+    search for in their own document; an echo of their prose is not.
+
+    It is checked at `submit_source` — the ONE door into `kb_sources` — so the property
+    holds for the form, the copilot's propose-knowledge tool, the knowledge-gap teaching
+    path and the intake seeder without any of them knowing about it. `kb/pdf_render.py`
+    refuses most of these a second time as a side effect of the font's cmap, which is a
+    real backstop and a WRONG diagnosis ("the font cannot render this") for a reviewer who
+    was shown one sentence and asked to approve another.
+    """
+    found = sorted({ord(ch) for ch in value} & _FORBIDDEN_CODEPOINTS)
+    if not found:
+        return
+    named = ", ".join(f"U+{cp:04X}" for cp in found[:8])
+    log.warning("kb_invisible_characters", extra={"field": field, "codepoints": named})
+    raise ProblemError(
+        kind="validation",
+        code="kb_invisible_characters",
+        title="That wording contains characters we cannot show a reviewer",
+        detail=(
+            f"The {field} carries {len(found)} invisible or direction-changing character "
+            f"type(s) ({named}). Knowledge is read by a person before it goes live and "
+            "spoken to callers afterwards, so it may only contain characters both of them "
+            "can see."
+        ),
+        remediation=(
+            "Retype the wording in a plain text box, or paste it into a plain-text editor "
+            "first — these characters usually arrive invisibly from a formatted document."
+        ),
+        status=422,
+    )
+
+
 def chunk_text(body: str) -> list[str]:
     """Split on paragraph boundaries, packing up to the cap; only split a paragraph
     that exceeds the cap on its own, and then on sentence ends.
@@ -206,6 +287,11 @@ async def submit_source(
             ),
             status=422,
         )
+
+    # BEFORE anything is written and before the lock, because it is a property of the
+    # SUBMISSION rather than of a version: nothing here needs a database to decide it.
+    _reject_invisible_characters(name, field="source name")
+    _reject_invisible_characters(body, field="wording")
 
     chunks = chunk_text(body)
     if not chunks:
