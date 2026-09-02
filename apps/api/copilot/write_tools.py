@@ -1519,6 +1519,10 @@ __all__ = [
     "conversation_seed",
     "immediate_tool_names",
     "is_write_tool",
+    # Exported because the EXECUTORS re-parse the signed arguments through it, so it is
+    # part of this module's contract rather than an implementation detail — and a test that
+    # proves a refusal is refused has to reach the same door the executor does.
+    "parse_args",
     "plan_write",
     "run_immediate",
     "tier_of",

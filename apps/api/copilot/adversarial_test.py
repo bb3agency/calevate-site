@@ -415,23 +415,22 @@ async def test_the_two_memory_stores_cannot_collide_because_each_keys_a_differen
     FAILS IF: somebody drops either foreign key to "make the memory stores symmetrical".
     """
     async with untenanted_session() as session:
-        references = dict(
-            (
-                await session.execute(
-                    text(
-                        "SELECT c.conrelid::regclass::text, c.confrelid::regclass::text "
-                        "FROM pg_constraint c "
-                        "WHERE c.contype = 'f' "
-                        "  AND c.conrelid::regclass::text IN "
-                        "      ('copilot_memories', 'admin_copilot_memories') "
-                        "  AND (SELECT a.attname FROM pg_attribute a "
-                        "       WHERE a.attrelid = c.conrelid "
-                        "         AND a.attnum = c.conkey[1]) "
-                        "      IN ('user_id', 'admin_user_id')"
-                    )
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT c.conrelid::regclass::text, c.confrelid::regclass::text "
+                    "FROM pg_constraint c "
+                    "WHERE c.contype = 'f' "
+                    "  AND c.conrelid::regclass::text IN "
+                    "      ('copilot_memories', 'admin_copilot_memories') "
+                    "  AND (SELECT a.attname FROM pg_attribute a "
+                    "       WHERE a.attrelid = c.conrelid "
+                    "         AND a.attnum = c.conkey[1]) "
+                    "      IN ('user_id', 'admin_user_id')"
                 )
-            ).all()
-        )
+            )
+        ).all()
+        references = {str(child): str(parent) for child, parent in rows}
     assert references["copilot_memories"] == "users"
     assert references["admin_copilot_memories"] == "admin_users"
 
@@ -484,7 +483,7 @@ async def test_an_admin_turn_that_calls_a_tool_shows_the_operator_what_it_ran(
                 yield chat.StreamEvent(text="Nine accounts.")
             yield chat.StreamEvent(
                 outcome=chat.ChatOutcome(
-                    content="Nine accounts." if not calls else None,
+                    content="" if calls else "Nine accounts.",
                     tool_calls=calls,
                     finish_reason="tool_calls" if calls else "stop",
                     usage=chat.TokenUsage(prompt_tokens=10, output_tokens=10),

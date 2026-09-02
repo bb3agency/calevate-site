@@ -635,8 +635,15 @@ def set_fields_tool() -> dict[str, Any]:
     )
 
 
-def _defuse(text: str) -> str:
+def defuse(text: str) -> str:
     """One untrusted string with this prompt's own section delimiters neutered.
+
+    PUBLIC because `tools._clean` needs it too. It was private while `xml_text` and
+    `xml_attr` were the only callers, which was right until the tool-result path was
+    found to be defusing invisibles but NOT hyphen runs — the one of the three untrusted
+    inputs (screen, memory, tool results) carrying text written by the client's own
+    CALLERS. Exported rather than reached for through the underscore, so there is one
+    definition of "safe to put between our delimiters" and it is nameable.
 
     See `_RULE_RUN`. Applied at the same seam as the invisible-character strip and for the
     same reason: this is where a tenant's text becomes part of a prompt.
@@ -656,7 +663,7 @@ def xml_text(value: object) -> str:
     the live-state renderer would be a second answer to "how does a string become prompt
     XML here", and the first one to forget `strip_invisible` is an injection carrier.
     """
-    return escape(_defuse(str(value)))
+    return escape(defuse(str(value)))
 
 
 def xml_attr(value: object) -> str:
@@ -667,7 +674,7 @@ def xml_attr(value: object) -> str:
     Public for `xml_text`'s reason. Takes `object` and not `str` because callers pass
     integers (`context.py`'s counts) as often as strings, and a caller-side `str()` is a
     conversion this function is already doing."""
-    return quoteattr(_defuse(str(value)))
+    return quoteattr(defuse(str(value)))
 
 
 def _render_value(field: CopilotField) -> str:
