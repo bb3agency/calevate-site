@@ -35,10 +35,22 @@ on the set that was already drawn instead of drawing a second one.
 
 WHAT THE FRAME IS
 ------------------
-Completed calls only. A `no_answer` or `failed` row has no conversation in it, so
+Completed calls only, by STATUS. A `no_answer` or `failed` row was never connected, so
 reviewing one reviews nothing, and including them would inflate the denominator with
 rows the sample can never learn anything from — 5% of a number padded with non-calls is
 not 5% of the calls.
+
+**AND `completed` IS NOT THE SAME AS "SOMEBODY SPOKE", WHICH THIS PARAGRAPH USED TO
+IMPLY.** A voicemail, an immediate hangup and a caller who says nothing all reach us as
+`completed` executions with zero transcript turns (TRD §5: cost, recording and transcript
+populate at `completed`, and on those calls they populate with nothing). Those rows ARE in
+the frame, and a reviewer who opens one sees an empty transcript. `qa_sampling_test`
+pins that rather than leaving it to be discovered, because it is the frame's one honest
+limitation and narrowing it is a decision about what "5% of calls" means to a client and
+to a regulator — not a bug to be quietly fixed here. It cuts both ways: a silent call
+teaches a reviewer nothing about the agent, and a WEEK full of silent calls is one of the
+more useful things a spot-check can surface. Whoever changes it should change this
+paragraph in the same commit.
 
 HARD RULE 5
 ------------

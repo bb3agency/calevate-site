@@ -506,8 +506,16 @@ async def _upsert_call_row(
                     "  ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at), "
                     "  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s), "
                     "  updated_at = now() "
-                    "WHERE calls.status NOT IN ('completed', 'failed', 'no_answer', 'busy', "
-                    "'voicemail') OR EXCLUDED.status = 'completed' "
+                    # THE CONSTANT, NOT A RETYPED COPY OF ITS FIVE MEMBERS. This clause
+                    # is what stops a late `ringing` webhook un-completing a finished
+                    # call, and it spelled the terminal set as a SQL literal while
+                    # `TERMINAL_STATUSES` was already imported at the top of this file
+                    # and bound as `:terminal` by `_OUTSTANDING_CALLS_SQL` and
+                    # `reconcile_outstanding_calls`. A sixth terminal status added to
+                    # `calevate_shared.events` would have been terminal to those two and
+                    # NOT to this one — so a stale webhook could reopen it, silently, on
+                    # the one statement that owns the call row's status.
+                    "WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed' "
                     "RETURNING id"
                 ),
                 {
@@ -522,6 +530,7 @@ async def _upsert_call_row(
                     "started": snapshot.started_at,
                     "ended": snapshot.ended_at,
                     "dur": snapshot.duration_s,
+                    "terminal": sorted(TERMINAL_STATUSES),
                 },
             )
         ).first()
@@ -1013,7 +1022,12 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         )
         set_span_attributes(stage, recording_notice_filed=filed)
 
-    needs_extraction = bool(spec.fields or transcript_text)
+    # `snapshot.transcript`, NOT `transcript_text`: the two agreed until the line above
+    # started dropping wordless turns, and this one has to keep agreeing with
+    # `EXTRACTION_OWED_SQL` — whose transcript half is `EXISTS (transcript_turns)`, and
+    # a blank turn is still a row. A call that reads "not owed" here and "owed" there is
+    # a call `report_stalled_pipeline` alarms on and the poller re-drives forever.
+    needs_extraction = bool(spec.fields or snapshot.transcript)
     # THE SPAN THIS WHOLE EXERCISE IS FOR. A model round trip lives in here, and it is
     # the stage most likely to own the missing minutes — a 30s extraction timeout
     # (EXTRACTION_TIMEOUT_S) plus an ARQ retry is a lead that arrives late with nothing
@@ -1338,7 +1352,16 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
     async with tenant_session(tenant_id) as session:
         for turn in snapshot.transcript:
             redacted = redact(turn.text)
-            lines.append(f"{turn.speaker}: {turn.text}")
+            # A TURN WITH NO WORDS IN IT IS NOT A LINE OF THE EXTRACTOR'S INPUT. The row
+            # is still written — it is what the engine reported and `start_ms` on it is
+            # real — but `agent: ` with nothing after it carries no evidence, and a
+            # reading in which EVERY turn came back blank (an STT that heard only noise,
+            # a Telugu call transcribed as silence) would otherwise reach the model as a
+            # page of speaker labels and buy a chargeable round trip to read them.
+            # `extract_call` turns the resulting empty string into the schema's own
+            # verdict without a provider call.
+            if turn.text.strip():
+                lines.append(f"{turn.speaker}: {turn.text}")
             await session.execute(
                 text(
                     "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
