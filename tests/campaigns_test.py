@@ -15,6 +15,7 @@ are written the way a regulator would read them:
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,6 +26,7 @@ from apps.api.agents import service as agents_service
 from apps.api.campaigns import service
 from apps.api.compliance.preference_scrub import PREFERENCE_SCRUBBED_CLASSIFICATIONS
 from apps.api.compliance.service import add_to_dnc
+from apps.api.core import loadshed
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.loadshed import set_platform_status
 from apps.api.db.base import uuid7
@@ -785,6 +787,76 @@ async def test_the_big_red_switch_halts_every_tenants_campaign() -> None:
         assert (await session.execute(text("SELECT count(*) FROM calls"))).scalar() == 0
 
 
+async def test_a_halt_thrown_mid_batch_stops_the_contacts_behind_the_one_in_flight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The switch has to reach a batch the tick has ALREADY CLAIMED, from another process.
+
+    The halt is written by `ops.routes.set_platform` in the API process. That clears the
+    API process's `loadshed._memo` and writes the new value through Redis — and leaves the
+    WORKER's memo alone, where it answers "running" for up to `_MEMO_TTL_S` (5s) more. The
+    tick primes exactly that memo at `_run_tick`, so before this test the claimed batch
+    went on dialling: every contact's `check_dispatch` read the stale memo and allowed the
+    dial. Those dials are the ones nothing recalls — `dial_recall` is enqueued on the
+    halt's `false -> true` edge and scans ONCE, before they existed.
+
+    So the staleness is reconstructed rather than described: `set_platform_status` runs
+    (durable row + Redis, as the API process does), and this process's memo is then put
+    back to the pre-halt answer with a fresh timestamp — which is the worker's state, to
+    the second. A test that simply called `set_platform_status` would prove nothing, since
+    that call refreshes the memo of whatever process makes it.
+    """
+    tenant_id, _, campaign_id = await _ready_campaign(
+        phones=("9876500001", "9876500002", "9876500003"), concurrency=3
+    )
+    async with tenant_session(tenant_id) as session:
+        await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+    await _quiesce(campaign_id)
+
+    real_dial = campaign_dispatch.dispatch_call
+    dialled: list[str] = []
+
+    async def halt_after_the_first_dial(*args: Any, **kwargs: Any) -> Any:
+        handle = await real_dial(*args, **kwargs)
+        dialled.append(str(kwargs["phone_e164"]))
+        if len(dialled) == 1:
+            await set_platform_status(outbound_halted=True, halt_reason="mid-batch", actor_id=None)
+            # ...and this worker has not noticed yet. Its memo is 5 seconds young and
+            # says the platform is running, which is the whole state under test.
+            loadshed._memo = (
+                time.monotonic(),
+                loadshed.PlatformStatus(mode="normal", outbound_halted=False),
+            )
+        return handle
+
+    monkeypatch.setattr(campaign_dispatch, "dispatch_call", halt_after_the_first_dial)
+    try:
+        await dispatch_campaign_tick({})
+    finally:
+        await set_platform_status(outbound_halted=False, actor_id=None)
+
+    assert dialled == ["+919876500001"], f"the halt did not stop the batch: {dialled}"
+    async with tenant_session(tenant_id) as session:
+        statuses = dict(
+            (
+                await session.execute(
+                    text("SELECT phone_e164, status FROM campaign_contacts WHERE campaign_id = :c"),
+                    {"c": campaign_id},
+                )
+            ).all()
+        )
+        placed = (
+            (await session.execute(text("SELECT to_e164 FROM calls WHERE direction = 'outbound'")))
+            .scalars()
+            .all()
+        )
+    assert sorted(placed) == ["+919876500001"], "a dial was placed after the switch"
+    # Back on the ladder with the attempt refunded, not settled: a halt is a condition
+    # that clears, and `big_red_switch` is deliberately not a `PERSON_LEVEL_REFUSALS`.
+    assert statuses["+919876500002"] == "pending"
+    assert statuses["+919876500003"] == "pending"
+
+
 async def test_a_number_that_joins_the_dnc_list_after_launch_is_never_dialled() -> None:
     """The property the module was written for: launch scrubs, dispatch enforces. Hard
     rule 5 — DNC additions propagate before the next dispatch tick, and this IS the
@@ -821,6 +893,48 @@ async def test_a_number_that_joins_the_dnc_list_after_launch_is_never_dialled() 
     assert statuses["+919876500002"] == "dnc_blocked"
     assert "+919876500002" not in dialled, "the opt-out beat the dial"
     assert statuses["+919876500001"] == "dialing"
+
+
+async def test_a_contact_outside_india_is_settled_rather_than_retried_for_ever() -> None:
+    """A refusal that can never become true must not keep a campaign alive.
+
+    `add_contacts` drops well-formed foreign numbers at upload (D-464) — the INGRESS is
+    closed — but every row uploaded before that guard is still `pending`, and the gate
+    refuses it `destination_not_india` on every tick. Treated as transient, that contact
+    was re-claimed, refunded and rescheduled every thirty minutes for ever, the campaign
+    never reached "nothing pending" and `campaign.completed` never fired. So the row is
+    inserted the way a pre-D-464 upload left it, which is the only way it can now exist.
+    """
+    tenant_id, _, campaign_id = await _ready_campaign(phones=("9876500001",))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, "
+                "status, attempts, created_at, updated_at) VALUES "
+                "(:id, :tid, :cid, '+14155552671', 'pending', 0, now(), now())"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "cid": campaign_id},
+        )
+        # The scrub covers the list that existed when it ran, and the row above joined
+        # it afterwards — so it is re-run, exactly as a client adding a contact would
+        # have to. (`_ready_campaign` records the first one after ITS upload.)
+        await record_test_scrub(session, campaign_id)
+        await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+    await _quiesce(campaign_id)
+    await dispatch_campaign_tick({})
+
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT status, attempts, next_attempt_at FROM campaign_contacts "
+                    "WHERE campaign_id = :c AND phone_e164 = '+14155552671'"
+                ),
+                {"c": campaign_id},
+            )
+        ).one()
+    assert row[0] == "dnc_blocked", "a number we can never dial went back on the ladder"
+    assert row[2] is None, "a settled contact must not be scheduled for another attempt"
 
 
 async def test_outside_calling_hours_the_contact_waits_instead_of_burning_an_attempt(
