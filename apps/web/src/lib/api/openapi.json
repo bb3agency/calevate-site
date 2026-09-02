@@ -5143,9 +5143,8 @@
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector \u2014 a lead id, a\nnarrower `scope` \u2014 into a request whose whole security argument is \"one phone\nnumber\". `scope` in particular is refused rather than ignored: the worker honours no\nnarrower scope, so accepting one would record a promise nothing keeps.",
         "properties": {
           "phone": {
-            "maxLength": 20,
+            "maxLength": 32,
             "minLength": 8,
-            "pattern": "^\\+[1-9]\\d{7,18}$",
             "title": "Phone",
             "type": "string"
           }
@@ -16213,9 +16212,8 @@
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector (a lead id, a\ntenant slug) into a request whose whole security argument is \"one phone number\".",
         "properties": {
           "phone": {
-            "maxLength": 20,
+            "maxLength": 32,
             "minLength": 8,
-            "pattern": "^\\+[1-9]\\d{7,18}$",
             "title": "Phone",
             "type": "string"
           }

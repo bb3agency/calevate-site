@@ -68,11 +68,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.export import build_subject_export, subject_ref
+from apps.api.compliance.subject_phone import SubjectPhone
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -95,10 +96,12 @@ class SubjectExportIn(Strict):
     """`extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
     tenant slug) into a request whose whole security argument is "one phone number"."""
 
-    # E.164 (conventions), same pattern as the admin DNC endpoint. A POST rather than a
-    # GET for one reason: the identifier IS the personal data, and a GET would write it
-    # into access logs, proxy logs and browser history (hard rule 6).
-    phone: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    # Raw as pasted, then normalized by the one door (`compliance/subject_phone.py`) —
+    # the same handling as the admin DNC endpoint, which is what the form in front of
+    # this one has always promised. A POST rather than a GET for one reason: the
+    # identifier IS the personal data, and a GET would write it into access logs, proxy
+    # logs and browser history (hard rule 6).
+    phone: SubjectPhone
 
 
 # --- the document ------------------------------------------------------------------

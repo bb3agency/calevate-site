@@ -36,6 +36,7 @@ can be told to fail, which is the half a real MinIO cannot easily be asked for.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -43,6 +44,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance import deletion, deletion_proof, export
+from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import retention, storage
@@ -455,7 +457,8 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
     call_id, key = await _call_with_recording(
         s3, tenant_id=tenant_id, agent_id=agent_id, days_ago=200, phone=phone
     )
-    lead_id = uuid7()
+    lead_id, campaign_id = uuid7(), uuid7()
+    ref = active_caller_ref(tenant_id, phone)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -473,7 +476,55 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
             ),
             {"i": uuid7(), "t": tenant_id, "c": call_id},
         )
+        # THE TWO STORES THAT HOLD THIS PERSON WITHOUT THEM EVER HAVING CALLED, seeded
+        # here rather than left absent because the counts below are an equality: an empty
+        # store returns 0 whether the erasure reached it or the export forgot it exists,
+        # and those are the two failures this file is for. Both are §11-disclosed
+        # (`export.build_subject_export`) and §12-erased (`_erase_campaign_contacts`,
+        # `_CALLER_MEMORY_*`), so a subject who is done being erased must be absent from
+        # both — which is only a claim worth making about a row that was there.
+        await session.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, status, "
+                "classification, created_at, updated_at) VALUES (:c, :t, :a, "
+                "'Winter recall', 'draft', 'service', now(), now())"
+            ),
+            {"c": campaign_id, "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, "
+                "name, custom, status, attempts, dedupe_hash, created_at, updated_at) "
+                "VALUES (:i, :t, :c, :p, 'Ravi', CAST(:custom AS jsonb), 'pending', 0, "
+                ":h, now(), now())"
+            ),
+            {
+                "i": uuid7(),
+                "t": tenant_id,
+                "c": campaign_id,
+                "p": phone,
+                "custom": json.dumps({"city": "Warangal"}),
+                "h": hashlib.sha256(phone.encode()).hexdigest()[:16],
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO caller_memories (id, tenant_id, agent_id, subject_ref, "
+                "subject_ref_kek_id, fact, occurred_at, created_at, updated_at) "
+                "VALUES (:i, :t, :a, :r, :k, 'prefers a Saturday slot', now(), now(), now())"
+            ),
+            {"i": uuid7(), "t": tenant_id, "a": agent_id, "r": ref.ref, "k": ref.kek_id},
+        )
     request_id = await _file_request(tenant_id, phone)
+
+    # THE BEFORE PICTURE, asserted rather than assumed. Every count below is checked
+    # against zero after the erasure, and zero is also what a store returns when the
+    # fixture never reached it — so the seeds are proved to have landed here, while there
+    # is still something to prove.
+    async with tenant_session(tenant_id) as session:
+        before = await export.build_subject_export(session, tenant_id=tenant_id, phone_e164=phone)
+    assert before["counts"]["campaign_contacts"] == 1, "the uploaded contact never landed"
+    assert before["counts"]["remembered_facts"] == 1, "the remembered fact never landed"
 
     await retention.execute_deletion_request(
         {}, {"tenant_id": str(tenant_id), "request_id": str(request_id)}
@@ -528,6 +579,8 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
         "transcript_turns": 0,
         "consent_records": 0,
         "recordings_available": 0,
+        "campaign_contacts": 0,
+        "remembered_facts": 0,
     }
 
 

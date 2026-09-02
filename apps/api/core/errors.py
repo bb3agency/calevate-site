@@ -261,7 +261,11 @@ def _message_for(rule: str, label: str, ctx: Mapping[str, Any], msg: str) -> str
     an `EmailStr` failure arrives as `value_error` with a `reason`) on 2 Sep 2026.
     """
     if rule == "missing":
-        return f"{label} is required."
+        # "Enter your date of birth", not "Date of birth is required" — GOV.UK's
+        # "Recover from validation errors" pattern, which this module's guard test cites
+        # as its standard: tell the person what to DO, in the words they would use. "Is
+        # required" states our constraint and leaves them to infer the action.
+        return f"Enter {label[0].lower() + label[1:]}."
     if rule == "extra_forbidden":
         return f"We do not use {label.lower()} here, so it cannot be saved."
     if rule in ("string_too_short", "too_short"):
