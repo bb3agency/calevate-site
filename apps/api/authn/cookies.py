@@ -244,7 +244,7 @@ def session_cookie_present(cookie_header: str | None) -> bool:
 
 
 def session_cookie_value(cookie_header: str | None) -> str | None:
-    """The session token in this raw `Cookie:` header, whichever realm and name carries it.
+    """A stable bucket key for EVERY session cookie of ours in this raw `Cookie:` header.
 
     A REAL PARSE, unlike `session_cookie_present` above, and the difference is the point:
     that function answers "should the origin check run", where a false positive costs a
@@ -259,25 +259,60 @@ def session_cookie_value(cookie_header: str | None) -> str | None:
     key, it is fingerprinted before use, and the mint is charged to the address for the
     reason `RateLimitMiddleware._subjects` gives at length.
 
-    Returns the FIRST match in header order rather than preferring a realm: a browser
-    sends at most one of ours per request (the two realms are two hostnames), and a
-    request carrying both is already outside the model — picking one deterministically
-    beats inventing a rule for a case that cannot legitimately arise.
+    ═══ IT RETURNS ALL OF THEM, ORDER-INDEPENDENTLY, AND THAT IS A CORRECTION ═══
+
+    This used to return the FIRST match in header order, on the stated ground that "a
+    browser sends at most one of ours per request (the two realms are two hostnames)" and
+    that "a request carrying both is already outside the model". **Both halves were false,
+    and this module's own docstring says so eighty lines up**: the two consoles talk to ONE
+    API host, so both cookies land on that host, and the two names exist precisely "so that
+    being signed into both consoles at once works at all". An operator signed into
+    `admin.` and `app.` at the same time — the founder, on any day they look at a client's
+    screen — sends both on every request to `api.`, which is the designed case and not an
+    excursion from the model.
+
+    What the old spelling did with it: RFC 6265 §5.4 orders equal-path cookies by CREATION
+    time, so which of the two answered depended on which console had been signed into
+    first, and signing into that one again silently moved the pair to a different bucket
+    mid-session. A rate limiter whose bucket moves when nothing about the caller changed is
+    the defect class `charge_tenant_quota` names ("a limiter that does not mean what it
+    says", D-131's per-process `hash()` seed) arriving through the cookie arm.
+
+    So the key covers the whole SET, sorted by name, and never the header's order. Two
+    consequences, both deliberate:
+
+      * **Two live consoles are ONE caller with ONE budget.** That is the conservative
+        direction and the one `_subjects` already commits to — "presenting a credential
+        never buys more room than presenting none" — so being signed in twice must not
+        double a ceiling. Splitting the pair into two budgets is the change this refuses.
+      * **Signing out of one realm moves the pair to the remaining realm's own bucket.**
+        A fresh bucket costs one unit of the address bucket (the mint charge), once, which
+        is exactly what any other new credential costs.
+
+    Returns `None` when the header carries none of ours — the caller then IS the address.
     """
     if not cookie_header:
         return None
     wanted = {
         cookie_name(realm, secure=secure) for realm in AUTHN_REALMS for secure in (True, False)
     }
+    present: set[str] = set()
     for pair in cookie_header.split(";"):
         name, sep, value = pair.partition("=")
-        if sep and name.strip() in wanted:
-            # RFC 6265 permits a quoted cookie-value; strip the quotes so the same session
-            # cannot occupy two buckets depending on how the browser wrote it.
-            candidate = value.strip().strip('"')
-            if candidate:
-                return candidate
-    return None
+        key = name.strip()
+        if not sep or key not in wanted:
+            continue
+        # RFC 6265 permits a quoted cookie-value; strip the quotes so the same session
+        # cannot occupy two buckets depending on how the browser wrote it.
+        candidate = value.strip().strip('"')
+        if candidate:
+            present.add(f"{key}={candidate}")
+    if not present:
+        return None
+    # A SET joined in sorted order, not a list in arrival order: a browser may legitimately
+    # send two of these (see above), and a host-only cookie sitting beside a same-named one
+    # from a sibling host is a duplicate this must also answer the same way every time.
+    return "\x00".join(sorted(present))
 
 
 def cross_site_refusal(
