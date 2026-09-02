@@ -95,6 +95,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.ingest.service import normalize_phone
 from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
@@ -115,6 +116,46 @@ from apps.workers.storage import (
 )
 
 log = get_logger(__name__)
+
+
+def _party_e164(raw: str | None) -> str | None:
+    """A vendor's spelling of a phone number, in OUR canonical form.
+
+    **THE VENDOR'S STRING WAS BEING USED AS A KEY, AND IT IS NOT ONE.** `_first_e164`
+    returns whatever the engine printed — `bolna.py` documents four different places the
+    number can arrive from and normalises none of them — and that string went straight
+    into `calls.from_e164`/`to_e164` and into `leads.phone_e164`, which is a THIRD of
+    `UNIQUE(tenant_id, phone_e164, agent_id)`. Every other producer of those columns
+    already goes through `ingest.normalize_phone` (the webhook path, `record_call_optout`,
+    `subject_phone`, the DNC and consent routes), so the engine was the one door into the
+    two tables that let an unnormalised spelling in. Three things break on it, and none
+    of them raises:
+
+    * **One caller becomes two leads.** `+919876543210` on one call and `+91 98765 43210`
+      on the next are two rows under one person, so the repeat-caller flag never flips and
+      the client's CRM shows the same customer twice.
+    * **The dial gate stops protecting them.** `compliance.check_dispatch` compares
+      `phone_e164` to `dnc_list.phone_e164` with `=`, and the DNC list is stored
+      normalised. `+91 98765 43210` passes the India-prefix check and misses the DNC row,
+      so `POST /v1/leads/{id}/call` rings a number on the do-not-call list — a TCCCPR
+      violation with a timestamp on it.
+    * **A DPDP erasure cannot find them.** `workers/retention.execute_deletion_request`
+      matches `calls.from_e164 = :phone` and `leads.phone_e164 = :phone` against the
+      normalised number on the request, so the un-normalised rows are unreachable by the
+      one query in this repository with a statutory clock on it (DPDP §12).
+
+    **IT FALLS BACK TO THE RAW STRING RATHER THAN DROPPING IT.** `normalize_phone` returns
+    None rather than guessing a country, and that refusal is right — but here the
+    alternative to a number we cannot canonicalise is NO number, which loses the call's
+    only link to its subject and the lead its only key. Keeping what the vendor said is
+    exactly today's behaviour for that case, so this function can only ever improve a
+    row, never empty one; the un-canonicalisable value stays visible in the CRM where a
+    human can see it. It never invents a country and never edits a digit.
+    """
+    if raw is None:
+        return None
+    return normalize_phone(raw) or raw
+
 
 POSTCALL_JOB = "run_post_call_pipeline"
 INGEST_JOB = "ingest_engine_event"
@@ -524,8 +565,10 @@ async def _upsert_call_row(
                     "aid": agent_id,
                     "ecid": snapshot.engine_call_id,
                     "dir": direction,
-                    "from_e": snapshot.from_e164,
-                    "to_e": snapshot.to_e164,
+                    # CANONICAL, not the vendor's spelling — `_party_e164` says why
+                    # these two columns are keys and not free text.
+                    "from_e": _party_e164(snapshot.from_e164),
+                    "to_e": _party_e164(snapshot.to_e164),
                     "status": snapshot.status,
                     "started": snapshot.started_at,
                     "ended": snapshot.ended_at,
@@ -1804,7 +1847,7 @@ async def _upsert_lead(
     returning customer would put the repeat-caller context injection (FLOWS §3) in front
     of a first-time caller.
     """
-    caller = snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
+    caller = _party_e164(snapshot.from_e164 if direction == "inbound" else snapshot.to_e164)
     if not caller:
         return None
     lead_id = uuid7()

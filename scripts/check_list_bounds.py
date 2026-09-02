@@ -177,17 +177,23 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="the same `available`, read back after the write — same closed set."
     ),
     # The agent's extraction VARIABLES (D-460). `fields` is a curated CONFIG list — the
-    # schema an operator or a client owner hand-writes for one agent, the same class as the
-    # console field registry above, not a caller's data feed that grows with call volume.
-    # Bounded by how many variables a human chose to capture, never by a row count.
+    # schema an operator or a client owner hand-writes for one agent. It used to be entered
+    # here as "bounded by nature — a config surface, not a data feed", and that reading
+    # EXPIRED with D-460: once a client OWNER writes the list, its length is
+    # caller-controlled, which is precisely the class this registry says needs a real
+    # ceiling. It now has one, on the `actions` pattern below — a constant enforced by the
+    # request model, not a belief about how many variables a person would type.
     "GET /v1/agents/{agent_id}/extraction-schema": BoundedByConstruction(
-        by="`fields` is one agent's hand-curated variable list, a config surface not a data feed."
+        by="`fields` is bounded by `agents.extraction_routes.MAX_EXTRACTION_FIELDS` (50, "
+        "the `max_length` on the write model that is the only thing that can grow it)."
     ),
     "PUT /v1/agents/{agent_id}/extraction-schema": BoundedByConstruction(
-        by="the same `fields`, read back after the write — one agent's curated variable list."
+        by="the same `fields` read back after the write — `MAX_EXTRACTION_FIELDS` "
+        "(`ExtractionSchemaIn.fields` max_length) is the request-model ceiling."
     ),
     "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": BoundedByConstruction(
-        by="the admin view of the same `fields` — one agent's curated variable list."
+        by="the admin view of the same `fields` — same `MAX_EXTRACTION_FIELDS` request-model "
+        "ceiling, since both realms take one `ExtractionSchemaIn`."
     ),
     # The in-call Actions/tools feature. A tenant mints tools like it mints endpoints, so the
     # lists are caller-controlled and NOT bounded-by-nature — the bound is a real ceiling:
