@@ -96,6 +96,14 @@ NO_CREDITS_REASON = "This account has no calling credit left."
 #: be argued INTO the allowed set, which is the safe direction on a compliance gate.
 DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {"granted"}
 
+#: The rule name the platform-wide outbound halt refuses under. NAMED HERE, beside the
+#: gate that produces it, because a second reader now has to say the same word: the
+#: dispatcher re-asks the halt per contact with the cache forced (see
+#: `campaign_dispatch._dispatch_for_campaign`), and a literal spelled twice is a metric
+#: label and a runbook query that drift apart the first time either is edited.
+BIG_RED_SWITCH_RULE = "big_red_switch"
+BIG_RED_SWITCH_REASON = "Outbound calling is halted platform-wide by the operations team."
+
 #: The refusals that are facts about the PERSON, not about the account, the agent, the
 #: paperwork or the clock — the ones that do not become false by waiting.
 #:
@@ -113,7 +121,27 @@ DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {
 #: place to declare itself. Membership is deliberately conservative — everything not
 #: listed is treated as transient and retried, which is the safe direction for a
 #: SETTLEMENT decision (a retried contact is re-gated; a wrongly-settled one is not).
-PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset({"dnc", "no_consent"})
+#: `destination_not_india` is the third, and it is here for the same defect this constant
+#: was written about rather than for tidiness. `campaign_contacts.phone_e164` is written
+#: once and never rewritten except by the erasure sweep, which settles the row terminally
+#: in the same statement (`retention._CAMPAIGN_CONTACT_ERASE_SQL`) — so a contact refused
+#: for being outside India is refused identically forever. Treated as transient it was
+#: re-claimed, re-gated and refunded every thirty minutes for the life of the campaign,
+#: and because it never left `pending` the campaign never auto-completed and its
+#: `campaign.completed` event never fired: `no_consent`'s bug, one rule along.
+#:
+#: `add_contacts` closed the INGRESS (it counts well-formed foreign numbers as `foreign`
+#: and stores none), and its own comment says the dispatcher "would claim, refuse
+#: (`destination_not_india`) and never settle" — which was true and was left standing for
+#: every row uploaded before that guard. Closing the door does not settle who is already
+#: inside.
+#:
+#: The membership test the docstring above states is met: the freeze is a fact about the
+#: DESTINATION, not about the account, the clock or the paperwork, and waiting does not
+#: make a US number Indian. Lifting the freeze would leave these rows settled — but that
+#: is a scope decision (LEGAL-OPS-PLAYBOOK §14/§18) that has to move contacts by
+#: migration anyway, not something a retry ladder should be holding open in the meantime.
+PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset({"dnc", "no_consent", "destination_not_india"})
 
 #: The India-only freeze, as a dial predicate. LEGAL-OPS-PLAYBOOK's scope is frozen to
 #: Andhra Pradesh + Telangana / India-only B2B: no foreign clients, and its stop-list is
@@ -382,8 +410,8 @@ async def check_dispatch(
     if platform.outbound_halted:
         return DispatchDecision(
             allowed=False,
-            rule="big_red_switch",
-            reason="Outbound calling is halted platform-wide by the operations team.",
+            rule=BIG_RED_SWITCH_RULE,
+            reason=BIG_RED_SWITCH_REASON,
         )
 
     # Before the agent, the paperwork and the money: an account we have STOPPED does not
@@ -682,6 +710,8 @@ async def add_to_dnc(
 __all__ = [
     "ACCOUNT_CLOSED_REASON",
     "ACCOUNT_SUSPENDED_REASON",
+    "BIG_RED_SWITCH_REASON",
+    "BIG_RED_SWITCH_RULE",
     "DEFAULT_WINDOW",
     "DESTINATION_NOT_INDIA_REASON",
     "DIAL_REFUSING_CONSENT_STATUSES",

@@ -23,6 +23,16 @@ client `socket_timeout=2`. Postgres had no such bound: a claim against an unresp
 database waited forever, holding the request, its connection and its worker slot, on the
 one service whose whole design premise is that it never stalls.
 
+   **AND THE FAST PATH HAD NO BOUND OF OURS EITHER**, which this file and the receiver's
+   own docstring both missed while naming Redis as the dependency that was already
+   handled. `socket_timeout=2` is a CLIENT default this service never chose, it is the
+   only thing under both fast-path awaits, and it says nothing about a server that
+   accepts the connection and then answers slowly. So the accepted path's worst case was
+   four waits, not two — 2s body + 2s GET + 2s claim + 2s SET — and §4 below is the
+   measurement that showed it: a Redis sleeping five seconds produced a 202 with
+   `X-Ack-Ms: 5001.9`, ten times the budget, on the layer whose entire justification is
+   that it is CHEAPER than the round trip it replaces.
+
 **3. What does the handler cost the process it SHARES with every other delivery?** The
 per-request ledger above is per request; the budget is spent by all of them at once on
 one event loop. §1b pins the part of that which is a code property — a warm receiver
@@ -45,6 +55,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -669,7 +680,15 @@ async def test_a_stalled_database_is_abandoned_at_the_deadline_not_waited_on(
     way; the difference is whether WE know. A 503 is honest, alerts, and hands the event
     to the poller. A 202 over a rolled-back transaction is a call that quietly vanishes.
     """
-    monkeypatch.setattr(webhook_routes, "_DURABLE_DEADLINE_S", 0.35)
+    # THE METER, NOT THE MODULE CONSTANT. `_DURABLE_DEADLINE_S` is the receiver's
+    # DECLARED number and is still spelled there; what the handler READS is
+    # `WEBHOOK_ACK.durable_deadline_s`, because the in-call tool surface needed its own
+    # (a two-second abandon is fine for a caller who has hung up and is dead air for one
+    # who has not). Patching the constant here would set a value nothing consults and
+    # this test would pass while measuring the real two seconds.
+    monkeypatch.setattr(
+        webhook_routes, "WEBHOOK_ACK", replace(webhook_routes.WEBHOOK_ACK, durable_deadline_s=0.35)
+    )
     execution_id, status, _ = _event()
 
     real_claim = webhook_routes.claim_inbox_event
@@ -867,7 +886,10 @@ async def test_a_dribbled_body_is_abandoned_at_the_read_deadline_not_waited_on(
     monkeypatch.setattr(
         webhook_routes, "alert", lambda kind, reason, **fields: raised.append((kind, reason))
     )
-    monkeypatch.setattr(webhook_routes, "_BODY_DEADLINE_S", 0.25)
+    # The meter, not the constant — see the durable-deadline test above.
+    monkeypatch.setattr(
+        webhook_routes, "WEBHOOK_ACK", replace(webhook_routes.WEBHOOK_ACK, body_deadline_s=0.25)
+    )
 
     execution_id, status, _ = _event()
 
@@ -1078,3 +1100,73 @@ async def test_every_non_ack_exit_reports_and_records_its_ack(
         f"saw {len(samples)}"
     )
     assert {str(record.provider) for record in samples} == {"bolna"}
+
+
+# --- 4. the third unbounded wait: the fast path itself ------------------------
+#
+# `_fast_path_seen` and `_remember_fast_path` each await a socket, and neither was inside
+# a deadline this file chose. `test_a_redis_outage_degrades_to_postgres_instead_of_failing`
+# above covers a Redis that REFUSES — the connection error returns immediately, so the
+# degradation is instant and the test passes at any speed. A Redis that ACCEPTS and then
+# stalls is the other half, it is the commoner production failure (a saturated instance, a
+# blocking `KEYS`, a fsync pause, a blackholed route), and nothing covered it.
+
+
+async def test_a_slow_fast_path_is_abandoned_not_waited_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cache that has not answered inside the whole ack budget cannot save anything.
+
+    THE ANSWER ON BREACH IS THE ANSWER TO REDIS BEING DOWN, because to this layer it is
+    the same fact: fall through to the durable claim, which is what carries the dedupe
+    guarantee. That is why this deadline degrades where `_DURABLE_DEADLINE_S` refuses —
+    giving up here costs a Postgres round trip, giving up there would cost the event.
+    """
+
+    class _StalledRedis:
+        async def get(self, *_a: Any, **_kw: Any) -> Any:
+            await asyncio.sleep(30)
+
+        async def set(self, *_a: Any, **_kw: Any) -> Any:
+            await asyncio.sleep(30)
+
+    monkeypatch.setattr(webhook_routes, "get_redis", lambda: _StalledRedis())
+    execution_id, status, _ = _event()
+
+    started = time.perf_counter()
+    async with _client() as http:
+        response = await http.post(HOOK, json=_body(execution_id, status), headers=HEADERS)
+    elapsed = time.perf_counter() - started
+
+    assert response.json()["status"] == "accepted", (
+        "a stalled cache must degrade to the durable claim, exactly as a dead one does"
+    )
+    # Two stalls on this path — the GET and the post-commit SET — so the bound is both.
+    assert elapsed < 2.0, (
+        f"the handler held the request for {elapsed:.1f}s on a cache it did not need; "
+        "before the deadline this was bounded only by redis-py's own socket timeout"
+    )
+
+    # The durable half did its work: the claim is on file, so the event is not lost and a
+    # second delivery still dedupes — on Postgres, at the cost the fast path exists to save.
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM webhook_inbox_events WHERE event_key = :k"),
+                {"k": f"{execution_id}:{status}"},
+            )
+        ).scalar()
+    assert rows == 1
+
+
+def test_the_fast_path_may_not_be_given_more_patience_than_the_budget_it_serves() -> None:
+    """The bound on the number, and the reason it is not the durable deadline's two
+    seconds: this layer is an OPTIMISATION. Once it has spent the whole ack budget it has
+    already cost more than the Postgres round trip it exists to avoid, and the claim still
+    has to run afterwards — so waiting longer cannot be right at any speed.
+    """
+    assert webhook_routes._FAST_PATH_DEADLINE_S <= webhook_routes._ACK_BUDGET_MS / 1000
+    assert webhook_routes._FAST_PATH_DEADLINE_S < webhook_routes._DURABLE_DEADLINE_S, (
+        "the cache may never be given more patience than the layer that carries the "
+        "guarantee behind it"
+    )

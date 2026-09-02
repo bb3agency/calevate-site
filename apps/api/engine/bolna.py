@@ -1383,6 +1383,79 @@ def _check_semantic_routes(agent: dict[str, Any], *, ref: EngineAgentRef) -> Non
     )
 
 
+#: How many languages one alert names before it stops listing them, for
+#: `_ROUTE_NAME_SAMPLE`'s reason: the count is the severity and the codes are the handle
+#: for finding them in the console. A language code is an ISO 639-1 label, not content
+#: (hard rule 6) — what the entry's prompt SAYS is never reported here, and
+#: `_agent_alternate_prompts` carries that to a verdict instead.
+_MULTILINGUAL_SAMPLE = 5
+
+
+def _check_multilingual_speech(agent: dict[str, Any], *, ref: EngineAgentRef) -> None:
+    """Page when a console-added language brings its own VOICE or its own transcriber.
+
+    **THE HALF OF THE + Add Language CLICK THAT `alternate_prompts` CANNOT CARRY.** That
+    field answers the compliance question — does every prompt the engine will run carry
+    `TRUTHFUL_ANSWER_DIRECTIVE` — and `verification.judge` refuses a publish when one does
+    not. This is the OTHER thing the same click does, and nothing in `AgentSnapshot` has a
+    place for it: `MultilingualLanguageEntry` declares `synthesizer` as **required** and
+    `transcriber` as optional (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
+    api-reference/agent/v2/get.md:1064-1120`), so a language added in their console
+    NECESSARILY carries a text-to-speech provider of its own, and their own worked example
+    for the field puts `elevenlabs` on one language and `sarvam` on the other
+    (`get.md:616-634`).
+
+    TWO THINGS GO WRONG AT ONCE AND BOTH ARE INVISIBLE TODAY.
+
+    * `_agent_models` reads the CONVERSATION TASK's `synthesizer`/`transcriber` and
+      nothing else, so `holds_speech("tts")` answers about the base language and
+      `judge`'s `voice_applied` reads True while a caller who switches language hears a
+      voice this product never published — the ACCEPTED-versus-APPLIED gap that the
+      snapshot exists to close, reopened one level down.
+    * Speech is the leg that carries the AUDIO. `docs/legal` names Sarvam as the speech
+      sub-processor; a console-added `elevenlabs` entry sends a client's callers' voices
+      to a vendor no DPA of ours mentions, and it is a config change nobody here
+      deployed. That is a disclosure question, which is why this pages rather than logs.
+
+    NOT A REFUSAL, and the asymmetry with the prompt is deliberate. The floor in every
+    prompt is ours, is a `Final`, and its absence is a proven compliance failure worth
+    rolling a publish back for. A per-language voice is a legitimate thing for an operator
+    to want the day this product supports multilingual agents; what is not legitimate is
+    it happening where no instrument can see it. So the control is `_check_semantic_routes`'
+    shape — one alarm, on the read-back path every publish and every half-hourly sweep
+    already takes, naming the language codes and the providers so an operator can go and
+    look.
+    """
+    overridden: list[str] = []
+    providers: set[str] = set()
+    for code, entry in _multilingual_languages(agent):
+        legs = [entry.get(leg) for leg in ("synthesizer", "transcriber")]
+        if not any(isinstance(leg, dict) for leg in legs):
+            continue
+        overridden.append(code)
+        for leg in legs:
+            provider = leg.get("provider") if isinstance(leg, dict) else None
+            if isinstance(provider, str) and provider:
+                providers.add(provider)
+    if not overridden:
+        return
+    named = ", ".join(overridden[:_MULTILINGUAL_SAMPLE])
+    alert(
+        "CORE_LOGIC",
+        "engine_agent_multilingual_speech_override",
+        detail=(
+            f"this agent runs a per-language speech configuration for {len(overridden)} "
+            f"language(s) ({named}), so a caller who switches language is heard and "
+            "answered on a transcriber and a voice this product never published and no "
+            "read-back of ours scores — including, if the provider is not our own, by a "
+            "speech vendor no client agreement names. Providers: "
+            f"{', '.join(sorted(providers)) or 'unnamed'}. Nothing in this tree sends "
+            "`multilingual_config`; it was added in the vendor console."
+        ),
+        engine_agent_ref=ref,
+    )
+
+
 def _parse_dt(value: Any) -> datetime | None:
     if not value:
         return None
@@ -1796,6 +1869,45 @@ def _agent_system_prompt(agent: dict[str, Any]) -> str | None:
     return prompt if isinstance(prompt, str) and prompt else None
 
 
+def _multilingual_languages(agent: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """`(language code, entry)` for every language an ENABLED multilingual config holds.
+
+    ONE TRAVERSAL FOR THE TWO QUESTIONS ASKED OF THIS BLOCK — which prompts run
+    (`_agent_alternate_prompts`) and which SPEECH legs run (`_check_multilingual_speech`).
+    They were one function's worth of walking written twice until this existed, and the
+    two would have drifted at the `enabled` test, which is the half that decides whether
+    any of it is in the path at all.
+
+    `enabled` GATES IT, because the vendor says it does: *"Must be `true` for multilingual
+    to take effect. When `false` or omitted, the agent runs single-language and this object
+    is ignored"* (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/agent/v2/
+    get.md:594-599`). A stored-but-disabled config is not running, and convicting an agent
+    over one would be a refusal an operator cannot act on.
+
+    Sorted by code within each task so the result is stable across read-backs: it reaches a
+    verdict and a log line, and a dict-order-dependent one would make two identical sweeps
+    look like a change.
+    """
+    root = agent.get("agent_config") if isinstance(agent.get("agent_config"), dict) else agent
+    tasks = root.get("tasks") if isinstance(root, dict) else None
+    if not isinstance(tasks, list):
+        return []
+    found: list[tuple[str, dict[str, Any]]] = []
+    for task in tasks:
+        tools = task.get("tools_config") if isinstance(task, dict) else None
+        block = tools.get("multilingual_config") if isinstance(tools, dict) else None
+        if not isinstance(block, dict) or block.get("enabled") is not True:
+            continue
+        languages = block.get("languages")
+        if not isinstance(languages, dict):
+            continue
+        for code in sorted(languages):
+            entry = languages[code]
+            if isinstance(entry, dict):
+                found.append((code, entry))
+    return found
+
+
 def _agent_alternate_prompts(agent: dict[str, Any]) -> tuple[str, ...]:
     """Every OTHER system prompt this agent will run, read at the documented path.
 
@@ -1822,38 +1934,19 @@ def _agent_alternate_prompts(agent: dict[str, Any]) -> tuple[str, ...]:
     `system_prompt` — *"Prompt activated while the agent speaks this language"*
     (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:229-237,589-660,1064-1120`).
 
-    **`enabled` GATES IT, because the vendor says it does**: *"Must be `true` for
-    multilingual to take effect. When `false` or omitted, the agent runs single-language
-    and this object is ignored"* (`get.md:594-599`). A stored-but-disabled config is not a
-    running prompt, and convicting an agent over one would be a refusal an operator cannot
-    act on.
+    `enabled` gates it — argued at `_multilingual_languages`, which does the walking for
+    this function and for the speech check beside it.
 
     RETURNS ONLY WHAT WAS POSITIVELY FOUND, with no `readable` twin: an empty tuple means
     "no other prompt is in the path", which is the true answer for every agent this tree
     publishes. An entry with no `system_prompt` of its own falls back to the base prompt
     on their side, so it is not a gap and is not reported.
     """
-    root = agent.get("agent_config") if isinstance(agent.get("agent_config"), dict) else agent
-    tasks = root.get("tasks") if isinstance(root, dict) else None
-    if not isinstance(tasks, list):
-        return ()
     prompts: list[str] = []
-    for task in tasks:
-        tools = task.get("tools_config") if isinstance(task, dict) else None
-        block = tools.get("multilingual_config") if isinstance(tools, dict) else None
-        if not isinstance(block, dict) or block.get("enabled") is not True:
-            continue
-        languages = block.get("languages")
-        if not isinstance(languages, dict):
-            continue
-        # Sorted by language code so the tuple is stable across read-backs: it reaches a
-        # verdict and a log line, and a dict-order-dependent one would make two identical
-        # sweeps look like a change.
-        for code in sorted(languages):
-            entry = languages[code]
-            prompt = entry.get("system_prompt") if isinstance(entry, dict) else None
-            if isinstance(prompt, str) and prompt.strip():
-                prompts.append(prompt)
+    for _code, entry in _multilingual_languages(agent):
+        prompt = entry.get("system_prompt")
+        if isinstance(prompt, str) and prompt.strip():
+            prompts.append(prompt)
     return tuple(prompts)
 
 
@@ -3418,6 +3511,11 @@ class BolnaEngine:
         # comes through here, so a console-added route is paged on within the sweep
         # interval rather than on the call where it first answers for us.
         _check_semantic_routes(agent, ref=ref)
+        # The same argument one line up, for the other console switch that changes what a
+        # caller gets without changing anything `AgentSnapshot` can hold. The PROMPT half
+        # of a console-added language reaches `judge` as `alternate_prompts` and refuses
+        # the publish; the SPEECH half has no carrier and pages instead.
+        _check_multilingual_speech(agent, ref=ref)
         prompt = _agent_system_prompt(agent)
         greeting, greeting_readable = _agent_greeting(agent)
         kb_refs, kb_readable = _agent_kb_refs(agent)

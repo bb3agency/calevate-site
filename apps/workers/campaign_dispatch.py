@@ -110,7 +110,11 @@ from apps.api.campaigns.service import (
 # clock pin THIS check too — the campaign window and the per-dial gate must agree
 # on what time it is.
 from apps.api.compliance import service as compliance_service
-from apps.api.compliance.service import PERSON_LEVEL_REFUSALS, check_dispatch
+from apps.api.compliance.service import (
+    BIG_RED_SWITCH_RULE,
+    PERSON_LEVEL_REFUSALS,
+    check_dispatch,
+)
 from apps.api.core.alerting import (
     alert,
     record_campaign_dials,
@@ -849,6 +853,38 @@ async def _dispatch_for_campaign(
             )
             if stopped is not None:
                 await _refuse_contact(session, contact_id, rule=stopped)
+                blocked += 1
+                continue
+
+            # THE BIG RED SWITCH, READ PAST THE CACHE — and this is the ONE place in the
+            # tree that has to force it. `check_dispatch` asks the same question three
+            # lines below, but through `loadshed.get_platform_status()`, whose first layer
+            # is a 5-SECOND IN-PROCESS MEMO. The halt is written by
+            # `ops.routes.set_platform` in the API process, which clears its OWN memo and
+            # writes through Redis; THIS process's memo is untouched and keeps answering
+            # "running" until it ages out. The tick primes that memo at `_run_tick`, so a
+            # switch thrown just after a tick started is invisible to every contact of the
+            # batch it already claimed.
+            #
+            # Those seconds are not a rounding error on this path, and they are worse than
+            # the general staleness bound `loadshed` reasons about. `dial_recall` — the job
+            # that pulls dials back out of the vendor's queue — is enqueued on the halt's
+            # `false -> true` edge and scans ONCE. A dial this loop places after that scan
+            # is never recalled by anything: it sits in a queue we cannot see and rings.
+            # So the halt is the one rule here where a stale read costs an unrecallable
+            # phone call rather than a late refusal.
+            #
+            # ONE indexed read on `platform_state` per contact, in a loop bounded by the
+            # outbound pool (`_outbound_pool()`), on a path that already makes an engine
+            # round trip per iteration. It is a depth-2 nesting like the gate's own cold-memo
+            # read (`scripts/check_session_nesting.py` names that chain), not a new depth.
+            #
+            # Refused under the gate's OWN rule name so the metric, the runbook query and
+            # `_refuse_contact`'s settle/retry decision cannot tell the two reads apart —
+            # a contact stopped by the switch goes back on the ladder either way, because
+            # `big_red_switch` is not in `PERSON_LEVEL_REFUSALS`.
+            if (await get_platform_status(force_refresh=True)).outbound_halted:
+                await _refuse_contact(session, contact_id, rule=BIG_RED_SWITCH_RULE)
                 blocked += 1
                 continue
 

@@ -363,13 +363,23 @@ inferred:
   open because it needs one live observation, not a design.
 - **Our endpoint is already built for the pessimistic reading**: it never does the work
   inline, it bounds the body at 4 KiB, and it bounds the enqueue with
-  `asyncio.timeout(_DURABLE_DEADLINE_S)` so a Redis stall cannot hold the agent open. The
-  refusal path returns an actionable sentence — *"The request was not registered; please
-  tell the caller it will be handled."* — which is the right shape whatever the ceiling
-  turns out to be.
+  `asyncio.timeout(TOOL_ACK.durable_deadline_s)` so a Redis stall cannot hold the agent
+  open. The refusal path returns an actionable sentence — *"The request was not
+  registered; please tell the caller it will be handled."* — which is the right shape
+  whatever the ceiling turns out to be.
+
+  ⚠ **THIS BULLET SAID `_DURABLE_DEADLINE_S` AND THAT WAS THE DEFECT, NOT THE
+  MITIGATION.** The constant it named is the POST-CALL receiver's two seconds, imported
+  by `tool_routes` — so "a Redis stall cannot hold the agent open" was true only in the
+  sense that it held it open for two seconds on the enqueue and two more on the body
+  read, against a budget of 100ms, with a person on the line hearing every millisecond of
+  it. The in-call surface now carries its own numbers on `TOOL_ACK`
+  (`_TOOL_BODY_DEADLINE_S = 0.5`, `_TOOL_DURABLE_DEADLINE_S = 1.0`), asserted strictly
+  tighter than the receiver's by `tests/tool_endpoint_budget_test.py`.
 
 **No gap found in the endpoint itself.** Nothing in `tool_routes.py` needs to change on
-this evidence.
+this evidence — beyond the deadline correction recorded above, which is a defect this
+lane's own sentence pointed straight at and did not see.
 
 ### 2.4 One security note on `api_token`
 

@@ -260,6 +260,49 @@ def _keyable(value: str) -> str | None:
     return trimmed
 
 
+def scalar_hint(value: Any) -> str | None:
+    """A payload field as text we are willing to carry, or None if it is not a scalar.
+
+    **NOT `str(value)`, WHICH IS WHAT EVERY CALLER USED TO DO.** `str()` is total: handed
+    a dict or a list it renders Python's repr, so a payload naming its status
+    `{"code": 3}` produced the raw_status `"{'code': 3}"` — a value that goes into a
+    dedupe key, an ARQ job id and `webhook_deliveries.event_type` — and the tool route's
+    `reason` field turned the same input into `"{'code': 3}"` as the words a caller used
+    to withdraw consent, in `consent_ledger`, which is append-only (hard rule 4) and is
+    the evidence this platform would show a regulator. A field we cannot read is not a
+    field with a funny value in it; it is an absent field, and saying so is honest where
+    a repr is a fabrication.
+
+    What is accepted is what an engine could plausibly send for a scalar: a string, or a
+    number (an id or a status code arriving unquoted — `execution_key` accepts the quoted
+    spelling only, and this is deliberately no wider). `bool` is refused despite being an
+    `int`: `status: true` is not the status `"True"`.
+
+    IT DOES NOT BOUND LENGTH, deliberately, because its two classes of caller need
+    opposite answers to that and one of them cannot be given a truncation: a keyable field
+    is REFUSED when it is too long (`_keyable`) because a truncated key is a different
+    unit of work wearing the same name, while an evidence hint is TRUNCATED at the call
+    site because a shortened sentence still reads. Folding either into this function gives
+    the other one the wrong behaviour — which it did, for exactly as long as it took the
+    suite to say so.
+
+    NO RECURSION AND NO ALLOCATION on a container: the type check answers first. That is
+    also why this is the shape of the fix rather than a `try/except RecursionError` —
+    `str()` on a deeply nested value recurses, and this path is 500ms of somebody's phone
+    call. (Probed against the live receiver at every nesting depth from 100 to 999, list
+    and dict, on both endpoints and on all four fields: none produced a 500 today, because
+    `json.loads` refuses the depth that `repr` would have died on. It is one stack frame
+    of margin, and the margin is not the reason the code is correct.)
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return str(value)
+    return None
+
+
 def execution_key(payload: dict[str, Any]) -> str | None:
     """The execution id a payload can be keyed by, or None if it names none we can store.
 
@@ -295,18 +338,27 @@ def extract(payload: dict[str, Any]) -> IntakeEvent | None:
     keyed_id = execution_key(payload)
     if keyed_id is None:
         return None
-    raw_status = _keyable(str(payload.get("status") or "unknown").lower())
+    # A status that is a container is a status we cannot read, and it is treated as an
+    # ABSENT one rather than as a refusal: `unknown` is already this function's answer to
+    # a payload with no status at all, the event is still real, and the worker's
+    # authenticated Get Execution is what says what actually happened (D-31). Refusing
+    # would let one unreadable field suppress a real call's event — the same argument the
+    # agent ref carries two lines down.
+    #
+    # `_MAX_KEY_FIELD` and not the hint limit: this one becomes half of a durable key, so
+    # it is refused for length rather than truncated (`_keyable`).
+    raw_status = _keyable((scalar_hint(payload.get("status")) or "unknown").lower())
     if raw_status is None:
         return None
     # NOT fatal, unlike the two above: the ref is a hint the worker uses to resolve a
     # tenant, not part of any key, and the authenticated Get Execution is what actually
     # says which agent this was. An implausible one is dropped and the event still flows
     # — otherwise a junk field could suppress a real call's event entirely.
-    agent_ref = payload.get("agent_id")
+    agent_ref = scalar_hint(payload.get("agent_id"))
     return IntakeEvent(
         execution_id=keyed_id,
         raw_status=raw_status,
-        engine_agent_ref=_keyable(str(agent_ref)) if agent_ref else None,
+        engine_agent_ref=_keyable(agent_ref) if agent_ref else None,
     )
 
 
@@ -317,5 +369,6 @@ __all__ = [
     "engine_label",
     "execution_key",
     "extract",
+    "scalar_hint",
     "verify_source",
 ]

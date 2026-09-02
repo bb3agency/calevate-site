@@ -12,9 +12,18 @@ The contract this file must satisfy, in order:
    the refusals, the 409 from the inbox and the 500 from a sick driver. That is what
    `measured()` is for; before it, those last two shipped with no header and no sample.
    And BOUNDED, not merely measured, because measuring a nine-second ack does not
-   shorten it: the durable section runs under `_DURABLE_DEADLINE_S` and the body read
-   under `_BODY_DEADLINE_S`. Those two are the only waits on this path that can outlive
-   the caller's patience, and each has a designed answer on breach.
+   shorten it: the durable section runs under `_DURABLE_DEADLINE_S`, the body read under
+   `_BODY_DEADLINE_S`, and the Redis fast path under `_FAST_PATH_DEADLINE_S`. **THIS
+   LIST USED TO NAME TWO AND CALL THEM "the only waits on this path that can outlive the
+   caller's patience". IT WAS THREE.** The fast-path GET and the post-commit SET are
+   awaited with no deadline of ours at all; the only thing under them is the redis-py
+   client's `socket_timeout=2` plus `socket_connect_timeout=2` (`core/redis.py`), which
+   is not a bound this file chose and does not cover a server that accepts the
+   connection and then answers slowly. Driven against the receiver with a Redis that
+   sleeps five seconds: **202 with `X-Ack-Ms: 5001.9`**, ten times the budget, measured
+   correctly and bounded by nothing — the exact shape of the trickled-body defect one
+   paragraph down, in the layer that was supposed to be the CHEAP one. Each of the three
+   now has a designed answer on breach.
 3. **Defer all real work to ARQ.** Nothing here fetches, parses costs, or writes a
    domain row.
 4. **No DB writes beyond the minimal event row** — the inbox claim (dedupe) and the
@@ -192,6 +201,58 @@ _MAX_BODY_BYTES = 1_048_576
 # and non-acks, which is the property that was missing.
 _BODY_DEADLINE_S = 2.0
 
+# How long the Redis fast path may take to answer, on the way in and on the way out.
+#
+# THE THIRD UNBOUNDED WAIT, and the two comments above used to say there were two. Both
+# `_fast_path_seen` and `_remember_fast_path` await a socket, and neither was inside a
+# deadline of ours: the only bound under them is redis-py's own `socket_timeout=2` and
+# `socket_connect_timeout=2` (`core/redis.py`), a client default this file never chose,
+# that says nothing about a server which accepts the connection and then takes its time,
+# and that applies TWICE on the accepted path — so the receiver's worst case was
+# 2s (body) + 2s (GET) + 2s (claim) + 2s (SET). Measured against a Redis that sleeps five
+# seconds on GET: 202 with `X-Ack-Ms: 5001.9`.
+#
+# WHY IT IS THE ALERT BUDGET AND NOT THE ABANDON BUDGET, which is the opposite of the
+# choice made for the durable section. The durable claim is the layer that CARRIES the
+# dedupe guarantee, so giving up on it early promotes a slow database to a lost event —
+# hence two seconds there. This layer is a CACHE whose entire purpose is to be cheaper
+# than that claim. A cache that has not answered within the whole ack budget has already
+# cost more than the round trip it exists to save, so waiting longer cannot be right at
+# any speed; the claim still runs afterwards under its own deadline, and it is the one
+# that decides.
+#
+# The answer on breach is the answer to Redis being down, because it is the same fact:
+# GET falls through to the durable claim ("not seen"), SET is abandoned and the next copy
+# of this delivery pays one Postgres round trip. Neither loses an event, which is why
+# this one degrades where the durable deadline refuses.
+_FAST_PATH_DEADLINE_S = _ACK_BUDGET_MS / 1000
+
+# --- the in-call surface's numbers ---------------------------------------------
+#
+# THE TOOL ENDPOINT IS NOT A SMALLER WEBHOOK, and until these existed it ran on the
+# receiver's numbers by import and by default argument. What differs is not the code, it
+# is who is waiting: the post-call receiver answers a machine that has already hung up,
+# and the in-call tool endpoint answers an agent that is standing in a conversation with
+# a person. Every millisecond of a tool call is a millisecond of silence on the line.
+#
+# So the deadlines are the receiver's doctrine re-derived for that fact, not copied:
+#
+#   * the body is three fields under 4 KiB arriving over the container bridge from a
+#     proxy that has already received it, so half a second is three orders of magnitude
+#     of headroom and a body that has not arrived by then is not arriving;
+#   * the enqueue is one Redis round trip. D-109 measured this endpoint at p95 1.4ms
+#     single-flight and ~143ms at 250 concurrent, so a second is ~7x the worst ack we
+#     have ever measured under load: it cannot fire on healthy traffic, and it is inside
+#     the time a person gives a sentence before deciding the line has dropped.
+#
+# What it can never be is the receiver's 2s + 2s. The sentence justifying those is "the
+# cost of being wrong is one poller cycle (D-31), not a lost call", and there is NO
+# poller behind an in-call tool call — `tool_routes` argues exactly that where it refuses
+# to ack an unkeyable one. The cost of being wrong here is four seconds of dead air.
+_TOOL_MAX_BODY_BYTES = 4096
+_TOOL_BODY_DEADLINE_S = 0.5
+_TOOL_DURABLE_DEADLINE_S = 1.0
+
 
 class AckRecorder(Protocol):
     """A named metric recorder from `apps.api.core.alerting` (§8: named recorders only)."""
@@ -219,6 +280,12 @@ class AckMeter:
     record: AckRecorder
     slow_code: str
     body_timeout_code: str
+    #: The largest body this surface will hold in memory for an unauthenticated caller.
+    max_body_bytes: int
+    #: How long that body may take to arrive.
+    body_deadline_s: float
+    #: How long this surface's durable section (a claim, an enqueue) may take.
+    durable_deadline_s: float
 
 
 #: The post-call receiver: hard rule 3's 500ms, `webhook_ack_ms`.
@@ -226,14 +293,31 @@ WEBHOOK_ACK = AckMeter(
     record=record_webhook_ack_ms,
     slow_code="webhook_ack_slow",
     body_timeout_code="webhook_body_timeout",
+    max_body_bytes=_MAX_BODY_BYTES,
+    body_deadline_s=_BODY_DEADLINE_S,
+    durable_deadline_s=_DURABLE_DEADLINE_S,
 )
 #: The in-call tool endpoints: TRD §6.2's 100ms, `tool_ack_ms`. Same 500ms breach alert —
 #: hard rule 3 binds every handler in this service — but its OWN series, so the tighter
 #: budget can be read off a percentile instead of being averaged into the receiver's.
+#:
+#: **AND ITS OWN DEADLINES, WHICH IT DID NOT HAVE.** `tool_routes` imported
+#: `_DURABLE_DEADLINE_S` and inherited `_BODY_DEADLINE_S` through the default argument of
+#: `_read_bounded`, so an in-call tool call could hold for two seconds on the body and two
+#: more on the enqueue. Those numbers are the RECEIVER'S, and the sentence that justifies
+#: them is false one endpoint over: "the cost of being wrong is one poller cycle (D-31),
+#: not a lost call". There is no poller behind a tool call — `tool_routes` says so itself
+#: where it refuses to ack an unkeyable one — and the cost of being wrong is not a cycle,
+#: it is four seconds of silence on a live phone call while a person waits for the agent
+#: to say something. Same doctrine, different surface: the ALERT stays where the budget
+#: is, the ABANDON moves to where the caller's patience is.
 TOOL_ACK = AckMeter(
     record=record_tool_ack_ms,
     slow_code="tool_ack_slow",
     body_timeout_code="tool_body_timeout",
+    max_body_bytes=_TOOL_MAX_BODY_BYTES,
+    body_deadline_s=_TOOL_BODY_DEADLINE_S,
+    durable_deadline_s=_TOOL_DURABLE_DEADLINE_S,
 )
 
 
@@ -246,7 +330,7 @@ async def measured(
     engine: str,
     work: Coroutine[Any, Any, dict[str, str]],
     *,
-    meter: AckMeter = WEBHOOK_ACK,
+    meter: AckMeter,
 ) -> dict[str, str]:
     """Run a handler so that EVERY exit is measured and reported, not just the acks.
 
@@ -281,7 +365,7 @@ async def measured(
         raise
 
 
-def _refuse(started: float, engine: str, *, meter: AckMeter = WEBHOOK_ACK) -> str:
+def _refuse(started: float, engine: str, *, meter: AckMeter) -> str:
     """Measure a response we are about to refuse, and hand back its `X-Ack-Ms` value.
 
     Refusals used to set the header and record nothing. The header is for whoever is
@@ -329,7 +413,7 @@ def _ack(
     engine: str,
     body: dict[str, str],
     *,
-    meter: AckMeter = WEBHOOK_ACK,
+    meter: AckMeter,
 ) -> dict[str, str]:
     """Every acked path leaves through here, so the budget is measured, alerted and
     REPORTED identically on all of them.
@@ -339,14 +423,21 @@ def _ack(
     its least stressed, which is the opposite of useful.
     """
     elapsed = _ack_ms(started)
-    meter.record(elapsed, provider=engine)
+    # BOUNDED HERE TOO, and this line read `provider=engine` while `_refuse` twelve lines
+    # down bounded the identical value and argued why. Nothing could reach it with a
+    # stranger's string — every acked path is past `verify_source`, which says ok only for
+    # a name in `WEBHOOK_AUTH_BY_ENGINE` — so this was two spellings of one rule rather
+    # than a live hole, which is exactly the state a rule is in just before it is broken
+    # by a change one branch away. One answer for the metric, the span and the alert.
+    label = engine_label(engine)
+    meter.record(elapsed, provider=label)
     # The same number the metric and the `X-Ack-Ms` header carry, on the span. "The ack
     # was slow" is a metric; "the ack was slow AND its inbox-claim child took 480ms of
     # it" is the thing an operator can act on, and it needs both halves on one trace.
-    set_span_attributes(_server_span(), ack_ms=round(elapsed, 1), engine=engine)
+    set_span_attributes(_server_span(), ack_ms=round(elapsed, 1), engine=label)
     if elapsed > _ACK_BUDGET_MS:
         # Hard rule 3 has a number in it; treat breaching it as an incident signal.
-        alert("ROUTE_HANDLER", meter.slow_code, detail=f"{elapsed:.0f}ms", engine=engine)
+        alert("ROUTE_HANDLER", meter.slow_code, detail=f"{elapsed:.0f}ms", engine=label)
     response.headers["X-Ack-Ms"] = f"{elapsed:.1f}"
     return body
 
@@ -392,8 +483,15 @@ async def _fast_path_seen(redis_key: str, digest: str, *, engine: str) -> bool:
     """
     with span("webhook.fastpath", engine=engine) as stage:
         try:
-            settled = await get_redis().get(redis_key)
-        except Exception:  # Redis down: fall through to the durable claim, never 500
+            # A SLOW Redis and a DEAD one are the same fact to this layer, so they get
+            # the same answer: `TimeoutError` from the deadline is an `Exception` and
+            # lands in the branch below with the down case. What the deadline adds is
+            # that "slow" now HAS a definition — before it, the only bound was redis-py's
+            # client-side `socket_timeout`, which is not one this file chose and which a
+            # server that answers slowly never trips.
+            async with asyncio.timeout(_FAST_PATH_DEADLINE_S):
+                settled = await get_redis().get(redis_key)
+        except Exception:  # Redis down, or too slow to be worth waiting for
             log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
             # `outcome`, not an exception on the span: Redis being down here is a
             # DESIGNED degradation, and a span marked ERROR for a path that behaved
@@ -424,7 +522,12 @@ async def _remember_fast_path(redis_key: str, digest: str, *, engine: str) -> No
     post-commit placement removes.
     """
     try:
-        await get_redis().set(redis_key, digest, ex=_DEDUPE_TTL_S)
+        # Deadlined for the reason the GET is, and it matters MORE here: this await sits
+        # past the commit, so every millisecond it spends is added to an ack for work
+        # that is already durable and safe. Losing the write costs one Postgres round
+        # trip on the next copy of this delivery — the cheap direction, as below.
+        async with asyncio.timeout(_FAST_PATH_DEADLINE_S):
+            await get_redis().set(redis_key, digest, ex=_DEDUPE_TTL_S)
     except Exception:
         log.warning("webhook_fastpath_unavailable", extra={"engine": engine})
 
@@ -433,8 +536,7 @@ async def _read_bounded(
     request: Request,
     *,
     engine: str,
-    limit: int = _MAX_BODY_BYTES,
-    meter: AckMeter = WEBHOOK_ACK,
+    meter: AckMeter,
 ) -> bytes | None:
     """The raw body, or None if the caller exceeded the cap.
 
@@ -442,12 +544,15 @@ async def _read_bounded(
     a megabyte instead of after all of it. The declared length is checked first, which
     turns the common case into a rejection that reads nothing at all.
 
-    `limit` defaults to this endpoint's megabyte and is overridden by the in-call tool
-    route (`tool_routes.py`), whose bodies are three fields: the megabyte is sized for a
-    transcript-bearing webhook, and every endpoint should refuse at ITS own plausible
-    size rather than at the largest one in the service.
+    THE SIZE AND THE DEADLINE COME OFF THE METER, so both are this SURFACE's numbers.
+    The cap was already a per-surface value — passed as a `limit` argument by the in-call
+    tool route, whose bodies are three fields where the receiver's megabyte is sized for a
+    transcript — and the deadline was not: it was a module constant, so the tool route
+    silently inherited a two-second wait chosen for an endpoint nobody is listening to.
+    Two per-surface facts reached through two different mechanisms is how the second one
+    gets forgotten, which is the argument `AckMeter` was written for; it now carries both.
 
-    BOUNDED IN TIME AS WELL AS IN BYTES (`_BODY_DEADLINE_S`), and RAISES rather than
+    BOUNDED IN TIME AS WELL AS IN BYTES (`meter.body_deadline_s`), and RAISES rather than
     returning for the two ways a body fails to arrive at all. Both are deliberate answers
     where there used to be no answer:
 
@@ -465,13 +570,14 @@ async def _read_bounded(
       at WARNING with ids only and answered 400, and the catch-all alarm stays for
       crashes.
     """
+    limit = meter.max_body_bytes
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > limit:
         return None
     chunks: list[bytes] = []
     size = 0
     try:
-        async with asyncio.timeout(_BODY_DEADLINE_S):
+        async with asyncio.timeout(meter.body_deadline_s):
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > limit:
@@ -483,7 +589,7 @@ async def _read_bounded(
         alert(
             "ROUTE_HANDLER",
             meter.body_timeout_code,
-            detail=f"{size}B in {_BODY_DEADLINE_S:.0f}s",
+            detail=f"{size}B in {meter.body_deadline_s:.1f}s",
             engine=engine,
         )
         raise ProblemError(
@@ -543,7 +649,13 @@ class WebhookAckOut(BaseModel):
 )
 async def engine_webhook(engine: str, request: Request, response: Response) -> dict[str, str]:
     started = time.perf_counter()
-    return await measured(started, engine, _receive(engine, request, response, started))
+    # `WEBHOOK_ACK` is passed rather than defaulted, here and at every helper below. A
+    # default argument binds the meter OBJECT at import, which would make the surface's
+    # numbers unpatchable and — worse — would silently keep using the old meter after any
+    # future rebinding. The meter is a per-surface fact; the surface names it.
+    return await measured(
+        started, engine, _receive(engine, request, response, started), meter=WEBHOOK_ACK
+    )
 
 
 async def _receive(
@@ -584,7 +696,7 @@ async def _receive(
     # signs nothing today, but an engine that does will need the exact bytes (its
     # signature check belongs right here, as a SECOND gate after the source check), and
     # retro-fitting raw-body preservation into a live receiver is miserable.
-    raw = await _read_bounded(request, engine=engine)
+    raw = await _read_bounded(request, engine=engine, meter=WEBHOOK_ACK)
     if raw is None:
         alert("ROUTE_HANDLER", "webhook_payload_too_large", engine=engine)
         raise ProblemError(
@@ -631,6 +743,7 @@ async def _receive(
                 "status": "ignored",
                 "reason": "unusable execution key" if readable else "unreadable payload",
             },
+            meter=WEBHOOK_ACK,
         )
 
     redis_key = f"calevate:wh:{engine}:{event.execution_id}:{event.raw_status}"
@@ -641,13 +754,14 @@ async def _receive(
             started,
             engine,
             {"status": "duplicate", "execution_id": event.execution_id},
+            meter=WEBHOOK_ACK,
         )
 
     # The durable half of the dedupe, under the one deadline on this path. Everything
     # that can wait on a socket for an unbounded time is inside it: the three Postgres
     # statements and the enqueue.
     try:
-        async with asyncio.timeout(_DURABLE_DEADLINE_S):
+        async with asyncio.timeout(WEBHOOK_ACK.durable_deadline_s):
             claimed, job_id = await _claim_and_enqueue(
                 engine, event, signed=verdict.method == "hmac"
             )
@@ -680,12 +794,32 @@ async def _receive(
     # the next copy should be spared a Postgres round trip for.
     await _remember_fast_path(redis_key, digest, engine=engine)
 
+    if claimed and job_id is None:
+        # A CLAIMED TRANSITION WITH NO JOB BEHIND IT. `enqueue` returns None when arq
+        # refuses the id — because an identical job is already queued (a poller
+        # rediscovery racing this delivery: benign, the work exists) or because a result
+        # for that id is still in Redis from an earlier run (`keep_result`, one hour by
+        # default: NOT benign, because the inbox re-claims a failed row by CAS and we are
+        # about to mark this one enqueued for a job nobody will run).
+        #
+        # The receiver cannot tell those apart — arq answers "no" the same way for both —
+        # and it must not guess: refusing the ack would throw away the benign case, which
+        # is the common one. What it CAN do is stop the case being invisible. `enqueue`
+        # logs `job_deduped` at INFO from inside a shared helper, which says nothing about
+        # a webhook and reads as routine; this line names the execution, at WARNING, from
+        # the one frame that knows the claim was fresh. Ids only (hard rule 6).
+        log.warning(
+            "webhook_claimed_without_job",
+            extra={"engine": engine, "execution_id": event.execution_id},
+        )
+
     if not claimed:
         return _ack(
             response,
             started,
             engine,
             {"status": "duplicate", "execution_id": event.execution_id},
+            meter=WEBHOOK_ACK,
         )
 
     return _ack(
@@ -697,6 +831,7 @@ async def _receive(
             "execution_id": event.execution_id,
             "job_id": job_id or "deduped",
         },
+        meter=WEBHOOK_ACK,
     )
 
 

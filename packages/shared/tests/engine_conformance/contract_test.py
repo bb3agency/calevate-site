@@ -2062,6 +2062,38 @@ async def test_a_success_the_adapter_cannot_read_never_becomes_an_answer(
         assert kind == "dependency"
 
 
+async def test_a_redirect_is_never_treated_as_an_answer(
+    ladder: Callable[[VendorHandler], VoiceEngine],
+) -> None:
+    """A 3xx is a status BELOW 400, which is how it got in.
+
+    No adapter here follows redirects (httpx defaults `follow_redirects` to False), so a
+    301/302/307/308 arrives as an ordinary response carrying a `Location` and, usually, no
+    body at all — and a ladder that asks "is this >= 400?" reads that as the vendor having
+    done what it was asked. Measured on this tree before the rung existed: a 302 on the
+    execution route produced `engine_call_id=''`, `status='failed'`, no cost and no
+    transcript, which is the same fabricated record the unreadable-success clause above
+    exists to prevent, reached by a status that clause never touched.
+
+    Following it is not the fix and is not permitted: 307/308 re-send the request BODY, so
+    an edge misconfiguration in front of `POST /call` would dial one contact twice, and a
+    cross-host redirect strips the `Authorization` header on the way. A redirect off an API
+    root the adapter pins is a moved API or an intermediary, and either is an operator's
+    problem that they can only act on if somebody reports it.
+    """
+    for status in (301, 302, 307, 308):
+
+        def handler(request: httpx.Request, code: int = status) -> httpx.Response:
+            return httpx.Response(code, headers={"Location": "https://elsewhere.example/v1"})
+
+        code, kind = _refusal(await _refused(ladder(handler), what=f"a {status} redirect"))
+        assert code == "engine_bad_response", (
+            f"a {status} surfaced as {code!r} — an adapter that reads a redirect as a "
+            "successful answer reports a call record the vendor never sent"
+        )
+        assert kind == "dependency"
+
+
 async def test_a_vendor_error_body_is_never_echoed_to_our_caller(
     ladder: Callable[[VendorHandler], VoiceEngine],
 ) -> None:

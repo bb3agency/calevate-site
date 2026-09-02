@@ -27,6 +27,7 @@ Notes for whoever reads this next:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 import time
@@ -37,6 +38,7 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
+import tool_routes
 import webhook_routes
 from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
@@ -44,7 +46,8 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.api.reliability.service import InboxClaim, body_hash
 from calevate_shared.client_address import client_ip, is_trusted_peer
-from engine_intake import KNOWN_ENGINES, execution_key, verify_source
+from engine_intake import KNOWN_ENGINES, execution_key, extract, scalar_hint, verify_source
+from fastapi import Response
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import event, text
@@ -1259,3 +1262,318 @@ def test_every_spelling_of_the_execution_id_is_tried_not_just_the_first_truthy_o
     for empty in ({}, {"execution_id": ""}, {"execution_id": "   "}, {"execution_id": None}):
         assert execution_key(empty) is None, empty
     assert execution_key({"id": ["exec_a"]}) is None, "a list is not an id"
+
+
+# --- 12. a container where a scalar belongs ----------------------------------
+#
+# `extract` read `str(payload.get("status") or "unknown")` and `str(agent_ref)`, and
+# `tool_routes` read `str(payload.get("reason"))`. `str()` is TOTAL: handed a dict or a
+# list it renders Python's repr, so a payload whose status is `{"code": 3}` produced the
+# raw_status `"{'code': 3}"` — into the dedupe key, the ARQ job id and
+# `webhook_deliveries.event_type` — and a tool call whose reason is a list filed that
+# list's repr as the WORDS A CALLER USED to withdraw consent, in `consent_ledger`, which
+# is append-only (hard rule 4) and is the evidence this platform would show a regulator.
+#
+# The payload is a hint (D-31) and the caller controls every byte of it at an unsigned
+# endpoint. A hint we cannot read is an ABSENT hint; a repr of it is a fabrication that
+# looks like data. `engine_intake.scalar_hint` is the one answer for all four fields.
+
+
+@pytest.mark.parametrize("container", [{"code": 3}, ["a", "b"], [], {}])
+async def test_a_container_status_never_becomes_a_key(container: Any) -> None:
+    """A status we cannot read is an absent status, and absent already has an answer.
+
+    `unknown` is what `extract` has always produced for a payload with no status at all,
+    so this is the established behaviour applied to a field that is present and unusable —
+    NOT a refusal. The event is still real: refusing would let one junk field suppress a
+    live call's event, which is the same argument the agent ref carries.
+    """
+    execution_id, _status, _ = _event()
+    captured: list[dict[str, Any]] = []
+    real_enqueue = webhook_routes.enqueue
+
+    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
+        captured.append(dict(args[0]) if args else {})
+        return await real_enqueue(job, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(webhook_routes, "enqueue", _spy)
+        async with _client(EDGE_PROXY_IP) as http:
+            response = await http.post(
+                HOOK,
+                json={"execution_id": execution_id, "status": container},
+                headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
+            )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "accepted"
+    assert captured and captured[0]["raw_status"] == "unknown", (
+        "a container rendered by repr must never reach the dedupe key or the job: "
+        f"{captured[0]['raw_status'] if captured else 'nothing enqueued'!r}"
+    )
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM webhook_inbox_events WHERE event_key LIKE :k"),
+                {"k": f"{execution_id}:%"},
+            )
+        ).scalar()
+    assert rows == 1
+
+
+async def test_a_container_agent_ref_is_dropped_rather_than_repr_ed() -> None:
+    """Same rule one field over. The ref is a tenant-resolution hint the worker looks up;
+    `"{'id': 1}"` resolves to nobody and is indistinguishable in the job payload from a
+    ref the vendor really sent."""
+    execution_id, status, body = _event()
+    body["agent_id"] = {"id": 1}
+    captured: list[dict[str, Any]] = []
+    real_enqueue = webhook_routes.enqueue
+
+    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
+        captured.append(dict(args[0]) if args else {})
+        return await real_enqueue(job, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(webhook_routes, "enqueue", _spy)
+        async with _client(EDGE_PROXY_IP) as http:
+            response = await http.post(
+                HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP}
+            )
+
+    assert response.json()["status"] == "accepted"
+    assert captured[0]["engine_agent_ref"] is None
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+
+async def test_a_container_reason_is_not_filed_as_the_words_a_caller_used() -> None:
+    """The consent ledger is append-only (hard rule 4), so a fabricated reason cannot be
+    corrected later — only compensated. An empty reason is honest; a repr is not."""
+    captured: list[dict[str, Any]] = []
+
+    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
+        captured.append(dict(args[0]) if args else {})
+        return "job-1"
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(tool_routes, "enqueue", _spy)
+        async with _client(EDGE_PROXY_IP) as http:
+            response = await http.post(
+                "/tools/v1/bolna/opt-out",
+                json={
+                    "execution_id": f"exec_{uuid.uuid4().hex[:12]}",
+                    "reason": {"nested": ["do not call"]},
+                    "language": ["te"],
+                },
+                headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
+            )
+
+    assert response.status_code == 202, response.text
+    assert captured[0]["reason"] == "", captured[0]["reason"]
+    assert captured[0]["language"] == "", captured[0]["language"]
+
+
+def test_the_scalars_an_engine_may_plausibly_send_still_survive() -> None:
+    """The other direction: tightening the coercion must not start dropping real fields.
+
+    A number is accepted because an engine sending `status: 3` or an unquoted numeric
+    agent id is plausible and readable. `bool` is not: `status: true` is not the status
+    `"True"`, and rendering it as one would invent a transition.
+    """
+    assert scalar_hint("completed") == "completed"
+    assert scalar_hint(3) == "3"
+    assert scalar_hint(1.5) == "1.5"
+    assert scalar_hint(True) is None
+    assert scalar_hint(False) is None
+    assert scalar_hint(None) is None
+    assert scalar_hint({"a": 1}) is None
+    assert scalar_hint(["a"]) is None
+    # It does NOT bound length: a keyable field must be REFUSED when it is too long
+    # (a truncated key is a different unit of work under the same name) while an evidence
+    # hint is truncated at its call site. Folding either in gives the other the wrong
+    # answer — which it did, for as long as it took this suite to say so.
+    assert scalar_hint("x" * 5000) == "x" * 5000
+    assert extract({"execution_id": "exec_1", "status": "x" * 5000}) is None
+
+
+# --- 13. deeply nested JSON, on every field that is read ---------------------
+
+
+@pytest.mark.parametrize("nesting", ["list", "dict"])
+@pytest.mark.parametrize("depth", [95, 200, 500, 800, 900, 960, 980, 995])
+async def test_a_deeply_nested_body_is_answered_rather_than_crashed(
+    nesting: str, depth: int
+) -> None:
+    """`webhook_routes`' contract says "ten thousand nested arrays ... none of them is a
+    500", and `json.loads` raising `RecursionError` rather than `JSONDecodeError` is
+    caught for exactly that reason. What was NOT covered is the window PAST the parse: a
+    document deep enough to parse but deep enough that `str()` on it recurses, which is
+    what every field read after the parse used to do.
+
+    Probed exhaustively at every depth from 100 to 999 on both endpoints and all four
+    fields before this file was written: none produced a 500, because `json.loads` gives
+    out one stack frame before `repr` would. **That margin is not why the code is
+    correct** — it is one refactor wide, and the fields no longer call `str()` on a
+    container at all. These depths bracket the parser's own limit so the two failure
+    modes it does have (a clean refusal, an acked-and-ignored event) stay the only two.
+    """
+    open_, close = ("[", "]") if nesting == "list" else ('{"a":', "}")
+    payload = open_ * depth + ("1" if nesting == "dict" else "") + close * depth
+    token = uuid.uuid4().hex[:12]
+    headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP, "content-type": "application/json"}
+
+    async with _client(EDGE_PROXY_IP, tolerate_crash=True) as http:
+        hook = await http.post(
+            HOOK,
+            content=f'{{"execution_id":"exec_{token}","status":{payload}}}'.encode(),
+            headers=headers,
+        )
+        tool = await http.post(
+            "/tools/v1/bolna/opt-out",
+            content=f'{{"execution_id":"exec_{token}","reason":{payload}}}'.encode(),
+            headers=headers,
+        )
+
+    assert hook.status_code < 500, f"{nesting}@{depth}: {hook.status_code} {hook.text[:200]}"
+    assert tool.status_code < 500, f"{nesting}@{depth}: {tool.status_code} {tool.text[:200]}"
+
+
+# --- 14. the ack's own labels are bounded too --------------------------------
+
+
+def test_an_acked_response_cannot_mint_a_metric_label_either() -> None:
+    """`_refuse` bounded the engine name and argued why; `_ack` did not, and passed the
+    raw URL segment to the metric, the span and the breach alert.
+
+    Nothing could reach it — every acked path is past `verify_source`, which says ok only
+    for a name in `WEBHOOK_AUTH_BY_ENGINE` — so this was two spellings of one rule rather
+    than a live hole. That is the state a rule is in immediately before a change one
+    branch away breaks it, and the cost of the rule being broken is that anyone who finds
+    the URL can mint unbounded label cardinality in our own monitoring.
+    """
+    labels: list[str] = []
+    meter = replace(
+        webhook_routes.WEBHOOK_ACK,
+        record=lambda ms, *, provider: labels.append(provider),
+    )
+    webhook_routes._ack(
+        Response(), time.perf_counter(), "../../etc/passwd\n", {"status": "ignored"}, meter=meter
+    )
+    webhook_routes._ack(
+        Response(), time.perf_counter(), "bolna", {"status": "ignored"}, meter=meter
+    )
+    assert labels == ["unknown", "bolna"], labels
+
+
+# --- 15. a claimed transition with no job behind it --------------------------
+
+
+async def test_a_claim_whose_job_arq_refused_is_not_left_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`enqueue` returns None when arq refuses the job id, and the receiver acks
+    `accepted` anyway. That is the right answer — the common cause is a poller
+    rediscovery racing this delivery, where the work genuinely exists — but it is NOT the
+    only cause: arq also refuses an id whose RESULT is still in Redis (`keep_result`), and
+    the inbox re-claims a `failed` row by CAS, so a re-delivery of an event whose earlier
+    job failed can claim afresh, enqueue nothing, and be marked enqueued.
+
+    The receiver cannot tell those apart and must not guess. What it can do is stop the
+    case being invisible: `enqueue`'s own `job_deduped` line is INFO, from a shared helper,
+    and says nothing about a webhook. This is the one frame that knows the claim was fresh.
+    """
+    execution_id, status, body = _event()
+
+    async def _refused(*_args: Any, **_kwargs: Any) -> str | None:
+        return None
+
+    with caplog.at_level(logging.WARNING), pytest.MonkeyPatch.context() as patch:
+        patch.setattr(webhook_routes, "enqueue", _refused)
+        async with _client(EDGE_PROXY_IP) as http:
+            response = await http.post(
+                HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP}
+            )
+
+    assert response.json() == {
+        "status": "accepted",
+        "execution_id": execution_id,
+        "job_id": "deduped",
+    }
+    warned = [r for r in caplog.records if r.getMessage() == "webhook_claimed_without_job"]
+    assert warned, "a fresh claim with no job behind it must not be indistinguishable from a hit"
+    assert getattr(warned[0], "execution_id", None) == execution_id
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+
+# --- 16. the ack tells a stranger nothing about who exists -------------------
+
+
+async def test_the_ack_is_the_same_for_a_real_agent_ref_and_an_invented_one() -> None:
+    """Hard rule 1's no-existence-oracle rule, at the one surface that could leak one.
+
+    The receiver never resolves a tenant (that is the worker's job, from an authenticated
+    fetch), so there is nothing here to leak — this test is what keeps it that way. A
+    future "resolve the tenant so we can log the org" would make the two answers differ,
+    and the difference would be readable by anyone who reaches the endpoint: the engine
+    agent ref is the vendor's identifier for a CLIENT's agent, so an oracle over it
+    enumerates our customers.
+    """
+    known_ref = f"bolna-agent-{uuid.uuid4().hex[:10]}"
+    await _seed_route(known_ref)
+    unknown_ref = f"bolna-agent-{uuid.uuid4().hex[:10]}"
+
+    answers = []
+    async with _client(EDGE_PROXY_IP) as http:
+        for ref in (known_ref, unknown_ref):
+            _execution_id, _status, body = _event()
+            body["agent_id"] = ref
+            response = await http.post(
+                HOOK, json=body, headers={"CF-Connecting-IP": ENGINE_EGRESS_IP}
+            )
+            answers.append(
+                (
+                    response.status_code,
+                    sorted(response.json()),
+                    response.json()["status"],
+                    sorted(k.lower() for k in response.headers),
+                )
+            )
+    assert answers[0] == answers[1], (
+        "the reply distinguishes an agent this platform knows from one it does not, which "
+        f"is an enumeration oracle over every client's agents: {answers}"
+    )
+
+
+async def test_the_content_type_is_not_believed_and_not_required() -> None:
+    """Neither endpoint reads `Content-Type`, and that is the right answer twice over.
+
+    It is not TRUSTED — `application/json` on nine hundred kilobytes of binary buys the
+    sender nothing, because the parse is defensive and an unparseable body has a chosen
+    answer already. And it is not REQUIRED, because requiring it would hand a vendor whose
+    custom-function mechanism we have never seen (OPERATIONS §2 gate 8) a way to lose a
+    call over a header: at an engine that delivers at-most-once and never retries, a 415
+    on a well-formed payload is a call dropped for a formality.
+
+    Pinned because the natural "tidy-up" here is a Pydantic body parameter, which would
+    introduce exactly that 415 — and would also move the parse ahead of the source check,
+    undoing the ordering the receiver opens with.
+    """
+    execution_id, status, body = _event()
+    async with _client(EDGE_PROXY_IP, tolerate_crash=True) as http:
+        typed = await http.post(
+            HOOK,
+            content=json.dumps(body).encode(),
+            headers={"CF-Connecting-IP": ENGINE_EGRESS_IP, "content-type": "text/plain"},
+        )
+        # A lie in the other direction: the header says JSON, the bytes are not.
+        lying = await http.post(
+            HOOK,
+            content=b"\x89PNG\r\n\x1a\n" + b"\xff" * 64,
+            headers={"CF-Connecting-IP": ENGINE_EGRESS_IP, "content-type": "application/json"},
+        )
+
+    assert typed.status_code == 202, typed.text
+    assert typed.json()["status"] == "accepted", "a real event must not be lost to a header"
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+    assert lying.status_code == 202
+    assert lying.json() == {"status": "ignored", "reason": "unreadable payload"}

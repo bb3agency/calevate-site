@@ -13,6 +13,11 @@ index that silently omits three modules is worse than no index, because a reader
   redaction guard that refuses a payload `redact()` still changes.
 * `prompt.py`   — the static system prompt, the `set_fields` tool definition, and the XML
   helpers every block in this package escapes through (`xml_text`, `xml_attr`).
+* `identity.py` — who the assistant says it IS, as a property of this service rather than
+  a request to a model: the canonical answer given without a provider round trip, and the
+  streaming egress guard that keeps a model's own "trained by …" off a client's screen.
+  `prompt.ASSISTANT_IDENTITY` is the same rule asked politely, and it is not sufficient —
+  see that module for the live answers that proved it.
 * `tools.py`    — the READ tools: performance, leads, calls, campaigns, agents. Each one
   its own short `tenant_session`, its own permission checked in code, its result redacted.
 * `write_tools.py` — the three PROPOSING tools and the one door that acts. A proposal is a

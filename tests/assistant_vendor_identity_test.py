@@ -53,35 +53,21 @@ from types import ModuleType
 from typing import Final
 
 from apps.api.copilot import admin_prompt as admin_module
+from apps.api.copilot import identity
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import service as service_module
 from apps.api.copilot.schemas import CopilotAskIn
 
 #: The names a client or an operator must never be told by the assistant, as whole words.
 #:
-#: LANGUAGE-MODEL VENDORS AND THEIR MODEL FAMILIES, which is the class the leak belongs to.
-#: Every provider this product has ever routed a language request through is here whether or
-#: not it is a live leg today — the sentence to catch is "trained by X", and a retired vendor
-#: reads exactly as authoritatively as a current one. `gpt` and `claude` are in because the
-#: leak came out as a MODEL FAMILY rather than as a company name; `microsoft` because it is
-#: how the Azure leg is named in the register.
-#:
-#: NOT `sarvam` — see the module docstring. NOT `bolna`: the voice engine is not the
-#: assistant's identity and a tenant's own agent screens name it.
-VENDOR_WORDS: Final[tuple[str, ...]] = (
-    "anthropic",
-    "azure",
-    "claude",
-    "deepseek",
-    "gemini",
-    "google",
-    "gpt",
-    "llama",
-    "microsoft",
-    "mistral",
-    "openai",
-    "vertex",
-)
+#: IMPORTED, NOT RESTATED, AND THAT CHANGED WHEN THE EGRESS GUARD LANDED. This list used
+#: to be declared here, in a test — which was fine while the only control was a scan of
+#: prompt text. It is not fine now that `copilot/identity.py` bans the same names in the
+#: ANSWER at runtime: two spellings of one ban is how the prompt scan and the live guard
+#: come to disagree about what a vendor name IS, and the disagreement would show up as a
+#: green test over a leaking product. The list, the aliases and the reasoning for each
+#: inclusion (and for Sarvam's deliberate exclusion) live in that module.
+VENDOR_WORDS: Final[tuple[str, ...]] = identity.VENDOR_WORDS
 
 _VENDOR = re.compile(rf"\b(?:{'|'.join(VENDOR_WORDS)})\b", re.IGNORECASE)
 
@@ -230,3 +216,243 @@ def test_the_scan_does_not_fire_on_the_products_own_vocabulary() -> None:
     assert not _offenders(
         {"disclosure": "This was written by Sarvam, not the assistant model, because ..."}
     )
+
+
+# ═══ THE PART THE SCAN ABOVE CANNOT DO: THE ANSWER PATH, WITH A LEAKING MODEL. ═══════════
+#
+# THE SCAN PASSED WHILE PRODUCTION LEAKED, and that is not a criticism of it — it judges
+# the text WE write, which is the only thing a static scan can judge, and it is what stops
+# a human typing "(powered by …)" into a tool description. What it cannot see is the text
+# the MODEL writes, because that arrives at runtime and is not in any constant.
+#
+# `prompt.ASSISTANT_IDENTITY` shipped, and the founder then tested it live:
+#
+#     "who are you?"            → "I am the Calevate assistant."                    ✅
+#     "what ai model are you?"  → "I am a large language model, trained by Google."  ❌
+#     "are you a google model?" → "I am a large language model, trained by Google."  ❌
+#
+# So the tests below drive `service.run_copilot` — the real generator both realms' routes
+# consume — with a stubbed model emitting those exact sentences, and assert that the CALLER
+# never receives them. The provider is replaced at `chat.stream`, the seam one layer below
+# the loop, exactly as `copilot/loop_test.py` does it: the accumulator, the fragment filter
+# and the request shape are still the real ones, and the only fake is "what the model said".
+#
+# EVERY ONE OF THEM FAILS WITH THE CONTROL REVERTED — verified by deleting the wrapper in
+# `service.run_copilot` and re-running, which is the only way to know a guard guards.
+
+from collections.abc import AsyncIterator, Sequence  # noqa: E402
+from typing import Any  # noqa: E402
+
+import pytest  # noqa: E402
+from apps.api.copilot import service  # noqa: E402
+from apps.api.copilot.identity import CANONICAL_IDENTITY_ANSWER, IdentityEgress  # noqa: E402
+from apps.workers import chat  # noqa: E402
+
+#: The sentence the live copilot produced, verbatim. Not an invented probe: a guard tested
+#: against a hypothetical is a guard tested against its author's imagination.
+THE_LEAK: Final = "I am a large language model, trained by Google."
+
+
+def _ask(question: str) -> CopilotAskIn:
+    return CopilotAskIn.model_validate(
+        {
+            "screen": {"route": "/c/sunrise/leads", "title": "Leads", "realm": "client"},
+            "question": question,
+            "fields": [{"id": "note", "label": "Note", "type": "text", "writable": True}],
+        }
+    )
+
+
+@pytest.fixture
+def azure_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment on the Azure rung with no Sarvam key — `loop_test.azure_only`. The leg
+    is irrelevant to what is being tested (the guard sits above all of them); it is pinned
+    so the run is deterministic rather than dependent on ambient settings."""
+    from apps.api.core.settings import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "azure_openai_resource", "calevate-test", raising=False)
+    monkeypatch.setattr(settings, "azure_openai_api_key", "k", raising=False)
+    monkeypatch.setattr(settings, "azure_openai_deployment", "dep", raising=False)
+    monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
+
+
+def _says(monkeypatch: pytest.MonkeyPatch, fragments: Sequence[str]) -> None:
+    """Stub the model into emitting exactly these fragments, then its terminal frame.
+
+    `fragments` is a LIST rather than a string so a test can choose where the chunk
+    boundaries fall — which is the whole subject of one of the tests below.
+    """
+    joined = "".join(fragments)
+
+    def _stream(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> AsyncIterator[chat.StreamEvent]:
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            for fragment in fragments:
+                yield chat.StreamEvent(text=fragment)
+            yield chat.StreamEvent(
+                outcome=chat.ChatOutcome(
+                    content=joined, tool_calls=(), finish_reason="stop", usage=None
+                )
+            )
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _stream)
+
+
+async def _answer(question: str) -> str:
+    """Everything the CLIENT would have been sent, joined — the route appends exactly these
+    fragments into its SSE `text` frames and into the audit and memory rows."""
+    return "".join(
+        [event.text async for event in service.run_copilot(_ask(question)) if event.text]
+    )
+
+
+async def test_the_sentence_that_shipped_never_reaches_the_client(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The defect, end to end. The question is deliberately one the classifier does NOT
+    answer itself, so this exercises the EGRESS GUARD alone: control 1 would otherwise
+    short-circuit before the model was ever called and prove nothing about control 2."""
+    _says(monkeypatch, [THE_LEAK])
+    answer = await _answer("remind me what you can help with here")
+    assert "google" not in answer.casefold()
+    assert answer.strip() == CANONICAL_IDENTITY_ANSWER
+
+
+async def test_the_leak_split_across_chunk_boundaries_is_still_caught(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE CASE A PER-FRAGMENT SCAN GETS WRONG. The vendor name is cut in half — "Goo" ends
+    one frame and "gle." begins the next — and neither fragment contains it. A guard that
+    scanned each `StreamEvent` as it arrived would pass both and leak the word into the DOM,
+    where the browser reassembles it. Every three-character split is tried, so the boundary
+    is not allowed to land somewhere convenient."""
+    for size in (1, 2, 3, 5, 7, 11):
+        fragments = [THE_LEAK[i : i + size] for i in range(0, len(THE_LEAK), size)]
+        assert "".join(fragments) == THE_LEAK
+        _says(monkeypatch, fragments)
+        answer = await _answer("remind me what you can help with here")
+        assert "google" not in answer.casefold(), f"leaked at chunk size {size}"
+
+
+async def test_the_direct_model_question_is_answered_without_calling_a_provider(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CONTROL 1. The two questions the prompt lost to are answered by us. `chat.stream` is
+    stubbed to RAISE, so a run that reached a provider fails loudly instead of passing on a
+    canned reply that happened to look right."""
+
+    def _never(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        raise AssertionError("a provider was called for an identity question")
+
+    monkeypatch.setattr(chat, "stream", _never)
+    for question in ("what ai model are you?", "are you a google model?", "who are you?"):
+        assert await _answer(question) == CANONICAL_IDENTITY_ANSWER
+
+
+async def test_an_identity_question_costs_nothing(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No provider means no spend, and the route must not be handed one: a `CopilotSpend`
+    with no round trip behind it would price an answer nobody paid for on an append-only
+    ledger (hard rule 7)."""
+
+    def _never(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        raise AssertionError("a provider was called for an identity question")
+
+    monkeypatch.setattr(chat, "stream", _never)
+    events = [event async for event in service.run_copilot(_ask("who made you?"))]
+    assert [event.spend for event in events if event.spend is not None] == []
+
+
+async def test_the_substitution_still_says_it_is_an_ai(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HARD RULE 5's FLOOR, checked on the guard's own output. The one shape this control
+    may never take is evasion: a person who asks what they are talking to is told, in the
+    same breath as the refusal to name a vendor and the place that answer is published."""
+    _says(monkeypatch, [THE_LEAK])
+    answer = await _answer("remind me what you can help with here")
+    lowered = answer.casefold()
+    assert "calevate assistant" in lowered
+    assert " an ai " in lowered
+    assert "/legal/subprocessors" in answer
+    assert not _offenders({"substitution": answer})
+
+
+async def test_a_clients_own_data_may_still_name_google(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE SCOPING BOUNDARY, and the reason this guard is not a word filter.
+
+    A lead really did ask about Google Ads; a campaign really is called "Microsoft
+    partners". Those reach an answer through `tools.py` and the person is entitled to read
+    them back. The guard is scoped to what the assistant asserts about ITSELF — a vendor
+    name plus a self-identity assertion in one sentence — so business prose passes intact.
+    A guard that ate this would be switched off within a week, and it would deserve to be.
+    """
+    prose = (
+        "I found 3 leads this week who asked about Google Ads, and 1 on the "
+        "Microsoft partners campaign. I am not able to look up what Google Ads cost you."
+    )
+    _says(monkeypatch, [prose])
+    assert await _answer("what did my leads ask about?") == prose
+
+
+async def test_a_vendor_named_in_the_business_question_does_not_arm_the_strict_rule(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The over-reach the `_SELF_FRAME` half of `question_touches_model_identity` exists to
+    prevent. "How many leads came from Google Ads?" names a vendor; the true answer names
+    it again, several times, and must arrive whole."""
+    prose = "12 leads came from Google Ads and 4 from your Microsoft listing."
+    _says(monkeypatch, [prose])
+    assert await _answer("how many leads came from google ads last week?") == prose
+
+
+async def test_a_transliterated_or_homoglyph_vendor_name_is_caught_too(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CASE, PUNCTUATION, SCRIPT AND LOOKALIKES. Four spellings of the same disclosure, none
+    of which a `"Google" in answer` test would see: shouted, parenthesised and possessive,
+    Cyrillic-o homoglyph, and Telugu — the language this product is built for first."""
+    for leak in (
+        "I AM A LARGE LANGUAGE MODEL, TRAINED BY GOOGLE!",
+        "I am a language model (trained by 'Google's team).",
+        "I am a large language model, trained by G\u043e\u043egle.",
+        "\u0928\u0947\u0928\u0941 \u0c17\u0c42\u0c17\u0c41\u0c32\u0c4d "
+        "\u0c36\u0c3f\u0c15\u0c4d\u0c37\u0c23 \u0c2e\u0c4b\u0c21\u0c32\u0c4d.",
+    ):
+        _says(monkeypatch, [leak])
+        # The Telugu one carries no English self-assertion, so it is the STRICT rule that
+        # catches it — the question was about the model, which needs no English at all.
+        answer = await _answer("which model are you running on?")
+        assert answer.strip() == CANONICAL_IDENTITY_ANSWER, leak
+
+
+def test_the_filter_holds_at_most_one_sentence_before_releasing() -> None:
+    """THE LATENCY BOUND, asserted rather than described. The guard cannot judge a sentence
+    it has not finished reading, so it holds one — and a paragraph that never ends must not
+    be held to the end of the answer. Past `_MAX_PENDING` the text comes out with a
+    look-behind tail retained, which is what keeps a name split across the release point
+    catchable."""
+    egress = IdentityEgress(strict=False)
+    clean = "Your team logged plenty of calls this week and every one of them was answered "
+    released = "".join(egress.feed(word + " ") for word in (clean * 6).split())
+    assert released, "a long unterminated span was held to the end of the answer"
+    assert len(released) >= len(clean * 6) - 240
+
+
+def test_a_caught_answer_is_replaced_rather_than_word_deleted() -> None:
+    """WHAT A CAUGHT ANSWER BECOMES, and the two alternatives that were rejected. Deleting
+    the word leaves "trained by ." — gibberish that still announces a removal. Letting the
+    rest through prints a correction and then continues the corrected thought. So the
+    remainder is replaced once and everything after it is dropped."""
+    egress = IdentityEgress(strict=False)
+    out = egress.feed("Sure. ") + egress.feed(THE_LEAK) + egress.feed(" My cutoff is 2024.")
+    assert out == "Sure. " + CANONICAL_IDENTITY_ANSWER
+    assert egress.substituted
+    assert egress.close() == ""
