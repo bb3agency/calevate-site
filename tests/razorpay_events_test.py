@@ -32,6 +32,7 @@ import httpx
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
+from apps.api.billing.credit_packs import pack_by_id
 from apps.api.billing.payment_routes import (
     CheckoutCallbackIn,
     RefundIn,
@@ -891,3 +892,166 @@ async def test_the_same_refund_id_at_a_different_amount_is_a_conflict() -> None:
 )
 def test_failed_payment_summary_is_empty_for_a_shape_it_cannot_read(envelope: Any) -> None:
     assert payments.failed_payment_summary(envelope) == {}
+
+
+# ============================================================================
+# What a refund may take back: the payment, in AGGREGATE, and the bonus it bought
+# ============================================================================
+#
+# Two holes on the money path, both found by asking the edge-case question the round was
+# for — can this system charge for something it did not do?
+#
+# 1. `refund_exceeds_payment` was a PER-REQUEST ceiling. Two partial refunds each inside
+#    the payment can sum to more than it, and each writes its own compensating debit.
+# 2. A pack payment grants paid credits AND a bonus we fund. Reversing only the paid leg
+#    leaves the bonus on the wallet — free talk time, repeatable at will.
+
+
+def _refund_by_amount(prefix: str = "rfnd_AMT") -> Any:
+    """A provider stub whose refund id is derived from the amount, so two DIFFERENT
+    partial refunds of one payment get two different ids — which is what makes the
+    aggregate question askable at all. The vendor's own idempotency key is derived the
+    same way (`refund_idempotency_key`), so identical amounts do collapse onto one id."""
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "id": f"{prefix}_{body['amount']}",
+                "amount": body["amount"],
+                "status": "processed",
+            },
+        )
+
+    return responder
+
+
+async def _fund_pack(tenant_id: UUID, *, payment_id: str, pack_id: str) -> None:
+    """A pack purchase: paid credits plus the bonus, exactly as the webhook credits one."""
+    pack = pack_by_id(pack_id)
+    assert pack is not None
+    payment = payments.CapturedPayment(
+        payment_id=payment_id,
+        tenant_id=tenant_id,
+        amount_inr=pack.amount_inr,
+        currency="INR",
+        pack_id=pack_id,
+    )
+    async with tenant_session(tenant_id) as session:
+        await payments.credit_captured_payment(session, payment=payment)
+
+
+async def _balance(tenant_id: UUID) -> Decimal:
+    async with tenant_session(tenant_id) as session:
+        return (await get_balance(session, tenant_id=tenant_id)).amount_inr
+
+
+async def test_partial_refunds_may_not_exceed_the_payment_in_aggregate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """₹2,000 then ₹1,000 against a ₹2,500 payment: each is inside the payment on its own,
+    and together they refund ₹500 the client never paid."""
+    tenant_id = await _tenant()
+    pid = _payment_id("AGG")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    seen = _install_refund(monkeypatch, _refund_by_amount())
+
+    first = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    assert first.recorded is True
+    with pytest.raises(ProblemError) as raised:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="again"),
+            _request(),
+            _admin(),
+        )
+    assert raised.value.code == "refund_exceeds_payment"
+    assert len(seen) == 1, "a refusal must never reach the provider"
+    assert await _balance(tenant_id) == Decimal("500.0000")
+
+
+async def test_the_remaining_part_of_a_payment_is_still_refundable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The aggregate ceiling bounds the total and nothing more: ₹2,000 then ₹500 is
+    exactly the payment and must go through."""
+    tenant_id = await _tenant()
+    pid = _payment_id("AGGOK")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    _install_refund(monkeypatch, _refund_by_amount())
+
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    rest = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("500.00"), reason="the rest"),
+        _request(),
+        _admin(),
+    )
+    assert rest.recorded is True
+    assert await _balance(tenant_id) == Decimal("0.0000")
+
+
+async def test_a_full_refund_of_a_pack_takes_the_bonus_back_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pack grants paid credits plus a bonus we fund. Reversing the purchase reverses
+    both, or the wallet keeps talk time nobody paid for."""
+    tenant_id = await _tenant()
+    pid = _payment_id("PACK")
+    pack = pack_by_id("growth")
+    assert pack is not None and pack.bonus_credits > 0
+    await _fund_pack(tenant_id, payment_id=pid, pack_id="growth")
+    assert await _balance(tenant_id) == pack.total_credits
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_PACK"))
+
+    out = await issue_tenant_refund(
+        tenant_id, RefundIn(payment_id=pid, reason="client asked"), _request(), _admin()
+    )
+    assert out.amount_inr == pack.amount_inr
+    assert await _balance(tenant_id) == Decimal("0.0000"), "the bonus went back with the purchase"
+
+
+async def test_a_partial_refund_of_a_pack_takes_back_that_share_of_the_bonus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Half the purchase back, half the bonus back — and the second half later, once,
+    with the two clawbacks summing to exactly the bonus granted."""
+    tenant_id = await _tenant()
+    pid = _payment_id("PACKHALF")
+    pack = pack_by_id("growth")
+    assert pack is not None
+    await _fund_pack(tenant_id, payment_id=pid, pack_id="growth")
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_HALF"))
+
+    # UNEVEN halves on purpose: the provider's idempotency key is derived from
+    # (payment_id, amount), so two refunds of the SAME amount are one refund.
+    part = Decimal("1000.00")
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=part, reason="part"),
+        _request(),
+        _admin(),
+    )
+    after_part = await _balance(tenant_id)
+    assert after_part < pack.total_credits - part, "the bonus moved too, not only the paid leg"
+
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=pack.amount_inr - part, reason="the rest"),
+        _request(),
+        _admin(),
+    )
+    assert await _balance(tenant_id) == Decimal("0.0000"), (
+        "the clawbacks sum to exactly the bonus granted, with no rounding residue"
+    )

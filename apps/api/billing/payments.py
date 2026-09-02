@@ -177,13 +177,16 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.credit_packs import (
+    PACK_BONUS_CLAWBACK_META_KIND,
     PACK_BONUS_META_KIND,
     CreditPack,
     pack_by_id,
 )
+from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import (
     Balance,
     find_entry_by_ref,
@@ -1337,6 +1340,178 @@ def extract_refund(envelope: Any) -> RefundEvent:
     )
 
 
+#: WHAT A REFUND ROW SAYS IT REVERSES. `credit_refund` stamps `meta.payment_ref` on every
+#: entry it writes, so "how much of this payment has gone back" is one indexed-by-tenant scan
+#: of the wallet rather than a join against the provider. Named because two readers ask it —
+#: the aggregate ceiling on the refund route and the bonus clawback below — and a second
+#: spelling of one money predicate is the shape this module has already been bitten by.
+_REFUNDED_FOR_PAYMENT_SQL: Final = (
+    "SELECT COALESCE(SUM(abs(delta)), 0) FROM credit_ledger "
+    "WHERE tenant_id = :tid AND reason = 'refund' AND meta->>'payment_ref' = :pid"
+)
+
+
+async def refunded_total_inr(session: AsyncSession, *, tenant_id: UUID, payment_id: str) -> Decimal:
+    """How much of this payment is already back with the client, across every refund of it.
+
+    **THE PER-REQUEST CEILING WAS NOT A CEILING.** `issue_tenant_refund` refused an amount
+    larger than the payment and nothing else, so ₹2,000 and then ₹1,000 against a ₹2,500
+    top-up both passed — two provider refunds, two compensating entries, ₹500 returned that
+    the client never paid. A ceiling that only ever sees one request cannot bound a total,
+    and on an append-only ledger the second entry cannot afterwards be taken back.
+
+    Read under `lock_tenant_credits` when a write depends on it: this is the check half of a
+    check-then-write, and the lock is what stops two operators refunding the same remainder.
+    """
+    total = (
+        await session.execute(
+            text(_REFUNDED_FOR_PAYMENT_SQL), {"tid": tenant_id, "pid": payment_id}
+        )
+    ).scalar()
+    return Decimal(str(total or 0))
+
+
+async def refunded_amounts_inr(
+    session: AsyncSession, *, tenant_id: UUID, payment_id: str
+) -> list[Decimal]:
+    """The magnitude of each refund already recorded against this payment.
+
+    The route needs the individual amounts and not only their sum, for one reason: the
+    provider's idempotency key is derived from `(payment_id, amount)`
+    (`refund_idempotency_key`), so a SECOND CLICK on the same refund is the same amount and
+    must stay a no-op replay rather than becoming `refund_exceeds_payment`. Two genuinely
+    distinct refunds of one payment for the identical amount are not representable anyway —
+    they collapse onto one provider refund — so "this exact amount is already recorded"
+    identifies a replay and nothing else.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT abs(delta) FROM credit_ledger WHERE tenant_id = :tid "
+                "AND reason = 'refund' AND meta->>'payment_ref' = :pid"
+            ),
+            {"tid": tenant_id, "pid": payment_id},
+        )
+    ).all()
+    return [Decimal(str(row[0])) for row in rows]
+
+
+async def _clawed_back_bonus_inr(
+    session: AsyncSession, *, tenant_id: UUID, payment_id: str
+) -> Decimal:
+    """How much of this pack's bonus previous refunds have already taken back.
+
+    Keyed on `meta.kind` AND `meta.payment_ref`, so it counts the clawbacks of THIS purchase
+    and nothing else — the grant itself is a positive `bonus` row with a different kind, and
+    a filter on the sign alone would have counted it.
+    """
+    total = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(SUM(abs(delta)), 0) FROM credit_ledger "
+                "WHERE tenant_id = :tid AND reason = 'bonus' AND meta->>'kind' = :kind "
+                "AND meta->>'payment_ref' = :pid"
+            ),
+            {"tid": tenant_id, "kind": PACK_BONUS_CLAWBACK_META_KIND, "pid": payment_id},
+        )
+    ).scalar()
+    return Decimal(str(total or 0))
+
+
+async def _claw_back_pack_bonus(
+    session: AsyncSession, *, refund: RefundEvent, ip: str | None
+) -> Decimal:
+    """Take back the share of a pack's BONUS that this refund reverses. Returns what moved.
+
+    **THE DEFECT.** A pack grants paid credits and, on top, bonus credits WE fund
+    (`_grant_pack_bonus`). A refund reversed the paid leg only, so a client could buy the
+    ₹2,999 pack, receive ₹3,088.97 of credits, ask for their money back and keep ₹89.97 of
+    talk time — repeatably, for as long as they cared to. Nothing in the wallet, the
+    reconciler or the invoice would have shown it as anything but a bonus somebody earned.
+
+    **PROPORTIONAL, AND EXPRESSED AS A CUMULATIVE TARGET RATHER THAN AN INCREMENT.** The
+    bonus is consideration for the purchase, so half the purchase back is half the bonus
+    back. Computing "bonus x (total refunded so far) / (amount paid)" and subtracting what
+    previous refunds already clawed makes the SEQUENCE of partial refunds land on exactly
+    the bonus granted — an increment quantized per refund would not, and the residue would
+    be a few paise of free credit or a few paise of overdraft that nothing could explain.
+    Clamped at the bonus so no arithmetic can take back more than was ever given.
+
+    Written as a `bonus` entry keyed on the REFUND id, a key distinct from the grant's
+    (which is keyed on the payment id) and unique under `ux_credit_ledger_bonus_ref`, so the
+    reversal is idempotent in the database exactly as every other writer on this ledger is.
+
+    `allow_negative=True` for `credit_refund`'s reason: the credits may already be spent,
+    and refusing to record a movement that happened would hide it.
+    """
+    paid = await find_topup(session, tenant_id=refund.tenant_id, ref=refund.payment_id)
+    grant = await find_entry_by_ref(
+        session, tenant_id=refund.tenant_id, reason="bonus", ref=refund.payment_id
+    )
+    # No paid row (a refund of a payment this wallet never recorded) or no bonus (a plain
+    # top-up, or the 0%-bonus starter pack): there is nothing proportional to take back.
+    if paid is None or paid.amount_inr <= 0 or grant is None or grant.amount_inr <= 0:
+        return Decimal("0")
+
+    refunded = await refunded_total_inr(
+        session, tenant_id=refund.tenant_id, payment_id=refund.payment_id
+    )
+    target = min(
+        grant.amount_inr,
+        (grant.amount_inr * refunded / paid.amount_inr).quantize(MONEY_Q, rounding=ROUNDING),
+    )
+    already = await _clawed_back_bonus_inr(
+        session, tenant_id=refund.tenant_id, payment_id=refund.payment_id
+    )
+    delta = target - already
+    if delta <= 0:
+        return Decimal("0")
+
+    balance = await record_entry(
+        session,
+        tenant_id=refund.tenant_id,
+        delta=-delta,
+        reason="bonus",
+        ref=refund.refund_id,
+        meta={
+            "kind": PACK_BONUS_CLAWBACK_META_KIND,
+            "source": PROVIDER,
+            "payment_ref": refund.payment_id,
+            "refund_ref": refund.refund_id,
+            # Digit STRINGS (hard rule 7): a rupee amount that goes into JSON as a number
+            # comes back a float in some reader.
+            "granted_inr": str(grant.amount_inr),
+            "clawed_back_inr": str(delta),
+        },
+        allow_negative=True,
+    )
+    await write_audit(
+        session,
+        action="credit.pack_bonus_clawback",
+        actor_type="system",
+        tenant_id=refund.tenant_id,
+        object_type="credit_ledger",
+        object_id=str(grant.entry_id),
+        ip=ip,
+        summary={
+            "source": PROVIDER,
+            "payment_ref": refund.payment_id,
+            "refund_ref": refund.refund_id,
+            "amount_inr": str(delta),
+            "balance_after_inr": str(balance.amount_inr),
+        },
+    )
+    log.info(
+        "razorpay_pack_bonus_clawed_back",
+        extra={
+            "tenant_id": str(refund.tenant_id),
+            "payment_ref": refund.payment_id,
+            "refund_ref": refund.refund_id,
+        },
+    )
+    return delta
+
+
 async def credit_refund(
     session: AsyncSession, *, refund: RefundEvent, ip: str | None = None
 ) -> TopUpResult:
@@ -1412,6 +1587,12 @@ async def credit_refund(
         "razorpay_refund_recorded",
         extra={"tenant_id": str(refund.tenant_id), "entry_id": str(written.entry_id)},
     )
+
+    # The bonus this refund reverses, in the SAME transaction as the refund itself, so a
+    # wallet can never hold a pack's bonus without the purchase that earned it — the mirror
+    # of the invariant `credit_captured_payment` keeps when it grants the two together.
+    if await _claw_back_pack_bonus(session, refund=refund, ip=ip) > 0:
+        balance = await get_balance(session, tenant_id=refund.tenant_id)
     return TopUpResult(entry_id=written.entry_id, balance=balance, recorded=True)
 
 
@@ -1514,6 +1695,8 @@ __all__ = [
     "razorpay_api_secret",
     "razorpay_orders",
     "refund_idempotency_key",
+    "refunded_amounts_inr",
+    "refunded_total_inr",
     "topup_receipt",
     "verify_checkout_signature",
     "verify_signature",

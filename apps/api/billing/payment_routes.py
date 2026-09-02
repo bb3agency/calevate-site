@@ -84,6 +84,7 @@ from apps.api.billing.payments import (
     payments_not_configured,
     razorpay_api_secret,
     razorpay_orders,
+    refunded_amounts_inr,
     topup_receipt,
     verify_checkout_signature,
     verify_signature,
@@ -909,6 +910,12 @@ async def issue_tenant_refund(
             # row would be a compensating entry against nothing — an ops error, not a route.
             raise ProblemError.not_found("Payment")
         topup_amount = existing_topup.amount_inr
+        # Under the credit lock, and read in the same breath as the payment: this is the
+        # check half of a check-then-write, and the write it guards is a provider call that
+        # cannot be undone. `find_topup` has already taken the lock.
+        already_refunded = await refunded_amounts_inr(
+            session, tenant_id=tenant_id, payment_id=payload.payment_id
+        )
 
     amount = payload.amount_inr if payload.amount_inr is not None else topup_amount
     if amount <= 0:
@@ -917,12 +924,24 @@ async def issue_tenant_refund(
             "A refund amount must be positive.",
             remediation="Send a positive amount, or omit it to refund the whole payment.",
         )
-    if amount > topup_amount:
+    # THE CEILING IS ON THE TOTAL, NOT ON THIS REQUEST, and it used to be on this request
+    # alone: ₹2,000 and then ₹1,000 against a ₹2,500 payment each passed `amount >
+    # topup_amount` and together returned ₹500 the client never paid, as two compensating
+    # entries that an append-only ledger cannot take back (hard rule 4).
+    #
+    # The one amount that may exceed the remainder is one ALREADY RECORDED: the provider's
+    # idempotency key is derived from `(payment_id, amount)`, so a second click on the same
+    # refund is the same amount and must stay the no-op replay it is today rather than
+    # becoming a refusal. Two genuinely distinct refunds of one payment for the identical
+    # amount cannot exist — they collapse onto one provider refund — so this admits a replay
+    # and nothing else.
+    remaining = topup_amount - sum(already_refunded, Decimal("0.00"))
+    if amount > remaining and amount not in already_refunded:
         raise ProblemError.business_rule(
             "refund_exceeds_payment",
-            f"That payment was ₹{to_paise(topup_amount)}, and this asks to refund "
-            f"₹{to_paise(amount)}.",
-            remediation="Refund at most what the payment brought in.",
+            f"That payment was ₹{to_paise(topup_amount)}, ₹{to_paise(topup_amount - remaining)} "
+            f"of it has already been refunded, and this asks to refund ₹{to_paise(amount)}.",
+            remediation=f"Refund at most the ₹{to_paise(remaining)} still outstanding on it.",
         )
 
     refund = await issue_refund(
