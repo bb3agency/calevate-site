@@ -48,6 +48,7 @@ still cannot do is CHANGE anything — every write tool refuses inside itself th
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
@@ -105,10 +106,10 @@ the live-state block and memory recall. Inside a view-as session it is ignored i
 the impersonated account, which is proven by the grant rather than claimed in a body.
 
 Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
-`text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this
-realm today, will not be offered: the write tools need an account-scoped identity that an
-admin session does not carry, and inside a view-as session they are refused outright
-because impersonation is read-only.
+`text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+change and, in this realm today, neither a `proposal` nor an `action` will be offered: the
+write tools need an account-scoped identity that an admin session does not carry, and
+inside a view-as session they are refused outright because impersonation is read-only.
 
 **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
 platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
@@ -135,12 +136,29 @@ async def _viewed_tenant(principal: Principal, claimed: UUID | None) -> UUID | N
     `payload.screen` — a caller-composed description is for the prompt and the audit row,
     never for scoping.
 
-    A CLAIMED ID IS VALIDATED, NOT TRUSTED, and the refusal is deliberate rather than a
-    silent `None`. It widens nothing — both admin roles hold `admin:tenants` and can read
-    any account's page — so this is not an access control; it is the difference between a
-    screen that believes it scoped the assistant and one that knows it did. An operator
-    whose console sent a stale id gets told, instead of getting answers about the platform
-    to a question about one client.
+    A CLAIMED ID IS VALIDATED, NOT TRUSTED: an id that names no live account is refused
+    rather than silently ignored, so an operator whose console sent a stale id gets told
+    instead of getting answers about the platform to a question about one client.
+
+    **WHAT THE CLAIM OPENS, STATED PLAINLY BECAUSE THIS DOCSTRING USED TO UNDERSTATE IT.**
+    It said the claim "widens nothing — both admin roles hold `admin:tenants` and can read
+    any account's page". The permission half is true and the conclusion does not follow.
+    `service.realm_read_tools` gives the admin realm a strict SUPERSET — the platform tools
+    plus every client read tool — and this id is what scopes their `tenant_session`. So an
+    operator holding only `copilot:admin` can ask the assistant about ANY live account's
+    leads, campaigns, agents and (through `search_calls`) its redacted transcript windows,
+    none of which has an admin-realm route: `/v1/leads` and `/v1/crm/calls` are client-realm
+    and an operator reaches them only through a D-22 view-as session, which is minted behind
+    a second factor (D-210) and audited on every read. Grepped this session, not recalled —
+    the only admin-realm surface over a client's call content is
+    `/v1/admin/qa-samples/{id}` (`calls:read`, redacted, sampled calls only).
+
+    THAT IS D-499's DESIGN AND NOT A HOLE THIS FUNCTION OPENED — an operator on a client's
+    admin page is meant to be able to ask about that client — but it is a second, lighter
+    door to client data beside the audited one, and the audit row is what has to make the
+    two distinguishable. `ask_admin_copilot` records `impersonating`, so a `tenant_id` with
+    `impersonating: false` IS the "reached by a body claim" case. Anything that widens what
+    the account tools return belongs in a decision-log entry, not in this function.
     """
     if principal.tenant_id is not None:
         return principal.tenant_id
@@ -260,10 +278,117 @@ async def ask_admin_copilot(
     #    `new_assist_ref()` both ledgers accept and nothing else, because idempotency is a
     #    switch that turns metering off (D-140).
     ref = new_assist_ref()
-    spend: service.CopilotSpend | None = None
+    # EVERY SPEND OF THIS RUN — `copilot/routes.py`'s argument, and the platform is the
+    # payer that a lost one is charged to. `run_copilot` can emit two: a leg that failed
+    # before it streamed anything is re-selected under `provider_unavailable=True`, and the
+    # first leg's tokens were paid for whether or not the second answered.
+    spends: list[service.CopilotSpend] = []
     filled: tuple[str, ...] = ()
     proposed: str | None = None
+    acted: list[str] = []
     answer_parts: list[str] = []
+
+    # 4. THE METER, THE AUDIT AND THE MEMORY, in ONE transaction of their own — the record
+    #    of a payment that has already happened. Nothing between the run and the meter may
+    #    raise: a completed answer is money spent whether or not it was any good.
+    #
+    # **A CLOSURE, FOR `copilot/routes.py`'s REASON**: there are four ways out of the run
+    # and all four owe the ledger the same rows. Straight-line code after the `async for`
+    # was reached only by the way out that worked, so a provider that died mid-answer and a
+    # browser that closed the tab were both spend the platform ledger never saw.
+    metered = False
+    recorded = False
+    #: Did the run finish on its own? False on a refusal, a provider failure and a
+    #: disconnect — the three exits that used to skip the ledger entirely.
+    completed = False
+
+    async def _record() -> None:
+        """Write this run's platform ledger rows, its audit row and its memory. Once."""
+        nonlocal metered, recorded
+        if recorded:
+            return
+        recorded = True
+        if not spends or principal.user_id is None:
+            return
+        async with untenanted_session() as record_session:
+            refs = [ref if index == 0 else new_assist_ref() for index in range(len(spends))]
+            for spent, spend_ref in zip(spends, refs, strict=True):
+                metering = await meter_platform_assist(
+                    record_session,
+                    admin_user_id=principal.user_id,
+                    # CONTEXT, NEVER A PAYER. This is what makes "what did supporting this
+                    # client cost us" a query; nothing prices it and no client ledger moves.
+                    viewing_tenant_id=tenant_id,
+                    ref=spend_ref,
+                    result=spent,
+                    feature=ASSIST_FEATURE_ADMIN_COPILOT,
+                    model=spent.model,
+                )
+                metered = metered or metering.metered
+            last = spends[-1]
+            await write_audit(
+                record_session,
+                action="admin_copilot.ask",
+                actor=principal,
+                # THE ACCOUNT THE OPERATOR WAS LOOKING AT, so a client's audit trail shows
+                # that support work happened on their account and by whom. `None` on a
+                # platform screen, which is a platform-level row.
+                tenant_id=tenant_id,
+                object_type="screen",
+                object_id=payload.screen.route,
+                ip=client_request_ip(request),
+                # Ids, names and COUNTS. No question, no answer, no field value (rule 6).
+                # `payer` is stated explicitly rather than left to be inferred from the
+                # action name: this row is the operations record of spend that a client did
+                # NOT pay for, and the next reader should not have to know which ledger
+                # `admin_copilot.ask` writes to in order to read it correctly.
+                summary={
+                    "realm": "admin",
+                    "payer": "platform",
+                    "feature": ASSIST_FEATURE_ADMIN_COPILOT,
+                    "provider": last.capability.provider,
+                    "fallback_reason": last.capability.fallback_reason,
+                    "spend_count": len(spends),
+                    "completed": completed,
+                    "metered": metered,
+                    "ref": ref,
+                    "filled_field_count": len(filled),
+                    # THE TIER 1 ACTIONS THIS ANSWER PERFORMED, as the client route records
+                    # them. Each already wrote its own `audit_log` row inside
+                    # `run_immediate`'s transaction; this is what the `admin_copilot.ask`
+                    # row says about the ANSWER, so a reader of one row can tell that an
+                    # operator's question changed something. The count is stated separately
+                    # because `redact_mapping` collapses any sequence to "[N items]" on the
+                    # way to the log stream.
+                    "action_count": len(acted),
+                    "actions": sorted(set(acted)),
+                    "proposed_tool": proposed,
+                    # HOW THIS ACCOUNT WAS REACHED, and it is the field a reviewer needs
+                    # first. `tenant_id` set with `impersonating: false` means the account
+                    # was named in the request BODY and validated against the directory
+                    # (`_viewed_tenant`) rather than proven by an impersonation grant minted
+                    # behind a second factor. Both are legitimate; they are not the same
+                    # event, and a row that cannot tell them apart cannot be reviewed.
+                    "impersonating": principal.impersonating,
+                },
+            )
+            # 5. THE MEMORY, after the audit so a memory write can never be what stops an
+            #    `audit_log` entry landing, and in the same transaction so a memory of an
+            #    answer whose ledger rows rolled back is unreachable.
+            await admin_memory.remember_exchange(
+                record_session,
+                admin_user_id=principal.user_id,
+                viewing_tenant_id=tenant_id,
+                screen_route=payload.screen.route,
+                question=payload.question,
+                answer="".join(answer_parts),
+                meta={
+                    "realm": "admin",
+                    "provider": last.capability.provider,
+                    "filled_field_count": len(filled),
+                },
+            )
+
     try:
         async for event in service.run_copilot(
             payload,
@@ -322,21 +447,46 @@ async def ask_admin_copilot(
             if event.proposal is not None:
                 proposed = event.proposal.tool
                 yield ServerSentEvent(event="proposal", data=event.proposal)
+            if event.step is not None:
+                # FORWARDED, AND THIS ROUTE USED TO DROP IT. `service.run_copilot` emits a
+                # `step` frame per tool call on both realms; consuming the event and
+                # yielding nothing meant an operator watched a spinner while the assistant
+                # ran four platform lookups. Observational only — nothing downstream reads
+                # one — and never logged or stored, because it carries a bounded preview of
+                # a tool's arguments and result (hard rule 6).
+                yield ServerSentEvent(event="step", data=event.step)
+            if event.action is not None:
+                # THE RECEIPT FOR A TIER 1 ACTION, AND DROPPING IT WAS THE SERIOUS HALF.
+                # It is unreachable today — `actor_for` refuses a principal with no tenant,
+                # and inside a view-as session every action permission is in
+                # `MUTATING_PERMISSIONS`, which D-22 refuses — so nothing has been silently
+                # applied. But `run_immediate` writes the change and its `audit_log` row
+                # before this loop sees the event, so the day that ladder admits an
+                # operator, the drop would have been a change made with no receipt on the
+                # screen of the person who caused it. Wiring it now costs two lines; a
+                # half-wired seam that only fails after somebody else's change is the
+                # defect class CLAUDE.md names.
+                acted.append(event.action.tool)
+                yield ServerSentEvent(event="action", data=event.action)
             if event.spend is not None:
-                spend = event.spend
+                spends.append(event.spend)
+        completed = True
     except ProblemError as refusal:
-        # The selector refused before a request was made, so nothing was paid for and there
-        # is nothing to meter.
+        # The selector refused before a request was made, so `spends` is empty and `_record`
+        # writes nothing — checked rather than asserted, for the client route's reason.
+        await _record()
         yield _error_event(refusal)
         return
     except Exception:
-        # A provider that died mid-answer. Ids only (hard rule 6). If the model had already
-        # answered, `spend` is None and the money is unrecorded — which is why this arm logs
-        # loudly rather than swallowing.
+        # A PROVIDER THAT DIED MID-ANSWER IS SPEND. Ids only (hard rule 6). This arm used to
+        # return before the meter, so tokens the platform had already paid for landed in no
+        # `platform_ai_usage` row and moved no `platform_ai_spend` counter — which is the
+        # brake going blind, on the surface the brake exists to protect.
         log.exception(
             "admin_copilot_stream_failed",
             extra={"admin_user_id": str(principal.user_id), "ref": ref},
         )
+        await _record()
         yield _error_event(
             ProblemError(
                 kind="dependency",
@@ -347,75 +497,26 @@ async def ask_admin_copilot(
             )
         )
         return
-
-    # 4. THE METER, THE AUDIT AND THE MEMORY, in ONE transaction of their own — the record
-    #    of a payment that has already happened. Nothing between the run and the meter may
-    #    raise: a completed answer is money spent whether or not it was any good.
-    metered = False
-    if spend is not None and principal.user_id is not None:
-        async with untenanted_session() as record_session:
-            metering = await meter_platform_assist(
-                record_session,
-                admin_user_id=principal.user_id,
-                # CONTEXT, NEVER A PAYER. This is what makes "what did supporting this
-                # client cost us" a query; nothing prices it and no client ledger moves.
-                viewing_tenant_id=tenant_id,
-                ref=ref,
-                result=spend,
-                feature=ASSIST_FEATURE_ADMIN_COPILOT,
-                model=spend.model,
-            )
-            metered = metering.metered
-            await write_audit(
-                record_session,
-                action="admin_copilot.ask",
-                actor=principal,
-                # THE ACCOUNT THE OPERATOR WAS LOOKING AT, so a client's audit trail shows
-                # that support work happened on their account and by whom. `None` on a
-                # platform screen, which is a platform-level row.
-                tenant_id=tenant_id,
-                object_type="screen",
-                object_id=payload.screen.route,
-                ip=client_request_ip(request),
-                # Ids, names and COUNTS. No question, no answer, no field value (rule 6).
-                # `payer` is stated explicitly rather than left to be inferred from the
-                # action name: this row is the operations record of spend that a client did
-                # NOT pay for, and the next reader should not have to know which ledger
-                # `admin_copilot.ask` writes to in order to read it correctly.
-                summary={
-                    "realm": "admin",
-                    "payer": "platform",
-                    "feature": ASSIST_FEATURE_ADMIN_COPILOT,
-                    "provider": spend.capability.provider,
-                    "fallback_reason": spend.capability.fallback_reason,
-                    "metered": metered,
-                    "ref": ref,
-                    "filled_field_count": len(filled),
-                    "proposed_tool": proposed,
-                    "impersonating": principal.impersonating,
-                },
-            )
-            # 5. THE MEMORY, after the audit so a memory write can never be what stops an
-            #    `audit_log` entry landing, and in the same transaction so a memory of an
-            #    answer whose ledger rows rolled back is unreachable.
-            await admin_memory.remember_exchange(
-                record_session,
-                admin_user_id=principal.user_id,
-                viewing_tenant_id=tenant_id,
-                screen_route=payload.screen.route,
-                question=payload.question,
-                answer="".join(answer_parts),
-                meta={
-                    "realm": "admin",
-                    "provider": spend.capability.provider,
-                    "filled_field_count": len(filled),
-                },
+    finally:
+        # THE OPERATOR CLOSED THE TAB. `sse-starlette` `aclose()`s this generator and every
+        # arm above is skipped, so an abandoned turn was spend nobody recorded. Shielded
+        # because the disconnect usually arrives as a cancellation of the task this runs in,
+        # and an unshielded await would be cancelled inside the transaction — the one place
+        # a partial write is worse than none. Not a guarantee (a loop already tearing down
+        # still loses it), which is why the failure is LOGGED rather than swallowed.
+        try:
+            await asyncio.shield(_record())
+        except Exception:
+            log.exception(
+                "admin_copilot_meter_failed", extra={"admin_user_id": str(principal.user_id)}
             )
 
     yield ServerSentEvent(
         event="done",
         data=CopilotDoneEvent(
-            disclosure=(service.disclosure_for(spend.capability) if spend is not None else None),
+            # THE LEG THAT ACTUALLY ANSWERED, which is the LAST spend: a run that fell back
+            # to Sarvam owes the operator that disclosure.
+            disclosure=(service.disclosure_for(spends[-1].capability) if spends else None),
             metered=metered,
         ),
     )
