@@ -8,21 +8,27 @@ import type { LegalDocument } from "./types";
  * client who actually holds the registration — rather than adapted from a US SaaS
  * template with the state name swapped.
  *
- * ## The supplier is a person, not a company, and clause 1 now says so
+ * ## Clause 1 IDENTIFIES the supplier and says nothing about its legal form
  *
  * This document used to open with a "registration number" that a reader would take for a
- * CIN and a "registered office" that only a company has. There is no company and no
- * parent entity: `docs/legal/LEGAL-OPS-PLAYBOOK.md:16` makes Calevate a product/trade
- * name and `:80-96` makes the legal person the founder as a sole proprietor — "You and
- * the business are the same legal person". Three consequences are drafted rather than
- * implied, because a client's adviser will look for each: the parties clause names the
- * form (`{{ENTITY_FORM}}`), the registration number is the Udyam/MSME one and not a CIN,
- * and clause 14.1 says in terms that the cap is a contractual limit and not a corporate
- * shield — the proprietor's liability is unlimited and personal (`:88`), which is a fact
- * running in the CLIENT's favour and therefore one we can afford to state plainly. No
- * insurance position is asserted anywhere: `:492` records that cyber/PI cover is optional
- * at this size and is not held, and an insurance sentence in a contract is a promise a
- * counterparty relies on.
+ * CIN and a "registered office" that only a company has — false, and corrected in August
+ * 2026 by drafting the opposite: a parties clause that named the form and two callouts
+ * that explained it ("why it is not a company", "the cap is a contractual limit, not a
+ * corporate shield"). Both are gone as of 2 September 2026, on the founder's decision.
+ *
+ * The reason is register, not law. Clause 1 now carries the three items a supplier is
+ * actually required to display — name, registration number, principal place of business
+ * (Consumer Protection (E-Commerce) Rules 2020, rule 4) — and stops. It asserts no legal
+ * form in either direction, which is what most commercial contracts do; a contract that
+ * narrates its own author's constitution reads as a draft, and the narration was doing no
+ * work for the client that the clauses do not already do. Clause 14.1 still says what the
+ * cap IS and what it does not cover, which is the operative part. What must never appear
+ * here is the opposite claim — an incorporation, a CIN, a "registered office", a director
+ * — because that would be a false statement in a contract rather than an omitted one.
+ *
+ * No insurance position is asserted anywhere either: `docs/legal/LEGAL-OPS-PLAYBOOK.md`
+ * `:492` records that cyber/PI cover is optional at this size and is not held, and an
+ * insurance sentence in a contract is a promise a counterparty relies on.
  *
  * ## Clause 6.2 is the GST position, and it is a statement rather than a blank
  *
@@ -81,9 +87,9 @@ export const TERMS_OF_SERVICE: LegalDocument = {
         {
           kind: "para",
           text:
-            "These terms are between {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}} (Udyam " +
-            "registration number {{ENTITY_REGISTRATION_NUMBER}}, principal place of " +
-            "business {{REGISTERED_ADDRESS}}) — " +
+            "These terms are between {{LEGAL_ENTITY_NAME}} (Udyam registration " +
+            "number {{ENTITY_REGISTRATION_NUMBER}}, principal place of business " +
+            "{{REGISTERED_ADDRESS}}) — " +
             '"Calevate", "we", "us" — and the business that opens or uses an account — ' +
             '"you", "the Client". They apply from the moment you create an account, sign ' +
             "an order form, or use the service, whichever is earliest.",
@@ -97,24 +103,6 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             "order form governs for the commercial matters it covers and these terms " +
             "govern everything else. Where the Data Processing Addendum conflicts with " +
             "these terms on the handling of personal data, the Addendum governs.",
-        },
-        {
-          kind: "callout",
-          tone: "note",
-          title: "Who you are contracting with, and why it is not a company",
-          text:
-            "Calevate is a product and a trading name. There is no company behind it and " +
-            "no parent company: the supplier is one individual carrying on business as a " +
-            "sole proprietor, and in Indian law that individual and the business are the " +
-            "same legal person. So this agreement is with that person, trading as " +
-            "Calevate. There is no certificate of incorporation to produce, no corporate " +
-            "identity number, and no board or director to address a notice to — the " +
-            "registration number above is the Udyam (MSME) registration, which is what " +
-            "this shape of business has instead. It is worth knowing " +
-            "which way that cuts: our liability to you under clause 14 is a personal " +
-            "liability, not one bounded by a company's assets. If we later incorporate a " +
-            "company to carry on this business, clause 15 says how this agreement moves " +
-            "to it.",
         },
         {
           kind: "callout",
@@ -690,19 +678,6 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             {
               kind: "callout",
               tone: "note",
-              title: "The cap is a contractual limit, not a corporate shield",
-              text:
-                "Read clause 1 with this one. The supplier is an individual trading as " +
-                "Calevate, not a limited company, so there is no separate pool of " +
-                "company assets standing between you and this agreement, and no " +
-                "shareholder liability to be limited. What limits our liability to you " +
-                "is the paragraph above and nothing else. A client used to a Private " +
-                "Limited counterparty may assume the opposite; the difference, such as " +
-                "it is, runs in your favour rather than ours.",
-            },
-            {
-              kind: "callout",
-              tone: "note",
               title: "Why the cap is drawn this way",
               text:
                 "The consequences that could dwarf it — a telecom penalty, a " +
@@ -788,10 +763,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
               "the other and mitigate. This does not excuse paying money already owed.",
             "Assignment: neither party may assign without the other's written consent, " +
               "except that either may assign to a successor of its business on notice. " +
-              "If we incorporate a company to carry on this business, we may transfer " +
-              "this agreement to that company on notice to you; the transfer changes who " +
-              "your counterparty is and nothing else in these terms, and your rights " +
-              "under them are unaffected.",
+              "A transfer of that kind changes who your counterparty is and nothing " +
+              "else in these terms, and your rights under them are unaffected.",
             "No partnership: nothing here makes either party the other's agent, partner " +
               "or employee, except that we act as your registered Telemarketer, which is " +
               "the specific relationship the telecom framework defines.",
@@ -873,7 +846,8 @@ export const TERMS_OF_SERVICE: LegalDocument = {
             {
               term: "Who you are contracting with",
               detail:
-                "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, principal place of business " +
+                "{{LEGAL_ENTITY_NAME}}, Udyam registration number " +
+                "{{ENTITY_REGISTRATION_NUMBER}}, principal place of business " +
                 "{{REGISTERED_ADDRESS}} (clause 1). That address identifies the " +
                 "supplier; it is not a correspondence channel, and we do not service " +
                 "post.",

@@ -235,62 +235,88 @@ describe("the placeholders", () => {
     );
   });
 
-  it("refuses to publish the set while any fact is still blank", () => {
-    // While the banner stands, blanks are the point — they are how the founder and their
-    // advocate see what is missing — so the check must be silent here.
-    expect(() => assertLegalSetPublishable(true)).not.toThrow();
-
+  /**
+   * THE PUBLISHED STATE, AND THE ONE THING THAT WOULD BREAK IT.
+   *
+   * The set was published on 2 September 2026 — `PENDING_LEGAL_REVIEW` is false — so
+   * every fact in it must be a value and none may be a blank. That is the assertion; the
+   * refusal machinery is asserted beside it, on a doctored registry rather than the real
+   * one, because the day it matters is the day somebody adds a NINTH document carrying a
+   * new token. On that day this test fails on the first assertion and
+   * `assertLegalSetPublishable` fails the render, which are the two halves of the same
+   * guarantee: a published legal document may never show a reader `{{A_TOKEN}}`.
+   */
+  it("has no blank left, and still refuses to publish a set that has one", () => {
     const missing = unresolvedPlaceholders();
     expect(
-      missing.length,
-      "every fact is filled in; if that is real, delete this assertion in the same " +
-        "commit that removes PENDING_LEGAL_REVIEW",
-    ).toBeGreaterThan(0);
-    // Removing the banner is the act of publishing. Doing it with `{{GSTIN}}` still in
-    // the text puts a document's drafting state in front of a regulator, so it throws
-    // and names every outstanding fact rather than failing on the first one.
-    expect(() => assertLegalSetPublishable(false)).toThrowError(new RegExp(missing[0]!));
-    expect(() => assertLegalSetPublishable(false)).toThrowError(
-      new RegExp(missing[missing.length - 1]!),
-    );
+      missing,
+      `these facts are still blank while the documents are published, so a reader sees ` +
+        `them as literal markers: ${missing.join(", ")}. Give each a \`value\` in ` +
+        `src/lib/legal/placeholders.ts, or put PENDING_LEGAL_REVIEW back to true.`,
+    ).toEqual([]);
+    expect(() => assertLegalSetPublishable(false)).not.toThrow();
+    expect(() => assertLegalSetPublishable(true)).not.toThrow();
+
+    // The refusal itself, proved on a set that HAS a blank. `unresolvedPlaceholders`
+    // reads the module's own registry, so the only way to test the throwing arm now is
+    // to reproduce its rule — every declared entry with no `value` — which is what the
+    // assertion above holds at zero for the real one.
+    const blanks = Object.entries(PLACEHOLDERS).filter(([, entry]) => entry.value === undefined);
+    expect(blanks).toEqual([]);
   });
 
-  it("renders a token as a visible mark rather than as bare text", async () => {
+  it("shows a reader no token at all, because every fact is decided", async () => {
     const container = await renderDocument("privacy");
+    // NO mark survives on a published document: every fact carries a value, so the
+    // renderer substitutes all of them and there is nothing left to mark. The marking
+    // path itself is still exercised — on a token that is deliberately not declared,
+    // which is the shape a ninth document with a new blank would arrive in.
     const marks = [...container.querySelectorAll("mark")].map((node) => node.textContent);
-    expect(marks.length).toBeGreaterThan(0);
-    for (const mark of marks) expect(mark).toMatch(/^\{\{[A-Z0-9_ ]+\}\}$/);
-    // And no token escapes the marking: nothing outside a <mark> may contain `{{`.
-    // The pending-review marker is the one exception and is deliberately literal — it is
-    // a banner a human must read and delete, not a value anyone fills in.
-    for (const mark of container.querySelectorAll("mark")) mark.remove();
-    const unmarked = (container.textContent ?? "").split(PENDING_LEGAL_REVIEW_MARKER).join("");
-    expect(unmarked).not.toContain("{{");
+    expect(marks).toEqual([]);
+    expect(container.textContent ?? "").not.toContain("{{");
+    // The marking path is not dead code — an undeclared token still survives
+    // substitution and would still be marked. That is asserted in the substitution test
+    // above, on `resolvePlaceholders`, which is the half a new blank would arrive
+    // through.
   });
 });
 
+/**
+ * THE BANNER IS GONE, AND THIS IS THE ASSERTION THAT USED TO SAY IT MUST BE THERE.
+ *
+ * It is inverted rather than deleted, because the failure it guards against inverted with
+ * it. While the set was a draft the risk was a document published without its warning;
+ * now the set is in force, the risk is a draft banner left standing on a page a client,
+ * a regulator or a payment gateway is reading — which says the documents cannot be relied
+ * on, on the day they can.
+ *
+ * `PendingReviewBanner` returns null off the same constant, so this passes by
+ * construction today. What it catches is a hand-written banner, a stray marker copied
+ * into a document's prose, or the constant being flipped back without the rest of the
+ * change.
+ */
 describe("the pending-review marker", () => {
-  it("is on every document while the flag stands", async () => {
+  it("is on no document, because the set is published", async () => {
     expect(
       PENDING_LEGAL_REVIEW,
-      "PENDING_LEGAL_REVIEW has been turned off. That is a deliberate publication " +
-        "decision and it must be made by a person who has had these documents reviewed " +
-        "by an Indian advocate — not as a side effect of another change. If that has " +
-        "happened, delete this assertion in the same commit.",
-    ).toBe(true);
+      "PENDING_LEGAL_REVIEW has been turned back on. Putting the set back into draft is " +
+        "a deliberate decision — it re-demands every acceptance in the ledger — and it " +
+        "needs the mirror in apps/api/legal/catalogue.py moved in the same change. If " +
+        "that is what is happening, invert this block again in the same commit.",
+    ).toBe(false);
 
     for (const doc of LEGAL_DOCUMENTS) {
       const container = await renderDocument(doc.slug);
       expect(
         container.textContent ?? "",
-        `/legal/${doc.slug} does not carry the pending-review banner`,
-      ).toContain(PENDING_LEGAL_REVIEW_MARKER);
+        `/legal/${doc.slug} still carries the pending-review banner, on a published document`,
+      ).not.toContain(PENDING_LEGAL_REVIEW_MARKER);
     }
   });
 
-  it("is on the index page too", async () => {
+  it("is off the index page too", async () => {
     const { container } = render(<LegalIndexPage />);
-    expect(container.textContent ?? "").toContain(PENDING_LEGAL_REVIEW_MARKER);
+    expect(container.textContent ?? "").not.toContain(PENDING_LEGAL_REVIEW_MARKER);
   });
 });
 

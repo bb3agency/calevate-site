@@ -229,7 +229,15 @@ async def test_tenant_b_cannot_see_tenant_as_registration() -> None:
     # would fail here rather than passing as "isolated".
     assert mine.json()["pe_id"] == pe_id
     assert theirs.status_code == 200, theirs.text
-    assert theirs.json() == {
+    theirs_body = theirs.json()
+    # Calevate's OWN telemarketer registration is platform-wide: the same two values reach
+    # every tenant, and tenant B seeing them is not tenant B seeing tenant A. Asserted to
+    # be identical on both responses, then dropped, so the equality below stays the strict
+    # "nothing of this tenant's is here" assertion it exists to be.
+    assert theirs_body["calevate_tm_id"] == mine.json()["calevate_tm_id"]
+    assert theirs_body["calevate_tm_active"] == mine.json()["calevate_tm_active"]
+    del theirs_body["calevate_tm_id"], theirs_body["calevate_tm_active"]
+    assert theirs_body == {
         "recorded": False,
         "status": None,
         "tm_link_status": None,
@@ -300,3 +308,97 @@ async def test_the_ops_surface_still_reads_back_the_tm_row() -> None:
     assert response.status_code == 200, response.text
     tm = response.json()["tm_registration"]
     assert set(tm) == {"status", "tm_id", "registered_at", "verified_at", "is_live"}
+
+
+async def test_the_client_is_told_calevates_own_telemarketer_id() -> None:
+    """The client needs OUR registration number, and this is where they get it.
+
+    The PE→TM authorisation is made BY THE CLIENT on the registrar's portal, and the
+    portal asks for the telemarketer's registration number. Until 2 September 2026 the
+    only place that number appeared was `/legal/acceptable-use`, as
+    `{{DLT_TELEMARKETER_ID}}` in a public legal document — an operational identifier on
+    the open web to serve the handful of people who need it. It rides on this response
+    instead: behind a session, on the screen that asks for the authorisation.
+
+    Read from `platform_state` on the tenant-scoped session, which is safe because that
+    table carries no `tenant_id` and no RLS policy. Sourced from the ops console, never
+    hard-coded — a fresh database says `not_registered` with no id, and the screen says
+    there is nothing to authorise against rather than showing a blank.
+    """
+    org = await _tenant()
+
+    async with untenanted_session() as session:
+        before = (
+            await session.execute(
+                text("SELECT tm_registration_status, tm_id FROM platform_state WHERE id = 1")
+            )
+        ).first()
+        await session.execute(
+            text(
+                "UPDATE platform_state SET tm_registration_status = 'active', "
+                "tm_id = '1102000000000000001', tm_verified_at = now() WHERE id = 1"
+            )
+        )
+        await session.commit()
+
+    try:
+        async with _client() as http:
+            response = await http.get(PATH, headers=await _headers(org))
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["calevate_tm_id"] == "1102000000000000001"
+        assert body["calevate_tm_active"] is True
+    finally:
+        # The singleton is shared by every test in the session, so it goes back exactly
+        # as it was rather than to a value this test believes is the default.
+        assert before is not None, "platform_state singleton is missing — migrate first"
+        async with untenanted_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE platform_state SET tm_registration_status = :st, tm_id = :tm "
+                    "WHERE id = 1"
+                ),
+                {"st": before[0], "tm": before[1]},
+            )
+            await session.commit()
+
+
+async def test_a_platform_with_no_telemarketer_registration_reports_it_as_absent() -> None:
+    """The other half, and the reason the field is nullable rather than a string.
+
+    `read_tm_registration` fails CLOSED on a missing row and reports `not_registered`
+    with no id; the screen renders that as "there is nothing to authorise against yet"
+    rather than as an empty value a client would read as a bug. Driven through the
+    route's own projection rather than the endpoint, so it does not depend on what the
+    shared `platform_state` singleton currently holds.
+    """
+    from apps.api.compliance.registration import PeRegistration
+    from apps.api.compliance.registration_routes import _out
+    from apps.api.ops.service import TmRegistration
+
+    absent = PeRegistration(
+        recorded=False,
+        status=None,
+        tm_link_status=None,
+        pe_id=None,
+        entity_name=None,
+        registered_at=None,
+        verified_at=None,
+    )
+    out = _out(
+        absent,
+        TmRegistration(status="not_registered", tm_id=None, registered_at=None, verified_at=None),
+    )
+    assert out.calevate_tm_id is None
+    assert out.calevate_tm_active is False
+
+    # `submitted` is not live either — an application in flight registers nobody — and a
+    # screen reading the raw status would offer the number as though it authorised us.
+    applied = _out(
+        absent,
+        TmRegistration(
+            status="submitted", tm_id="1102000000000000001", registered_at=None, verified_at=None
+        ),
+    )
+    assert applied.calevate_tm_id == "1102000000000000001"
+    assert applied.calevate_tm_active is False

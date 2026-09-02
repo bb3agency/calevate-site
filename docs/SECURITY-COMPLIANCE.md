@@ -485,9 +485,10 @@ UNTENABLE: the client DPA published at `/legal/dpa` states the 35-day window to 
 writing, so the commitment was already made — while the certificate the client forwards to
 the *data principal* omitted it. Disclosing to the controller and withholding from the
 subject is the wrong way round, and closing it required adding no new promise, only
-matching one already given. **The WORDING remains a matter for counsel** (the whole
-`/legal` set carries `{{PENDING LEGAL REVIEW}}` for the same reason); what is settled is
-that the fact is disclosed rather than reserved.
+matching one already given. **The WORDING was a matter for counsel** (the whole `/legal`
+set carried a draft banner for the same reason, until the set was published on 2 September
+2026 after a lawyer's review); what is settled is that the fact is disclosed rather than
+reserved.
 
 - Both backup chains retain **35 days**. So for up to 35 days after a completed erasure,
   the person's data still exists in a base backup, in the WAL segments and in the offsite

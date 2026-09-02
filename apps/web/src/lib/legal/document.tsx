@@ -280,7 +280,16 @@ function TableOfContents({ doc }: { doc: LegalDocument }) {
   );
 }
 
-/** The banner that must be deliberately removed before publication. */
+/**
+ * The draft banner. INERT since the set was published on 2 September 2026 — it renders
+ * nothing while `PENDING_LEGAL_REVIEW` is false.
+ *
+ * Kept rather than deleted, and the wording kept with it: a document set can go back into
+ * draft (a rewrite waiting on counsel, a new document added before it is settled), and the
+ * banner is the thing that must exist before that is possible without somebody inventing
+ * new words for it under time pressure. `tests/legal.test.tsx` asserts it is absent from
+ * every document today.
+ */
 export function PendingReviewBanner() {
   if (!PENDING_LEGAL_REVIEW) return null;
   return (
@@ -306,9 +315,10 @@ export function PendingReviewBanner() {
 
 /** The full page for one document: banner, title, contents, body, cross-links. */
 export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
-  // Publishing (deleting the pending-review banner) with facts still blank would put
-  // `{{GSTIN}}` in front of a regulator. Throwing here fails the render — and therefore
-  // the build and the suite — long before a reader could see it.
+  // The set is published, so every fact in it must carry a value: a blank would render as
+  // a literal `{{TOKEN}}` on a page a regulator or a payment gateway reads. Throwing here
+  // fails the render — and therefore the build and the suite — long before a reader could
+  // see it, which is what makes adding a ninth document with a new blank safe.
   assertLegalSetPublishable();
   const others = LEGAL_DOCUMENTS.filter((other) => other.slug !== doc.slug);
   return (

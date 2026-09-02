@@ -701,9 +701,10 @@ SECOND vendor change (D-410) landed in the same files and inherited the same sta
 client-facing document went on naming Clerk (United States) and Google Cloud — Vertex AI,
 and went on telling the reader that a build check proved the model region, days after
 LEGAL-SURFACE §4 had withdrawn exactly that claim. Both are corrected now, and there is no
-Clerk row anywhere in `apps/web/src/lib/legal/`. `{{PENDING LEGAL REVIEW}}` still governs
-the WORDING of those documents; it never governed the vendor INVENTORY, and treating the
-two as one bought three days of a false disclosure. The residue is that nothing
+Clerk row anywhere in `apps/web/src/lib/legal/`. The draft banner governed
+the WORDING of those documents at the time; it never governed the vendor INVENTORY, and
+treating the two as one bought three days of a false disclosure. (The set was published on
+2 September 2026 and carries no banner now, which removes the excuse entirely.) The residue is that nothing
 mechanically ties the published inventory to this tree's actual vendors —
 LEGAL-SURFACE F-11 and FOLLOW-UP-8.)*
 

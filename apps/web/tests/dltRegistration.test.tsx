@@ -57,6 +57,11 @@ function registration(over: Partial<PeRegistration> = {}): PeRegistration {
     registered_at: "2026-01-05T06:00:00Z",
     verified_at: "2026-02-01T06:00:00Z",
     is_active: true,
+    // Calevate's OWN telemarketer registration, which rides on this response so the
+    // client can name us on the registrar's portal (it replaced `{{DLT_TELEMARKETER_ID}}`
+    // in the published Acceptable Use Policy).
+    calevate_tm_id: "1234567890123456789",
+    calevate_tm_active: true,
     ...over,
   };
 }

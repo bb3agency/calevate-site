@@ -316,9 +316,10 @@ function DocumentRow({ doc }: { doc: LegalDocumentState }) {
             </dd>
           </div>
         )}
-        {/* An effective date the documents do not have is stated as absent rather than
-            hidden: `{{EFFECTIVE_DATE}}` is an unfilled placeholder in the bundle, and a
-            reader who sees no row cannot tell that from a screen that forgot to print it. */}
+        {/* Every document has carried an effective date since the set was published on
+            2 September 2026. The absent branch stays: a document added later and not yet
+            dated must say so rather than be omitted, because a reader who sees no row
+            cannot tell that from a screen that forgot to print it. */}
         <div className="flex gap-1">
           <dt>Effective from</dt>
           <dd className="text-ink-muted">{doc.effective_date ?? "not yet dated"}</dd>

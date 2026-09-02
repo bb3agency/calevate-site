@@ -438,8 +438,49 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
               ? "Ask your account manager where this authorisation stands."
               : "This authorisation follows the registration above; there is nothing to authorise until that exists.")}
         </dd>
+        <CalevateTelemarketerId registration={registration} />
       </div>
     </dl>
+  );
+}
+
+/**
+ * Calevate's OWN telemarketer registration number, shown to the client who needs it.
+ *
+ * The authorisation above is made BY THE CLIENT on the registrar's portal — `TM_LINK_COPY`
+ * says so in as many words — and the portal asks for the telemarketer's registration
+ * number. So the client needs ours, and until 2 September 2026 the only place it appeared
+ * was `/legal/acceptable-use`, as `{{DLT_TELEMARKETER_ID}}` in a public legal document.
+ * That is the wrong surface twice over: an operational identifier published to the open
+ * web, and a client hunting a legal page for a number they need while filling in a form.
+ * It is on this screen instead, behind a session, beside the sentence that asks for it.
+ *
+ * `calevate_tm_id` comes off `GET /v1/compliance/dlt-registration` and is sourced from
+ * `platform_state`, which an operator writes in the ops console — never hard-coded here.
+ * A missing id is a state, not an error: the registration itself is not through, which is
+ * the platform-wide blocker the campaign screen renders as its own notice, and the honest
+ * sentence is that there is nothing to authorise against yet rather than a blank.
+ */
+function CalevateTelemarketerId({ registration }: { registration: PeRegistration }) {
+  const id = (registration.calevate_tm_id ?? "").trim();
+  if (id === "") {
+    return (
+      <dd className="mt-1 text-ink-muted">
+        Our own telemarketer registration is not through yet, so there is nothing for you
+        to authorise against on the registrar&apos;s portal. That holds up outbound
+        campaigns for every Calevate account at once and there is nothing at your end that
+        clears it. Calls coming IN are unaffected.
+      </dd>
+    );
+  }
+  return (
+    <dd className="mt-1 text-ink-muted">
+      The registrar asks for the telemarketer&apos;s registration number when you make that
+      authorisation. Ours is <span className="font-mono text-ink">{id}</span>
+      {registration.calevate_tm_active
+        ? "."
+        : " — though our registration is not active yet, so the authorisation cannot complete until it is."}
+    </dd>
   );
 }
 

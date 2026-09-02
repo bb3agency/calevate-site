@@ -5,13 +5,14 @@ Every obligation below names the instrument it comes from and the code, schema, 
 blueprint line that creates it for us. Where we do not satisfy it, the row says so and
 names what would.
 
-> ⚠ **{{PENDING LEGAL REVIEW}}** — the public documents this analysis produced
-> (`apps/web/src/lib/legal/`, served at `/legal/*`) have **not been reviewed by an advocate
-> qualified in India**. They carry a visible draft banner that must be deliberately removed
-> (`PENDING_LEGAL_REVIEW` in `apps/web/src/lib/legal/placeholders.ts`), and
-> `tests/legal.test.tsx` fails if the banner is turned off without also deleting the
-> assertion that guards it. Nothing on `/legal/*` may be shown to a client, a regulator or
-> a payment gateway before that review.
+> **PUBLISHED 2 SEPTEMBER 2026.** The public documents this analysis produced
+> (`apps/web/src/lib/legal/`, served at `/legal/*`) are in force. They were reviewed by a
+> lawyer and taken out of draft on the founder's instruction of that date; every
+> `{{TOKEN}}` in them was filled first, the draft banner is gone, and
+> `PENDING_LEGAL_REVIEW` in `apps/web/src/lib/legal/placeholders.ts` is off with
+> `apps/api/legal/catalogue.py` mirroring it. `tests/legal.test.tsx` now asserts the
+> published state — no banner on any document, and no unresolved token anywhere — so a
+> ninth document carrying a new blank fails the suite rather than reaching a reader.
 
 ---
 
@@ -164,7 +165,7 @@ s.43A + SPDI Rules 2011 remain operative (§3.3). Sources §9.
 | DP-6 | Right to correction | DPDP §12(1) | **PARTIAL** | A lead is editable by the client. There is **no correction path for a transcript or a recording**, and none is offered on the certificate. Arguably right (a recording is a record of an event, not an assertion) but it is undecided rather than reasoned. What closes it: a founder + counsel decision recorded in ROADMAP §6. |
 | DP-7 | Right to nominate | DPDP §13 | **UNMET** | Nothing in the product models a nominee. Low urgency (substantive commencement May 2027) but it is a gap, and it is the client's obligation, not ours — so what closes it is a sentence in the client's notice, not code. |
 | DP-8 | Grievance redressal within a published timeline, ≤90 days | Rule 14(3) | **PARTIAL** | `/legal/grievance` now publishes 2 business days to acknowledge, 15–30 days to resolve. There is **no grievance intake surface, no ticket record and no clock in the product** — it is an email address. What closes it: either a mailbox + a written procedure (sufficient at this size), or a `grievances` table. Say which; do not leave it implied. |
-| DP-9 | Publish the business contact of the person answering data-principal questions, and repeat it in every reply | Rule 9 | **PARTIAL** | Published as `{{DATA_PROTECTION_CONTACT_NAME/EMAIL}}` on `/legal/privacy` §14 and `/legal/grievance` §1. The "repeat it in every reply" half is a process nobody has written. |
+| DP-9 | Publish the business contact of the person answering data-principal questions, and repeat it in every reply | Rule 9 | **PARTIAL** | `DATA_PROTECTION_CONTACT_NAME` and `_EMAIL` carry values since 2 Sep 2026, so the contact publishes on `/legal/privacy` §14 and `/legal/grievance` §1. The "repeat it in every reply" half is still a process nobody has written, which is what keeps this partial. |
 | DP-10 | Reasonable security safeguards: encryption/masking, access control, logs+monitoring, retained **one year**, continuity | Rule 6 | **CLOSED (stated policy), 24 Aug 2026** | Everything in §4 below is real, and the one leg that was unevidenced — log retention — is now a stated policy in `docs/OPERATIONS.md` §4.1. Two record classes, governed separately: **`audit_log`** (and every append-only ledger in `db/registry.APPEND_ONLY_TABLES`) is INSERT-only under a DB trigger with no sweep row against it, so it is **retained indefinitely, never expired — ≥1 year by construction** and now stated as such rather than inferred; **application logs** (structured JSON on stdout + Sentry events) carry a **365-day** period set at the host log sink (journald / shipper index / Sentry project retention). Application logs are NOT written to object storage — there is no `logs/` prefix in `infra/object-lifecycle/policy.json` and nothing in the app puts them there — so this closes as an OPERATIONS-stated policy, **not** a lifecycle rule (a lifecycle rule over a bucket that holds no logs would be theatre). The 365-day floor is DPDP Rule 6's "one year"; CERT-In's shorter-but-stricter 180-days-in-India log rule (S-7) is satisfied within it on days, with its Indian-jurisdiction condition flagged in §4.1 for when a host is provisioned. |
 | DP-11 | Data-processor contract imposing equivalent safeguards | §8(2), Rule 6(f) | **MET as text, UNMET as practice** | `/legal/dpa` is that contract, and Annex B is the equivalent-safeguards clause. **Downward**: we owe the same to *our* sub-processors, and **no vendor contract has been signed** — the Bolna residency commitment is an unrun pilot gate (`evidence/bolna-pilot-scorecard.md` is an empty template). |
 | DP-12 | Breach notification: Board without delay, detailed report ≤72h, affected principals with no threshold | Rule 7 | **MET as procedure; one lookup outstanding** | D-179: `runbooks/data-breach-notification.md` (the three clocks, the role split, the scope walk, the sign-off), `apps/api/compliance/breach.py` (the Rule 7 content, refused if an element is missing or a phone number is present) and `scripts/breach_notice.py`. The 48-hour DPA promise is pinned by test across the DPA, the runbook and the notice. **Outstanding: the Board's own reporting channel** — a lookup nobody has done, recorded in the runbook's §7 rather than left to be discovered mid-incident — and counsel's review of the wording. |
@@ -198,7 +199,7 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 | # | Obligation | Status | What closes it |
 |---|---|---|---|
 | S-1 | Publish a privacy policy on the website (Rule 4) | **MET as of this change** | `/legal/privacy`. There was no privacy policy on the site at all before it. |
-| S-2 | Designate a Grievance Officer and **publish their name** and contact (Rule 5(9)); redress in one month | **PARTIAL** | Published as `{{GRIEVANCE_OFFICER_NAME}}`. **A placeholder is not a designation** — this is UNMET until a person is appointed. It is the single cheapest unmet obligation on this page. |
+| S-2 | Designate a Grievance Officer and **publish their name** and contact (Rule 5(9)); redress in one month | **MET** | A person was appointed on 2 Sep 2026 and `GRIEVANCE_OFFICER_NAME` carries the name, so `/legal/grievance` §1 publishes it beside the designation and the mailbox. ⚠ A FIRST NAME ONLY, which is what the founder supplied — a full name is a materially stronger artefact for a display obligation that asks for the NAME, and the entry in `placeholders.ts` is where the surname goes. |
 | S-3 | Reasonable security practices; ISO 27001 is the safe harbour (Rule 8) | **PARTIAL** | We hold **no certification of any kind**. Rule 8 also admits a "comprehensive documented information security programme"; `docs/SECURITY-COMPLIANCE.md` §5 plus DPA Annex B is the closest thing and is not yet a formal ISMS document. |
 | S-4 | Consent before collecting sensitive personal data | **PARTIAL** | Health/financial detail volunteered on a call is SPDI. Disclosed in `/legal/privacy` §3.3 and DPA Annex A; the *consent* is the client's to obtain. |
 | S-5 | **Transfer of SPDI outside India (rule 7): comparable protection at the destination, PLUS consent or necessity for performance of a contract** | **MET on the necessity leg; UNEVIDENCED on the protection leg** | This is the transfer test that is ACTUALLY IN FORCE, and the tree cited DPDP §16 instead — a section that commences 13 May 2027 (DP-17). Necessity is straightforward: the service IS the calls, and the calls run on these suppliers. Comparable protection is a judgement per vendor against its own published terms, and **F-10 records that no sub-processor agreement has been signed**, so the leg has no evidence behind it beyond those terms. What closes it: F-10, and counsel confirming the judgement is one we may make ourselves. Stated to clients in `/legal/dpa` clause 9 since 22 Aug 2026. |
@@ -754,10 +755,14 @@ the notice must be displayed — each named in the draft's own "still to be comp
 list rather than guessed at. Rendering it on the onboarding wizard's last step is the web
 surface's, not this change's.
 
-### F-9 — No Grievance Officer, no data-protection contact, no entity. **EXTERNAL, and cheapest first.**
+### F-9 — No Grievance Officer, no data-protection contact, no entity. **CLOSED 2 Sep 2026.**
 
-S-2 and DP-9 are unmet not for want of code but for want of a name. Appointing a person costs
-nothing and closes two statutory obligations in two instruments.
+S-2 and DP-9 were unmet not for want of code but for want of a name; appointing a person cost
+nothing and closed two statutory obligations in two instruments. A person was appointed and
+both contacts publish. The entity half closed with the Udyam registration (25 Aug 2026), whose
+certificate supplies the name, registration number, principal place of business and phone the
+documents now identify the supplier by. ⚠ What is still open is a SURNAME: the published name
+is a first name only.
 
 ### F-10 — Sub-processor contracts: none signed, downward flow-through unevidenced.
 
@@ -1143,20 +1148,24 @@ Declared in `apps/web/src/lib/legal/placeholders.ts`, each with what it is and w
 value comes from. `tests/legal.test.tsx` fails if a document uses an undeclared token or if a
 declared token stops being used — so this list cannot silently drift.
 
-The declared set, re-read from `placeholders.ts` on 31 Aug 2026 (this list had drifted —
-it still carried `GSTIN`, which the 26 Aug 2026 entity work REPLACED with `GST_STATUS`
-because a blank GSTIN asserted "we have one and have not typed it in", and it omitted
-`ENTITY_FORM` and `GST_STATUS`, both added in that work and both already carrying values):
+The declared set, re-read from `placeholders.ts` on 2 Sep 2026. **Every one of them now
+carries a `value`**, which is what allowed the set to be published that day — two entries
+went at the same time and both for the same reason, that nothing rendered them any more:
+`ENTITY_FORM` (the documents state no legal form) and `DLT_TELEMARKETER_ID` (our
+Telemarketer registration number reaches a client through their dashboard now, not through
+a public page). A declared token nobody renders fails `legal.test.tsx`'s two-way audit, so
+deleting them was the only way to keep it honest.
 
-`LEGAL_ENTITY_NAME`* · `ENTITY_FORM`* · `ENTITY_REGISTRATION_NUMBER` · `GST_STATUS`* ·
+`LEGAL_ENTITY_NAME` · `ENTITY_REGISTRATION_NUMBER` · `GST_STATUS` ·
 `REGISTERED_ADDRESS` · `CONTACT_PHONE` · `SUPPORT_EMAIL` · `GRIEVANCE_OFFICER_NAME` ·
 `GRIEVANCE_OFFICER_DESIGNATION` · `GRIEVANCE_OFFICER_EMAIL` ·
 `DATA_PROTECTION_CONTACT_NAME` · `DATA_PROTECTION_CONTACT_EMAIL` · `SECURITY_CONTACT_EMAIL` ·
-`JURISDICTION_CITY` · `EFFECTIVE_DATE` · `DLT_TELEMARKETER_ID` · `PRIMARY_HOSTING_LOCATION`* ·
+`JURISDICTION_CITY` · `EFFECTIVE_DATE` · `PRIMARY_HOSTING_LOCATION` ·
 `REFUND_PROCESSING_DAYS` · `TERMINATION_NOTICE_DAYS` · `DATA_RETURN_WINDOW_DAYS`
 
-*(the four starred tokens carry a `value` and render substituted; the other sixteen are
-the blanks the founder must still fill)*
+*(eighteen tokens, no blanks. `unresolvedPlaceholders()` computes that list rather than
+maintaining it, and `assertLegalSetPublishable` refuses to render a published document
+while it is non-empty.)*
 
 `{{PRIMARY_HOSTING_LOCATION}}` was not an administrative blank: filling it in **was** the F-1
 decision, and D-180 took it. **It is filled as of 22 Aug 2026** — it carries a `value` in

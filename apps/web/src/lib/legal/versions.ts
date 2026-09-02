@@ -18,13 +18,13 @@
  *
  * ## The version carries the review state
  *
- * `PENDING_LEGAL_REVIEW` (in `placeholders.ts`) is true, so every document's current
- * version is `<revision>+pre-review`. When a lawyer has reviewed the set and that
- * constant is flipped, every version changes, every acceptance recorded against a
- * `+pre-review` version stops being current, and the server asks every client to accept
- * again. Nothing special-cases the flip — it falls out of the version string — but it
- * does need the same edit on both sides of the mirror, and the drift check names the side
- * that was missed.
+ * While `PENDING_LEGAL_REVIEW` (in `placeholders.ts`) stood, every document's current
+ * version was `<revision>+pre-review`. It was turned off on 2 September 2026 when the set
+ * was published, so every version changed, every acceptance recorded against a
+ * `+pre-review` version stopped being current, and the server asked every client to
+ * accept again. Nothing special-cased the flip — it falls out of the version string — but
+ * it did need the same edit on both sides of the mirror, and the drift check names the
+ * side that was missed.
  *
  * ## Adding a revision
  *
@@ -59,9 +59,10 @@ export interface LegalVersionEntry {
   /**
    * The date the document starts binding, ISO-8601, or null while it has none.
    *
-   * Null everywhere today, and that is a fact rather than a gap: `{{EFFECTIVE_DATE}}` is
-   * an unfilled placeholder, so the documents carry no effective date. Fill it in the
-   * same change that fills that token — and in `catalogue.py`, or CI says so.
+   * 2 September 2026 everywhere: the day the set was published. The prose spelling of
+   * the same day is the `{{EFFECTIVE_DATE}}` placeholder, which the page header renders
+   * under "In force from"; this is the machine form, and `catalogue.py` carries the same
+   * string or CI says so.
    */
   readonly effectiveDate: string | null;
 }
@@ -74,8 +75,9 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "1", material: true },
       { revision: "2", material: true },
       { revision: "3", material: true },
+      { revision: "4", material: false },
     ],
-    effectiveDate: null,
+    effectiveDate: "2026-09-02",
   },
   terms: {
     title: "Terms of Service",
@@ -84,14 +86,18 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "1", material: true },
       { revision: "2", material: true },
       { revision: "3", material: true },
+      { revision: "4", material: false },
     ],
-    effectiveDate: null,
+    effectiveDate: "2026-09-02",
   },
   "acceptable-use": {
     title: "Acceptable Use",
     blocking: true,
-    revisions: [{ revision: "1", material: true }],
-    effectiveDate: null,
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: false },
+    ],
+    effectiveDate: "2026-09-02",
   },
   dpa: {
     title: "Data Processing Addendum",
@@ -100,8 +106,9 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "1", material: true },
       { revision: "2", material: true },
       { revision: "3", material: true },
+      { revision: "4", material: false },
     ],
-    effectiveDate: null,
+    effectiveDate: "2026-09-02",
   },
   subprocessors: {
     title: "Sub-processors",
@@ -111,25 +118,34 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "2", material: true },
       { revision: "3", material: true },
     ],
-    effectiveDate: null,
+    effectiveDate: "2026-09-02",
   },
   refunds: {
     title: "Refunds & Cancellation",
     blocking: false,
-    revisions: [{ revision: "1", material: true }],
-    effectiveDate: null,
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: false },
+    ],
+    effectiveDate: "2026-09-02",
   },
   grievance: {
     title: "Grievance Redressal",
     blocking: false,
-    revisions: [{ revision: "1", material: true }],
-    effectiveDate: null,
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: false },
+    ],
+    effectiveDate: "2026-09-02",
   },
   cookies: {
     title: "Cookies & Tracking",
     blocking: false,
-    revisions: [{ revision: "1", material: true }],
-    effectiveDate: null,
+    revisions: [
+      { revision: "1", material: true },
+      { revision: "2", material: false },
+    ],
+    effectiveDate: "2026-09-02",
   },
 };
 

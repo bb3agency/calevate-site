@@ -6,10 +6,24 @@ import type { LegalDocument } from "./types";
  * A generic AUP — no spam, no malware, no illegal content — would be true and useless
  * here. The obligations that will actually get a Calevate client disconnected are Indian
  * telecom obligations that attach to THEM as the registered Principal Entity, and half of
- * them are enforced by gates in this product that refuse a campaign by name. So each rule
- * below names the blocker string the product returns when it stops you, which means a
- * client reading this page, a support agent reading a refusal, and the test suite are all
- * using the same vocabulary.
+ * them are enforced by gates in this product that refuse a campaign.
+ *
+ * ## The rules describe what is checked; they do not print the checker's names (2 Sep 2026)
+ *
+ * Each rule below used to name the compliance gate's own blocker identifier in backticks
+ * — `tm_registration_missing`, `dlt_template_not_approved`, `all_contacts_dnc` and eleven
+ * more — on the theory that a client, a support agent and the test suite would then share
+ * one vocabulary. They never shared it: the client dashboard has never shown a client one
+ * of those strings either. `app/c/[slug]/campaigns/page.tsx` keys a table of English
+ * sentences off them and says so in terms — "the names themselves stay out of the DOM" —
+ * so this page was the only client-facing surface in the product printing them, and it
+ * printed them in a legal document, where a code identifier reads as an unfinished draft.
+ *
+ * The MEANING is load-bearing and all of it survives: a rule that named three blockers now
+ * says the three things we check, in the same order and with the same consequence. What
+ * went is the spelling. If a gate is renamed this page needs no edit, which is the second
+ * thing the identifiers were costing. `tests/legalRegister.test.ts` is what stops them
+ * coming back.
  */
 export const ACCEPTABLE_USE: LegalDocument = {
   slug: "acceptable-use",
@@ -103,25 +117,28 @@ export const ACCEPTABLE_USE: LegalDocument = {
               kind: "list",
               ordered: true,
               items: [
-                "Our Telemarketer registration ({{DLT_TELEMARKETER_ID}}). Ours to obtain; " +
-                  "the blocker is `tm_registration_missing`, it is false for every client " +
-                  "at once, and until it clears nobody on the platform dials out.",
+                "Our Telemarketer registration. Ours to obtain, and until it is active " +
+                  "nobody on the platform dials out — the refusal is the same for every " +
+                  "client at once and there is nothing at your end that clears it. When " +
+                  "you need our registration number, to name Calevate as your " +
+                  "telemarketer on the registrar's portal, your dashboard shows it on " +
+                  "the campaign registration screen.",
                 "Your Principal Entity registration, and the active link between it and " +
                   "our Telemarketer registration. Yours to obtain; we run the process for " +
-                  "you as part of onboarding. The blockers are " +
-                  "`pe_registration_missing`, `pe_registration_not_active` and " +
-                  "`tm_link_not_active`, in that order — an authorisation cannot be active " +
-                  "for a registration that does not exist.",
-                "The number you are calling from, and the header registered against it " +
-                  "(`number_not_registered`). The connection must be one you hold in " +
+                  "you as part of onboarding. We check three things in this order: that " +
+                  "your registration exists, that it is active, and that it authorises " +
+                  "Calevate to dial for you — an authorisation cannot be active for a " +
+                  "registration that does not exist.",
+                "The number you are calling from, and the header registered against it. " +
+                  "The connection must be one you hold in " +
                   "your own name with an Indian operator — you are the subscriber of " +
                   "record for it, not us, and we neither sell nor rent telephone " +
                   "numbers. A header registered to somebody else, or registered for one " +
                   "class of message and used for another, is the same category of breach " +
                   "as the number-series misuse in section 2.2. You also need an approved " +
-                  "voice template for the kind of campaign you are running " +
-                  "(`dlt_template_missing`, `dlt_template_not_approved`, " +
-                  "`dlt_template_mismatch`).",
+                  "voice template for the kind of campaign you are running: we check " +
+                  "that a template is attached, that the registrar has approved it, and " +
+                  "that its category matches the campaign's.",
               ],
             },
             {
@@ -141,8 +158,9 @@ export const ACCEPTABLE_USE: LegalDocument = {
               text:
                 "Promotional calls go out on a 140-series number. Transactional and " +
                 "service calls go out on the 160 series or a standard number. You " +
-                "classify each campaign and the product refuses a mismatch " +
-                "(`number_series_mismatch`, `number_missing`).",
+                "classify each campaign, and the product refuses a campaign with no " +
+                "number chosen or with a number whose series does not match what the " +
+                "campaign actually is.",
             },
             {
               kind: "callout",
@@ -183,9 +201,9 @@ export const ACCEPTABLE_USE: LegalDocument = {
                     "The platform scrubs a list you submit and returns a reference, a " +
                     "count and a verdict valid until 23:59:59 that day. A promotional " +
                     "campaign will not launch, and will not keep dialling, without a " +
-                    "current scrub: `national_dnd_scrub_missing`, " +
-                    "`national_dnd_scrub_expired` (the run aged past its IST day) or " +
-                    "`national_dnd_scrub_incomplete` (contacts were added after it ran). " +
+                    "current scrub — where a scrub is not current if none has been run, " +
+                    "if the last run has aged past its India Standard Time day, or if " +
+                    "contacts were added to the list after it ran. " +
                     "The check runs again on every dispatch tick, because the validity " +
                     "window ends at midnight while a campaign keeps going.",
                 },
@@ -194,8 +212,8 @@ export const ACCEPTABLE_USE: LegalDocument = {
                   detail:
                     "Every contact on it is marked blocked before a campaign starts " +
                     "running, and the launch stamps the time the scrub happened. If " +
-                    "nothing survives the scrub the campaign is refused as " +
-                    "`all_contacts_dnc`.",
+                    "nothing survives the scrub the campaign is refused, because there " +
+                    "is nobody left on the list to call.",
                 },
                 {
                   term: "A platform-wide suppression",
@@ -241,8 +259,8 @@ export const ACCEPTABLE_USE: LegalDocument = {
               kind: "para",
               text:
                 "Every campaign must record where the contacts came from and when consent " +
-                "was obtained. A campaign whose source has not been declared is refused as " +
-                "`consent_provenance_missing`.",
+                "was obtained. A campaign whose source has not been declared is refused " +
+                "until you record it.",
             },
             {
               kind: "callout",
@@ -251,7 +269,7 @@ export const ACCEPTABLE_USE: LegalDocument = {
               text:
                 'The source options deliberately include "purchased list". That is not ' +
                 "an oversight and it is not an invitation: the option exists so that the " +
-                "answer can be given honestly and then refused (`consent_source_refused`). " +
+                "answer can be given honestly and then refused. " +
                 "A list of options containing only acceptable answers does not stop " +
                 "purchased lists, it hides them behind whichever option sounds nearest. " +
                 "If your list was bought, scraped, harvested from a directory, or obtained " +
@@ -368,11 +386,12 @@ export const ACCEPTABLE_USE: LegalDocument = {
               kind: "para",
               text:
                 "Self-serve and trial accounts must pass identity verification against a " +
-                "public-registry document before they dial out (`kyc_missing`, " +
-                "`kyc_not_verified`), and every account must pass it before buying a " +
+                "public-registry document before they dial out — whether nothing has " +
+                "been submitted or what was submitted has not been verified, the answer " +
+                "is the same and the calls wait — and every account must pass it before buying a " +
                 "phone number, because the obligation attaches to the telecom connection. " +
                 "The first campaign on a self-serve or trial account is reviewed by a " +
-                "person before it runs (`first_campaign_review_pending`). Do not open a " +
+                "person before it runs. Do not open a " +
                 "second account to get around a hold: the hold is on the account and a " +
                 "new one is a breach of the Terms.",
             },

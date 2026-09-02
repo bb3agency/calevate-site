@@ -740,6 +740,8 @@ export interface paths {
          * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
          *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *
+         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
         put: operations["admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put"];
         post?: never;
@@ -1907,6 +1909,8 @@ export interface paths {
          * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
          *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *
+         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
         get: operations["get_extraction_schema_v1_agents__agent_id__extraction_schema_get"];
         /**
@@ -1914,6 +1918,8 @@ export interface paths {
          * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
          *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *
+         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
         put: operations["set_extraction_schema_v1_agents__agent_id__extraction_schema_put"];
         post?: never;
@@ -3361,7 +3367,7 @@ export interface paths {
         };
         /**
          * This account's DLT Principal Entity registration — absence is data, not a 404
-         * @description What the DLT registrar holds for this business, as the platform last verified it. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.
+         * @description What the DLT registrar holds for this business, as the platform last verified it, plus Calevate's own Telemarketer registration number, which the client needs in order to authorise us on the registrar's portal. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.
          */
         get: operations["read_registration_v1_compliance_dlt_registration_get"];
         put?: never;
@@ -8044,6 +8050,13 @@ export interface components {
          * @description The whole new ordered field list. `extra="forbid"` on every field
          *     (`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently
          *     dropped edit.
+         *
+         *     `max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.
+         *     Those two models also parse what is ALREADY STORED (`_read_current`, `crm.service.
+         *     lead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a
+         *     ceiling that turns every row written before it existed into a 500 on the client's own
+         *     Leads screen. A bound belongs on the write, where the person who can act on it is
+         *     holding the form.
          */
         ExtractionSchemaIn: {
             /** Fields */
@@ -10525,6 +10538,10 @@ export interface components {
          *     gate must never disagree about it.
          */
         PeRegistrationOut: {
+            /** Calevate Tm Active */
+            calevate_tm_active: boolean;
+            /** Calevate Tm Id */
+            calevate_tm_id: string | null;
             /** Entity Name */
             entity_name: string | null;
             /** Is Active */

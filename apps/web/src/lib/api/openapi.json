@@ -6531,12 +6531,13 @@
       },
       "ExtractionSchemaIn": {
         "additionalProperties": false,
-        "description": "The whole new ordered field list. `extra=\"forbid\"` on every field\n(`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently\ndropped edit.",
+        "description": "The whole new ordered field list. `extra=\"forbid\"` on every field\n(`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently\ndropped edit.\n\n`max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.\nThose two models also parse what is ALREADY STORED (`_read_current`, `crm.service.\nlead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a\nceiling that turns every row written before it existed into a 500 on the client's own\nLeads screen. A bound belongs on the write, where the person who can act on it is\nholding the form.",
         "properties": {
           "fields": {
             "items": {
               "$ref": "#/components/schemas/ExtractionField"
             },
+            "maxItems": 50,
             "title": "Fields",
             "type": "array"
           }
@@ -12107,6 +12108,21 @@
         "additionalProperties": false,
         "description": "This tenant's Principal Entity registration, as the platform last verified it.\n\nEvery field except `recorded` and `is_active` is nullable, because all of them are\ngenuinely absent before ops files anything. `is_active` is computed server-side for\nthe same reason `TmRegistrationOut.is_live` is: \"is `submitted` good enough\" is a\nquestion the console must not answer for itself, and this response and the launch\ngate must never disagree about it.",
         "properties": {
+          "calevate_tm_active": {
+            "title": "Calevate Tm Active",
+            "type": "boolean"
+          },
+          "calevate_tm_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calevate Tm Id"
+          },
           "entity_name": {
             "anyOf": [
               {
@@ -12192,7 +12208,9 @@
           "entity_name",
           "registered_at",
           "verified_at",
-          "is_active"
+          "is_active",
+          "calevate_tm_id",
+          "calevate_tm_active"
         ],
         "title": "PeRegistrationOut",
         "type": "object"
@@ -20649,7 +20667,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {
       "put": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put",
         "parameters": [
           {
@@ -23924,7 +23942,7 @@
     },
     "/v1/agents/{agent_id}/extraction-schema": {
       "get": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "get_extraction_schema_v1_agents__agent_id__extraction_schema_get",
         "parameters": [
           {
@@ -23963,7 +23981,7 @@
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "set_extraction_schema_v1_agents__agent_id__extraction_schema_put",
         "parameters": [
           {
@@ -26729,7 +26747,7 @@
     },
     "/v1/compliance/dlt-registration": {
       "get": {
-        "description": "What the DLT registrar holds for this business, as the platform last verified it. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.",
+        "description": "What the DLT registrar holds for this business, as the platform last verified it, plus Calevate's own Telemarketer registration number, which the client needs in order to authorise us on the registrar's portal. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.",
         "operationId": "read_registration_v1_compliance_dlt_registration_get",
         "responses": {
           "200": {
