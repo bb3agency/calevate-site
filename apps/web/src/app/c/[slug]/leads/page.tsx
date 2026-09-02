@@ -756,6 +756,9 @@ export default function LeadsPage() {
             list because `askTerm` is what the lens reads. */}
         <form
           className="relative"
+          /* See `SavedViewBar`: the browser never refuses a form on a client screen,
+             including the ones with no rule for it to refuse on. */
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             setAskTerm(ask.trim());

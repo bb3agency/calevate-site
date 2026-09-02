@@ -18,6 +18,7 @@ import {
   SECONDARY_BUTTON,
   SectionHeading,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { useToast } from "@/components/interior/toaster";
 import { ARCHIVED_STATUS } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -70,6 +71,9 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   const wireFields = toWireFields(rows);
   const dirty = canonical(wireFields) !== savedCanonical;
   const clientError = clientValidationError(rows);
+  /* A nameless variable is answered AT its row (see `FieldEditorRow`); the two rules
+     `clientValidationError` still holds are about the list as a whole. */
+  const valid = useFormValidation();
 
   /*
    * THE CAPTURE COLUMNS, DECLARED TO THE SCREEN ASSISTANT.
@@ -252,8 +256,8 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
 
       <form
         className="mt-4 space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           if (!write.allowed || !dirty || clientError || save.isPending) return;
           save.mutate(
             { fields: toWireFields(rows) },
@@ -266,7 +270,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
               },
             },
           );
-        }}
+        })}
       >
         {rows.length === 0 ? (
           <p className="rounded-lg border border-line bg-app px-3 py-3 text-sm text-ink-muted">
@@ -283,6 +287,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
                 index={index}
                 total={rows.length}
                 disabled={!write.allowed || save.isPending}
+                validation={valid}
                 onChange={(patch) => patchRow(row.uid, patch)}
                 onDelete={() => setRows((current) => current.filter((r) => r.uid !== row.uid))}
                 onMoveUp={() => move(index, -1)}

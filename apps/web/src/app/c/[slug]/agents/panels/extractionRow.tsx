@@ -18,6 +18,7 @@ import {
   SECONDARY_BUTTON_SM,
   ToggleSwitch,
 } from "@/components/ui";
+import type { FormValidation } from "@/components/formValidation";
 import { hasKey } from "@/lib/lookup";
 
 import { FIELD_TYPE_COPY, effectiveKey, type DraftRow, type FieldType } from "./extractionDraft";
@@ -40,6 +41,7 @@ export function FieldEditorRow({
   onMoveUp,
   onMoveDown,
   eg,
+  validation,
 }: {
   row: DraftRow;
   index: number;
@@ -56,6 +58,17 @@ export function FieldEditorRow({
   onDelete: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  /**
+   * The LIST's validation, so a nameless variable is answered at the row it is in rather
+   * than by one sentence under the whole editor.
+   *
+   * Ids are still not invented here — the hook mints them from a `useId` held by the
+   * panel, so two editors for two agents on one screen get two id spaces, which is the
+   * collision this file's docstring refuses to risk. The key is the row's `uid` and not
+   * its index, for the same reason the copilot registration uses `uid`: the list can be
+   * reordered while it is open.
+   */
+  validation: FormValidation;
 }) {
   const named = row.label.trim() || "this variable";
   return (
@@ -96,18 +109,22 @@ export function FieldEditorRow({
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className={FIELD_LABEL}>Name</span>
-          <input
-            required
-            maxLength={80}
-            value={row.label}
-            disabled={disabled}
-            onChange={(event) => onChange({ label: event.target.value })}
-            placeholder="e.g. Reason for visit"
-            className={FIELD}
-          />
-        </label>
+        <div>
+          <label className="block">
+            <span className={FIELD_LABEL}>Name</span>
+            <input
+              {...validation.field(`label-${row.uid}`, "Give this variable a name.")}
+              required
+              maxLength={80}
+              value={row.label}
+              disabled={disabled}
+              onChange={(event) => onChange({ label: event.target.value })}
+              placeholder="e.g. Reason for visit"
+              className={FIELD}
+            />
+          </label>
+          {validation.error(`label-${row.uid}`)}
+        </div>
         <label className="block">
           <span className={FIELD_LABEL}>Type</span>
           <select

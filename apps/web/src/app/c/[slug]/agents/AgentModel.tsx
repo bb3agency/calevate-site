@@ -297,6 +297,7 @@ function ModelForm({
   return (
     <form
       className="space-y-5"
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
         if (!changed) return;

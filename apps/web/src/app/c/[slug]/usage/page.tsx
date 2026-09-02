@@ -442,6 +442,7 @@ function SpendLimit({ session }: { session: Session }) {
 
         <form
           className="flex flex-wrap items-end gap-3"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             save.mutate({

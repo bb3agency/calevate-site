@@ -29,6 +29,8 @@ import {
 } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 
+import { useFormValidation } from "@/components/formValidation";
+
 import { ParamEditor } from "./ParamEditor";
 import { toParam, type DraftParam, type Kind, type Provider } from "./params";
 
@@ -47,6 +49,7 @@ export function ActionForm({
   const creds = useCredentials(session);
   const calendarConnect = useCalendarConnect(session);
   const [name, setName] = useState("");
+  const valid = useFormValidation();
   const [description, setDescription] = useState("");
   const [trigger, setTrigger] = useState<"during_call" | "after_call">("during_call");
   const [preCall, setPreCall] = useState("");
@@ -134,10 +137,10 @@ export function ActionForm({
   return (
     <form
       className="space-y-3 rounded-card border border-line bg-app p-4"
-      onSubmit={(e) => {
-        e.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         create.mutate(buildBody(), { onSuccess: onDone });
-      }}
+      })}
     >
       <p className="text-sm font-semibold text-ink">New {ACTION_KIND_LABELS[kind]} action</p>
 
@@ -163,6 +166,7 @@ export function ActionForm({
         <label className="block">
           <span className={FIELD_LABEL}>Name (snake_case)</span>
           <input
+            {...valid.field("name", "Give this action a name.")}
             className={FIELD}
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -170,11 +174,13 @@ export function ActionForm({
             required
           />
         </label>
+        {valid.error("name")}
       </div>
       <div>
         <label className="block">
           <span className={FIELD_LABEL}>When should the AI use this?</span>
           <textarea
+            {...valid.field("description", "Say when the agent should use this.")}
             className={FIELD}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -183,6 +189,7 @@ export function ActionForm({
             required
           />
         </label>
+        {valid.error("description")}
         <span className={FIELD_HINT}>Helps the AI understand WHEN to use this integration.</span>
       </div>
 
@@ -205,6 +212,7 @@ export function ActionForm({
             <label className="block">
               <span className={FIELD_LABEL}>API URL</span>
               <input
+                {...valid.field("url", "Enter the web address to call.")}
                 className={FIELD}
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -212,6 +220,7 @@ export function ActionForm({
                 required
               />
             </label>
+            {valid.error("url")}
           </div>
         </div>
       ) : null}
@@ -224,12 +233,19 @@ export function ActionForm({
                 {provider === "aisensy" ? "Campaign name" : "Template name"}
               </span>
               <input
+                {...valid.field(
+                  "template",
+                  provider === "aisensy"
+                    ? "Enter the campaign name."
+                    : "Enter the template name.",
+                )}
                 className={FIELD}
                 value={template}
                 onChange={(e) => setTemplate(e.target.value)}
                 required
               />
             </label>
+            {valid.error("template")}
           </div>
           {provider !== "aisensy" ? (
             <div>
@@ -249,12 +265,14 @@ export function ActionForm({
               <label className="block">
                 <span className={FIELD_LABEL}>Phone Number ID</span>
                 <input
+                  {...valid.field("phoneNumberId", "Enter the phone number id.")}
                   className={FIELD}
                   value={phoneNumberId}
                   onChange={(e) => setPhoneNumberId(e.target.value)}
                   required
                 />
               </label>
+              {valid.error("phoneNumberId")}
             </div>
           ) : null}
         </>

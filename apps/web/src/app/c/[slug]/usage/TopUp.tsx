@@ -243,6 +243,7 @@ export function TopUp({ session }: { session: Session }) {
           no bonus — packs are where the volume bonus lives. */}
       <form
         className="flex flex-wrap items-center gap-2"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           setPending(CUSTOM);

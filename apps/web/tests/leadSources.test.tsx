@@ -801,12 +801,16 @@ describe("provisioning a lead source", () => {
     ).toBe(false);
 
     fireEvent.change(kind, { target: { value: "meta_lead_ads" } });
-    expect(screen.getByLabelText("Meta App Secret")).toBeTruthy();
+    const secret = screen.getByLabelText("Meta App Secret");
+    expect(secret).toBeTruthy();
     // Meta signs with a secret only the client holds, so the form cannot be submitted
-    // without it — the server would answer `app_secret_required`.
-    expect(
-      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    // without it — the server would answer `app_secret_required`. The button is LIVE and
+    // the press is answered in words: a control that goes dead with no sentence beside it
+    // is the refusal that explains nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Add lead source" }));
+    expect(await screen.findByText("Paste your Meta App Secret.")).toBeTruthy();
+    expect(secret.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(secret);
   });
 
   it("sends only the field mappings the client filled in", async () => {

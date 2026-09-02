@@ -166,9 +166,24 @@ describe("a timestamp the server sent in a shape we could not read", () => {
 describe("what a refusal puts first, and what it leaves out", () => {
   const fieldRefusal = new ApiProblem(422, {
     type: "https://calevate.tech/problems/invalid_fields",
+    // `kind` is what decides whether a support reference is printed, so a fixture without
+    // one tests a body the API does not send: every refusal it builds carries a kind
+    // (`apps/api/core/errors.py`), and a 422 about the answers is `validation`.
+    kind: "validation",
     detail: "We could not use one of your answers.",
     remediation: "Change the answer marked below and send it again.",
-    fields: [{ field: "body.password", rule: "min_length", message: "Use at least 12 characters." }],
+    fields: [
+      {
+        field: "body.password",
+        rule: "min_length",
+        // The NOUN is the server's, sent beside the wire path rather than derived from
+        // it. The console prints `label` or nothing — deriving "Password" from
+        // `body.password` here happened to read well and would have printed
+        // "Consent source" for `items.0.consent_source`, which names nothing on screen.
+        label: "Password",
+        message: "Use at least 12 characters.",
+      },
+    ],
     trace_id: "9c83825c95f2495d87a4194ba0ef2849",
     retryable: false,
   });
@@ -180,6 +195,39 @@ describe("what a refusal puts first, and what it leaves out", () => {
     expect(screen.getByRole("alert").textContent).not.toContain("body.password");
   });
 
+  it("prints the sentence alone when the server named no noun for the answer", () => {
+    // A body from before the server carried `label` still parses, and the WIRE PATH is
+    // never the fallback: `body.password` in front of a person is the defect, and
+    // deriving a noun from it in the console is how the console came to own a naming
+    // rule that belongs to the API.
+    const unlabelled = new ApiProblem(422, {
+      type: "https://calevate.tech/problems/invalid_fields",
+      kind: "validation",
+      detail: "We could not use one of your answers.",
+      fields: [
+        { field: "body.password", rule: "min_length", message: "Use at least 12 characters." },
+      ],
+    });
+    render(<ProblemNotice error={unlabelled} />);
+    const box = screen.getByRole("alert").textContent ?? "";
+    expect(box).toContain("Use at least 12 characters.");
+    expect(box).not.toContain("body.password");
+    expect(box).not.toContain("password:");
+  });
+
+  it("still quotes the reference when the failure is a dependency of ours", () => {
+    // The three kinds that get one are the ones whose answer is in a log line rather
+    // than on the screen (`apps/api/core/errors.py`).
+    const upstream = new ApiProblem(502, {
+      type: "https://calevate.tech/problems/dependency",
+      kind: "dependency",
+      detail: "We could not reach the phone network just now.",
+      trace_id: "9c83825c95f2495d87a4194ba0ef2849",
+    });
+    render(<ProblemNotice error={upstream} />);
+    expect(screen.getByRole("alert").textContent).toContain("9c83825c95f2495d87a4194ba0ef2849");
+  });
+
   it("keeps the support reference off a refusal the person can clear themselves", () => {
     render(<ProblemNotice error={fieldRefusal} />);
     expect(screen.getByRole("alert").textContent).not.toContain("9c83825c");
@@ -188,6 +236,7 @@ describe("what a refusal puts first, and what it leaves out", () => {
   it("still quotes it when the failure is ours and there is nothing for them to do", () => {
     const ourFault = new ApiProblem(500, {
       type: "https://calevate.tech/problems/internal",
+      kind: "internal",
       detail: "Something went wrong at our end.",
       trace_id: "9c83825c95f2495d87a4194ba0ef2849",
     });

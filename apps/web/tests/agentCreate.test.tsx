@@ -292,12 +292,22 @@ describe("failure paths a person can act on", () => {
     );
   });
 
-  it("will not build an agent with no name", async () => {
+  it("will not build an agent with no name, and says so in our words", async () => {
     const { calls } = await renderClientPage(page, routes({ "POST /v1/agents": created() }));
 
     await screen.findByText("Build an agent");
-    const build = screen.getByRole("button", { name: /Build this agent/ });
-    expect(build.hasAttribute("disabled")).toBe(true);
+    // The button is LIVE and the press is refused with a sentence. It used to be dead
+    // until the second character, which is a refusal with nothing in it — and before that
+    // the browser answered in its own UI language, which for a Telugu-first product is
+    // the defect this form was converted for.
+    await act(async () => {
+      fireEvent.click(await pressable(/Build this agent/));
+    });
+
+    const field = screen.getByLabelText(/^What do you want to call it/) as HTMLInputElement;
+    expect(await screen.findByText("Give this agent a name.")).toBeTruthy();
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(field);
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 

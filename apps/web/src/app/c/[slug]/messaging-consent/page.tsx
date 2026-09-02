@@ -25,6 +25,7 @@ import {
   type NoticeTone,
   PRIMARY_BUTTON_SM,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -140,6 +141,10 @@ export default function MessagingConsentPage() {
   );
 
   const [lookupPhone, setLookupPhone] = useState("");
+  /* Two forms on this screen, two instances: one refusal must never mark the other's
+     field, and the ids the hook mints are per instance. */
+  const lookupValid = useFormValidation();
+  const recordValid = useFormValidation();
 
   // The recording form. `answer` is the first decision and drives everything below it.
   const [phone, setPhone] = useState("");
@@ -342,10 +347,10 @@ export default function MessagingConsentPage() {
         </p>
         <form
           className="mt-3 flex flex-wrap items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={lookupValid.onSubmit(() => {
             consentLookup.mutate(lookupPhone.trim());
-          }}
+          })}
         >
           {/* `min-w-0`: this wrapper is a flex item, and a flex item defaults to
               `min-width: auto` — so it took the search input's intrinsic ~256px width
@@ -354,6 +359,7 @@ export default function MessagingConsentPage() {
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
             <input
+              {...lookupValid.field("lookupPhone", "Enter the number to check.")}
               required
               value={lookupPhone}
               onChange={(e) => {
@@ -371,10 +377,13 @@ export default function MessagingConsentPage() {
               aria-label="Phone number to check"
               className={`${FIELD_INLINE_ICON} w-64 font-mono`}
             />
+            {lookupValid.error("lookupPhone")}
           </div>
           <button
             type="submit"
-            disabled={consentLookup.isPending || lookupPhone.trim().length < 8}
+            /* The length rule is not repeated here — a button that is dead at seven
+               digits explains nothing, and pressing it now says what is wrong. */
+            disabled={consentLookup.isPending}
             className={PRIMARY_BUTTON_SM}
           >
             {consentLookup.isPending ? "Checking…" : "Check"}
@@ -406,13 +415,12 @@ export default function MessagingConsentPage() {
 
           <form
             className="mt-4 space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit();
-            }}
+            noValidate
+            onSubmit={recordValid.onSubmit(submit)}
           >
             <Field label="Their number" htmlFor="consent-phone">
               <input
+                {...recordValid.field("phone", "Enter their number.")}
                 id="consent-phone"
                 required
                 value={phone}
@@ -427,6 +435,7 @@ export default function MessagingConsentPage() {
                 placeholder="9876543210 or +919876543210"
                 className={`${FIELD_INLINE} w-64 font-mono`}
               />
+              {recordValid.error("phone")}
             </Field>
 
             {/* The answer first: it is what decides which sources may carry it. */}
@@ -533,7 +542,10 @@ export default function MessagingConsentPage() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="submit"
-                disabled={record.isPending || phone.trim().length < 8 || blocked !== null}
+                /* `blocked` stays: it is a rule about WHAT may be recorded, not about
+                   an answer this form can point at. The length rule is answered at the
+                   field now. */
+                disabled={record.isPending || blocked !== null}
                 className={PRIMARY_BUTTON_SM}
               >
                 <BadgeCheck className="h-4 w-4" />

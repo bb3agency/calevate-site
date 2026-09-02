@@ -529,26 +529,16 @@ export function TermGloss({
 }
 
 /**
- * A person-readable field name, from the one the code spells.
+ * The problem kinds where a support reference is worth printing.
  *
- * problem+json `fields[].field` is a wire path — `body.password`, `contact.phone_e164`,
- * `items.0.consent_source`. Printed raw it is the defect the founder photographed on the
- * sign-in screen: the thing the person has to fix, named the way our schema names it. The
- * last segment is the part that means anything to them; array indices are dropped because
- * "0" identifies nothing a person can see on the form.
- *
- * It stays a LABEL, not a sentence — the server owns the sentence. This only stops us
- * printing an internals word where a noun belongs.
+ * A reference is for a failure only WE can look into. `validation`, `permission`,
+ * `auth`, `not_found`, `conflict` and `business_rule` are the API telling the person what
+ * it needs — a 32-character id beside "check what you entered" makes a typo look like an
+ * outage, which is exactly what the photographed sign-in box did. The three kinds here
+ * are the ones whose answer is in a log line rather than on the screen
+ * (`apps/api/core/errors.py`: `dependency`, `transient`, `internal`).
  */
-function fieldLabel(field: string): string {
-  const words = field
-    .split(/[.[\]]+/)
-    .filter((part) => part !== "" && !/^\d+$/.test(part))
-    .pop();
-  if (!words) return field;
-  const spaced = words.replace(/[_-]+/g, " ").trim();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
+const REFERENCE_KINDS = new Set(["dependency", "transient", "internal"]);
 
 /**
  * Renders an RFC-9457 problem the way its fields intend.
@@ -601,11 +591,7 @@ export function ProblemNotice({
   // See the docstring: a reference is for a failure only WE can look into. A 4xx that
   // told the person what it needs is not one, and the id beside it only competes with the
   // instruction.
-  const ours =
-    problem !== null &&
-    (problem.status >= 500 ||
-      problem.status === 0 ||
-      (!problem.remediation && !problem.fields?.length));
+  const ours = problem !== null && REFERENCE_KINDS.has(problem.kind);
   return (
     <div
       role="alert"
@@ -625,8 +611,17 @@ export function ProblemNotice({
       {problem?.fields?.length ? (
         <ul className="mt-2 list-inside list-disc">
           {problem.fields.map((f) => (
+            /* The NOUN comes from the server (`label`) or is left off entirely. It used
+               to be derived here from `f.field`, which is a wire path — that derivation
+               printed `password: String should have at least 12 characters` in the
+               photographed box, our schema's word for the thing in front of the person's
+               own word for it. The path is still sent, and is still used to mark the
+               right input; it is not for reading. */
             <li key={f.field} className="break-words">
-              <span className="break-words font-medium">{fieldLabel(f.field)}</span>: {f.message}
+              {f.label ? (
+                <span className="break-words font-medium">{f.label}: </span>
+              ) : null}
+              {f.message}
             </li>
           ))}
         </ul>

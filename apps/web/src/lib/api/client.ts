@@ -39,7 +39,16 @@ export class ApiProblem extends Error {
   readonly code: string;
   readonly retryable: boolean;
   readonly remediation?: string;
-  readonly fields?: { field: string; rule: string; message: string }[];
+  /**
+   * The answers the server named, one entry each.
+   *
+   * `field` is the WIRE PATH (`body.password`, `items.0.consent_source`) and is for
+   * WIRING — finding the input to mark. `label` is the server's human noun for it
+   * ("Password", "item 3") and is the only one of the two that may be shown. It is
+   * optional because a body written before the server carried one still parses; a missing
+   * label means the sentence is printed on its own, never the path.
+   */
+  readonly fields?: { field: string; rule: string; message: string; label?: string }[];
   readonly traceId?: string;
 
   constructor(status: number, body: Record<string, unknown>) {

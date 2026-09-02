@@ -29,6 +29,7 @@ import {
   type NoticeTone,
   PRIMARY_BUTTON_SM,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import {
   DNC_LIST_LIMIT,
@@ -194,6 +195,7 @@ export default function DoNotCallPage() {
   const [paste, setPaste] = useState("");
   const [source, setSource] = useState<DncSource>("manual");
   const [phone, setPhone] = useState("");
+  const valid = useFormValidation();
 
   const parsed = parsePastedNumbers(paste);
   const tooMany = parsed.length > MAX_NUMBERS_PER_ADD;
@@ -334,12 +336,12 @@ export default function DoNotCallPage() {
         </p>
         <form
           className="mt-3 flex flex-wrap items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             // POST with the number in the BODY. Never a query string, never the URL —
             // the number is the personal data (see the API's dnc_routes docstring).
             check.mutate(phone.trim());
-          }}
+          })}
         >
           {/* `min-w-0`: this wrapper is a flex item, and a flex item defaults to
               `min-width: auto` — so it took the search input's intrinsic ~256px width
@@ -348,6 +350,7 @@ export default function DoNotCallPage() {
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
             <input
+              {...valid.field("phone", "Enter the number to check.")}
               required
               value={phone}
               onChange={(e) => {
@@ -363,10 +366,13 @@ export default function DoNotCallPage() {
               aria-label="Phone number to check"
               className={`${FIELD_INLINE_ICON} w-64 font-mono`}
             />
+            {valid.error("phone")}
           </div>
           <button
             type="submit"
-            disabled={check.isPending || phone.trim().length < 8}
+            /* The length rule is answered at the field now, so the button stays live and
+               a press produces a sentence rather than nothing. */
+            disabled={check.isPending}
             className={PRIMARY_BUTTON_SM}
           >
             {check.isPending ? "Checking…" : "Check"}
@@ -414,6 +420,7 @@ export default function DoNotCallPage() {
           </p>
           <form
             className="mt-3 space-y-3"
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               add.mutate({ numbers: parsed, source }, { onSuccess: () => setPaste("") });

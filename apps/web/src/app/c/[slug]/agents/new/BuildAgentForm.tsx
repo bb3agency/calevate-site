@@ -12,6 +12,7 @@
 import { ShieldCheck } from "lucide-react";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL, NOTICE_TONES, Skeleton, formatCallCap } from "@/components/ui";
+import type { FormValidation } from "@/components/formValidation";
 import type { useLanes } from "@/lib/api/publishing";
 
 /**
@@ -26,35 +27,46 @@ export function CallCapField({
   lanes,
   value,
   onChange,
+  validation,
 }: {
   lanes: ReturnType<typeof useLanes>;
   value: string;
   onChange: (next: string) => void;
+  /**
+   * The form's validation, passed in rather than started here: a hook of its own would
+   * give this field a second `onSubmit` that the form never calls, so a number outside
+   * the lane's range would be refused by nobody.
+   */
+  validation: FormValidation;
 }) {
   if (lanes.isLoading) return <Skeleton rows={2} />;
   // The refusal is rendered by the caller, above; there is nothing honest to put here.
   if (!lanes.data) return null;
   const { call_cap_default_s, call_cap_min_s, call_cap_max_s } = lanes.data;
   return (
-    <label className="block max-w-sm">
-      <span className={FIELD_LABEL}>Longest one call may run (optional)</span>
-      <input
-        type="number"
-        inputMode="numeric"
-        min={Math.ceil(call_cap_min_s / 60)}
-        max={Math.floor(call_cap_max_s / 60)}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={String(Math.round(call_cap_default_s / 60))}
-        className={FIELD}
-      />
-      <span className={FIELD_HINT}>
-        In minutes. Leave it blank for the standard {formatCallCap(call_cap_default_s)}. It
-        can be anywhere between {formatCallCap(call_cap_min_s)} and{" "}
-        {formatCallCap(call_cap_max_s)}, and there is no way to remove it — it is what stops
-        one stuck call running up a bill.
-      </span>
-    </label>
+    <div className="max-w-sm">
+      <label className="block">
+        <span className={FIELD_LABEL}>Longest one call may run (optional)</span>
+        <input
+          {...validation.field("callCap", "Enter how long one call may run, or leave it blank.")}
+          type="number"
+          inputMode="numeric"
+          min={Math.ceil(call_cap_min_s / 60)}
+          max={Math.floor(call_cap_max_s / 60)}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={String(Math.round(call_cap_default_s / 60))}
+          className={FIELD}
+        />
+        <span className={FIELD_HINT}>
+          In minutes. Leave it blank for the standard {formatCallCap(call_cap_default_s)}. It
+          can be anywhere between {formatCallCap(call_cap_min_s)} and{" "}
+          {formatCallCap(call_cap_max_s)}, and there is no way to remove it — it is what stops
+          one stuck call running up a bill.
+        </span>
+      </label>
+      {validation.error("callCap")}
+    </div>
   );
 }
 
