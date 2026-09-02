@@ -8,6 +8,7 @@ the model said", which is the one thing no test can obtain honestly.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -727,9 +728,15 @@ async def test_more_lookups_than_the_per_turn_cap_are_refused_with_a_sentence(
     a dropped call is an issued `tool_call_id` with no result, which the provider rejects."""
     seen = _fake_tools(monkeypatch, {"calls_recent": "calls here"})
     over = tools_module.MAX_CALLS_PER_TURN + 2
+    # DISTINCT ARGUMENTS, so the CAP is what this test measures. Six identical calls are
+    # deduplicated before the cap is reached (`_run_read_tools`), which is a different
+    # rule with its own test below.
     sent = _scripted(
         monkeypatch,
-        [_tool_turn(*(("calls_recent", "{}") for _ in range(over))), _turn(content="Done.")],
+        [
+            _tool_turn(*(("calls_recent", json.dumps({"limit": n})) for n in range(over))),
+            _turn(content="Done."),
+        ],
     )
     await _drain_with_tools()
 
@@ -829,3 +836,214 @@ async def test_the_exhaustion_message_is_stripped_and_the_model_cannot_pad_it(
     # Bounded, and bounded well under what the model sent — a real field id is 200 long
     # (`schemas._MAX_ID`), so nothing legitimate is being cut here.
     assert len(said[-1]) < len(padded)
+
+
+# --- a turn that produced no answer (the contentless candidate) --------------------------
+
+
+def _contentless(finish_reason: str | None = "stop") -> list[chat.StreamEvent]:
+    """A turn that says NOTHING and asks for nothing — the shape Gemini's own docs warn
+    about (a candidate with no content) and the one Azure returns on a content filter."""
+    return [
+        chat.StreamEvent(
+            outcome=chat.ChatOutcome(
+                content="",
+                tool_calls=(),
+                finish_reason=finish_reason,
+                usage=chat.TokenUsage(prompt_tokens=900, output_tokens=0),
+            )
+        )
+    ]
+
+
+async def test_a_lookup_followed_by_a_contentless_turn_still_answers(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE OBSERVED DEFECT. `business_snapshot` ran, its card rendered, and the turn ended
+    with no assistant text at all — the person asked a question and got a debug card."""
+    _fake_tools(monkeypatch, {"business_snapshot": "Last 7 days: 0 calls, 0 connected."})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("business_snapshot", '{"days": 7}')), _contentless()],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 2
+    said = [e.text for e in events if e.text]
+    assert said, "a turn that spent a tool call must never end without a sentence"
+    assert events[-1].spend is not None
+
+
+async def test_a_turn_stopped_by_a_content_filter_says_so(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _scripted(monkeypatch, [_contentless(finish_reason="content_filter")])
+    events = await _drain()
+    said = [e.text for e in events if e.text]
+    assert said and "filter" in said[-1].lower()
+    assert events[-1].spend is not None
+
+
+async def test_a_turn_that_never_reported_an_outcome_ends_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stream that ended without its terminal frame. It used to `break` into the
+    out-of-turns message, which blames a turn limit the run never reached."""
+    _scripted(monkeypatch, [[]])
+    events = await _drain()
+    said = [e.text for e in events if e.text]
+    assert said and not said[-1].startswith(service.EXHAUSTED_MESSAGE)
+    assert events[-1].spend is not None
+
+
+async def test_the_fallback_leg_answering_nothing_still_says_something(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content="", finish_reason="stop")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    events = await _drain()
+    assert [e.text for e in events if e.text], "the fallback must not be silent either"
+    assert events[-1].spend is not None
+
+
+# --- lookups that would burn the run --------------------------------------------------
+
+
+async def test_an_identical_repeated_lookup_is_refused_rather_than_run_again(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A model that asks for the same lookup with the same arguments turn after turn spends
+    a paid round trip and a database read to learn nothing. It is told it already has the
+    answer, which is what makes the loop converge on a sentence instead of on `MAX_TURNS`.
+
+    FAILS IF: the (tool, arguments) memory stops crossing turns — the symptom is a run that
+    reads the same rows six times and ends in the exhaustion message."""
+    seen = _fake_tools(monkeypatch, {"business_snapshot": "Last 7 days: 0 calls."})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("business_snapshot", '{"days": 7}')),
+            _tool_turn(("business_snapshot", '{"days": 7}')),
+            _turn(content="You had no calls last week."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(seen) == 1, "the second identical lookup never reaches the database"
+    tool_messages = [message for message in sent[2] if message["role"] == "tool"]
+    assert "already ran this exact lookup" in str(tool_messages[-1]["content"])
+    # Still ONE result per issued call id — a provider rejects the next request if an
+    # issued call has no answer at all.
+    assert [message["tool_call_id"] for message in tool_messages] == ["call-0", "call-0"]
+    assert [e.text for e in events if e.text] == ["You had no calls last week."]
+    # And the person sees it as a step, refused rather than silently missing.
+    assert [step.status for step in (e.step for e in events if e.step)][-1] == "refused"
+
+
+async def test_a_lookup_that_hangs_is_stopped_and_answered_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing else bounds a read tool: this deployment sets no `statement_timeout`, so one
+    lookup against a lock could eat the whole of `TOTAL_BUDGET_S` and turn a question into
+    "the assistant stopped part-way". A stopped lookup is a sentence the model can act on.
+
+    FAILS IF: `READ_TOOL_BUDGET_S` stops being applied — the test then hangs rather than
+    failing, which is why the budget is monkeypatched down rather than waited out.
+    """
+    monkeypatch.setattr(service, "READ_TOOL_BUDGET_S", 0.01)
+
+    async def _hang(name: str, arguments: str, *, context: Any, registry: Any = None) -> str:
+        await asyncio.sleep(10)
+        raise AssertionError("the read tool must have been cut off")
+
+    monkeypatch.setattr(tools_module, "run_read_tool", _hang)
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("business_snapshot", "{}")), _turn(content="I couldn't read that.")],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 2
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "took too long" in str(tool_messages[-1]["content"])
+    assert [step.status for step in (e.step for e in events if e.step)][-1] == "failed"
+    assert [e.text for e in events if e.text] == ["I couldn't read that."]
+
+
+async def test_each_lookup_of_a_batch_is_timed_on_its_own_clock(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The panel's elapsed number is what a person is trying to find out. Frames built after
+    the batch finished reported every call as taking as long as the slowest."""
+    slow = asyncio.Event()
+
+    async def _run(name: str, arguments: str, *, context: Any, registry: Any = None) -> str:
+        if name == "calls_recent":
+            await slow.wait()
+            return "calls here"
+        slow.set()
+        await asyncio.sleep(0.05)
+        return "leads here"
+
+    monkeypatch.setattr(tools_module, "run_read_tool", _run)
+    _scripted(
+        monkeypatch,
+        [_tool_turn(("calls_recent", "{}"), ("leads_search", "{}")), _turn(content="Done.")],
+    )
+    events = await _drain_with_tools()
+
+    done = [e.step for e in events if e.step and e.step.status == "done"]
+    by_tool = {step.tool: step.elapsed_ms for step in done}
+    assert by_tool["calls_recent"] is not None and by_tool["leads_search"] is not None
+    assert by_tool["calls_recent"] < by_tool["leads_search"]
+
+
+async def test_a_lookup_that_answers_nothing_is_still_answered(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty `role: "tool"` message is silence one layer down — some providers reject
+    one outright, and every model reads it as "nothing happened"."""
+    _fake_tools(monkeypatch, {"business_snapshot": "   "})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("business_snapshot", "{}")), _turn(content="I couldn't read that.")],
+    )
+    await _drain_with_tools()
+
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "came back with nothing" in str(tool_messages[-1]["content"])
+
+
+async def test_the_gemini_leg_returning_a_contentless_candidate_still_answers(
+    google_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE TRAP GOOGLE'S OWN DOCS DESCRIBE: `thinkingBudget: 0` turns thinking off on 2.5
+    flash and flash-lite, but Gemini 3 Flash models "do not support full thinking-off", so a
+    candidate can come back with no content at all (CLAUDE.md — which is why every
+    `gemini-3.*` is `selectable=False`). On a phone call that is dead air; here it was a
+    turn that ended in silence."""
+    _scripted_complete(
+        monkeypatch,
+        [chat.ChatOutcome(content="", finish_reason=None, usage=None)],
+    )
+    events = await _drain_google()
+
+    assert [e.text for e in events if e.text] == [service.NO_ANSWER_MESSAGE]
+    assert events[-1].spend is not None
+
+
+async def test_a_turn_that_spent_the_whole_ceiling_saying_nothing_says_that(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`finish_reason == "length"` with NO content is not the truncation the loop already
+    logs: there, prose reached the screen and was cut off, which the person can see. Here
+    the whole of `MAX_ANSWER_TOKENS` was paid for and not a word arrived."""
+    _scripted(monkeypatch, [_contentless(finish_reason="length")])
+    events = await _drain()
+    assert [e.text for e in events if e.text] == [service.TRUNCATED_MESSAGE]
+    assert events[-1].spend is not None

@@ -37,6 +37,7 @@ split is deliberate: a caller who is not allowed in never reaches the stream at 
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Annotated
 
@@ -321,7 +322,17 @@ async def ask_copilot(
     #    `record_ai_assist_usage` accepts nothing else, because its idempotency is a
     #    switch that turns metering off (D-140).
     ref = new_assist_ref()
-    spend: service.CopilotSpend | None = None
+    # EVERY SPEND OF THIS RUN, NOT THE LAST ONE, AND THIS USED TO BE A SINGLE SLOT.
+    #
+    # `run_copilot` can emit MORE THAN ONE `CopilotSpend` in a turn: a leg that failed
+    # before it streamed anything is re-selected under `provider_unavailable=True` and the
+    # answer is finished on the disclosed Sarvam leg, which is a SECOND capability and a
+    # second record. A single slot kept the last one, so the tokens the first leg had
+    # already been paid for were never metered — hard rule 7, money paid to a provider with
+    # no `usage_event` and no movement of the account's ceiling. Each gets its own `ref`,
+    # because `record_ai_assist_usage`'s idempotency is keyed on it and two spends sharing
+    # one ref would silently collapse into the first.
+    spends: list[service.CopilotSpend] = []
     filled: tuple[str, ...] = ()
     proposed: str | None = None
     acted: list[str] = []
@@ -331,6 +342,145 @@ async def ask_copilot(
     # provider bill is under. It is truncated and redacted by `memory.redacted_content`
     # before it reaches a column and is never logged.
     answer_parts: list[str] = []
+
+    # 4. THE METER, THE AUDIT AND THE MEMORY, in ONE transaction of their own — the record
+    #    of a payment that has already happened. `meter_assist` never raises, and nothing
+    #    between the run and the meter may: a completed answer is money spent whether or
+    #    not it was any good.
+    #
+    # **A CLOSURE, BECAUSE THERE ARE NOW FOUR WAYS OUT OF THE RUN AND ALL FOUR OWE THE
+    # LEDGER THE SAME ROWS.** It was straight-line code after the `async for`, which meant
+    # only the way out that WORKED reached it: a selector refusal, a provider that died
+    # mid-answer, and a browser that closed the tab each returned or unwound past it. Three
+    # of those are spend (the middle one certainly, the last one usually), so the ledger
+    # was complete exactly when nothing had gone wrong. Every exit now calls this, and it
+    # is IDEMPOTENT so passing through the `finally` after an arm that already called it
+    # costs nothing.
+    metered = False
+    recorded = False
+    #: Did the run finish on its own? False on a refusal, a provider failure and a
+    #: disconnect — the three exits that used to skip the ledger entirely.
+    completed = False
+
+    async def _record() -> None:
+        """Write this run's ledger rows, its audit row and its memory. Once, at most."""
+        nonlocal metered, recorded
+        if recorded:
+            return
+        recorded = True
+        if not spends:
+            # NOTHING WAS PAID FOR. A selector refusal raises before the first request, and
+            # a disconnect during the first token has produced no usage figure to record.
+            # Writing an audit row for a question nobody was charged for and nobody
+            # answered would put a `copilot.ask` entry on the chain with no act behind it.
+            return
+        async with tenant_session(tenant_id) as record_session:
+            # ONE `meter_assist` PER SPEND, EACH UNDER ITS OWN `ref`. The first keeps the
+            # ref minted before the run so an operator correlating a log line to a ledger
+            # row still finds it; a second leg gets a fresh one, because the idempotency of
+            # `record_ai_assist_usage` is keyed on the ref and reusing it would discard the
+            # second spend in the name of not double-charging the first.
+            refs = [ref if index == 0 else new_assist_ref() for index in range(len(spends))]
+            for spent, spend_ref in zip(spends, refs, strict=True):
+                metering = await meter_assist(
+                    record_session,
+                    tenant_id=tenant_id,
+                    ref=spend_ref,
+                    result=spent,
+                    feature=ASSIST_FEATURE_COPILOT,
+                    # The model the answer ran on, when the run knows it (D-478: the
+                    # account's own Gemini id). `None` on the Azure leg, where
+                    # `meter_assist` reads the live `azure_openai_model` setting — the model
+                    # behind Azure's deployment is an operator switch, not a per-run fact.
+                    model=spent.model,
+                )
+                # TRUE IF ANY LEG WAS METERED. The flag reaches the browser as "this
+                # question was charged for", and a run whose Azure leg was metered and whose
+                # Sarvam fallback was not (D-36 prices that leg at zero) WAS charged for.
+                metered = metered or metering.metered
+            last = spends[-1]
+            await write_audit(
+                record_session,
+                action="copilot.ask",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="screen",
+                # The ROUTE TEMPLATE the browser reported, which is a screen name and
+                # not a record — the object here is "a screen", and there is no row to
+                # point at.
+                object_id=payload.screen.route,
+                ip=client_request_ip(request),
+                # Ids, names and COUNTS. No question, no answer, no field value — a
+                # value is the one thing on this path `sanitize` exists to keep out of a
+                # durable record (hard rule 6).
+                #
+                # A COUNT AND NOT A LIST OF FIELD IDS, and the reason is mechanical
+                # rather than a judgement call: `write_audit`'s summary never reaches a
+                # column at all (`audit_log` has none) — it goes to the log stream
+                # through `core/logging.redact_mapping`, which collapses ANY sequence to
+                # `"[N items]"`. A `filled_field_ids` key would therefore be a field name
+                # promising something the record cannot hold, which is worse than not
+                # recording it. What survives is what is asserted on.
+                summary={
+                    "realm": payload.screen.realm,
+                    # THE LEG THAT ANSWERED, and the COUNT of legs this run paid. One row
+                    # per question is what an auditor reads, so a run that failed over says
+                    # so with a number rather than by being two rows.
+                    "provider": last.capability.provider,
+                    "fallback_reason": last.capability.fallback_reason,
+                    "spend_count": len(spends),
+                    "metered": metered,
+                    "ref": ref,
+                    # WHETHER THE PERSON GOT THE WHOLE ANSWER. A run recorded from the
+                    # `finally` was abandoned or interrupted, and an auditor reading a
+                    # charge for an answer nobody saw needs to be able to tell.
+                    "completed": completed,
+                    "filled_field_count": len(filled),
+                    # A COUNT AND THE NAMES of the TIER 1 actions this answer performed
+                    # (D-500). Each already wrote its own `audit_log` row naming the person
+                    # and the object it touched, inside `run_immediate`'s transaction; this
+                    # is what the `copilot.ask` row says about the ANSWER, so a reader of
+                    # one row can tell that a question changed something. Names only — the
+                    # ids are in the rows the actions wrote. `redact_mapping` collapses any
+                    # sequence to "[N items]" on the way to the log stream, which is why
+                    # the count is stated separately rather than left to be derived from a
+                    # field that will not be there.
+                    "action_count": len(acted),
+                    "actions": sorted(set(acted)),
+                    # WHICH TOOL WAS PROPOSED, or None. A NAME and not the arguments: this
+                    # row records that the assistant offered a change, and the row that
+                    # records the change itself is written by `POST /v1/copilot/confirm`
+                    # if — and only if — a person agreed to it.
+                    "proposed_tool": proposed,
+                },
+            )
+            # 5. THE MEMORY, in the SAME transaction as the meter and the audit, and that
+            #    is the whole reason it is here rather than in a session of its own: a
+            #    memory of an answer whose `usage_events` row rolled back is a memory of
+            #    something that, as far as the ledger is concerned, never happened.
+            #
+            #    AFTER the audit, so a memory write can never be what stops an
+            #    `audit_log` entry from landing. It writes ids, a screen name and prose
+            #    that `memory.redacted_content` has already put through `redact()`; it
+            #    never logs any of it (hard rule 6), and `remember_exchange` returns None
+            #    rather than raising when there is nothing left to store.
+            if principal.realm == "client" and principal.user_id is not None:
+                await memory.remember_exchange(
+                    record_session,
+                    tenant_id=tenant_id,
+                    user_id=principal.user_id,
+                    screen_route=payload.screen.route,
+                    question=payload.question,
+                    answer="".join(answer_parts),
+                    # Counts and names, exactly as the audit summary above — never a field
+                    # value, never the model's prose beyond `content` itself.
+                    meta={
+                        "realm": payload.screen.realm,
+                        "provider": last.capability.provider,
+                        "filled_field_count": len(filled),
+                    },
+                )
+
     try:
         async for event in service.run_copilot(
             payload,
@@ -396,19 +546,27 @@ async def ask_copilot(
                 acted.append(event.action.tool)
                 yield ServerSentEvent(event="action", data=event.action)
             if event.spend is not None:
-                spend = event.spend
+                spends.append(event.spend)
+        completed = True
     except ProblemError as refusal:
-        # The selector refused (no provider configured, or both legs down). Nothing was
-        # paid for on this path — `assist_unavailable` is raised before a request — so
-        # there is nothing to meter.
+        # The selector refused before a request was made — `assist_unavailable` is raised
+        # ahead of the first leg — so `spends` is empty and `_record` writes nothing. It is
+        # still CALLED rather than skipped: "nothing was paid for on this path" was a claim
+        # about `run_copilot`'s control flow made in the wrong file, and the emptiness of
+        # the list is the same statement checked instead of asserted.
+        await _record()
         yield _error_event(refusal)
         return
     except Exception:
-        # A provider that died mid-answer. The person gets a problem body rather than a
-        # stream that simply stops, and the operator gets the exception through the
-        # ordinary log path. If the model had already answered, `spend` is None and the
-        # money is unrecorded — which is why this arm logs rather than swallowing.
+        # A PROVIDER THAT DIED MID-ANSWER IS SPEND, AND THIS ARM USED TO THROW IT AWAY.
+        # It returned before the metering block, so a run that really had sent tokens to
+        # Azure and then failed was money paid with no `usage_event` behind it — invisible
+        # to the account's ceiling and to the platform brake, which is the shape of metering
+        # outage `meter_assist` fires an alert for when it can see one. `_record` runs first
+        # so the ledger lands before the person is told; the log line stays, because the
+        # failure itself is still something an operator should see.
         log.exception("copilot_stream_failed", extra={"tenant_id": str(tenant_id)})
+        await _record()
         yield _error_event(
             ProblemError(
                 kind="dependency",
@@ -419,105 +577,38 @@ async def ask_copilot(
             )
         )
         return
+    finally:
+        # THE CLIENT WENT AWAY. A browser that navigates or closes the tab makes
+        # `sse-starlette` `aclose()` this generator, which throws `GeneratorExit` in at the
+        # `yield` above — and every arm before this one is skipped, so an abandoned turn was
+        # a turn we paid a provider for and nobody was charged. A `finally` is the only
+        # construct that sees that exit. It never yields (which would be illegal here) and
+        # `_record` is idempotent, so the ordinary paths that already recorded pass through
+        # it for free.
+        #
+        # **SHIELDED, AND THAT IS THE WHOLE DIFFICULTY OF THIS ARM.** The disconnect usually
+        # arrives as a cancellation of the task this generator runs in, so an unshielded
+        # `await` here would be cancelled at the first suspension — in the middle of the
+        # transaction, which is the one place a partial ledger write would be worse than
+        # none. `shield` lets the record finish against a cancellation aimed at the caller.
+        # It is not a guarantee: a loop already tearing down still loses it, and there is
+        # no outbox on this surface to make it one. What it buys is that the ordinary
+        # disconnect is recorded, and the extraordinary one is LOGGED rather than silent —
+        # which is what an operator needs to tell "nobody was charged" from "we cannot say".
+        try:
+            await asyncio.shield(_record())
+        except Exception:
+            log.exception("copilot_meter_failed", extra={"tenant_id": str(tenant_id)})
 
-    # 4. THE METER AND THE AUDIT, in ONE transaction of their own — the record of a
-    #    payment that has already happened. `meter_assist` never raises, and nothing
-    #    between the run and the meter may: a completed answer is money spent whether or
-    #    not it was any good.
-    metered = False
-    if spend is not None:
-        async with tenant_session(tenant_id) as record_session:
-            metering = await meter_assist(
-                record_session,
-                tenant_id=tenant_id,
-                ref=ref,
-                result=spend,
-                feature=ASSIST_FEATURE_COPILOT,
-                # The model the answer ran on, when the run knows it (D-478: the account's
-                # own Gemini id). `None` on the Azure leg, where `meter_assist` reads the
-                # live `azure_openai_model` setting — the model behind Azure's deployment is
-                # an operator switch, not a per-run fact.
-                model=spend.model,
-            )
-            metered = metering.metered
-            await write_audit(
-                record_session,
-                action="copilot.ask",
-                actor=principal,
-                tenant_id=tenant_id,
-                object_type="screen",
-                # The ROUTE TEMPLATE the browser reported, which is a screen name and
-                # not a record — the object here is "a screen", and there is no row to
-                # point at.
-                object_id=payload.screen.route,
-                ip=client_request_ip(request),
-                # Ids, names and COUNTS. No question, no answer, no field value — a
-                # value is the one thing on this path `sanitize` exists to keep out of a
-                # durable record (hard rule 6).
-                #
-                # A COUNT AND NOT A LIST OF FIELD IDS, and the reason is mechanical
-                # rather than a judgement call: `write_audit`'s summary never reaches a
-                # column at all (`audit_log` has none) — it goes to the log stream
-                # through `core/logging.redact_mapping`, which collapses ANY sequence to
-                # `"[N items]"`. A `filled_field_ids` key would therefore be a field name
-                # promising something the record cannot hold, which is worse than not
-                # recording it. What survives is what is asserted on.
-                summary={
-                    "realm": payload.screen.realm,
-                    "provider": spend.capability.provider,
-                    "fallback_reason": spend.capability.fallback_reason,
-                    "metered": metered,
-                    "ref": ref,
-                    "filled_field_count": len(filled),
-                    # A COUNT AND THE NAMES of the TIER 1 actions this answer performed
-                    # (D-500). Each already wrote its own `audit_log` row naming the person
-                    # and the object it touched, inside `run_immediate`'s transaction; this
-                    # is what the `copilot.ask` row says about the ANSWER, so a reader of
-                    # one row can tell that a question changed something. Names only — the
-                    # ids are in the rows the actions wrote. `redact_mapping` collapses any
-                    # sequence to "[N items]" on the way to the log stream, which is why
-                    # the count is stated separately rather than left to be derived from a
-                    # field that will not be there.
-                    "action_count": len(acted),
-                    "actions": sorted(set(acted)),
-                    # WHICH TOOL WAS PROPOSED, or None. A NAME and not the arguments: this
-                    # row records that the assistant offered a change, and the row that
-                    # records the change itself is written by `POST /v1/copilot/confirm`
-                    # if — and only if — a person agreed to it.
-                    "proposed_tool": proposed,
-                },
-            )
-            # 5. THE MEMORY, in the SAME transaction as the meter and the audit, and that
-            #    is the whole reason it is here rather than in a session of its own: a
-            #    memory of an answer whose `usage_events` row rolled back is a memory of
-            #    something that, as far as the ledger is concerned, never happened.
-            #
-            #    AFTER the audit, so a memory write can never be what stops an
-            #    `audit_log` entry from landing. It writes ids, a screen name and prose
-            #    that `memory.redacted_content` has already put through `redact()`; it
-            #    never logs any of it (hard rule 6), and `remember_exchange` returns None
-            #    rather than raising when there is nothing left to store.
-            if principal.realm == "client" and principal.user_id is not None:
-                await memory.remember_exchange(
-                    record_session,
-                    tenant_id=tenant_id,
-                    user_id=principal.user_id,
-                    screen_route=payload.screen.route,
-                    question=payload.question,
-                    answer="".join(answer_parts),
-                    # Counts and names, exactly as the audit summary above — never a field
-                    # value, never the model's prose beyond `content` itself.
-                    meta={
-                        "realm": payload.screen.realm,
-                        "provider": spend.capability.provider,
-                        "filled_field_count": len(filled),
-                    },
-                )
+    # 4. THE METER AND THE AUDIT ran in `_record` above, on whichever path got here.
 
     yield ServerSentEvent(
         event="done",
         data=CopilotDoneEvent(
-            disclosure=(service.disclosure_for(spend.capability) if spend is not None else None),
+            # THE LEG THAT ACTUALLY ANSWERED, which is the LAST spend and not the first: a
+            # run that fell back to Sarvam owes the person that disclosure, and a run that
+            # did not has one capability to name either way.
+            disclosure=(service.disclosure_for(spends[-1].capability) if spends else None),
             metered=metered,
         ),
     )

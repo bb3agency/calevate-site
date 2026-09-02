@@ -44,52 +44,55 @@ DML = re.compile(
     re.IGNORECASE,
 )
 
+#: The READ side of a write, which is the half this guard originally missed.
+#:
+#: `INSERT INTO x SELECT ... FROM tenant_table` and `UPDATE x ... FROM tenant_table` are
+#: filtered by the policy on the table being READ, not only on the one being written — so a
+#: reach-backwards can be perfectly correct about its target and still write nothing,
+#: because its SELECT saw no rows. `dc1aaeeeff02` is the worked example: it inserts into
+#: `kb_chunks` BEFORE that table's policy exists (deliberate, and its docstring says so), so
+#: the write side is genuinely safe — while selecting from `kb_documents` and `kb_sources`,
+#: both FORCE-RLS, which is not. Checking only the target called that migration an offender
+#: for the wrong reason and would have cleared a `SELECT FROM organizations` that mattered.
+READ_SIDE = re.compile(r"\b(?:FROM|JOIN)\s+(?:ONLY\s+)?([a-z_][a-z0-9_]*)", re.IGNORECASE)
+
 #: A migration that predates this guard, shipped the defect, and CANNOT be repaired by
 #: editing it — it has already run everywhere, so its revision will never be applied again.
 #: The repair belongs in a LATER migration, and the value here names the one that carries
 #: it. An entry is a debt with a payer, not a permission: a new migration may not join this
 #: list, which is what the test below asserts by pinning it to exactly these keys.
 ALREADY_RUN_AND_REPAIRED_ELSEWHERE = {
+    # The retention policy row every organisation should have and does not.
     "d4a9c17e6b02_copilot_memory.py": "e1a4d70c9b52 (_REPAIR)",
+    # The D-163 disclosure split. Hard rule 5: an agent left unsplit has no AI sentence on
+    # file and the dial gate refuses it.
+    "f4a1d0b6e29c_two_notices_two_toggles.py": "b7e35c2f81da",
+    # `description` -> `reason` inside `extraction_schemas.fields`.
+    "f4b1e9a2c7d0_extraction_field_description_to_reason.py": "b7e35c2f81da",
+    # `calls.crm_notified_at`, so the CRM probe stops rescanning delivered calls.
+    "e83b5d1a4c07_outbox_probes_stop_scanning.py": "b7e35c2f81da",
 }
 
-#: Migrations that carry this defect, have ALREADY RUN EVERYWHERE, and have NOT been
-#: audited against production data. Editing them is not available — their revisions will
-#: never be applied again — so the only questions are whether each one's statement mattered
-#: and, where it did, which later migration repairs it.
+#: ⚠ EMPTY, AND KEPT AS A NAMED EMPTY RATHER THAN DELETED.
 #:
-#: **THIS LIST IS DEBT, NOT PERMISSION.** It is pinned as an equality below so a NEW
-#: migration cannot join it: the fix for anything written from today is the bracket. Each
-#: entry carries what the statement was for and how much it costs if it silently did
-#: nothing, because that is the judgement the audit needs and it is cheaper to record now
-#: than to reconstruct later.
+#: It held seven migrations for one day. Six were resolved by looking rather than by
+#: waiving, and the split is worth recording because it is the same split any future entry
+#: will have:
 #:
-#: ⚠ NONE OF THESE HAS BEEN CHECKED AGAINST THE PRODUCTION DATABASE. The symptom is
-#: invisible from the migration: a statement that matched nothing and one that had nothing
-#: to match are the same success. Whether each mattered depends on whether rows existed at
-#: the time, which only the data can answer.
-UNAUDITED_PRE_EXISTING = {
-    # HIGH — hard rule 5. Splits the legacy bundled `disclosure_line` into the two D-163
-    # columns. If it matched nothing, those columns were filled by some other path and the
-    # split this migration argues for did not happen on the rows it was written for. It is
-    # the one on this list worth checking first.
-    "f4a1d0b6e29c_two_notices_two_toggles.py": "agents",
-    # MEDIUM — renames a key inside `extraction_schemas.fields`. A schema still carrying
-    # the old key renders a column the registry cannot resolve.
-    "f4b1e9a2c7d0_extraction_field_description_to_reason.py": "extraction_schemas",
-    # MEDIUM — backfills a flag on `calls` that the outbox probe reads.
-    "e83b5d1a4c07_outbox_probes_stop_scanning.py": "calls",
-    # LOW — writes recording holds for erasures already in flight; a miss leaves audio on
-    # the ordinary clock rather than the hold, which the sweep still expires.
-    "f3a71c9e26b4_tenant_erasure_requests.py": "recording_erasure_holds",
-    # LOW — projection backfill. The ingestion sweep DISCOVERS un-projected rows, so a miss
-    # costs one tick, not data.
-    "dc1aaeeeff02_kb_chunks_the_retrieval_projection.py": "kb_chunks",
-    # LOW — cleanups of rows a later release stopped writing. A miss leaves stale rows that
-    # nothing reads.
-    "c4d1f7b83e26_two_stores_get_a_retention_clock.py": "retention_policies",
-    "d2b6f04a17c9_lead_ownership_assignment_and_timeline.py": "lead_events",
-}
+#: * FOUR were `downgrade()`-only (`c4d1f7b83e26`, `d2b6f04a17c9`, `f3a71c9e26b4`, and one
+#:   arm of `d4a9c17e6b02`). A downgrade has never run in production, so those were fixed
+#:   IN PLACE — correcting a statement that never executed rewrites no history, and it
+#:   matters for any fresh install that migrates the whole chain from base.
+#: * ONE (`dc1aaeeeff02`) was never a defect. It inserts into `kb_chunks` BEFORE that
+#:   table's policy exists and says so in its own docstring; the guard had been reading only
+#:   the write target and flagged it for the wrong reason. Reading it is what produced
+#:   `READ_SIDE` above, which is a real class the guard had been missing entirely.
+#: * THREE were real and are repaired by `b7e35c2f81da`, listed above.
+#:
+#: A new entry here would mean a migration that has already run, carries the defect, and has
+#: no repair yet. That is a legitimate state to be in for as long as it takes to write the
+#: repair — and no longer.
+UNAUDITED_PRE_EXISTING: dict[str, str] = {}
 
 
 def _migrations() -> list[Path]:
@@ -162,17 +165,55 @@ def _unbracketed(source: str) -> set[str]:
     }
     offenders: set[str] = set()
     for line, sql in literals:
-        for table in {t.lower() for t in DML.findall(sql)}:
+        # A FUNCTION BODY IS NOT RUN BY THIS MIGRATION. `CREATE FUNCTION` stores the text;
+        # the statements inside execute later, in whatever session fires the trigger — the
+        # app's, with `app.tenant_id` set and the policy doing exactly its job. Bracketing
+        # there would be wrong, not merely unnecessary. `d4a9c17e6b02` defines a worklist
+        # trigger whose body inserts into `retention_worklist`, and counting that as a
+        # migration-time write reported a defect in code that has none.
+        if re.search(r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION", sql, re.IGNORECASE):
+            continue
+        written = {t.lower() for t in DML.findall(sql)}
+        # The read side counts only for a statement that WRITES. A bare SELECT in a
+        # migration is a question, and one that sees no rows answers "none" without
+        # corrupting anything; it is the WRITE that acts on the answer.
+        read = ({t.lower() for t in READ_SIDE.findall(sql)} if written else set()) - written
+        for table in written | read:
             if table not in tenant or table in guarded:
                 continue
             forced = lines_matching(rf"ALTER\s+TABLE\s+{table}\s+FORCE\s+ROW\s+LEVEL\s+SECURITY")
-            created = lines_matching(rf"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{table}\b")
-            if re.search(rf"create_table\(\s*[\"']{table}[\"']", source):
-                created = created or [0]
-            if created and (not forced or line < min(forced)):
+            if table in read:
+                # Read side: the only question is whether ITS policy is already live, since
+                # no statement creates the table it selects from and fills it in one breath.
+                if not forced or line < min(forced):
+                    continue
+                offenders.add(table)
+                continue
+            if _created_before(source, table, line, forced):
                 continue
             offenders.add(table)
     return offenders
+
+
+def _created_before(source: str, table: str, line: int, forced: list[int]) -> bool:
+    """Did THIS migration create `table` and write to it before its policy went on?
+
+    The `create_table(TABLE, ...)` spelling — the table name held in a module constant
+    rather than written as a literal — is why this is a function and not one regex.
+    `dc1aaeeeff02` creates `kb_chunks` that way and its docstring states the ordering
+    outright ("The backfill runs BEFORE the policy exists, deliberately"); a literal-only
+    check called it an offender, which is the guard contradicting a correct migration.
+    """
+    if re.search(rf"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{table}\b", source, re.IGNORECASE):
+        return not forced or line < min(forced)
+    if re.search(rf"""create_table\(\s*["']{table}["']""", source):
+        return not forced or line < min(forced)
+    # `op.create_table(TABLE, ...)` with `TABLE = "<name>"` a module constant.
+    if re.search(
+        rf"""^TABLE\s*(?::[^=]+)?=\s*["']{table}["']""", source, re.MULTILINE
+    ) and re.search(r"create_table\(\s*TABLE\b", source):
+        return not forced or line < min(forced)
+    return False
 
 
 def test_no_migration_writes_rows_to_a_forced_table_without_lifting_rls() -> None:
@@ -232,27 +273,47 @@ def test_every_bracket_that_opens_is_closed_again() -> None:
 
 
 def test_the_exception_list_is_closed_and_names_who_pays_the_debt() -> None:
-    """An entry here is a migration that already ran, so it can only be repaired later.
+    """An entry is a migration that already ran, so it can only be repaired later.
 
-    Pinned as an EQUALITY so a new migration cannot be waived into it. If a fourth one
-    appears the answer is the bracket, not a fourth key — and if a repair lands for the
-    existing entry, this test is where the removal gets noticed.
+    Pinned as an EQUALITY so a new migration cannot be waived in: the fix for anything
+    written from today is the bracket, and a fifth key would mean somebody chose the list
+    over the one-line change. It is also where a removal gets noticed — if a repair is
+    deleted, the entry pointing at it must go too, and this is what forces that pairing.
     """
-    assert set(ALREADY_RUN_AND_REPAIRED_ELSEWHERE) == {"d4a9c17e6b02_copilot_memory.py"}
-    # Pinned as an equality for the same reason: seven is the number that existed when this
-    # guard was written, and a migration authored afterwards has no excuse to be the eighth.
-    assert len(UNAUDITED_PRE_EXISTING) == 7
+    assert set(ALREADY_RUN_AND_REPAIRED_ELSEWHERE) == {
+        "d4a9c17e6b02_copilot_memory.py",
+        "f4a1d0b6e29c_two_notices_two_toggles.py",
+        "f4b1e9a2c7d0_extraction_field_description_to_reason.py",
+        "e83b5d1a4c07_outbox_probes_stop_scanning.py",
+    }
+    assert not UNAUDITED_PRE_EXISTING, (
+        "an unaudited entry is a defect that has run in production with no repair written "
+        "yet — legitimate only while the repair is being written"
+    )
     assert not (set(UNAUDITED_PRE_EXISTING) & set(ALREADY_RUN_AND_REPAIRED_ELSEWHERE)), (
         "a migration is either repaired or unaudited, never filed as both"
     )
-    for name, table in UNAUDITED_PRE_EXISTING.items():
-        assert (VERSIONS / name).exists(), f"{name} no longer exists; drop its entry"
-        assert table in set(TENANT_TABLES), f"{name} names {table}, which is not RLS'd"
     for name, payer in ALREADY_RUN_AND_REPAIRED_ELSEWHERE.items():
         assert (VERSIONS / name).exists(), f"{name} no longer exists; drop its entry"
         revision = payer.split()[0]
         assert list(VERSIONS.glob(f"{revision}_*.py")), (
             f"{name} names {revision} as its repair and that migration is not in the tree"
+        )
+
+
+def test_each_repair_names_the_migration_it_repairs() -> None:
+    """A pointer is only worth as much as what it points AT.
+
+    A repair migration that does not mention the revision it heals is a pointer nobody can
+    follow back — and the failure mode is specific: a later reader deletes what looks like a
+    redundant backfill, because nothing in the file says which historical bug it exists for.
+    """
+    for name, payer in ALREADY_RUN_AND_REPAIRED_ELSEWHERE.items():
+        revision = payer.split()[0]
+        repair = next(VERSIONS.glob(f"{revision}_*.py")).read_text(encoding="utf-8")
+        broken = name.split("_")[0]
+        assert broken in repair, (
+            f"{revision} is named as the repair for {broken} and never mentions it"
         )
 
 

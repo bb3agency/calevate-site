@@ -210,7 +210,14 @@ def downgrade() -> None:
     )
     # See the DOWNGRADE note: these holds have no `deletion_requests` row to belong to,
     # so restoring NOT NULL means losing them. Stated, not silent.
+    # The bracket (`d3b71c9a5e08`): this table is FORCE ROW LEVEL SECURITY, which
+    # subjects the OWNER to `tenant_isolation` too, and that policy is fail-closed on an
+    # unset `app.tenant_id`. Unbracketed, the statement below matches ZERO rows and
+    # reports success. Added by `e1a4d70c9b52`'s round, which hit exactly this in
+    # production; `tests/migration_rls_bracket_test.py` now fails the build on a new one.
+    op.execute("ALTER TABLE recording_erasure_holds NO FORCE ROW LEVEL SECURITY")
     op.execute("DELETE FROM recording_erasure_holds WHERE request_id IS NULL")
+    op.execute("ALTER TABLE recording_erasure_holds FORCE ROW LEVEL SECURITY")
     op.drop_constraint(
         op.f("fk_recording_erasure_holds_tenant_erasure_id_tenant_erasure_requests"),
         "recording_erasure_holds",

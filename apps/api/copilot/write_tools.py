@@ -89,11 +89,11 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final, Literal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 import jwt
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -534,6 +534,30 @@ async def _execute_campaign_pause(
 # and `campaigns` keep theirs above.
 
 
+#: The longest `topic_key` that could ever be legitimate, DERIVED from the closed set
+#: `gap_refusal` judges against rather than chosen — so it can never be set too small, and
+#: a key added to that set carries its own bound with it.
+#:
+#: BOUNDED HERE BECAUSE THE REFUSAL QUOTES IT. `gap_refusal` answers an unrecognised key
+#: with "`<key>` is not a recognised knowledge-gap topic", and that sentence becomes a tool
+#: result and then part of the next turn's prompt (`service._with_tool_result`). Every
+#: OTHER argument on this tool is already bounded — `name` and `body` by
+#: `proposable_refusal`, the rest by their types — so this was the one place a model could
+#: be talked into putting an arbitrarily long attacker-chosen string into its own next
+#: prompt. `parse_args`' refusal names the FIELD and never the value, which is the whole
+#: point of routing it through Pydantic instead of through the echo.
+#: ⚠ DERIVED FROM THE CANONICAL KEYS ALONE, THIS WAS TOO TIGHT AND REFUSED A REAL INPUT.
+#: `insights/detection._topic` emits `q_<up to three caller words>` when no canonical
+#: keyword matches, and those are longer than any canonical key. Bounding the INPUT at the
+#: longest canonical key made a legitimate `q_*` citation fail as "missing or the wrong
+#: shape" instead of "not a recognised topic" — the wrong reason, and the one that does not
+#: tell the model to stop citing caller wording. The real risk was never the input's length
+#: but the ECHO's, and that is bounded where the echo happens
+#: (`kb/proposals._ECHO_CHARS`). This cap stays as a sanity bound on an argument that
+#: reaches a query, generous enough to admit anything this system can itself produce.
+_MAX_TOPIC_KEY: Final = 128
+
+
 class _ProposeKnowledgeArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -548,8 +572,9 @@ class _ProposeKnowledgeArgs(BaseModel):
     origin: kb_proposals.ProposalOrigin
     #: The canonical knowledge-gap topic this answers, or null. REQUIRED when `origin` is
     #: `gap_digest`: a provenance claim with nothing to point at is one the system cannot
-    #: support.
-    topic_key: str | None
+    #: support. Length-bounded — see `_MAX_TOPIC_KEY`; membership is `gap_refusal`'s
+    #: question and is deliberately not asked twice.
+    topic_key: Annotated[str, Field(max_length=_MAX_TOPIC_KEY)] | None
 
 
 async def _plan_propose_knowledge(
@@ -969,18 +994,28 @@ async def plan_write(
         "args": plan.args,
         "obj": plan.object_id,
     }
+    # EVERY RENDERED FIELD IS STRIPPED HERE, and it used to be three of the six.
+    #
+    # `summary`, `cost` and `reversal` were stripped and `title`, `current` and `proposed`
+    # were not — on the reasoning that each planner strips what it interpolates, which is
+    # true of all seven today (`_plan_campaign_pause` and `_plan_agent_rename` say so in
+    # their own docstrings). It is the wrong place for the guarantee to live. `proposed` is
+    # the field the card renders as "what this becomes", so it is the LAST one that should
+    # depend on a future tool author remembering; and the approval model here is that a
+    # person authorises the string they can see, which fails silently the moment a rendered
+    # value and a signed one can differ (`sanitize.py`, the egress half). One pass over the
+    # whole event costs nothing measurable and makes the property structural rather than
+    # conventional. The planners keep their own strips — they need them for the SIGNED
+    # `args`, which this cannot reach.
     return CopilotProposalEvent(
         token=jwt.encode(claims, _signing_key(), algorithm=PROPOSAL_ALGORITHM),
         tool=tool.name,
-        title=plan.title,
+        title=strip_invisible(plan.title),
         summary=strip_invisible(plan.summary),
         object_type=tool.object_type,
         object_id=plan.object_id,
-        current=plan.current,
-        proposed=plan.proposed,
-        # STRIPPED LIKE THE SUMMARY, for the same egress reason: a person approves the
-        # string they can SEE, and a tag-block character would make the rendered sentence
-        # and the signed intent different things.
+        current=None if plan.current is None else strip_invisible(plan.current),
+        proposed=strip_invisible(plan.proposed),
         cost=None if plan.cost is None else strip_invisible(plan.cost),
         reversal=strip_invisible(plan.reversal),
         expires_at=expires_at,
@@ -1167,14 +1202,14 @@ async def run_immediate(
             log.info("copilot_action_replayed", extra={"tool": tool.name})
             return CopilotActionEvent(
                 tool=tool.name,
-                title=str(stored.get("title", "")) or tool.name,
-                detail=str(stored.get("detail", "")) or "That was already done.",
+                title=strip_invisible(str(stored.get("title", ""))) or tool.name,
+                detail=(strip_invisible(str(stored.get("detail", ""))) or "That was already done."),
                 object_type=tool.object_type,
                 object_id=str(stored.get("object_id", "")),
                 # FALSE, ALWAYS, ON A REPLAY. `applied` answers "did THIS call change
                 # anything", and this one did not: the first one did.
                 applied=False,
-                reversal=str(stored.get("reversal", "")),
+                reversal=strip_invisible(str(stored.get("reversal", ""))),
                 where=tool.where,
             )
 
@@ -1236,14 +1271,20 @@ async def run_immediate(
         # carry a client's own business copy (hard rule 6).
         extra={"tool": tool.name, "applied": executed.applied, "tier": tool.tier},
     )
+    # STRIPPED FOR `plan_write`'s reason, and here it is a receipt rather than a request
+    # for permission: `executed.detail` quotes an agent's name back at the person
+    # (`agent_actions._execute_agent_rename`), so it is client-authored text on its way to
+    # the DOM. The names it quotes came off `plan.args`, which the planner already
+    # stripped; this is the seam that holds when a future executor composes one some other
+    # way.
     return CopilotActionEvent(
         tool=tool.name,
-        title=plan.title,
-        detail=executed.detail,
+        title=strip_invisible(plan.title),
+        detail=strip_invisible(executed.detail),
         object_type=tool.object_type,
         object_id=object_id,
         applied=executed.applied,
-        reversal=plan.reversal,
+        reversal=strip_invisible(plan.reversal),
         where=tool.where,
     )
 
@@ -1458,7 +1499,9 @@ async def confirm(
         object_type=proposal.tool.object_type,
         object_id=proposal.object_id,
         applied=executed.applied,
-        detail=executed.detail,
+        # The egress strip the proposal card and the action receipt get, on the third and
+        # last surface that renders an executor's prose to a person.
+        detail=strip_invisible(executed.detail),
     )
 
 
@@ -1485,6 +1528,10 @@ __all__ = [
     "conversation_seed",
     "immediate_tool_names",
     "is_write_tool",
+    # Exported because the EXECUTORS re-parse the signed arguments through it, so it is
+    # part of this module's contract rather than an implementation detail — and a test that
+    # proves a refusal is refused has to reach the same door the executor does.
+    "parse_args",
     "plan_write",
     "run_immediate",
     "tier_of",

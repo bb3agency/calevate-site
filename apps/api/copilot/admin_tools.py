@@ -52,8 +52,10 @@ from apps.api.copilot.tools import MAX_ROWS, ReadTool, ToolContext, _cap, _clean
 from apps.api.ops.service import read_halt_state, read_tm_registration
 
 #: What a platform tool says when the question has an answer and the answer is "nothing".
-#: A sentence rather than an empty string, for `tools._NOTHING`'s reason: an empty tool
-#: result reads to a model as a failure.
+#: A sentence rather than an empty string, for `tools._nothing()`'s reason: an empty tool
+#: result reads to a model as a failure. It is written out here rather than composed by that
+#: helper because the helper's every sentence is about an ACCOUNT — "this account has no X
+#: yet" — and the population here is every account on the platform.
 _NO_ACCOUNTS: Final = "No accounts on the platform yet."
 
 
@@ -89,8 +91,20 @@ async def _platform_tenants(
     lines = [
         _clean(
             f"{row['name']} ({row['slug']}) — {row['status']}, {row['vertical_template']}; "
-            f"{row['live_agents']} live agent(s), {row['calls_7d']} calls in 7d, "
-            f"{row['leads']} lead(s); last call {_when(row['last_call_at'])}"
+            # ZEROS SAID AS WORDS, because an operator's question about this list is almost
+            # always "which of these has not started" and a row of digits makes them count
+            # noughts. "no live agent" is the same fact as "0 live agent(s)" and is the one
+            # a model repeats as a finding rather than as a number.
+            + (
+                "no live agent"
+                if row["live_agents"] == 0
+                else f"{row['live_agents']} live agent(s)"
+            )
+            + ", "
+            + ("no calls in 7d" if row["calls_7d"] == 0 else f"{row['calls_7d']} calls in 7d")
+            + ", "
+            + ("no leads yet" if row["leads"] == 0 else f"{row['leads']} lead(s)")
+            + f"; last call {_when(row['last_call_at'])}"
             + (", SPEND-CAPPED" if row["capped"] else "")
             + (f"; held by: {', '.join(row['holds'])}" if row["holds"] else "")
         )

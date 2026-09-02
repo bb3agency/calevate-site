@@ -68,8 +68,13 @@ export function StepList({ steps }: { steps: CopilotStep[] }) {
             {step.status === "running" && step.args !== "" && (
               <p className="truncate font-mono text-[11px] text-ink-faint">{step.args}</p>
             )}
+            {/* `break-words` because this is the TOOL'S OWN ANSWER, up to
+                `service.MAX_STEP_CHARS` of it, and the panel is 24rem wide at most. A
+                result with no space in it — a slug, a long id, a run of one word — has
+                nothing to wrap on, and an unbroken 200-character run pushes the row past
+                the panel's edge and takes the horizontal scrollbar with it. */}
             {step.detail !== null && step.detail !== "" && (
-              <p className="text-ink-muted">{step.detail}</p>
+              <p className="break-words text-ink-muted">{step.detail}</p>
             )}
           </div>
         </li>

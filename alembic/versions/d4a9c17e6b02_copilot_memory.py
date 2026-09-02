@@ -340,7 +340,14 @@ def downgrade() -> None:
     )
     # BEFORE the CHECK narrows: a constraint added over rows that violate it fails, and
     # the failure would be reported against the ALTER rather than against the rows.
+    # The bracket (`d3b71c9a5e08`): this table is FORCE ROW LEVEL SECURITY, which
+    # subjects the OWNER to `tenant_isolation` too, and that policy is fail-closed on an
+    # unset `app.tenant_id`. Unbracketed, the statement below matches ZERO rows and
+    # reports success. Added by `e1a4d70c9b52`'s round, which hit exactly this in
+    # production; `tests/migration_rls_bracket_test.py` now fails the build on a new one.
+    op.execute("ALTER TABLE retention_worklist NO FORCE ROW LEVEL SECURITY")
     op.execute(f"DELETE FROM retention_worklist WHERE reason = '{_WORKLIST_REASON}'")
+    op.execute("ALTER TABLE retention_worklist FORCE ROW LEVEL SECURITY")
     op.execute(
         "ALTER TABLE retention_worklist DROP CONSTRAINT ck_retention_worklist_reason_enum"
     )

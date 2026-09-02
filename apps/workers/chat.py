@@ -387,12 +387,25 @@ def _tool_calls_of(message: Mapping[str, Any]) -> tuple[ToolCall, ...]:
     A tool call with no `function.name` is not a tool call; dropping it here means the
     caller sees "the model asked for nothing", which is a state it already handles, rather
     than a `KeyError` inside a request handler.
+
+    **A MISSING `id` IS SYNTHESISED, NOT DEFAULTED TO `""`.** It used to be
+    `str(entry.get("id") or "")`, and an empty string is not a neutral placeholder here —
+    it is a COLLIDING KEY. The id is the only thing pairing a call with its result: the
+    caller keys per-call bookkeeping on it and echoes it back in the `tool_call_id` of the
+    matching `role: "tool"` message. Two id-less calls in one turn therefore became one
+    key, and a call could be paired with a DIFFERENT call's result — a wrong answer
+    delivered confidently, with nothing in the logs to suggest it. Providers also reject an
+    empty `tool_call_id` on the next request, which turns the same bug into a dead turn.
+
+    The position within the turn is the synthetic id, because it is the one property that
+    is unique among a turn's calls and stable between building the request and reading the
+    reply. Prefixed so a synthesised id can never be mistaken for one a provider sent.
     """
     raw = message.get("tool_calls")
     if not isinstance(raw, list):
         return ()
     calls: list[ToolCall] = []
-    for entry in raw:
+    for position, entry in enumerate(raw):
         if not isinstance(entry, dict):
             continue
         function = entry.get("function")
@@ -404,7 +417,7 @@ def _tool_calls_of(message: Mapping[str, Any]) -> tuple[ToolCall, ...]:
         arguments = function.get("arguments")
         calls.append(
             ToolCall(
-                id=str(entry.get("id") or ""),
+                id=str(entry.get("id") or "") or f"synthetic-{position}",
                 name=name,
                 arguments=arguments if isinstance(arguments, str) else "",
             )

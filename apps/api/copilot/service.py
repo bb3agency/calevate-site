@@ -156,6 +156,81 @@ TOTAL_BUDGET_S: Final = 90.0
 #: in it, never a spinner that stops.
 EXHAUSTED_MESSAGE: Final = "I couldn't finish within the turn limit — please narrow the request."
 
+#: Said when a model TURN ENDED WITH NO ANSWER IN IT — the defect this constant exists for.
+#:
+#: **A TURN THAT PRODUCES NO TEXT USED TO END THE RUN IN SILENCE**, and the observed symptom
+#: was exactly that: a person asked for a summary of their week, `business_snapshot` ran and
+#: rendered its card, the next turn came back with an empty `content` and no tool calls, and
+#: the prose exit below returned having emitted a `spend` event and not one word. On the
+#: wire that is a paid round trip, a database read and a debug card, with the question
+#: unanswered — and NOTHING DOWNSTREAM CAN TELL IT FROM A GOOD ANSWER, because
+#: `chat.ChatOutcome.content` is a `str` and `str(content or "")` collapses a JSON `null`
+#: candidate and an empty string into the same value (`workers/chat.py::complete`). So the
+#: loop cannot distinguish them either, and it does not try: BOTH are "no answer", and the
+#: only honest response to a turn with no answer in it is to say so.
+#:
+#: This is a real state and not a hypothetical one. Google's own documentation says
+#: `thinkingBudget: 0` disables thinking on 2.5 flash/flash-lite but that Gemini 3 Flash
+#: models "do not support full thinking-off" — a candidate can come back with no content at
+#: all (CLAUDE.md, the multi-provider paragraph; every `gemini-3.*` is `selectable=False` on
+#: that ground). Azure's content filter is likewise an ORDINARY response carrying
+#: `finish_reason: "content_filter"` and a null `content`, not an exception
+#: (`workers/chat.py::_message_of`, from openai/openai-openapi @ master).
+NO_ANSWER_MESSAGE: Final = (
+    "I couldn't put an answer together this time. Please ask me again — nothing on your "
+    "screen was changed."
+)
+
+#: The same event, when the provider says its own filter stopped the reply.
+#:
+#: A DIFFERENT SENTENCE BECAUSE IT IS A DIFFERENT INSTRUCTION TO THE PERSON: "ask again"
+#: is the right advice after a dropped turn and the wrong advice after a filtered one,
+#: where asking the identical question again reproduces it.
+FILTERED_MESSAGE: Final = (
+    "I couldn't answer that one — the model's safety filter stopped the reply before any of "
+    "it reached you. Try asking it a different way."
+)
+
+#: The same event, when the turn hit `MAX_ANSWER_TOKENS` before saying anything at all.
+#:
+#: Distinct from the ordinary truncation the loop already logs: there, prose reached the
+#: screen and was cut off, which the person can see. Here the whole ceiling was spent
+#: without a word arriving, so there is nothing on screen to explain it.
+TRUNCATED_MESSAGE: Final = (
+    "The answer ran past its length limit before any of it reached you — please ask for "
+    "something narrower."
+)
+
+#: Finish reasons that mean A FILTER STOPPED IT rather than the model finishing.
+#:
+#: `content_filter` is the value OpenAI's own schema documents and the one Azure returns
+#: (`workers/chat.py::_message_of`, openai/openai-openapi @ master, read 27 Aug 2026).
+#: The rest are Gemini's own candidate finish reasons, lowercased, and how — or whether —
+#: Google's OpenAI-compat surface spells them here is **UNVERIFIED**: `ai.google.dev` is
+#: egress-blocked from this container. That is safe to leave unproven because the set only
+#: ever picks a BETTER sentence: a value not in it falls to `NO_ANSWER_MESSAGE`, which is
+#: still an answer. Nothing branches on it beyond the wording.
+_FILTERED_FINISH_REASONS: Final = frozenset({"content_filter", "safety", "recitation", "blocklist"})
+
+#: The longest ONE read tool may take before it is stopped and answered with a sentence.
+#:
+#: TEN SECONDS, AND THE NUMBER IS A FRACTION OF THE BUDGET RATHER THAN A GUESS AT A QUERY.
+#: `TOTAL_BUDGET_S` is 90 and a useful answer is two or three lookups plus the turns that
+#: read them, so a single lookup that has taken ten seconds has already cost more than the
+#: whole shape should; letting it run costs the question. There is no `statement_timeout`
+#: set anywhere in this deployment (grepped across `apps/api/db` and `apps/api/core` rather
+#: than recalled), so before this the database was the only thing deciding how long a
+#: copilot lookup could take.
+READ_TOOL_BUDGET_S: Final = 10.0
+
+#: What the model is told when it asks for a lookup it has already run this answer.
+#: See `_run_read_tools` — it is a refusal rather than a second identical result.
+_REPEAT_RESULT: Final = (
+    "Not run: you already ran this exact lookup with these exact arguments while answering "
+    "this question, and its result is earlier in this conversation. Use that result, or ask "
+    "for something different."
+)
+
 #: How many TIER 1 actions one question may perform. D-500.
 #:
 #: **THREE, AND IT IS A BLAST-RADIUS BOUND RATHER THAN A COST ONE.** `MAX_TURNS` already
@@ -487,6 +562,21 @@ def _sum_usage(turns: Sequence[chat.ChatOutcome]) -> TokenUsage | None:
     return total
 
 
+def _no_answer_sentence(finish_reason: str | None) -> str:
+    """What to say when a completed model turn contained no answer. Never an empty string.
+
+    ONE function for every leg — the streamed one, the non-streamed Gemini one and the
+    Sarvam fallback — because "the turn said nothing" is a property of the OUTCOME and not
+    of the transport, and three sites deciding it separately is how two of them would end
+    up silent again.
+    """
+    if finish_reason is not None and finish_reason.lower() in _FILTERED_FINISH_REASONS:
+        return FILTERED_MESSAGE
+    if finish_reason == "length":
+        return TRUNCATED_MESSAGE
+    return NO_ANSWER_MESSAGE
+
+
 async def _answer_via_sarvam(
     payload: CopilotAskIn,
     capability: AssistCapability,
@@ -539,8 +629,12 @@ async def _answer_via_sarvam(
         # nothing meters it yet, so a runaway would be real unrecorded spend.
         max_tokens=MAX_ANSWER_TOKENS,
     )
-    if outcome.content:
-        yield CopilotEvent(text=strip_invisible(outcome.content))
+    # THE FALLBACK IS SUBJECT TO THE SAME RULE AS THE LOOP: a leg that answered nothing
+    # says so. This one is the last rung of the ladder, so silence here is silence for the
+    # whole question — there is nothing left to fall back to.
+    yield CopilotEvent(
+        text=strip_invisible(outcome.content or _no_answer_sentence(outcome.finish_reason))
+    )
     yield CopilotEvent(spend=CopilotSpend(usage=None, capability=capability))
 
 
@@ -637,12 +731,70 @@ def tool_array(realm: CopilotRealm) -> list[dict[str, Any]]:
     ]
 
 
+async def _run_one_read_tool(
+    call: chat.ToolCall,
+    *,
+    context: ToolContext | None,
+    registry: Mapping[str, tools_module.ReadTool],
+) -> tuple[CopilotStepEvent, str]:
+    """One read call, run under its own clock, as (its terminal step frame, its result).
+
+    **THE PER-CALL BUDGET IS THE POINT OF THIS FUNCTION.** `run_read_tool` never raises,
+    but nothing bounded how long it could take: this deployment sets no
+    `statement_timeout` anywhere (checked by grep across `apps/api/db` and
+    `apps/api/core`, not recalled), so one lookup against a lock or a bad plan could burn
+    the whole of `TOTAL_BUDGET_S` and turn a question into either a fallback answer with
+    no tools or a "the assistant stopped part-way" body. A stopped lookup is a SENTENCE
+    the model can act on — the same shape every other failure in `run_read_tool` already
+    takes — so the person is told what could not be read instead of waiting 90 seconds
+    for nothing.
+
+    IT ALSO MAKES THE STEP TIMING TRUE. The frames used to be built after `gather`
+    returned, so every call in a batch reported the duration of the slowest one — the
+    exact number a person watching the panel is trying to find out. Timing here, beside
+    the await, is per call because the await is per call.
+    """
+    started_at = time.monotonic()
+    try:
+        async with asyncio.timeout(READ_TOOL_BUDGET_S):
+            result = await tools_module.run_read_tool(
+                call.name, call.arguments, context=context, registry=registry
+            )
+    except TimeoutError:
+        # The tool NAME and nothing else: the arguments were composed by the model out of
+        # screen content and the result is the caller's own data (hard rule 6).
+        log.warning("copilot_tool_timeout", extra={"tool": call.name})
+        timed_out = (
+            f"`{call.name}` took too long to answer and was stopped. Tell the user you "
+            "could not look that up just now, and do not invent the answer."
+        )
+        return _step_end(call, status="failed", detail=timed_out, started_at=started_at), timed_out
+    if not result.strip():
+        # A BLANK TOOL RESULT IS SILENCE ONE LAYER DOWN. `run_read_tool` contracts to
+        # return a sentence the model can act on, so this is its bug rather than a state —
+        # but the cost of it lands here as a `role: "tool"` message with no content, which
+        # some providers reject outright and every model reads as "nothing happened".
+        # Answered with our own sentence, and logged so the tool that did it can be found.
+        log.warning("copilot_tool_blank", extra={"tool": call.name})
+        result = (
+            f"`{call.name}` came back with nothing at all. Tell the user you could not "
+            "look that up, and do not invent the answer."
+        )
+    # A REFUSAL FROM A READ TOOL IS STILL A `done` STEP, and that is honest rather than
+    # lazy: `run_read_tool` answers a permission refusal, an unknown tool and an empty
+    # result with the same kind of sentence, and this function cannot tell them apart
+    # without parsing our own prose. The sentence itself is in `detail`, where the person
+    # reads it. A TIMEOUT is different — we know that one, so it is `failed`.
+    return _step_end(call, status="done", detail=result, started_at=started_at), result
+
+
 async def _run_read_tools(
     calls: Sequence[chat.ToolCall],
     *,
     context: ToolContext | None,
     registry: Mapping[str, tools_module.ReadTool],
     steps: list[CopilotStepEvent],
+    already_run: set[tuple[str, str]],
 ) -> list[dict[str, object]]:
     """Every read call of ONE turn, executed, as the `role: "tool"` messages that answer them.
 
@@ -652,57 +804,57 @@ async def _run_read_tools(
     `tenant_session` (`tools.run_read_tool`), so concurrency here costs a bounded handful of
     pooled connections for the length of a SELECT rather than one held across the stream.
 
-    ONE MESSAGE PER CALL, INCLUDING THE ONES WE REFUSED, and that is not politeness: a
-    provider rejects a tool result whose `tool_call_id` it never issued, and — worse —
-    rejects the NEXT request if an issued call has no result at all. So an unknown tool
-    name, a permission refusal and an over-the-cap call each get an answer rather than
-    silence. `run_read_tool` never raises, so `gather` needs no `return_exceptions`.
+    ONE MESSAGE PER CALL, IN THE ORDER THE MODEL ISSUED THEM, INCLUDING THE ONES WE
+    REFUSED, and that is not politeness: a provider rejects a tool result whose
+    `tool_call_id` it never issued, and — worse — rejects the NEXT request if an issued
+    call has no result at all. So an unknown tool name, a permission refusal, an
+    over-the-cap call and a repeat each get an answer rather than silence.
+    `run_read_tool` never raises and `_run_one_read_tool` swallows only its own timeout,
+    so `gather` needs no `return_exceptions`.
+
+    **A REPEAT IS NOT RUN TWICE.** `already_run` carries (name, arguments) across the whole
+    ANSWER, so a model that asks for the identical lookup on turn after turn is told that it
+    already has the result instead of being served it again. Nothing about the second answer
+    could differ — the same tool, the same arguments, inside one question — so re-running it
+    buys a database round trip and a paid turn and changes nothing, and the loop converges on
+    a sentence rather than on `MAX_TURNS`. It is keyed on the ARGUMENT STRING as the model
+    wrote it: two spellings of the same JSON run twice, which is the safe direction (a
+    duplicate lookup, not a withheld one).
     """
-    permitted = calls[: tools_module.MAX_CALLS_PER_TURN]
-    refused = calls[tools_module.MAX_CALLS_PER_TURN :]
-    # PER-CALL TIMING, NOT PER-BATCH. These run concurrently, so one `gather` boundary would
-    # report every call as taking as long as the slowest — which is precisely the number a
-    # person watching the steps is trying to find out. `run_read_tool` never raises, so the
-    # wrapper needs no exception arm and `gather` needs no `return_exceptions`.
-    started = {call.id: time.monotonic() for call in permitted}
+    permitted = list(enumerate(calls))[: tools_module.MAX_CALLS_PER_TURN]
+    over_cap = list(enumerate(calls))[tools_module.MAX_CALLS_PER_TURN :]
+    fresh: list[int] = []
+    repeats: list[int] = []
+    for index, call in permitted:
+        key = (call.name, call.arguments)
+        (repeats if key in already_run else fresh).append(index)
+        already_run.add(key)
+
     results = await asyncio.gather(
-        *(
-            tools_module.run_read_tool(
-                call.name, call.arguments, context=context, registry=registry
-            )
-            for call in permitted
-        )
+        *(_run_one_read_tool(calls[index], context=context, registry=registry) for index in fresh)
     )
-    steps.extend(
-        _step_end(
-            call,
-            # A REFUSAL FROM A READ TOOL IS STILL A `done` STEP HERE, and that is honest
-            # rather than lazy: `run_read_tool` answers a permission refusal, an unknown
-            # tool and an empty result with the same kind of sentence, and this function
-            # cannot tell them apart without parsing our own prose. The sentence itself is
-            # in `detail`, where the person reads it.
-            status="done",
-            detail=result,
-            started_at=started[call.id],
+    # INDEXED, NOT KEYED ON `tool_call_id`. An id is the model's own string and
+    # `chat._tool_calls_of` defaults a missing one to "" — two of those in one turn would
+    # collide in a dict and pair a call with another call's timing and result.
+    contents: list[str] = [""] * len(calls)
+    frames: dict[int, CopilotStepEvent] = {}
+    for index, (frame, result) in zip(fresh, results, strict=True):
+        contents[index], frames[index] = result, frame
+    for index in repeats:
+        contents[index] = _REPEAT_RESULT
+        frames[index] = _step_end(
+            calls[index], status="refused", detail=_REPEAT_RESULT, started_at=time.monotonic()
         )
-        for call, result in zip(permitted, results, strict=True)
-    )
-    messages: list[dict[str, object]] = [
-        {"role": "tool", "tool_call_id": call.id, "content": result}
-        for call, result in zip(permitted, results, strict=True)
+    for index, _ in over_cap:
+        contents[index] = (
+            f"Not run: you asked for more than {tools_module.MAX_CALLS_PER_TURN} "
+            "lookups in one turn. Ask for the ones you still need."
+        )
+    steps.extend(frames[index] for index, _ in permitted)
+    return [
+        {"role": "tool", "tool_call_id": call.id, "content": contents[index]}
+        for index, call in enumerate(calls)
     ]
-    messages += [
-        {
-            "role": "tool",
-            "tool_call_id": call.id,
-            "content": (
-                f"Not run: you asked for more than {tools_module.MAX_CALLS_PER_TURN} "
-                "lookups in one turn. Ask for the ones you still need."
-            ),
-        }
-        for call in refused
-    ]
-    return messages
 
 
 def _assistant_tool_message(
@@ -968,6 +1120,9 @@ async def _run_tool_loop(
     #: somebody whose real problem is that the field is read-only OR that their role may
     #: not pause a campaign, and the person cannot tell which loop they were in.
     refusal_reasons: tuple[str, ...] = ()
+    #: Every (tool, arguments) lookup this ANSWER has already run. Carried across the turns
+    #: because that is the span a repeat is pointless over — see `_run_read_tools`.
+    lookups_run: set[tuple[str, str]] = set()
 
     for turn_index in range(MAX_TURNS):
         outcome: chat.ChatOutcome | None = None
@@ -979,8 +1134,21 @@ async def _run_tool_loop(
                 yield CopilotEvent(text=strip_invisible(event.text))
             if event.outcome is not None:
                 outcome = event.outcome
-        if outcome is None:  # pragma: no cover - `chat.stream` always ends with one
-            break
+        if outcome is None:
+            # THE STREAM ENDED WITHOUT ITS TERMINAL FRAME — the interruption the vendor's
+            # own note warns about (`chat.STREAM_OPTIONS`). It used to `break` into the
+            # out-of-turns message below, which blames a turn limit this run never reached
+            # and tells the person to narrow a request that was never the problem.
+            #
+            # THE SPEND IS `None` RATHER THAN THE SUM SO FAR, and that is `_sum_usage`'s
+            # rule applied to a turn that never reported at all: a turn happened, it was
+            # paid for, and we do not know what it cost. `meter_assist` fires
+            # `ai_assist_unmeterable` on that, which is an operator looking at a real
+            # interruption rather than a fabricated total on an append-only ledger.
+            log.warning("copilot_turn_incomplete", extra={"turn": turn_index})
+            yield CopilotEvent(text=strip_invisible(NO_ANSWER_MESSAGE))
+            yield CopilotEvent(spend=CopilotSpend(usage=None, capability=capability, model=model))
+            return
         turns.append(outcome)
         if outcome.finish_reason == "length":
             # The `MAX_ANSWER_TOKENS` valve fired: a runaway generation was cut off, not
@@ -1021,6 +1189,23 @@ async def _run_tool_loop(
         ]
         if not fill_calls and not write_calls and not read_calls:
             # The model answered in prose. Done — this is the ordinary end of a question.
+            #
+            # UNLESS IT SAID NOTHING, which is the same branch and is NOT the ordinary end
+            # of anything: see `NO_ANSWER_MESSAGE`. `outcome.content` is the whole of this
+            # turn's text on both legs (`chat.stream` joins the fragments it yielded,
+            # `chat.complete` returns the one message), so an empty one means nothing
+            # reached the person on this turn and this turn was the last — the run owes
+            # them a sentence. Emitted rather than retried: a contentless candidate is a
+            # state the vendors document, not a transient, and another turn is another
+            # paid round trip at the same odds.
+            if not outcome.content.strip():
+                log.warning(
+                    "copilot_empty_answer",
+                    # Ids and shapes (hard rule 6). `finish_reason` is the vendor's own
+                    # enum and is what tells an operator a filter from a dropped turn.
+                    extra={"turn": turn_index, "finish_reason": outcome.finish_reason},
+                )
+                yield CopilotEvent(text=strip_invisible(_no_answer_sentence(outcome.finish_reason)))
             yield CopilotEvent(
                 spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
             )
@@ -1270,6 +1455,7 @@ async def _run_tool_loop(
             context=tool_context,
             registry=_read_tool_registry(realm),
             steps=read_steps,
+            already_run=lookups_run,
         )
         for step in read_steps:
             yield CopilotEvent(step=step)
@@ -1440,10 +1626,14 @@ def disclosure_for(capability: AssistCapability) -> str | None:
 __all__ = [
     "EXHAUSTED_MESSAGE",
     "FALLBACK_NO_TOOLS_NOTE",
+    "FILTERED_MESSAGE",
     "MAX_ANSWER_TOKENS",
     "MAX_TURNS",
+    "NO_ANSWER_MESSAGE",
+    "READ_TOOL_BUDGET_S",
     "STREAM_IDLE_S",
     "TOTAL_BUDGET_S",
+    "TRUNCATED_MESSAGE",
     "CopilotEvent",
     "CopilotSpend",
     "FillRefusedError",

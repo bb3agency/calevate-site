@@ -45,6 +45,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.db.transition import _identifier
 from apps.api.main import app
 from apps.workers import chat
+from apps.workers.extraction import assist_capability
 
 ASK = "/v1/copilot/ask"
 
@@ -782,3 +783,104 @@ async def test_an_operator_is_refused_at_the_door_before_any_of_this_runs(
 
     assert response.status_code == 401, response.text
     assert reached == [], "a refusal must cost nothing"
+
+
+# ------------------------------------------------ spend that a failed run still owes for
+
+
+async def test_a_provider_that_dies_after_spending_is_still_metered(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HARD RULE 7, ON THE PATH THAT USED TO DROP IT.
+
+    A run that really did send tokens to Azure and then failed part-way is money paid to a
+    provider. The route's `except` arm returned BEFORE the metering block, so that spend
+    reached no `usage_events` row, moved no `ai_assist` quantity, and was invisible to both
+    the account's rupee ceiling and the platform brake — a metering outage with no alert,
+    because nothing knew there was anything to meter.
+
+    `run_copilot` is replaced here rather than a provider being made to fail, and that is
+    deliberate: what is under test is the ROUTE's contract with the run — "every spend you
+    emit, I record, however you end" — and a test that reached for a real failure would be
+    asserting `service.py`'s control flow from the wrong file.
+
+    FAILS IF: the failure arm stops calling `_record`, or `_record` skips a run that did
+    not complete.
+    """
+    tenant_id, slug, token = await _make_tenant()
+
+    async def _dies(payload: Any, **kwargs: Any) -> AsyncIterator[service.CopilotEvent]:
+        yield service.CopilotEvent(text="Looking...")
+        yield service.CopilotEvent(
+            spend=service.CopilotSpend(
+                usage=chat.TokenUsage(prompt_tokens=1_000, output_tokens=500),
+                capability=assist_capability(),
+            )
+        )
+        raise RuntimeError("the provider hung up")
+
+    monkeypatch.setattr(service, "run_copilot", _dies)
+    async with _client() as http:
+        frames = await _events(http, token, slug)
+
+    assert [name for name, _ in frames] == ["text", "error"]
+    rows = await _usage_rows(tenant_id)
+    # THE TOKENS ARE ON THE LEDGER even though the person got an error instead of an answer.
+    assert rows, "a failed run that spent tokens must still reach usage_events"
+    assert sum(quantity for _unit, quantity, _price, _meta in rows) > 0
+    # And exactly one `copilot.ask` row, so the ledger and the audit trail agree about how
+    # many questions were asked.
+    assert len(await _audit(tenant_id)) == 1
+
+
+async def test_two_legs_in_one_run_are_two_ledger_entries_and_not_one(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A RUN CAN SPEND TWICE, AND THE ROUTE KEPT ONLY THE SECOND.
+
+    `run_copilot` re-selects the capability with `provider_unavailable=True` when a leg
+    fails before it streams anything, and finishes the answer on the disclosed Sarvam leg.
+    The first leg's tokens were paid for regardless. A single `spend` slot overwrote them,
+    so the fallback — the case where MORE was spent, not less — was the case that recorded
+    least.
+
+    Each spend gets its own `ref` because `record_ai_assist_usage`'s idempotency is keyed on
+    it; sharing one would discard the second in the name of not double-charging the first.
+
+    FAILS IF: the route goes back to a single spend, or reuses one ref across legs.
+    """
+    tenant_id, slug, token = await _make_tenant()
+
+    async def _twice(payload: Any, **kwargs: Any) -> AsyncIterator[service.CopilotEvent]:
+        yield service.CopilotEvent(
+            spend=service.CopilotSpend(
+                usage=chat.TokenUsage(prompt_tokens=1_000, output_tokens=500),
+                capability=assist_capability(),
+            )
+        )
+        yield service.CopilotEvent(text="Here is the answer.")
+        yield service.CopilotEvent(
+            spend=service.CopilotSpend(
+                usage=chat.TokenUsage(prompt_tokens=2_000, output_tokens=100),
+                capability=assist_capability(),
+            )
+        )
+
+    monkeypatch.setattr(service, "run_copilot", _twice)
+    async with _client() as http:
+        frames = await _events(http, token, slug)
+
+    assert [name for name, _ in frames] == ["text", "done"]
+    async with tenant_session(tenant_id) as session:
+        refs = (
+            await session.execute(
+                text(
+                    "SELECT count(DISTINCT ref) FROM usage_events "
+                    "WHERE tenant_id = :tid AND unit_type LIKE 'ai_assist%'"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar_one()
+    # TWO REFS: two legs, two records, one question.
+    assert refs == 2
+    assert len(await _audit(tenant_id)) == 1

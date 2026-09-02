@@ -133,7 +133,14 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_calls_archived_engine_payload")
     # Before the narrower CHECK can be re-imposed, the rows it would reject have to go.
     # See the docstring: this is real setting loss and it is the price of the downgrade.
+    # The bracket (`d3b71c9a5e08`): this table is FORCE ROW LEVEL SECURITY, which
+    # subjects the OWNER to `tenant_isolation` too, and that policy is fail-closed on an
+    # unset `app.tenant_id`. Unbracketed, the statement below matches ZERO rows and
+    # reports success. Added by `e1a4d70c9b52`'s round, which hit exactly this in
+    # production; `tests/migration_rls_bracket_test.py` now fails the build on a new one.
+    op.execute("ALTER TABLE retention_policies NO FORCE ROW LEVEL SECURITY")
     op.execute("DELETE FROM retention_policies WHERE data_category IN ('engine_payload', 'kb')")
+    op.execute("ALTER TABLE retention_policies FORCE ROW LEVEL SECURITY")
     op.drop_constraint(_CONSTRAINT, "retention_policies", type_="check")
     op.create_check_constraint(
         _CONSTRAINT, "retention_policies", _category_check(_CATEGORIES_BEFORE)
