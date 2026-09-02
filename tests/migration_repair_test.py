@@ -262,6 +262,7 @@ async def test_a_call_already_marked_notified_keeps_its_own_timestamp() -> None:
     """
     tenant_id, agent_id = await _tenant()
     call_id = uuid.uuid4()
+    outbox_id = uuid.uuid4()
     mine = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
     async with _owner_tx() as session:
         await session.execute(
@@ -288,7 +289,7 @@ async def test_a_call_already_marked_notified_keeps_its_own_timestamp() -> None:
                 "'published', 1, '2026-07-01T00:00:00+00:00', '2026-07-01T00:00:00+00:00')"
             ),
             {
-                "id": uuid.uuid4(),
+                "id": outbox_id,
                 "payload": f'{{"data": {{"call_id": "{call_id}"}}}}',
             },
         )
@@ -299,6 +300,13 @@ async def test_a_call_already_marked_notified_keeps_its_own_timestamp() -> None:
                 text("SELECT crm_notified_at FROM calls WHERE id = :id"), {"id": call_id}
             )
         ).scalar_one()
+        # `_owner_tx` rolls back, so this row never commits and the DELETE is redundant —
+        # but `tests/shared_state_assertion_guard_test.py` reads SOURCE, and it is right to:
+        # `outbox_messages` is walked oldest-first by both `claim_outbox_batch` and
+        # `replay_dead_letters`, so one leaked backdated row sits at the head of every
+        # dispatcher's queue for good. Deleting what I seed keeps that guard strict for
+        # everyone rather than teaching it an exception it cannot verify.
+        await session.execute(text("DELETE FROM outbox_messages WHERE id = :id"), {"id": outbox_id})
 
     assert after == mine, (
         "the repair overwrote a timestamp the application had already written — the outbox "

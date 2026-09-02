@@ -162,6 +162,12 @@ def proposable_refusal(name: str, body: str) -> str | None:
     return None
 
 
+#: How much of a rejected `topic_key` this module is willing to repeat. Long enough that
+#: every canonical key and any ordinary phrase-derived `q_*` key reads in full, short enough
+#: that a maximal one cannot flood the turn that quotes it.
+_ECHO_CHARS: Final = 64
+
+
 async def gap_refusal(session: AsyncSession, *, agent_id: UUID, topic_key: str) -> str | None:
     """A cited gap must be CANONICALLY named, this agent's, and still open — or the reason.
 
@@ -176,10 +182,17 @@ async def gap_refusal(session: AsyncSession, *, agent_id: UUID, topic_key: str) 
     forget is not isolation).
     """
     if topic_key not in CITABLE_TOPIC_KEYS:
+        # QUOTED BACK, SO QUOTED SHORT. This sentence becomes a tool result and therefore
+        # the next turn's prompt, and `topic_key` is the one argument here a model could be
+        # talked into making arbitrarily long. The ECHO is where the bound belongs rather
+        # than the input: a `q_*` key is phrase-derived from a caller's question
+        # (`insights/detection._topic`) and is a REAL shape this system generates, so
+        # refusing it on length would answer a legitimate input with the wrong reason —
+        # "wrong shape" instead of the actionable "not recognised, stop citing it".
         return (
-            f"`{topic_key}` is not a recognised knowledge-gap topic — a suggestion may "
-            "only refer to a recognised topic, never to the wording of one caller's "
-            "question"
+            f"`{topic_key[:_ECHO_CHARS]}` is not a recognised knowledge-gap topic — a "
+            "suggestion may only refer to a recognised topic, never to the wording of one "
+            "caller's question"
         )
     found = (
         await session.execute(

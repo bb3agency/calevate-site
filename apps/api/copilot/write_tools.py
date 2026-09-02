@@ -546,7 +546,16 @@ async def _execute_campaign_pause(
 #: be talked into putting an arbitrarily long attacker-chosen string into its own next
 #: prompt. `parse_args`' refusal names the FIELD and never the value, which is the whole
 #: point of routing it through Pydantic instead of through the echo.
-_MAX_TOPIC_KEY: Final = max(len(key) for key in kb_proposals.CITABLE_TOPIC_KEYS)
+#: ⚠ DERIVED FROM THE CANONICAL KEYS ALONE, THIS WAS TOO TIGHT AND REFUSED A REAL INPUT.
+#: `insights/detection._topic` emits `q_<up to three caller words>` when no canonical
+#: keyword matches, and those are longer than any canonical key. Bounding the INPUT at the
+#: longest canonical key made a legitimate `q_*` citation fail as "missing or the wrong
+#: shape" instead of "not a recognised topic" — the wrong reason, and the one that does not
+#: tell the model to stop citing caller wording. The real risk was never the input's length
+#: but the ECHO's, and that is bounded where the echo happens
+#: (`kb/proposals._ECHO_CHARS`). This cap stays as a sanity bound on an argument that
+#: reaches a query, generous enough to admit anything this system can itself produce.
+_MAX_TOPIC_KEY: Final = 128
 
 
 class _ProposeKnowledgeArgs(BaseModel):

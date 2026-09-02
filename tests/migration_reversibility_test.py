@@ -78,11 +78,92 @@ def _function(source: str, tree: ast.AST, name: str) -> tuple[ast.FunctionDef | 
     return None, ""
 
 
+#: Revisions whose `downgrade()` is EMPTY ON PURPOSE, with the reason each one is.
+#:
+#: The rule above exists because a no-op downgrade reports success, leaves the schema where
+#: it was, and lets the next `upgrade` re-apply an already-applied change. That harm needs
+#: a change to re-apply. A revision that alters NO SCHEMA and only REPAIRS DATA an earlier
+#: migration failed to write has nothing to undo: "reversing" it would mean re-breaking
+#: rows on purpose, and for one of these the reversal is not even expressible
+#: (`ai_disclosure_line` is NOT NULL with a non-blank CHECK, so there is no empty to
+#: restore). Re-applying is the safe direction and is what these are built for — every
+#: statement carries a predicate that is false once its work is done, and
+#: `tests/migration_repair_test.py` proves both halves against real rows: it repairs, and
+#: it leaves an already-correct row untouched.
+#:
+#: A SCHEMA change may never appear here. The entry names the revision, and the assertion
+#: below re-derives whether it is really data-only rather than trusting the listing — an
+#: exemption that took the author's word for it would be a hole with a comment over it.
+DATA_ONLY_REPAIRS: dict[str, str] = {
+    "b7e35c2f81da": (
+        "re-runs three backfills that FORCE-RLS swallowed; no DDL, every statement "
+        "idempotent, and the disclosure column's reversal is not expressible"
+    ),
+}
+
+#: What a schema change looks like in a migration's source. A revision claiming to be a
+#: data-only repair may contain none of these.
+_SCHEMA_VERBS = (
+    "create_table",
+    "drop_table",
+    "add_column",
+    "drop_column",
+    "alter_column",
+    "create_index",
+    "drop_index",
+    "ALTER TABLE",
+    "CREATE TABLE",
+    "DROP TABLE",
+    "CREATE INDEX",
+    "CREATE TYPE",
+)
+
+
+def _string_constants(node: ast.AST) -> list[str]:
+    """Every string literal under `node`, f-string fragments included."""
+    return [
+        child.value
+        for child in ast.walk(node)
+        if isinstance(child, ast.Constant) and isinstance(child.value, str)
+    ]
+
+
 @pytest.mark.parametrize("path", _revisions(), ids=lambda p: p.name[:13])
 def test_every_revision_has_a_downgrade_that_does_something(path: Path) -> None:
     source = path.read_text(encoding="utf-8")
     node, _ = _function(source, ast.parse(source), "downgrade")
     assert node is not None, f"{path.name}: no downgrade() at all (hard rule 8)"
+
+    revision = path.name.split("_")[0]
+    if revision in DATA_ONLY_REPAIRS:
+        # VERIFIED, NOT TAKEN ON TRUST. The exemption is only available to a migration that
+        # really changes no schema, and the one on this list DOES issue `ALTER TABLE` — the
+        # RLS bracket. That is the exception to the exception: lifting and restoring a
+        # policy leaves the schema exactly as found, so it is checked for symmetry instead.
+        upgrade, _ = _function(source, ast.parse(source), "upgrade")
+        assert upgrade is not None
+        schema_statements = [
+            literal
+            for literal in _string_constants(upgrade)
+            if any(verb in literal for verb in _SCHEMA_VERBS)
+            and "ROW LEVEL SECURITY" not in literal
+        ]
+        assert not schema_statements, (
+            f"{path.name} is listed as a data-only repair and changes schema: "
+            f"{schema_statements[:2]}. Give it a real downgrade or drop the exemption."
+        )
+        opened = sum(
+            "NO FORCE ROW LEVEL SECURITY" in literal for literal in _string_constants(upgrade)
+        )
+        closed = sum(
+            "FORCE ROW LEVEL SECURITY" in literal and "NO FORCE" not in literal
+            for literal in _string_constants(upgrade)
+        )
+        assert opened == closed, (
+            f"{path.name} lifts RLS {opened} times and restores it {closed}; a half-open "
+            "bracket leaves a table unprotected for every session after it (hard rule 1)"
+        )
+        return
 
     body = [
         statement
