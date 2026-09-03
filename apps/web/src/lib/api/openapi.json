@@ -17791,6 +17791,10 @@
             "title": "Name",
             "type": "string"
           },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -17822,6 +17826,7 @@
           "leads",
           "last_call_at",
           "capped",
+          "plan_tier",
           "holds"
         ],
         "title": "TenantSummary",

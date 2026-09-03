@@ -31,7 +31,10 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
+
+log = get_logger(__name__)
 
 # How far back the queue looks. A blocked dial from last month is history, not a
 # to-do; leaving it in the list is how a queue becomes wallpaper nobody reads.
@@ -52,7 +55,19 @@ BLOCK_REMEDIES: dict[str, str] = {
     "dnc": "This person asked not to be called. Nothing to do — we will not dial them.",
     "calling_hours": "Outside 9am to 9pm. We will try again in the next window.",
     "spend_cap": "Your monthly cap is reached. Raise it with your account manager to resume.",
-    "no_credits": "Your calling credit ran out. Top up to resume outgoing calls.",
+    # ⚠ THE INBOUND SENTENCE IS LOAD-BEARING AND IS WHY THIS LINE IS TWO SENTENCES.
+    # D-521 made prepaid the default, so this is now the message nearly every client
+    # eventually sees, and the obvious reading of "your calling credit ran out" is "my
+    # phone line is dead" — which for a clinic is a reason to leave, over a lapsed
+    # top-up. Answering an inbound call never touches the wallet (`check_dispatch`
+    # refuses an inbound agent before it reads money), so the reassurance goes FIRST.
+    # The client console carries the same two facts in the same order; a client must not
+    # get two accounts of one event on two screens.
+    "no_credits": (
+        "People calling you still get through — answering calls never uses your credit. "
+        "Your credit ran out, so we have stopped making outgoing calls. Top up to "
+        "start them again."
+    ),
     "no_form_consent": "The form did not confirm permission to call. Add the consent "
     "checkbox to your form, or call them yourself.",
     "agent_not_live": "Your agent is not published yet.",
@@ -137,7 +152,7 @@ async def blocked_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) ->
                 kind="lead_blocked",
                 id=str(row[1]),
                 title=f"{who} was not called",
-                detail=BLOCK_REMEDIES.get(rule, f"Blocked by the {rule} rule."),
+                detail=block_remedy(rule),
                 rule=rule,
                 occurred_at=row[3],
                 href="/leads",
@@ -145,6 +160,30 @@ async def blocked_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) ->
         )
     return AttentionSource(kind="lead_blocked", items=items, total=_matching(rows))
 
+
+def block_remedy(rule: str) -> str:
+    """What the client is told about a blocked dial — never the rule's WIRE NAME.
+
+    The fallback used to be `f"Blocked by the {rule} rule."`, which put a snake_case
+    identifier (`no_form_consent`, `dnc_tenant`) on a business owner's screen. That is
+    banned across this product: an identifier is a fact about our code, it is not
+    actionable, and a client cannot tell a rule name from an error.
+
+    An unmapped rule is OUR defect rather than the client's, so it is also an operator
+    log line: it means a refusal shipped without copy, and nothing else would report it.
+    The rule NAME is logged (it is not PII — hard rule 6 is about numbers, transcripts
+    and extraction payloads) and the tenant is not named here, because the caller has
+    the tenant in scope and this is a statement about a missing sentence, not about a
+    client.
+    """
+    remedy = BLOCK_REMEDIES.get(rule)
+    if remedy is not None:
+        return remedy
+    log.warning("attention_block_remedy_missing", extra={"rule": rule})
+    return (
+        "This call was stopped by one of our safety checks. We are looking at it — "
+        "there is nothing for you to do."
+    )
 
 # What a failed SHEETS delivery means, in the words of the person who has to fix it.
 # Keyed by the authored reason codes in `apps/workers/sheets_sync.py` and

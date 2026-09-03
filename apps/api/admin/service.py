@@ -706,6 +706,13 @@ async def tenant_overview(
                 "slug": org[2],
                 "status": org[3],
                 "vertical_template": org[4],
+                # WHICH BILLING MOTION, on the roster (D-521). It was selected here for
+                # the hold pre-filter and thrown away, so the console could not show it —
+                # survivable while `managed` was the silent default and every account was
+                # the same, and not survivable now that `prepaid` is the default and
+                # `managed` is a deliberate exception: an operator has to be able to SEE
+                # which clients are invoiced before deciding anything about one.
+                "plan_tier": org[5],
                 "live_agents": int(counts[0] or 0) if counts else 0,
                 "calls_7d": int(counts[1] or 0) if counts else 0,
                 "leads": int(counts[2] or 0) if counts else 0,

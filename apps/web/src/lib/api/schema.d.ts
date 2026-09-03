@@ -13044,6 +13044,8 @@ export interface components {
             live_agents: number;
             /** Name */
             name: string;
+            /** Plan Tier */
+            plan_tier: string;
             /** Slug */
             slug: string;
             /** Status */

@@ -101,7 +101,17 @@ DEFAULT_WINDOW = _DEFAULT_WINDOW
 # The client-facing wording of the two tenant-level refusals, shared with the campaign
 # launch gate so the same condition never gets explained two different ways.
 SPEND_CAP_REASON = "This account has reached its spending cap for the month."
-NO_CREDITS_REASON = "This account has no calling credit left."
+# ⚠ THE SECOND SENTENCE IS NOT PADDING (D-521). Prepaid is the default motion now, so
+# this is the refusal most clients will eventually read — on a blocked lead, on the
+# launch gate and on the readiness screen — and "no calling credit left" invites the
+# reading "our phone line is dead". It is not: answering an inbound call never touches
+# the wallet, and `check_dispatch` refuses an inbound agent before it reads money at all.
+# Saying which half stopped is the difference between a client topping up and a client
+# ringing to ask whether their business is off the air.
+NO_CREDITS_REASON = (
+    "This account has no calling credit left, so we have stopped making outgoing calls. "
+    "Incoming calls are still answered."
+)
 
 #: The `consent_ledger` statuses that stop a dial (D-117). Derived from the ledger's own
 #: vocabulary rather than spelled here — `granted` is the only member that is not a

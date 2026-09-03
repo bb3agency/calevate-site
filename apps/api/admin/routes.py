@@ -172,6 +172,13 @@ class TenantSummary(BaseModel):
     leads: int
     last_call_at: datetime | None
     capped: bool
+    # Which BILLING MOTION this client is on (D-521). `prepaid` — the default — pays
+    # from a credit balance and stops dialling outbound when it is empty; `managed` is
+    # invoiced on a retainer and has no wallet at all. It is here because an operator
+    # deciding anything about an account (why are their campaigns stopped? may they top
+    # up?) needs to know which of the two they are looking at, and because the tier is
+    # now settable, which makes it a fact somebody has to be able to read back.
+    plan_tier: str
     # The human-action gates holding this client, by the gates' own rule names — the
     # flag `/v1/admin/compliance/holds` turns into a work queue. Empty for a client
     # nobody is waiting on, and for every managed client (both controls are self-serve).

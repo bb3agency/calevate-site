@@ -82,15 +82,36 @@ async def test_a_blocked_dial_appears_with_a_remedy_not_a_rule_name() -> None:
     assert "consent checkbox" in item["detail"], "the remedy tells them what to DO"
 
 
-async def test_an_unmapped_rule_still_appears_rather_than_vanishing() -> None:
-    """A rule whose copy has not been written yet is shown raw — silently dropping the
-    item would hide a blocked lead behind our own housekeeping."""
+async def test_an_unmapped_rule_appears_without_its_wire_name() -> None:
+    """A rule whose copy has not been written yet still SHOWS — silently dropping the
+    item would hide a blocked lead behind our own housekeeping — but it does not show
+    the rule's IDENTIFIER.
+
+    ⚠ THIS TEST USED TO ASSERT THE OPPOSITE, and the old fallback really did render
+    `Blocked by the some_future_rule rule.` on a business owner's screen. A snake_case
+    name is a fact about our code: it is not actionable, and a client cannot tell it
+    from an error. The un-copied case is OUR defect, so it is an operator log line and a
+    contentless-but-human sentence, not a leak of the wire vocabulary.
+    """
     tenant_id, agent_id = await _tenant()
     await _blocked_lead(tenant_id, agent_id, "some_future_rule")
     async with tenant_session(tenant_id) as session:
         queue = await attention_queue(session)
     assert queue["total"] == 1
-    assert "some_future_rule" in queue["items"][0]["detail"]
+    detail = queue["items"][0]["detail"]
+    assert "some_future_rule" not in detail, "a rule name reached a client's screen"
+    assert "_" not in detail, "no wire vocabulary of any shape belongs in client copy"
+    assert detail.strip(), "an item with no explanation is worse than the raw name"
+
+
+def test_the_empty_wallet_message_says_inbound_still_works() -> None:
+    """D-521 made prepaid the default, so this is the sentence nearly every client
+    eventually reads — and the obvious reading of "your calling credit ran out" is "my
+    phone line is dead". Answering an inbound call never touches the wallet, so the
+    reassurance leads."""
+    remedy = BLOCK_REMEDIES["no_credits"]
+    assert remedy.startswith("People calling you still get through"), remedy
+    assert "Top up" in remedy, "it must still say what to do"
 
 
 async def test_a_contacted_lead_leaves_the_queue() -> None:
