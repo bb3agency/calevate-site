@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
+from typing import ClassVar
 
 import pytest
 from apps.api.billing import payments, wallet
@@ -248,3 +249,178 @@ async def test_a_second_clawback_for_the_same_refund_moves_nothing() -> None:
         "land on zero once the whole bonus is already back"
     )
     assert first >= Decimal("0")
+
+
+# --- a replay's claim belongs to the refund that already exists -------------------------
+
+
+async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: the release stops asking whether THIS request took the claim.
+
+    `claim_refund` answers `claimed=False` for a repeat of a refund already claimed — a
+    replay, not a second refund. The caller still calls the provider, because the
+    provider's own idempotency key is (payment id, amount) and can only collapse onto the
+    refund that already exists. If that call then fails, releasing the claim would free
+    the ceiling for a refund THAT ALREADY HAPPENED, and the next request through would
+    issue a second one against money the client only paid once.
+
+    The mirror arm — a claim this request DID take, released so a vendor timeout cannot
+    shrink what a client may be refunded for ever — is covered by the refund suite. This
+    pins the one that only runs on a replay whose provider call fails.
+    """
+    from apps.api.admin import service as admin_service
+    from apps.api.billing import payment_routes
+    from apps.api.billing.payments import RefundClaim
+    from apps.api.billing.service import record_entry
+    from apps.api.core.context import Principal
+
+    created = await admin_service.create_organization(
+        name="Replay Clinic",
+        slug=f"rep-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email="owner@example.test",
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("1000.0000"),
+            reason="topup",
+            ref=payment_id,
+        )
+        await session.commit()
+
+    released: list[str] = []
+
+    async def _replay_claim(*_: object, **__: object) -> RefundClaim:
+        return RefundClaim(refund_key="rfk_replay", claimed=False)
+
+    async def _provider_dies(**_: object) -> object:
+        raise RuntimeError("the provider timed out")
+
+    async def _record_release(*_: object, **kwargs: object) -> None:
+        released.append(str(kwargs.get("refund_key")))
+
+    monkeypatch.setattr(payment_routes, "claim_refund", _replay_claim)
+    monkeypatch.setattr(payment_routes, "issue_refund", _provider_dies)
+    monkeypatch.setattr(payment_routes, "release_refund_claim", _record_release)
+
+    principal = Principal(
+        realm="admin",
+        user_id=uuid.uuid4(),
+        tenant_id=None,
+        role="superadmin",
+        impersonating=False,
+    )
+
+    class _Req:
+        client = None
+        headers: ClassVar[dict[str, str]] = {}
+
+    with pytest.raises(RuntimeError):
+        await payment_routes.issue_tenant_refund(
+            tenant_id,
+            payment_routes.RefundIn(
+                payment_id=payment_id,
+                amount_inr=Decimal("500.0000"),
+                reason="duplicate charge reported by the client",
+            ),
+            _Req(),  # type: ignore[arg-type]
+            principal,
+        )
+
+    assert released == [], (
+        "a replay's claim was released; the ceiling it holds belongs to the refund that "
+        "already exists, and freeing it lets a second refund through"
+    )
+
+
+# --- an order the provider created without giving us an id ------------------------------
+
+
+async def test_an_order_with_no_provider_id_is_returned_without_being_remembered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: `_remember_order` is called with a null order id.
+
+    The attempt row is keyed on (tenant, provider order id) — that is the ONLY identifier
+    it holds before money arrives, and `settle_attempt` finds it by nothing else. Writing
+    a row with no order id would create an attempt that no webhook can ever settle: it
+    would sit `created` for ever on the client's screen while their payment succeeded,
+    and the reconciler would have a row it could never match.
+
+    The arm exists because `creates_orders` being true is a statement about THIS
+    DEPLOYMENT's configuration, not a promise that every future call returns an id.
+    """
+    from apps.api.billing import payment_routes
+    from apps.api.billing.payments import PaymentCapability
+    from apps.api.core.context import Principal
+
+    remembered: list[object] = []
+
+    async def _no_id(**kwargs: object) -> object:
+        build = kwargs["build"]
+        assert callable(build)
+        return build(None)
+
+    async def _record(**kwargs: object) -> None:
+        remembered.append(kwargs)
+
+    # The route asserts the key id is present once the capability says available — a
+    # credential and a capability are two facts and it refuses to infer one from the
+    # other, so the fixture must state both.
+    from apps.api.core.settings import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "razorpay_key_id", "rzp_test_orderless")
+    monkeypatch.setattr(
+        payment_routes,
+        "payment_capability",
+        lambda: PaymentCapability(available=True, provider="razorpay", creates_orders=True),
+    )
+    monkeypatch.setattr(payment_routes, "_create_order_once", _no_id)
+    monkeypatch.setattr(payment_routes, "_remember_order", _record)
+
+    created = await __import__("apps.api.admin.service", fromlist=["service"]).create_organization(
+        name="Orderless Clinic",
+        slug=f"ord-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email="owner@example.test",
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    # Prepaid, or the route refuses before it ever reaches the arm under test: an invoiced
+    # account does not buy credit through this door.
+    from sqlalchemy import text
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :i"),
+            {"i": tenant_id},
+        )
+        await session.commit()
+
+    principal = Principal(
+        realm="client",
+        user_id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        role="owner",
+        impersonating=False,
+    )
+
+    intent = await payment_routes.create_topup_intent(
+        payment_routes.TopUpIntentIn(amount_inr=Decimal("500.0000")), principal
+    )
+
+    assert intent.provider_order_id is None
+    assert remembered == [], (
+        "an attempt row was written with no provider order id; nothing could ever settle "
+        "it, and it would sit `created` for ever while the client's payment succeeded"
+    )
