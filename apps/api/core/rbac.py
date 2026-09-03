@@ -7,7 +7,11 @@ assertion in CI, not silently in production with an open door.
 Role tables (DATA-MODEL §2):
 - client realm `owner` — everything in their own tenant, including raw transcripts
   (role check + audit_log write, hard rule 5) and billing.
-- client realm `staff`  — no billing, no org settings, no raw transcripts.
+- client realm `staff`  — no billing, no org settings, no raw transcripts. ONE exception
+  since 2 Sep 2026, and it is deliberately narrow: `wallet:read`, the prepaid balance and
+  its ledger, because the thing that stops a staff member dialling is an empty wallet and
+  a refusal whose explanation only the owner can see is a refusal with no words in it.
+  Buying credit remains the owner's (`org:manage`).
 - admin realm `operator`   — runs onboarding and support across tenants, and since the
   founder's correction to D-457 that includes the per-tenant reads support actually
   needs: raw transcripts and recordings (role check + audit row, hard rule 5) and the
@@ -73,6 +77,24 @@ Permission = Literal[
     "leads:write",
     "leads:dispatch",
     "billing:read",
+    # SEEING THE PREPAID WALLET — the balance, its ledger, the runway and the top-up
+    # attempts behind them (`billing/wallet_routes.py`), and nothing else.
+    #
+    # A NEW PERMISSION RATHER THAN A WIDENING OF `billing:read`, and the precedent is
+    # `copilot:use` three lines down: the founder decided (2 Sep 2026) that everyone on a
+    # client's team must be able to see the balance and the ledger — "so an operator
+    # understands why dialling stopped" — while only the owner may BUY. `staff` does not
+    # hold `billing:read`, and granting it would have carried the spend breakdown, the
+    # spend caps and the monthly tax-shaped statement (`billing/routes.py::my_invoice`)
+    # with it: SEC-COMP §5 scopes those to the owner, and the founder decided nothing
+    # about them. Largest possible widening for the narrowest possible ask, refused for
+    # the same reason it was refused for the assistant.
+    #
+    # IT IS NOT IN `MUTATING_PERMISSIONS`, and that is not an oversight. It reads; the
+    # purchase is `org:manage` on `POST /v1/billing/topups/intent`, which IS mutating, so
+    # a D-22 view-as operator can see a client's wallet on the support call and can never
+    # spend from it. That split is the whole permission model of this screen.
+    "wallet:read",
     "org:read",
     "org:manage",
     "kb:write",
@@ -254,6 +276,13 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "leads:read",
             "leads:write",
             "org:read",
+            # SEEING THE WALLET, and only the wallet. The founder's 2 Sep 2026 decision:
+            # everyone on the team sees the balance and the ledger so that "outgoing calls
+            # stopped" has its explanation on the same screen as the thing that stopped
+            # them; only the owner may buy. `billing:read` stays absent — see the comment
+            # on `wallet:read` in the `Permission` type for why the narrow grant was
+            # chosen over widening that one.
+            "wallet:read",
         }
     ),
     "owner": frozenset(
@@ -266,6 +295,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "leads:write",
             "leads:dispatch",
             "billing:read",
+            "wallet:read",
             "org:read",
             "org:manage",
             "kb:write",
@@ -330,6 +360,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             "leads:write",
             "leads:dispatch",
             "billing:read",
+            "wallet:read",
             "org:read",
             "org:manage",
             "kb:write",

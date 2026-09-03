@@ -1770,6 +1770,64 @@ def failed_payment_summary(envelope: Any) -> dict[str, str]:
     return out
 
 
+@dataclass(frozen=True, slots=True)
+class PaymentAttemptIds:
+    """The three identifiers an event needs to reach a `topup_attempts` row."""
+
+    tenant_id: UUID
+    order_id: str
+    payment_id: str | None
+
+
+def payment_attempt_ids(envelope: Any) -> PaymentAttemptIds | None:
+    """Which top-up attempt an event belongs to, or None when it cannot be told.
+
+    NONE IS A REAL AND EXPECTED ANSWER, and it is why this returns rather than raises.
+    Nothing that reads it moves money: `topup_attempts` is a narrative and the ledger is
+    the record, so the only thing lost when the ids cannot be read is that a row keeps
+    saying "settling" until `PENDING_GRACE_HOURS` turns it into "unfinished" — a slightly
+    staler word on a screen, which is exactly the cost `billing/wallet.py` argues that
+    table is allowed to pay. Refusing a `payment.failed` event instead would make the
+    provider retry a failure for ever.
+
+    It reads the SAME entity path and the SAME `notes[NOTES_TENANT_KEY]` as
+    `extract_captured_payment`, deliberately — so this is not a second, independently
+    wrong guess at an UNVERIFIED payload contract, it is the same one. Verifying that
+    contract against a real account fixes both functions at once. `order_id` is the field
+    the captured extractor does NOT keep, and it is the one this needs: it is the only
+    identifier our own attempt row holds before money arrives.
+    """
+    entity: Any = None
+    if isinstance(envelope, dict):
+        payload = envelope.get("payload")
+        if isinstance(payload, dict):
+            payment = payload.get("payment")
+            if isinstance(payment, dict):
+                entity = payment.get("entity")
+    if not isinstance(entity, dict):
+        return None
+    order_id = entity.get("order_id")
+    if not isinstance(order_id, str) or not order_id.strip():
+        # WITHOUT AN ORDER ID THERE IS NOTHING TO KEY ON. `settle_attempt` finds a row by
+        # (tenant, order id) and nothing else, because that is the only identifier our own
+        # row holds before money arrives.
+        return None
+    notes = entity.get("notes")
+    raw_tenant = notes.get(NOTES_TENANT_KEY) if isinstance(notes, dict) else None
+    try:
+        tenant_id = UUID(str(raw_tenant))
+    except (TypeError, ValueError):
+        return None
+    payment_id = entity.get("id")
+    return PaymentAttemptIds(
+        tenant_id=tenant_id,
+        order_id=order_id.strip(),
+        payment_id=(
+            payment_id.strip() if isinstance(payment_id, str) and payment_id.strip() else None
+        ),
+    )
+
+
 __all__ = [
     "API_VERSION_PATH",
     "BASE_URL",
@@ -1796,6 +1854,7 @@ __all__ = [
     "SIGNATURE_HEADER",
     "SUPPORTED_CURRENCY",
     "CapturedPayment",
+    "PaymentAttemptIds",
     "PaymentCapability",
     "ProviderOrder",
     "ProviderRefund",
@@ -1816,6 +1875,7 @@ __all__ = [
     "issue_refund",
     "online_payments_available",
     "paise_to_inr",
+    "payment_attempt_ids",
     "payment_capability",
     "payments_not_configured",
     "razorpay_api_secret",

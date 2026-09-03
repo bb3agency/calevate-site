@@ -250,6 +250,25 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             },
         )
         ids["delivery_id"] = str(delivery_id)
+
+        # A RECORDED PAYMENT on tenant A's wallet. `{payment_ref}` is the one id in the
+        # client path space that is NOT a uuid — it is the provider's payment id (or a
+        # bank UTR), which a neighbour could plausibly know or guess, and it addresses the
+        # RECEIPT for somebody else's money. Seeded so the sweep drives the route with a
+        # real one rather than with a value that would 404 for being nonsense.
+        #
+        # An INSERT and never an UPDATE: `credit_ledger` is append-only and its trigger
+        # refuses anything else (hard rule 4).
+        payment_ref = f"pay_adversarial_{uuid.uuid4().hex[:10]}"
+        await s.execute(
+            text(
+                "INSERT INTO credit_ledger "
+                "(id, tenant_id, delta, reason, ref, balance_after, occurred_at, created_at) "
+                "VALUES (:i, :t, 2500, 'topup', :ref, 2500, now(), now())"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "ref": payment_ref},
+        )
+        ids["payment_ref"] = payment_ref
     return ids
 
 
@@ -394,6 +413,12 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {},
     ),
     ("DELETE", "/v1/integrations/credentials/{credential_id}", {}, {}),
+    # The client's own receipt for one payment. The id is a PROVIDER payment id rather
+    # than a uuid — the kind of value that appears on a bank statement and in an email —
+    # so "a neighbour could not guess it" is not the guarantee here. The guarantee is that
+    # `recorded_payments` runs inside `tenant_session`, so the row is invisible to the
+    # statement and the answer is a 404 that no handler had to remember to produce.
+    ("GET", "/v1/billing/wallet/receipts/{payment_ref}", {}, {}),
 )
 
 

@@ -67,6 +67,7 @@ import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
+import CreditsPage from "@/app/c/[slug]/credits/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
 import AgreementsPage from "@/app/c/[slug]/agreements/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
@@ -113,6 +114,111 @@ import { problem, renderClientPage, type Routes } from "./harness";
 const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" };
 
 /** An owner: the role that can see the most, and therefore renders the most markup. */
+/**
+ * A STOPPED wallet — the state of `/c/<slug>/credits` that renders the most markup: the
+ * alert banner, the runway sentence, the full drawdown and the ledger beneath it. The
+ * healthy state renders a strict subset of it, which is the same rule the agreements and
+ * AI-help entries in this file are fixtured by.
+ */
+const WALLET_STOPPED = {
+  tenant_id: "00000000-0000-0000-0000-0000000000aa",
+  prepaid: true,
+  balance_inr: "0.00",
+  is_low: true,
+  low_balance_threshold_inr: "200.00",
+  outbound_stopped: true,
+  runway: {
+    basis: "empty",
+    days: null,
+    daily_burn_inr: "340.00",
+    history_days: 30,
+    beyond_horizon: false,
+    window_days: 30,
+    min_history_days: 7,
+    max_days: 365,
+  },
+  minutes_left: 0,
+  drawdown: {
+    calls_inr: "8400.00",
+    ai_assist_inr: "300.00",
+    adjustments_inr: "0.00",
+    spent_inr: "8700.00",
+    added_inr: "8700.00",
+    refunded_inr: "0.00",
+  },
+};
+
+const WALLET_LEDGER = {
+  entries: [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      delta_inr: "-42.50",
+      reason: "usage",
+      ref: "call:9",
+      balance_after_inr: "0.00",
+      occurred_at: "2026-08-30T09:00:00Z",
+      payment_ref: null,
+    },
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      delta_inr: "2500.00",
+      reason: "topup",
+      ref: "pay_a1b2c3",
+      balance_after_inr: "2542.50",
+      occurred_at: "2026-08-01T09:00:00Z",
+      payment_ref: "pay_a1b2c3",
+    },
+  ],
+  payments: [
+    {
+      payment_ref: "pay_a1b2c3",
+      credited_inr: "2500.00",
+      entries: 1,
+      first_at: "2026-08-01T09:00:00Z",
+    },
+  ],
+};
+
+/** One attempt that never finished, so the panel above the top-up controls renders. */
+const WALLET_ATTEMPTS = [
+  {
+    id: "33333333-3333-4333-8333-333333333333",
+    receipt: "CAL-2608-0007",
+    amount_inr: "2500.00",
+    pack_id: null,
+    outcome: "failed",
+    started_at: "2026-08-30T10:00:00Z",
+  },
+];
+
+const CREDIT_PACKS = {
+  list_rate_inr_per_min: "8.00",
+  packs: [
+    {
+      pack_id: "starter",
+      amount_inr: "1000.00",
+      paid_credits: "1000.00",
+      bonus_credits: "0.00",
+      total_credits: "1000.00",
+      bonus_pct: "0",
+      effective_rate_inr_per_min: "8.00",
+      talk_time_minutes: 125,
+      best_value: false,
+    },
+    {
+      pack_id: "growth",
+      amount_inr: "5000.00",
+      paid_credits: "5000.00",
+      bonus_credits: "400.00",
+      total_credits: "5400.00",
+      bonus_pct: "8",
+      effective_rate_inr_per_min: "7.41",
+      talk_time_minutes: 675,
+      best_value: true,
+    },
+  ],
+};
+
 const ME = {
   user_id: "u1",
   realm: "client",
@@ -128,6 +234,10 @@ const ME = {
     "kb:read",
     "kb:write",
     "billing:read",
+    // The wallet read every client role holds, `staff` included — `/c/<slug>/credits`
+    // refuses without it, and a swept refusal is a sweep of a RestrictionNote rather
+    // than of the screen.
+    "wallet:read",
     "members:read",
     "members:write",
     "dnc:read",
@@ -1978,6 +2088,27 @@ const CLIENT_SCREENS: Screen[] = [
         capped: false,
         updated_at: null,
       },
+    },
+  },
+  {
+    // Calling credit. Swept in the state that renders the MOST and is the most dangerous
+    // to get wrong: STOPPED (the alert banner), with an unfinished payment above the
+    // top-up controls, a full drawdown and a ledger row carrying a receipt button. The
+    // receipt DIALOG is not in this sweep — opening it needs a click and this sweep
+    // renders rather than drives — so `credits.test.tsx` sweeps it there.
+    file: "c/[slug]/credits/page.tsx",
+    realm: "client",
+    element: () => <CreditsPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/billing/wallet": WALLET_STOPPED,
+      "/v1/billing/wallet/ledger?limit=50": WALLET_LEDGER,
+      "/v1/billing/wallet/topups": WALLET_ATTEMPTS,
+      "/v1/billing/topups/capability": {
+        online_payments_available: true,
+        provider_orders_available: true,
+      },
+      "/v1/billing/topups/packs": CREDIT_PACKS,
     },
   },
   {
