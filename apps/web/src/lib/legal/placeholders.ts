@@ -180,12 +180,13 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
       "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
       "here and nothing else, which is what this registry is for — four values in one " +
-      "file rather than a hunt through eight documents. ⚠ The platform SENDS from " +
-      "`notifications_from`, which defaults to support@calevate.tech " +
-      "(`packages/shared/src/calevate_shared/config.py:938`, an ops-console setting), " +
-      "so today a client replying to a platform email and a client using the address " +
-      "in these documents reach two different mailboxes. Settling that is the " +
-      "founder's call and is not a legal-documents change.",
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
     value: "calevate.voice@gmail.com",
   },
   GRIEVANCE_OFFICER_NAME: {
@@ -197,7 +198,7 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "materially stronger compliance artefact than a first name, and this entry is " +
       "where the surname goes when it is supplied.",
     source: "The founder's decision (2 Sep 2026), and the appointment record.",
-    value: "Umesh",
+    value: "Umesh J",
   },
   GRIEVANCE_OFFICER_DESIGNATION: {
     describes:
@@ -220,12 +221,13 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
       "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
       "here and nothing else, which is what this registry is for — four values in one " +
-      "file rather than a hunt through eight documents. ⚠ The platform SENDS from " +
-      "`notifications_from`, which defaults to support@calevate.tech " +
-      "(`packages/shared/src/calevate_shared/config.py:938`, an ops-console setting), " +
-      "so today a client replying to a platform email and a client using the address " +
-      "in these documents reach two different mailboxes. Settling that is the " +
-      "founder's call and is not a legal-documents change.",
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
     value: "calevate.voice@gmail.com",
   },
   DATA_PROTECTION_CONTACT_NAME: {
@@ -239,7 +241,7 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "The founder's decision (2 Sep 2026), and the appointment record. A statutory " +
       "Data Protection Officer is only required of a Significant Data Fiduciary, which " +
       "nobody has been notified as.",
-    value: "Umesh",
+    value: "Umesh J",
   },
   DATA_PROTECTION_CONTACT_EMAIL: {
     describes: "A monitored mailbox that reaches the data protection contact.",
@@ -249,12 +251,13 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
       "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
       "here and nothing else, which is what this registry is for — four values in one " +
-      "file rather than a hunt through eight documents. ⚠ The platform SENDS from " +
-      "`notifications_from`, which defaults to support@calevate.tech " +
-      "(`packages/shared/src/calevate_shared/config.py:938`, an ops-console setting), " +
-      "so today a client replying to a platform email and a client using the address " +
-      "in these documents reach two different mailboxes. Settling that is the " +
-      "founder's call and is not a legal-documents change.",
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
     value: "calevate.voice@gmail.com",
   },
   SECURITY_CONTACT_EMAIL: {
@@ -268,12 +271,13 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
       "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
       "here and nothing else, which is what this registry is for — four values in one " +
-      "file rather than a hunt through eight documents. ⚠ The platform SENDS from " +
-      "`notifications_from`, which defaults to support@calevate.tech " +
-      "(`packages/shared/src/calevate_shared/config.py:938`, an ops-console setting), " +
-      "so today a client replying to a platform email and a client using the address " +
-      "in these documents reach two different mailboxes. Settling that is the " +
-      "founder's call and is not a legal-documents change.",
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
     value: "calevate.voice@gmail.com",
   },
   JURISDICTION_CITY: {

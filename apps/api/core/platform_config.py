@@ -393,6 +393,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "smtp_username": AppliesRule(LIVE),
     "smtp_use_tls": AppliesRule(LIVE),
     "notifications_from": AppliesRule(LIVE),
+    "notifications_reply_to": AppliesRule(LIVE),
     "alerts_email": AppliesRule(LIVE),  # core/alerting, per alert
     # workers/tls_expiry reads it inside the daily cron, so the next run uses the new
     # value with no restart.

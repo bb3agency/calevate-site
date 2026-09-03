@@ -1026,6 +1026,11 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
      switching to `smtp` during a Resend outage must not need a deploy. The api/worker
      hosts read it from the store; the database host reads it from its own
      `EnvironmentFile` alongside the key.
+   - `NOTIFICATIONS_REPLY_TO` — defaults to `calevate.voice@gmail.com`, the mailbox the
+     published legal documents name. The platform cannot SEND from it (the provider
+     refuses an unverified sender domain, and a public webmail domain can never be
+     verified), so this is the header that gets a client's reply to a mailbox somebody
+     reads. Change it and `apps/web/src/lib/legal/placeholders.ts` together — D-518.
    - `NOTIFICATIONS_FROM` — defaults to `support@calevate.tech`. It is also the alert
      sender, deliberately: one address, because a client who allowlists one and not the
      other has half a channel.
