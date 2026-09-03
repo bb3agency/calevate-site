@@ -719,7 +719,9 @@ async def tenant_overview(
                 "last_call_at": counts[3] if counts else None,
                 "capped": capped,
                 # Which human-action gates hold this client, in the gates' own rule
-                # names. Empty for every managed client, always.
+                # names. Empty, always, for every client an operator created — both
+                # controls are about unattended signups (D-521 split that question from
+                # the billing one, so `prepaid` is outside them too).
                 "holds": list(holds.rules),
             }
         )

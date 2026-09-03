@@ -181,7 +181,9 @@ class TenantSummary(BaseModel):
     plan_tier: str
     # The human-action gates holding this client, by the gates' own rule names — the
     # flag `/v1/admin/compliance/holds` turns into a work queue. Empty for a client
-    # nobody is waiting on, and for every managed client (both controls are self-serve).
+    # nobody is waiting on, and for every client an OPERATOR created (both controls
+    # exist because an unattended signup is a stranger, so they apply to `self_serve`
+    # and `trial` only — `prepaid` and `managed` alike are outside them, D-521).
     holds: list[str]
 
 
