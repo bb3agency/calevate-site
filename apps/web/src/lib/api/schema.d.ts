@@ -1429,6 +1429,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/plan-tier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a client between billing motions — prepaid credit or invoiced retainer
+         * @description Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer — it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**; inbound answering is unaffected either way. Idempotent: setting the tier an account is already on returns 200, `changed: false`, and writes no audit row. 404 means no such client.
+         */
+        post: operations["set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/refunds": {
         parameters: {
             query?: never;
@@ -10995,6 +11015,30 @@ export interface components {
             /** States Pricing */
             states_pricing: boolean;
         };
+        /** PlanTierIn */
+        PlanTierIn: {
+            /**
+             * Plan Tier
+             * @enum {string}
+             */
+            plan_tier: "managed" | "prepaid";
+            /** Reason */
+            reason: string;
+        };
+        /** PlanTierOut */
+        PlanTierOut: {
+            /** Changed */
+            changed: boolean;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Previous Plan Tier */
+            previous_plan_tier: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** PlatformStateIn */
         PlatformStateIn: {
             /** Load Shed Mode */
@@ -16183,6 +16227,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NumberDltStatusOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanTierIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanTierOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

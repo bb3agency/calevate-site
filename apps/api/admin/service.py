@@ -23,7 +23,7 @@ import secrets
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from hashlib import sha256
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from scripts.seed import DEFAULT_RETENTION_POLICIES, VERTICAL_TEMPLATES
@@ -719,10 +719,64 @@ async def tenant_overview(
     return overview
 
 
+#: The tiers an OPERATOR may put an account on, and the two the route below refuses.
+#:
+#: `managed` and `prepaid` are the two BILLING motions, and moving between them is exactly
+#: what an operator decides: this client is invoiced on a retainer, or this client pays
+#: from a wallet (D-521). `self_serve` and `trial` are not a billing choice — they record
+#: that a STRANGER opened the account unattended, which is what the subscriber-KYC dial
+#: gate (D-47) and the first-campaign hold (D-51) key on. Writing one of them onto a client
+#: an operator created would refuse that client's next dial with `kyc_missing` for a fact
+#: that is not true of them, so those two stay writable only by `tenancy/signup.py`, which
+#: is the path where the fact is actually established.
+OPERATOR_SETTABLE_PLAN_TIERS: Final = ("managed", "prepaid")
+
+#: The previous tier and the new one in ONE statement, rather than SELECT-then-UPDATE.
+#:
+#: The audit row has to name what the account WAS, and a separate read would be a guess
+#: about a value another operator may have changed between the two statements — the CAS
+#: doctrine in `docs/BACKEND-PATTERNS.md` applied to a one-column write. `FROM
+#: organizations old` sees the pre-UPDATE snapshot of the same row, so `RETURNING` hands
+#: back the value this statement actually replaced. `plan_tier <> :tier` makes it
+#: idempotent: setting the tier an account is already on matches zero rows and returns
+#: nothing, which the caller reports as `changed: false` rather than writing an audit row
+#: about a click that changed nothing.
+_SET_PLAN_TIER = (
+    "UPDATE organizations o SET plan_tier = :tier, updated_at = now() "
+    "FROM organizations old "
+    "WHERE o.id = old.id AND o.id = :tid AND o.plan_tier <> :tier "
+    "RETURNING old.plan_tier"
+)
+
+
+async def set_plan_tier(session: AsyncSession, *, tenant_id: UUID, plan_tier: str) -> str | None:
+    """Move one client between billing motions. Returns the tier REPLACED, or None if the
+    account was already on this one.
+
+    The caller owns the 404 (`tenant_exists`) and the audit row, for the reason
+    `set_tenant_status` owns both: this function is the write, and a service that also
+    decided what a missing row means would be a second answer to a question
+    `tenant_exists` already answers once for every surface.
+
+    The session must be tenant-scoped — `organizations` is FORCE-RLS, so an unscoped one
+    matches zero rows and this returns None, which would read as "already on that tier".
+    """
+    if plan_tier not in OPERATOR_SETTABLE_PLAN_TIERS:
+        # Defence in depth behind the route's own `Literal`. A caller reaching this with a
+        # tier from somewhere else is a programming error, not a client input, so it raises
+        # rather than rendering a message: the route's schema is what a person sees.
+        raise ValueError(f"{plan_tier!r} is not an operator-settable plan tier")
+    previous = (
+        await session.execute(text(_SET_PLAN_TIER), {"tid": tenant_id, "tier": plan_tier})
+    ).scalar()
+    return str(previous) if previous is not None else None
+
+
 __all__ = [
     "DEFAULT_PLAN_TIER",
     "DISCLOSURE_TEMPLATES",
     "INVITE_TTL",
+    "OPERATOR_SETTABLE_PLAN_TIERS",
     "TenantRootHook",
     "accept_invitation",
     "assert_account_open",
@@ -730,6 +784,7 @@ __all__ = [
     "create_invitation",
     "create_organization",
     "derive_slug",
+    "set_plan_tier",
     "slugify",
     "tenant_overview",
 ]

@@ -2635,4 +2635,106 @@ async def set_tenant_status(
     return LifecycleOut(tenant_id=tenant_id, status=payload.status, changed=changed)
 
 
+class PlanTierIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The two BILLING motions, and deliberately not the four members of the column's enum
+    # — `service.OPERATOR_SETTABLE_PLAN_TIERS` states why `self_serve` and `trial` are not
+    # an operator's to write. A `Literal` rather than a runtime check so the refusal is a
+    # 422 naming the allowed values and the console's generated client cannot offer a
+    # third.
+    plan_tier: Literal["managed", "prepaid"]
+    # Goes into the audit row verbatim, and REQUIRED in both directions. Moving a client
+    # off credit gating means Calevate carries their calling on an invoice, and moving one
+    # on to it can stop their outbound dialling within a tick — neither is a fact anyone
+    # should have to reconstruct from a timestamp.
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class PlanTierOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    plan_tier: str
+    # The tier that was replaced, or None when the account was already on this one —
+    # which is `changed: false` and a success, the shape `LifecycleOut` uses.
+    previous_plan_tier: str | None
+    changed: bool
+
+
+@router.post(
+    "/tenants/{tenant_id}/plan-tier",
+    response_model=PlanTierOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Move a client between billing motions — prepaid credit or invoiced retainer",
+    description=(
+        "Sets `organizations.plan_tier`. `prepaid` is the default every account is "
+        "created on (D-521): its calling is paid from a credit balance and "
+        "`compliance.check_dispatch` refuses `no_credits` when that balance is empty. "
+        "`managed` is for a client genuinely billed on a plan retainer — it has no "
+        "wallet, the credits screen says so, and nothing stops their dialling for want "
+        "of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND "
+        "calling at the next dial**; inbound answering is unaffected either way. "
+        "Idempotent: setting the tier an account is already on returns 200, "
+        "`changed: false`, and writes no audit row. 404 means no such client."
+    ),
+)
+async def set_tenant_plan_tier(
+    tenant_id: UUID,
+    payload: PlanTierIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> PlanTierOut:
+    """The seam D-521 needs, and the reason it exists rather than being left to psql.
+
+    D-521 keeps `managed` precisely so a client who really is invoiced can be put back on
+    it, and a decision that can only be carried out by an UPDATE typed into a production
+    database is not a decision the product supports — it is one an operator performs
+    unaudited, at speed, on the wrong row. This route is `admin:tenants`, audited, names
+    the tier it replaced, and demands a reason in both directions.
+
+    **NO STEP-UP, and the line is `set_tenant_status`'s own**: a second factor confirms the
+    move that cannot be undone. Both moves here are reversible by this same route in one
+    call, neither destroys data, and the dangerous direction (`prepaid` onto an empty
+    wallet) stops OUTBOUND dialling — which the big red switch, a spend cap and a suspend
+    all do too, none of which is step-upped either. What is irreversible on this router is
+    closing an account, and that one is.
+
+    **The tier is written under a TENANT-SCOPED session, and the audit row under the admin
+    one** — the same split every write on this router uses: `organizations` is FORCE-RLS,
+    so the UPDATE must carry the tenant's own GUC to match its row at all.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
+        previous = await service.set_plan_tier(
+            scoped, tenant_id=tenant_id, plan_tier=payload.plan_tier
+        )
+    if previous is not None:
+        await write_audit(
+            session,
+            action="tenant.plan_tier_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            # Both tiers and the operator's words: this row is the only record of WHY a
+            # business is invoiced rather than credit-gated, and `plan_tier` itself keeps
+            # no history.
+            summary={
+                "plan_tier": payload.plan_tier,
+                "previous_plan_tier": previous,
+                "reason": payload.reason,
+            },
+        )
+    return PlanTierOut(
+        tenant_id=tenant_id,
+        plan_tier=payload.plan_tier,
+        previous_plan_tier=previous,
+        changed=previous is not None,
+    )
+
+
 __all__ = ["router"]
