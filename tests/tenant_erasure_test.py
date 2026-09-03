@@ -759,3 +759,65 @@ async def test_an_erased_tenant_records_no_further_inbound_call() -> None:
         line for line in proof["limitations"] if "voice platform" in line and "manual" in line
     )
     assert "still reaches an answering agent" in engine_clause
+
+
+@pytest.mark.anyio
+async def test_the_written_request_names_the_clients_knowledge_bases_too() -> None:
+    """D-519. The vendor-side deletion request quoted agent ids and nothing else.
+
+    A knowledge base on that platform is an ACCOUNT-level object with no owner field
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md
+    :63-121`), so a client's uploaded document is NOT covered by an agent id unless
+    deleting an agent also deletes the knowledge bases it referenced — and the vendor's
+    delete page enumerates batches, executions and configurations and never says
+    (`.../agent/v2/delete.md:7,10`; OPERATIONS §2 gate 43f). Quoting the handles is right
+    under either answer: already-deleted objects make the request a no-op the vendor
+    confirms, and orphaned ones are findable by nothing else — one account holds every
+    tenant's documents and the platform records whose none of them are.
+
+    The claim is read from `engine_kb_routes`, which is why it survives a tenant whose
+    `kb_sources` rows a retention sweep has already taken.
+    """
+    tenant_id, agent_id, _ = await _tenant()
+    handle = f"vec-erasure-{uuid.uuid4().hex[:12]}"
+    source_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO kb_sources (id, tenant_id, agent_id, kind, name) "
+                "VALUES (:id, :t, :a, 'text', 'Fees')"
+            ),
+            {"id": source_id, "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, agent_id, "
+                "source_id) VALUES ('fake', :ref, :t, :a, :s)"
+            ),
+            {"ref": handle, "t": tenant_id, "a": agent_id, "s": source_id},
+        )
+    await _churn(tenant_id)
+    token = await _admin()
+    filed = await _post(token, tenant_id, confirm=_confirm(tenant_id))
+    assert filed.status_code == 201, filed.text
+
+    await _run_worker(tenant_id, filed.json()["request_id"])
+
+    # A TENANT session, not an untenanted one: `processor_erasure_tasks` is FORCE-RLS'd
+    # and fail-closed on an unset GUC, so an untenanted read answers None for a task that
+    # is really there — which reads exactly like the defect under test.
+    async with tenant_session(tenant_id) as session:
+        refs = (
+            await session.execute(
+                text(
+                    "SELECT vendor_refs FROM processor_erasure_tasks "
+                    "WHERE tenant_id = :t AND processor = 'voice_engine'"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar()
+    assert refs is not None, "no vendor-side erasure obligation was opened at all"
+    assert handle in refs, (
+        "the written deletion request does not name this client's knowledge bases, so "
+        "their uploaded documents can never be found again on a shared vendor account"
+    )

@@ -2528,14 +2528,48 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             .scalars()
             .all()
         ]
-        if agent_refs:
+        # THE KNOWLEDGE BASES GO IN THE SAME REQUEST, AND LEAVING THEM OUT WAS THE GAP
+        # (D-519). The vendor's knowledge base is an ACCOUNT-level object with no owner
+        # field — `POST /knowledgebase` takes no agent id and a listing row carries none
+        # (`bolna-findings/mirror/pages/api-reference/knowledgebase/
+        # get_knowledgebases.md:63-121`) — so it is NOT covered by the agent ids above
+        # unless deleting an agent also deletes the knowledge bases it referenced, and
+        # THE VENDOR DOES NOT SAY. Their delete page enumerates "batches, executions,
+        # configurations" (`.../agent/v2/delete.md:7,10`) and never mentions a knowledge
+        # base; OPERATIONS §2 gate 43f is the live-account probe that settles it.
+        #
+        # Quoting the handles is correct under BOTH answers, which is why it does not
+        # wait for the gate: if the delete cascades, the operator's request names objects
+        # that are already gone and the vendor confirms it; if it orphans, these ids are
+        # the ONLY thing that can find a client's uploaded document again — the account
+        # is shared, the objects are interleaved, and nothing at the vendor says whose
+        # they are.
+        #
+        # `engine_kb_routes` is read here rather than `kb_sources` for the reason it
+        # exists: it is globally readable and it OUTLIVES our own rows, so this works
+        # for a tenant whose sources a retention sweep has already deleted.
+        kb_refs = [
+            str(ref)
+            for ref in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT engine_kb_ref FROM engine_kb_routes "
+                        "WHERE tenant_id = :tid ORDER BY engine_kb_ref"
+                    ),
+                    {"tid": tenant_id},
+                )
+            )
+            .scalars()
+            .all()
+        ]
+        if agent_refs or kb_refs:
             await open_tasks_for_request(
                 session,
                 tenant_id=tenant_id,
                 request_ref=request_id,
                 request_kind="tenant",
                 subject_ref=None,
-                vendor_refs=agent_refs,
+                vendor_refs=[*agent_refs, *kb_refs],
                 # A tenant erasure ends the engagement, so the speech and model
                 # processors' copies are in scope too — they are not reachable by any
                 # API of ours either, and the certificate now says so.
