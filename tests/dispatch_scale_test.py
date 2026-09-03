@@ -110,8 +110,25 @@ IDLE = POPULATION - DISPATCHABLE
 # to the dispatch path without this line pretending to police it. What it does police is
 # the term that is not here: a tick that opened a session per dispatchable tenant would
 # need ~12,000 of both, and no value of these constants can absorb that.
+#
+# RAISED 12 -> 16 (D-514). `dispatch_campaign_tick` now calls `dispatch_due_callbacks`
+# for each tenant it is already dispatching (`workers/campaign_dispatch.py:630`), so a
+# tick that dials also asks whether that tenant owes anyone a call-back. Measured in a
+# full-suite run against an ambient database: 278 queries across 20 sessions for 6
+# dialling tenants — 13.5 per session against a coefficient of 12, so the old value was
+# describing a tick that no longer exists.
+#
+# THE RAISE IS SOUND BECAUSE THE NEW WORK IS PER TENANT WITH WORK, NOT PER DISPATCHABLE
+# TENANT, and that distinction is the one this file exists to police. The same run had
+# 372 dispatchable tenants and opened 20 sessions; the four assertions above — no
+# trespass, no strangers, none missed, none idle-opened — all passed on rows this test
+# owns. A reversion to a session per dispatchable tenant would need ~12,000 queries,
+# which 16 absorbs no better than 12 did.
+#
+# The headroom (16, not 14) is for the same reason the original was rounded up: so a gate
+# may be added to the dispatch path without this line pretending to police it.
 QUERY_BASE = 8
-QUERIES_PER_SESSION = 12
+QUERIES_PER_SESSION = 16
 
 # Every tenant `_tenant()` builds, so the fixture below can quiet them again.
 _TENANTS: list[uuid.UUID] = []
