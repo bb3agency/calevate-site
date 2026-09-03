@@ -4028,6 +4028,76 @@ class BolnaEngine:
                 )
             await asyncio.sleep(KB_READY_POLL_INTERVAL_S)
 
+    async def _kb_account_rows(self) -> tuple[list[dict[str, Any]], ListingIncompleteReason | None]:
+        """Every knowledge base on the ACCOUNT, walked to the end of its pages.
+
+        **THIS LISTING IS PAGINATED AND `_rag_id_of` ASKED FOR ONE PAGE (D-519), WHICH IS
+        D-421'S DEFECT ON A SECOND ROUTE.** The same two first-party pages govern it:
+
+            `bolna-findings/mirror/pages/api-reference/pagination.md:9,13-14` — "The
+            endpoints also support pagination using the `page_number` and `page_size`
+            query parameters ... `page_number` ... Defaults to `1` ... `page_size` ...
+            Defaults to `20`. You can request up to `50` results per page."
+
+        and the route's own OpenAPI block, which declares NO parameters and answers a
+        bare `KnowledgebaseList` array with no `has_more` and no `total`
+        (`.../knowledgebase/get_knowledgebases.md:29-51,63-121`).
+
+        WHY IT WAS WORSE HERE THAN ON THE AGENT ROSTER. One Bolna account holds every
+        tenant's knowledge bases and each PUBLISHED VERSION of each named source is its
+        own object (there is no update route — `.../knowledgebase/overview.md:11-16`), so
+        the 21st object is a handful of documents rather than a handful of clients. Past
+        it, `_rag_id_of` answered `None` for a knowledge base the account really holds,
+        `detach_kb` raised "the voice platform does not hold that knowledge base" — a
+        false statement about a live object — and `kb/service._detach_superseded` turned
+        it into `kb_detach_failed`, whose remediation is "try publishing again". Every
+        retry would fail the same way, and the account's oldest documents are the ones
+        that stop being addressable first. That is a client's knowledge frozen with a
+        message that says otherwise.
+
+        SAFE UNDER BOTH READINGS, exactly as `_agent_refs` is: if the platform honours
+        `page_number` this walks to the end; if it IGNORES it, page two repeats page one,
+        the de-duplication sees no new `rag_id` and the walk stops. De-duplication is on
+        `rag_id` because that is the object's own id and the one field their listing
+        schema declares as the ID (`get_knowledgebases.md:63-70`); `vector_id` is absent
+        from a row that is still `processing`.
+
+        The verdict is returned rather than swallowed: a caller that must not mistake
+        "we could not finish looking" for "the account does not hold it" needs the
+        difference, and `_rag_id_of` is exactly that caller.
+        """
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        reason: ListingIncompleteReason | None = None
+        page_number = 1
+        while True:
+            payload = await self._request(
+                "GET",
+                "/knowledgebase/all",
+                params={"page_number": page_number, "page_size": _LISTING_PAGE_SIZE},
+            )
+            page = _listing_rows(payload)
+            new_rows = 0
+            for row in page:
+                rag_id = row.get("rag_id")
+                if not isinstance(rag_id, str) or not rag_id or rag_id in seen:
+                    continue
+                seen.add(rag_id)
+                rows.append(row)
+                new_rows += 1
+            # A short page ends the account and cannot be hiding anything — the vendor
+            # returned fewer rows than we asked for. The only exit that claims completeness.
+            if len(page) < _LISTING_PAGE_SIZE:
+                break
+            if new_rows == 0:
+                reason = "next_link_no_progress"
+                break
+            if page_number >= _LISTING_MAX_PAGES:
+                reason = "page_cap_reached"
+                break
+            page_number += 1
+        return rows, reason
+
     async def _rag_id_of(self, vector_id: EngineKBRef) -> str | None:
         """Our handle -> the id the DELETE route takes, or None if the account holds no
         such knowledge base.
@@ -4040,11 +4110,32 @@ class BolnaEngine:
         None is a real answer and the caller must treat it as one: it means the engine
         does not hold that knowledge base, which for `detach_kb` is the 404 the Protocol
         says must RAISE rather than pass quietly.
+
+        **AND THAT IS PRECISELY WHY AN UNFINISHED WALK MAY NOT ANSWER `None` (D-519).**
+        A listing we could not finish is not evidence of absence, and turning it into one
+        deletes a client's ability to republish (see `_kb_account_rows`). So a miss on a
+        walk that stopped early RAISES a dependency error naming the cause, which
+        `_detach_superseded` reports as a refusal to publish — the client keeps the
+        version a human approved and loses only the update.
         """
-        for row in _listing_rows(await self._request("GET", "/knowledgebase/all")):
+        rows, reason = await self._kb_account_rows()
+        for row in rows:
             if row.get("vector_id") == vector_id:
                 rag_id = row.get("rag_id")
                 return rag_id if isinstance(rag_id, str) and rag_id else None
+        if reason is not None:
+            log.error("kb_account_listing_incomplete", extra={"reason": reason})
+            raise ProblemError(
+                kind="dependency",
+                code="engine_kb_listing_incomplete",
+                title="The voice platform's knowledge list could not be read to the end",
+                detail=(
+                    "The platform did not finish listing the knowledge bases on this "
+                    "account, so we cannot tell whether it still holds this one."
+                ),
+                remediation="Try again in a few minutes.",
+                failure_stage="CORE_LOGIC",
+            )
         return None
 
     async def _current_vector_ids(self, ref: EngineAgentRef) -> list[EngineKBRef]:
