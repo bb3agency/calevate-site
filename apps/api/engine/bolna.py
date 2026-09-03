@@ -4145,10 +4145,27 @@ class BolnaEngine:
             page = _listing_rows(payload)
             new_rows = 0
             for row in page:
+                # DEDUPED ON `rag_id` WHERE THERE IS ONE, ON `vector_id` WHERE THERE IS
+                # NOT — AND A ROW WITH NEITHER IS STILL RETURNED. Skipping a row for
+                # having no usable `rag_id` (which this loop did) put D-516's defect back
+                # one layer down: the row never reached `_rag_id_of`, so a match on
+                # `vector_id` came back as "the account does not hold it", the publisher
+                # was told the document was already gone, and nothing was deleted. The
+                # dedupe key is an implementation detail of walking pages; it may not
+                # decide what a caller is allowed to see.
                 rag_id = row.get("rag_id")
-                if not isinstance(rag_id, str) or not rag_id or rag_id in seen:
-                    continue
-                seen.add(rag_id)
+                vector_id = row.get("vector_id")
+                key = (
+                    rag_id
+                    if isinstance(rag_id, str) and rag_id
+                    else vector_id
+                    if isinstance(vector_id, str) and vector_id
+                    else None
+                )
+                if key is not None:
+                    if key in seen:
+                        continue
+                    seen.add(key)
                 rows.append(row)
                 new_rows += 1
             # A short page ends the account and cannot be hiding anything — the vendor
@@ -4189,7 +4206,27 @@ class BolnaEngine:
         for row in rows:
             if row.get("vector_id") == vector_id:
                 rag_id = row.get("rag_id")
-                return rag_id if isinstance(rag_id, str) and rag_id else None
+                if isinstance(rag_id, str) and rag_id:
+                    return rag_id
+                # A MATCH CARRYING NO USABLE `rag_id` IS A BAD RESPONSE, NOT AN ABSENCE
+                # (D-516). `rag_id` is declared on this row
+                # (`.../knowledgebase/get_knowledgebases.md:65-70`), so a match without
+                # one is the vendor answering something we cannot act on. Returning
+                # `None` here — which this line did — reported it to the publisher as
+                # "already gone" and then deleted nothing: the second of the two lies
+                # D-516 found in these six lines, and the one that survives an unpaged
+                # walk being fixed.
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_bad_response",
+                    title="The voice platform described a knowledge base it cannot identify",
+                    detail=(
+                        "The platform listed this knowledge base without the identifier "
+                        "needed to remove it, so it cannot be detached right now."
+                    ),
+                    remediation="Try again in a few minutes.",
+                    failure_stage="CORE_LOGIC",
+                )
         if reason is not None:
             log.error("kb_account_listing_incomplete", extra={"reason": reason})
             raise ProblemError(
