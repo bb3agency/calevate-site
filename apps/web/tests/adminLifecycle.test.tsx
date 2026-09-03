@@ -41,6 +41,7 @@ function tenant(status = "active"): TenantSummary {
     name: "Sri Traders",
     slug: "sri-traders",
     status,
+    plan_tier: "prepaid",
     vertical_template: "clinic",
     live_agents: 1,
     calls_7d: 12,
