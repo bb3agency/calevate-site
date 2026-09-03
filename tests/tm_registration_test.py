@@ -53,7 +53,7 @@ from apps.api.main import app
 from apps.api.ops.service import read_tm_registration, set_tm_registration
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 from tests.impersonation_grant_test import view_as_headers
 from tests.national_dnd_test import record_test_scrub
 
@@ -119,6 +119,10 @@ async def _tenant() -> dict[str, Any]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     async with tenant_session(created["id"]) as session:
         await session.execute(
             text("UPDATE agents SET status = 'live', direction = 'outbound' WHERE id = :a"),

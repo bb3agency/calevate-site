@@ -152,6 +152,16 @@ async def _seed_billing(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
     """
     call_id = uuid7()
     async with tenant_session(tenant_id) as session:
+        # The MANAGED motion, named rather than inherited (D-521 moved the default to
+        # `prepaid`). The figures in this docstring are a retainer, an included allowance
+        # and an overage rate — the invoiced month's arithmetic — and on a prepaid month
+        # the same minutes are priced at the published list rate with no allowance in
+        # front of them, so every nullable field this fixture exists to fill would land
+        # somewhere else.
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'managed' WHERE id = :t"),
+            {"t": tenant_id},
+        )
         await session.execute(
             text(
                 "INSERT INTO plans (id, tenant_id, monthly_fee, included_min, overage_rate, "

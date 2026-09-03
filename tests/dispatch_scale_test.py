@@ -75,7 +75,7 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 # The organizations this test provisions so the two candidate shapes are distinguishable
@@ -127,8 +127,23 @@ IDLE = POPULATION - DISPATCHABLE
 #
 # The headroom (16, not 14) is for the same reason the original was rounded up: so a gate
 # may be added to the dispatch path without this line pretending to police it.
+#
+# RAISED 16 -> 26 (D-521), and the reason is one indexed read that used to be skipped.
+# `compliance.credits_exhausted` returns early for a `managed` tenant — it reads the tier
+# and stops — and until D-521 every tenant this file creates WAS managed, by the column's
+# old server default. Prepaid is the default now, so the gate goes on to read the wallet
+# balance (`billing.service._newest_balance`, one row by index) on every dial. Measured
+# here, twice, at 286 queries across 13 sessions = 22.0 per session against a coefficient
+# of 16.
+#
+# THE RAISE IS SOUND FOR D-514's REASON, WHICH IS THE ONLY ONE THAT MATTERS HERE: the new
+# read is per DIAL, i.e. per unit of work actually done, and carries no per-dispatchable-
+# tenant term. The property this file polices is that absence, and a tick that opened a
+# session per dispatchable tenant would still need ~12,000 queries, which 26 absorbs no
+# better than 16 did. 26 keeps the same proportional headroom over the measurement (22.0)
+# that 16 kept over 13.5.
 QUERY_BASE = 8
-QUERIES_PER_SESSION = 16
+QUERIES_PER_SESSION = 26
 
 # Every tenant `_tenant()` builds, so the fixture below can quiet them again.
 _TENANTS: list[uuid.UUID] = []
@@ -386,6 +401,10 @@ async def _tenant(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     _TENANTS.append(tenant_id)
     if not published:

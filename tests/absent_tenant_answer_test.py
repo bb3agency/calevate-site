@@ -166,6 +166,10 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status": {
         "dlt_status": "registered"
     },
+    "POST /v1/admin/tenants/{tenant_id}/plan-tier": {
+        "plan_tier": "managed",
+        "reason": "census",
+    },
     "POST /v1/admin/tenants/{tenant_id}/status": {
         "status": "suspended",
         "reason": "census",

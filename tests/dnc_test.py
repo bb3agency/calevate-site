@@ -26,7 +26,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +58,10 @@ async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     tenant_id, agent_id, slug = created["id"], created["agent_id"], created["slug"]
 
     user_id = uuid.uuid4()

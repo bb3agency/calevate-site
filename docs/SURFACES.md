@@ -99,6 +99,15 @@ Lands M2 (D-39: schema in M1, surface when a user needs it). These are **additio
 same client app** — a self-serve org is the same `organizations` row with a different
 `plan_tier`, so nothing forks.
 
+⚠ **"SELF-SERVE-ONLY" IS THE WRONG NAME FOR THE WALLET HALF SINCE D-521**, and the heading
+below is kept only because the acquisition motion it names is unchanged. The BILLING motion
+moved underneath it: `prepaid` is now the default tier, every existing account was migrated
+to it, and `managed` is the deliberate exception an operator sets for a client invoiced on a
+retainer. So the **credit wallet, the top-up flow and the runway framing are what nearly
+every client sees**, not a screen reserved for unattended signups — while the KYC gate and
+the first-campaign hold, which really are about a stranger signing up, still apply to
+`self_serve`/`trial` only. Read the two questions separately (DATA-MODEL §2).
+
 **Self-serve-only screens**
 - **Sign-up + org create**: email/password or Google (FLOWS §2), slug validated against
   `reserved_slugs`.

@@ -30,8 +30,34 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
 # D-34 runs both motions on one product; D-39 puts the column in M1 because tenancy is
-# not retrofittable. `managed` is the client-#1 path; `self_serve` unlocks the M2 UI.
-PLAN_TIERS = ("managed", "self_serve", "trial")
+# not retrofittable. `self_serve` unlocks the M2 UI.
+#
+# ⚠ **D-521 ADDED `prepaid` AND MADE IT THE DEFAULT (`DEFAULT_PLAN_TIER` below), WHICH
+# SUPERSEDES D-34 ON WHICH MOTION A NEW ACCOUNT IS BORN INTO.** The four names split on
+# TWO different questions, and reading them as one ladder is the mistake this comment
+# exists to stop:
+#
+#   * **does this account pay from a wallet?** — `billing/rates.PREPAID_TIERS`, which is
+#     `prepaid`, `self_serve` and `trial`. `managed` is the ONLY invoiced tier and it is
+#     now something an operator sets deliberately for a client genuinely billed on a
+#     retainer (`POST /v1/admin/tenants/{id}/plan-tier`), not what a client gets by
+#     default;
+#   * **did a stranger sign this account up unattended?** — `compliance/service
+#     .SELF_SERVE_TIERS`, which is `self_serve` and `trial` and does NOT include
+#     `prepaid`. It gates subscriber KYC (D-47) and the first-campaign hold (D-51), both
+#     of which exist because on that motion the applicant is a stranger. An operator who
+#     creates a client has met them, so `prepaid` must not pick those gates up.
+#
+# The two questions had identical answers until D-521, which is why one constant used to
+# serve both. `tests/plan_tier_split_test.py` pins the containment that survives it.
+PLAN_TIERS = ("managed", "prepaid", "self_serve", "trial")
+
+#: What a NEW organisation is born on when no caller names a tier (D-521). Lives here,
+#: beside the enum it must be a member of, rather than in `admin/service.py` where it
+#: began: `billing.service.plan_tier_of` needs the same value for the row it cannot see,
+#: and an admin module is not something the money layer may import. `admin.service`
+#: re-exports it, so the name every caller already uses still resolves.
+DEFAULT_PLAN_TIER = "prepaid"
 MEMBER_ROLES = ("owner", "staff")
 #: RE-EXPORTED, NOT RESTATED. `core/rbac.ROLE_PERMISSIONS` is keyed by these two names and
 #: `authn/bootstrap` validates against them; a second literal here is how a role table and
@@ -81,9 +107,11 @@ class Organization(PKMixin, TimestampMixin, Base):
     caller_memory_attested_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
-    # Which motion this org belongs to (D-34/D-39). NOT a feature flag: it decides
-    # whether credits gate dispatch and whether the self-serve screens render.
-    plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default="managed")
+    # Which motion this org belongs to (D-34/D-39/D-521). NOT a feature flag: it decides
+    # whether credits gate dispatch and whether the self-serve screens render. The
+    # server default moved `managed` -> `prepaid` with D-521 (migration `a8d3f61c04e7`);
+    # it is spelled from the constant so the column and the wizard cannot disagree.
+    plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default=DEFAULT_PLAN_TIER)
     billing_email: Mapped[str | None] = mapped_column(Text)
     # The wizard's intake answer sheet (FLOWS §1 step 3), raw and resumable: the fields
     # an operator typed, not the [T0 FACTS] block compiled out of them. Lives here

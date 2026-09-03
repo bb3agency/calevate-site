@@ -51,6 +51,13 @@ async def _capped_tenant(month: str) -> tuple[uuid.UUID, uuid.UUID]:
         billing_email=None,
         language="te-IN",
         created_by=None,
+        # THE MANAGED MOTION, named rather than inherited (D-521 moved the default to
+        # `prepaid`). This file's subject is a tenant with NO plan row: what the panel,
+        # the cap and the invoice say when nothing quotes a price for their minutes —
+        # ₹0, together, with `warn_no_plan_in_effect` making the gap visible. A prepaid
+        # month has no plan row EITHER and is still priced, at the published list rate,
+        # so on the default tier the "no price anywhere" case cannot be constructed.
+        plan_tier="managed",
     )
     # The four agreements, accepted (migration a9d4e70c31b8) — supplied, never assumed
     # away, in the shape `arm_agent_for_outbound` established. Every dial, launch and

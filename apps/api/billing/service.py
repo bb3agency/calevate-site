@@ -67,6 +67,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.models import DEFAULT_PLAN_TIER
 
 log = get_logger(__name__)
 
@@ -806,12 +807,25 @@ async def charge_for_call(
 
 
 async def plan_tier_of(session: AsyncSession, tenant_id: UUID) -> str:
+    """The one reader of `organizations.plan_tier`, and the answer for a row it cannot see.
+
+    THE FALLBACK IS THE PLATFORM DEFAULT, AND IT USED TO BE THE LITERAL `"managed"`
+    (D-521). No row comes back when the id names nobody OR — the case that matters —
+    when the session is scoped to a different tenant and RLS hides it. Under D-34 the
+    literal was harmless because it WAS the default: the invisible row almost certainly
+    said `managed` too. D-521 inverted that, and a stale literal would have answered
+    "invoiced" for an account that is credit-gated, which every caller reads as a
+    permission: `credits_exhausted` returns False (dial anyway, empty wallet and all),
+    `read_wallet_summary` reports no wallet, and `purchase_ai_overage` refuses a client
+    who may buy. Spelled from `DEFAULT_PLAN_TIER` so it moves with the column's own
+    server default rather than being a second opinion about it.
+    """
     tier = (
         await session.execute(
             text("SELECT plan_tier FROM organizations WHERE id = :tid"), {"tid": tenant_id}
         )
     ).scalar()
-    return str(tier or "managed")
+    return str(tier or DEFAULT_PLAN_TIER)
 
 
 # --- reporting -----------------------------------------------------------------

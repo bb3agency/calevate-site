@@ -254,9 +254,15 @@ async def test_the_tier_and_the_owner_land_with_the_tenant() -> None:
     assert int(audited or 0) == 1, "the audit row commits with the tenant, not after it"
 
 
-async def test_a_managed_tenant_still_defaults_to_the_managed_tier() -> None:
-    """The wizard passes neither new parameter, so the admin motion must be exactly
-    what it was: managed tier, no membership (the operator invites the owner later)."""
+async def test_the_admin_wizard_creates_a_prepaid_tenant_with_no_membership() -> None:
+    """⚠ THIS TEST ASSERTED `managed` UNTIL D-521, AND ITS NAME SAID SO.
+
+    The wizard still passes neither new parameter — that half is unchanged, and the
+    membership half with it (the operator invites the owner later). What moved is the
+    DEFAULT the wizard falls through to: a client an operator creates is credit-gated like
+    every other account now, and `managed` is set afterwards, deliberately, for a client
+    genuinely invoiced on a retainer.
+    """
     slug = _slug("wizard")
     created = await admin_service.create_organization(
         name="Wizard Clinic",
@@ -274,7 +280,7 @@ async def test_a_managed_tenant_still_defaults_to_the_managed_tier() -> None:
             )
         ).scalar()
     row = await _org_by_slug(slug)
-    assert row is not None and row[2] == "managed"
+    assert row is not None and row[2] == "prepaid"
     assert int(members or 0) == 0
 
 
