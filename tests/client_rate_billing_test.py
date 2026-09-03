@@ -135,9 +135,15 @@ def test_an_unpriced_managed_tenant_accrues_nothing_rather_than_a_made_up_price(
 
 
 def test_the_prepaid_tier_list_is_what_the_meter_branches_on() -> None:
-    """A fourth prepaid tier added to `charge_for_call`'s branch and not to this constant
-    would be a wallet that stops draining, silently. Named once, asserted here."""
-    assert PREPAID_TIERS == ("self_serve", "trial")
+    """A prepaid tier added to `charge_for_call`'s branch and not to this constant would
+    be a wallet that stops draining, silently. Named once, asserted here.
+
+    ⚠ THE EXPECTED VALUE MOVED WITH D-521, which added `prepaid` and made it the DEFAULT
+    tier — so this tuple is now what most tenants are, rather than the exception. What the
+    assertion is for is unchanged: it pins the exact set, so a tier added to the meter and
+    not here (or the reverse) is a red test rather than a wallet nobody debits.
+    """
+    assert PREPAID_TIERS == ("prepaid", "self_serve", "trial")
 
 
 # ============================================================================
