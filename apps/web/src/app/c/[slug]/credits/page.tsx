@@ -121,6 +121,19 @@ export default function CreditsPage() {
                 ? "yes — incoming calls are still answered"
                 : "no",
             },
+            {
+              /* THE SAME BIT THE HERO NEEDS, declared for the same reason: the assistant
+                 must not tell a client on their first afternoon that their credit ran
+                 out, and `outbound_stopped` alone cannot tell it that it did not. */
+              key: "funded",
+              label: "Has anything ever been added to this wallet?",
+              value:
+                funded === null
+                  ? "we have not read the history yet"
+                  : funded
+                    ? "yes"
+                    : "no — nothing has ever moved on it",
+            },
             { key: "spent_inr", label: `Spent in the last ${wallet.data.runway.window_days} days (INR)`, value: wallet.data.drawdown.spent_inr },
             { key: "calls_inr", label: "Of that, calls (INR)", value: wallet.data.drawdown.calls_inr },
             { key: "ai_assist_inr", label: "Of that, extra AI help (INR)", value: wallet.data.drawdown.ai_assist_inr },
