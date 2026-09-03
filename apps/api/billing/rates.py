@@ -1004,7 +1004,22 @@ def committed_plan_margin(
 #: the meter's `charge_for_call`, the runway framing and `billing.service
 #: .calling_revenue_inr` — and a fourth tier added to one of them and not the others is a
 #: wallet that stops draining.
-PREPAID_TIERS: Final = ("self_serve", "trial")
+#:
+#: ⚠ **`prepaid` JOINED IT WITH D-521, WHICH IS ALSO WHEN THIS SET STOPPED BEING THE
+#: EXCEPTION.** It is now what a new account gets (`tenancy/models.DEFAULT_PLAN_TIER`)
+#: and what every existing account was migrated to (`a8d3f61c04e7`); `managed` is the
+#: deliberate exception an operator sets for a client invoiced on a retainer. Nothing
+#: reading this tuple had to change for that — every one of them asks "does this account
+#: pay from a wallet", which is exactly what membership here means, and the answer simply
+#: became yes for most tenants.
+#:
+#: **IT IS NO LONGER THE SAME SET AS `compliance/service.SELF_SERVE_TIERS`**, which used
+#: to be an alias of this name. That one answers a different question — "did a stranger
+#: sign this account up unattended?" — and keeps its two members, because `prepaid` is a
+#: tier an OPERATOR creates for a client they have met. Aliasing them again would put the
+#: subscriber-KYC dial gate (D-47) and the first-campaign hold (D-51) in front of every
+#: client on the platform, which is not what either control is for.
+PREPAID_TIERS: Final = ("prepaid", "self_serve", "trial")
 
 
 def prepaid_billed_inr(*, minutes: Decimal, self_serve_rate: Decimal) -> Decimal:

@@ -44,6 +44,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.tenancy.lifecycle import assert_account_open
+from apps.api.tenancy.models import DEFAULT_PLAN_TIER as _DEFAULT_PLAN_TIER
 
 log = get_logger(__name__)
 
@@ -186,7 +187,11 @@ async def assert_slug_available(session: AsyncSession, slug: str) -> None:
         raise ProblemError.conflict("slug_taken", "That slug is already in use.")
 
 
-DEFAULT_PLAN_TIER = "managed"
+#: RE-EXPORTED, NOT RESTATED (D-521). The value moved to `tenancy/models.py` beside
+#: `PLAN_TIERS`, because `billing.service.plan_tier_of` needs the same answer for a row it
+#: cannot see and the money layer may not import an admin module. Every caller that says
+#: `admin.service.DEFAULT_PLAN_TIER` still resolves; there is one definition.
+DEFAULT_PLAN_TIER = _DEFAULT_PLAN_TIER
 
 # Extra writes a caller needs INSIDE the tenant's birth transaction. Called with the
 # open session and the new tenant id, after every row above has been written.
@@ -225,8 +230,11 @@ async def create_organization(
     RI machinery, which is not subject to row security. So the membership genuinely
     belongs in this transaction; it was never blocked from being here.
 
-    Defaults keep the admin wizard exactly as it was: `managed` tier, and no
-    membership — an operator invites the owner afterwards (FLOWS §2), so there is no
+    The default tier is `DEFAULT_PLAN_TIER` — `prepaid` since D-521, `managed` before
+    it. A client an operator creates is now credit-gated like every other account, and
+    `managed` is set afterwards, deliberately, for a client genuinely invoiced on a
+    retainer (`POST /v1/admin/tenants/{tenant_id}/plan-tier`). The default membership is
+    still none — an operator invites the owner afterwards (FLOWS §2), so there is no
     user to point at yet.
 
     `on_created` is the escape hatch for the caller's OWN last write (signup's audit

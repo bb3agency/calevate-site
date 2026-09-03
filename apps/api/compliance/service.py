@@ -327,16 +327,53 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
 # the gate side would go on agreeing right up until somebody edited one. The NAME stays,
 # because five modules import it and because "the tiers we have not verified out of band"
 # is the compliance-side reason for caring about the same set.
-SELF_SERVE_TIERS: Final[tuple[str, ...]] = PREPAID_TIERS
+#
+# ⚠ **AND D-521 SPLIT THEM APART AGAIN, ON PURPOSE. READ THIS BEFORE RE-DERIVING IT.**
+# The derivation above was right about the mechanism and wrong about the premise: it
+# assumed there is ONE fact here. There are two, and they had the same answer only while
+# every prepaid account was an unattended signup:
+#
+#   * **`PREPAID_TIERS` — does this account pay from a wallet?** D-521 made that the
+#     default, so it now also contains `prepaid`;
+#   * **`SELF_SERVE_TIERS` — did a STRANGER open this account?** That is what the three
+#     predicates below are for. `kyc_blocker` exists because on the self-serve motion the
+#     applicant is unknown to us (D-47: "a managed tenant is not anonymous — we
+#     contracted with them"), and `first_campaign_hold_blocker` is R-11's manual review of
+#     an account nobody vetted. `prepaid` is a tier an OPERATOR types into the wizard for
+#     a client they have met, so it does NOT join this set: had it, the migration that
+#     moved every existing tenant onto prepaid would have refused every one of their dials
+#     with `kyc_missing` and held every campaign for review — a platform-wide outage
+#     dressed as a billing change.
+#
+# Spelled literally rather than derived from `PREPAID_TIERS` because it is now a
+# DIFFERENT fact, not a copy of one. What the derivation was protecting — that the wallet
+# never drains for a tier the dial gate does not stop — survives as CONTAINMENT rather
+# than equality, and `tests/plan_tier_split_test.py` asserts it: every member here must be
+# in `PREPAID_TIERS`, and every member of `PLAN_TIERS` must be accounted for by one branch
+# or the other. A new tier that reaches neither is the failure both spellings exist for.
+SELF_SERVE_TIERS: Final[tuple[str, ...]] = ("self_serve", "trial")
 
 
 async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
-    """Self-serve/trial only (D-34). A managed client is invoiced against a retainer,
-    so blocking them over a wallet they never bought would be an outage caused by a
-    concept that does not apply to them. Shared with the launch gate for the same
-    reason `spend_capped` is."""
+    """PREPAID tiers only (D-34, widened by D-521). A `managed` client is invoiced
+    against a retainer, so blocking them over a wallet they never bought would be an
+    outage caused by a concept that does not apply to them. Shared with the launch gate
+    for the same reason `spend_capped` is.
+
+    **IT ASKS `PREPAID_TIERS`, NOT `SELF_SERVE_TIERS`, AND THOSE STOPPED BEING ONE
+    QUESTION WITH D-521.** The question here is "does this account pay from a wallet",
+    which is the money set; the identity gates below ask the other one. Reading the
+    compliance alias here would have left every `prepaid` tenant — i.e. nearly all of
+    them — dialling on an empty wallet, which is the defect D-521 was raised to fix.
+
+    **INBOUND SURVIVES A ZERO BALANCE AND MUST GO ON DOING SO.** This predicate is
+    reached only from `check_dispatch` — which refuses an inbound-only agent with
+    `agent_inbound_only` before it asks any money question — and from the campaign launch
+    and dispatch gates, which are outbound by construction. A clinic whose phone stops
+    being answered because a top-up lapsed is a clinic that leaves.
+    """
     tier = await plan_tier_of(session, tenant_id)
-    if tier not in SELF_SERVE_TIERS:
+    if tier not in PREPAID_TIERS:
         return False
     balance = await get_balance(session, tenant_id=tenant_id)
     return balance.is_exhausted
@@ -534,7 +571,10 @@ async def check_dispatch(
             reason=SPEND_CAP_REASON,
         )
 
-    # Credits gate the self-serve motion only (D-34: one product, two motions).
+    # Credits gate every PREPAID account (D-34, and D-521 which made that the
+    # default), i.e. everyone except a client an operator put on `managed`. It is
+    # asked AFTER `agent_inbound_only` above, which is what keeps an inbound line
+    # answering at a zero balance.
     if await credits_exhausted(session, tenant_id=tenant_id):
         return DispatchDecision(
             allowed=False,
