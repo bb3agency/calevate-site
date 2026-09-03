@@ -736,6 +736,44 @@ def test_every_probe_names_where_its_endpoint_came_from() -> None:
         assert isinstance(probe.verified, bool)
 
 
+def test_every_probe_authenticates_the_way_its_adapter_does() -> None:
+    """THE CITATION IS AN ATTRIBUTION, AND NOBODY WAS CHECKING IT (D-517).
+
+    `PROBES` opens by promising *"Every endpoint and header shape below is READ FROM THIS
+    REPO'S OWN ADAPTERS ... so a probe cannot be authenticating differently from the thing
+    it is testing"*. The Cartesia probe was: it sent `X-API-Key` and
+    `Cartesia-Version: 2024-06-10` and cited `API_KEY_HEADER`, a constant the adapter has
+    not carried since D-271 moved it to `Authorization: Bearer` — so a VALID key would
+    have been refused and the console would have told the operator to rotate it.
+
+    The probe cannot import the adapter (hard rule 2; import-linter's "engine isolation"
+    contract lists `apps.api.ops` as a source module and `apps.api.engine.cartesia` as
+    forbidden), so the two literals are pinned HERE, where a test may read both sides.
+    Assert on the RENDERED header map rather than the source text: what reaches the vendor
+    is what matters, and a comment that merely mentions the old name must not fail this.
+    """
+    from apps.api.engine import cartesia as cartesia_module
+    from apps.api.engine.bolna import BASE_URL as BOLNA_BASE_URL
+    from apps.api.ops.secret_probes import PROBES
+
+    bolna = PROBES["bolna_api_key"]
+    assert bolna.url.startswith(BOLNA_BASE_URL + "/"), (
+        "the Bolna probe must be aimed at the host the adapter actually calls; it cites "
+        f"`BASE_URL`, which is {BOLNA_BASE_URL!r}"
+    )
+    assert bolna.headers("k") == {"Authorization": "Bearer k"}
+
+    cartesia = PROBES["cartesia_api_key"]
+    assert cartesia.url.startswith(cartesia_module.BASE_URL + "/")
+    assert cartesia.headers("k") == {
+        f"{cartesia_module.AUTH_HEADER}": f"{cartesia_module.AUTH_SCHEME} k",
+        cartesia_module.VERSION_HEADER: cartesia_module.API_VERSION,
+    }, (
+        "the Cartesia probe authenticates differently from the adapter it cites — a "
+        "working credential refused here tells an operator to rotate a good key"
+    )
+
+
 def test_the_ledger_allowance_is_scoped_to_one_file() -> None:
     """`BOUNDED_MUTATIONS` lets `secret_service.py` contain the rewrap's UPDATE. The
     allowance must be ONE MODULE WIDE, not repo wide.
