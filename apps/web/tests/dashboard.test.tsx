@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import DashboardPage from "@/app/c/[slug]/page";
 import type { CallSummary, Dashboard, Me } from "@/lib/api/client";
 import type { UsagePanel } from "@/lib/api/hooks";
+import type { Wallet } from "@/lib/api/wallet";
 
 import {
   browserOffline,
@@ -154,6 +155,41 @@ const USAGE: UsagePanel = {
   credit_balance_inr: null,
 };
 
+/**
+ * A prepaid wallet with money on it — the state most accounts are in, now that prepaid is
+ * what an account gets unless an operator deliberately puts it on a retainer.
+ */
+function wallet(over: Partial<Wallet> = {}): Wallet {
+  return {
+    tenant_id: "o1",
+    prepaid: true,
+    balance_inr: "3400.00",
+    is_low: false,
+    low_balance_threshold_inr: "200.00",
+    outbound_stopped: false,
+    runway: {
+      basis: "projected",
+      days: 10,
+      daily_burn_inr: "340.00",
+      history_days: 30,
+      beyond_horizon: false,
+      window_days: 30,
+      min_history_days: 7,
+      max_days: 365,
+    },
+    minutes_left: 425,
+    drawdown: {
+      calls_inr: "8400.00",
+      ai_assist_inr: "0.00",
+      adjustments_inr: "0.00",
+      spent_inr: "8400.00",
+      added_inr: "12100.00",
+      refunded_inr: "0.00",
+    },
+    ...over,
+  };
+}
+
 const page = <DashboardPage params={Promise.resolve({ slug: "acme" })} />;
 
 function routes(over: Record<string, unknown> = {}) {
@@ -161,6 +197,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/me": ME,
     "/v1/dashboard": EMPTY_DASHBOARD,
     "/v1/usage": USAGE,
+    "/v1/billing/wallet": wallet(),
     "/v1/calls?limit=6": [],
     ...over,
   };
@@ -407,19 +444,17 @@ describe("the money tile says which kind of nothing it is showing", () => {
     // on screen during the loading branch as well.
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("We could not read your usage");
-    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe(
-      "Spend this month",
-    );
-    expect(container.textContent).not.toContain("₹");
+    const tile = alert.closest("section");
+    expect(tile?.querySelector("h2")?.textContent).toBe("Spend this month");
+    // SCOPED TO THIS TILE, not to the page: the calling-credit tile beside it is a
+    // different read that succeeded, and its balance is not this tile's failure.
+    expect(tile?.textContent).not.toContain("₹");
     // The rest of the screen is unaffected: this tile's failure is not the page's.
     expect(container.textContent).toContain("Calls today");
   });
 
   it("shows a skeleton, not a dash, while the usage read is in flight", async () => {
-    const { container } = await renderClientPage(
-      page,
-      routes({ "/v1/usage": stillLoading() }),
-    );
+    await renderClientPage(page, routes({ "/v1/usage": stillLoading() }));
 
     // Scoped to the tile: this page has other skeletons, and a page-level count would
     // pass on any one of them.
@@ -430,7 +465,9 @@ describe("the money tile says which kind of nothing it is showing", () => {
       tile!.querySelectorAll(".animate-pulse").length,
       "no skeleton in the Spend tile while /v1/usage is in flight",
     ).toBeGreaterThan(0);
-    expect(container.textContent).not.toContain("₹");
+    // Scoped for the same reason as the refusal above: a rupee figure elsewhere on the
+    // page belongs to a read that answered.
+    expect(tile!.textContent).not.toContain("₹");
   });
 
   it("says it is loading, and not only draws it", async () => {
@@ -477,5 +514,75 @@ describe("the money tile says which kind of nothing it is showing", () => {
     expect(container.textContent).not.toContain("No call history yet");
     expect(container.textContent).not.toContain("No calls yet");
     expect(container.textContent).toContain("We could not reach Calevate");
+  });
+});
+
+/**
+ * CALLING CREDIT ON THE HOME SCREEN.
+ *
+ * The dashboard showed what the month has COST and nothing about what is left to spend,
+ * which was the right pair while every account was invoiced against a retainer and no
+ * balance could stop anything. Prepaid is now what an account gets unless an operator
+ * deliberately says otherwise, so the number that decides whether the product works
+ * tomorrow belongs on the screen a client opens first — and the first they hear of an
+ * empty wallet must not be a campaign that did not go out.
+ */
+describe("the calling credit tile", () => {
+  it("shows the balance the server sent, with somewhere to act on it", async () => {
+    await renderClientPage(page, routes());
+
+    const tile = (await screen.findByText("Calling credit left")).parentElement;
+    expect(tile?.textContent).toContain("₹3,400.00");
+    const link = within(tile as HTMLElement).getByRole("link");
+    expect(link.getAttribute("href")).toContain("/c/acme/credits");
+  });
+
+  it("says what stopped and what did not when the wallet is empty", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/billing/wallet": wallet({
+          balance_inr: "0.00",
+          is_low: true,
+          outbound_stopped: true,
+          minutes_left: 0,
+        }),
+      }),
+    );
+
+    const tile = (await screen.findByText("Calling credit left")).parentElement;
+    // NEVER THE FIGURE ALONE. "₹0.00" on a dashboard is a number a skimming owner reads
+    // past; "outgoing calls have stopped" is not — and the reassurance travels with it,
+    // because a client who thinks their phone has stopped being answered loses a day.
+    expect(tile?.textContent).toContain("Outgoing calls have stopped");
+    expect(tile?.textContent).toContain("people ringing you still get through");
+  });
+
+  it("shows an invoiced account no balance at all", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/billing/wallet": wallet({ prepaid: false, minutes_left: null }) }),
+    );
+
+    await screen.findByText("Calls today");
+    // A tenant with no wallet is not a tenant whose wallet is empty. A zero here would be
+    // the same false alarm the credit screen refuses to raise.
+    expect(container.textContent).not.toContain("Calling credit left");
+  });
+
+  it("refuses rather than printing a dash when the balance cannot be read", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/billing/wallet": problem(503, {
+          title: "Service unavailable",
+          detail: "We could not read your balance just now.",
+        }),
+      }),
+    );
+
+    await screen.findByText("We could not read your balance just now.");
+    // A failed read is not an empty wallet, and it is certainly not a stopped account.
+    expect(container.textContent).not.toContain("Outgoing calls have stopped");
   });
 });

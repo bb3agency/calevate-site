@@ -33,6 +33,8 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
+import { lookup } from "@/lib/lookup";
+
 import { apiRequest, type Session } from "./client";
 
 import type { components } from "./schema";
@@ -182,6 +184,36 @@ export function runwaySentence(runway: Runway): string {
       // rendering blank — the direction `creditReasonLabel` takes for an unknown reason.
       return "We cannot work out how long this lasts yet";
   }
+}
+
+/**
+ * What one line of the wallet IS, in the words a client uses.
+ *
+ * **This is NOT `credits.creditReasonLabel`, and the difference is the reader.** That map
+ * is the admin console's and says "Payment recorded" and "Compensating adjustment" —
+ * accurate operator vocabulary, and two phrases no clinic owner has ever used. The
+ * founder's standard for client-facing copy bans exactly that register (the API's own
+ * `tests/plain_language_guard_test.py` states the same rule one tier down), so the two
+ * realms carry two vocabularies for one ledger on purpose.
+ *
+ * What is NOT duplicated is the part where a disagreement would be a defect:
+ * `takesCreditAway` — which way an entry moved the balance — stays imported from the admin
+ * module, so the two screens can word an entry differently and can never point it in
+ * opposite directions.
+ *
+ * Fails VISIBLE, like every other wire lookup here: a reason this build has no word for
+ * prints as the server sent it, because an unrecognised row on a money ledger is precisely
+ * the row worth reading.
+ */
+const WALLET_REASON_LABEL: Record<string, string> = {
+  topup: "Credit added",
+  usage: "Calls",
+  adjustment: "Correction we made",
+  refund: "Refunded to you",
+};
+
+export function walletReasonLabel(reason: string): string {
+  return lookup(WALLET_REASON_LABEL, reason) ?? reason;
 }
 
 /**

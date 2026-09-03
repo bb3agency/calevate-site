@@ -1,14 +1,13 @@
 "use client";
 
-import Link from "next/link";
-
 import { Card, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { useMe } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
-import { runwaySentence, useWallet, walletState } from "@/lib/api/wallet";
+import { runwaySentence, useWallet, useWalletLedger, walletState } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
+import { InvoicedAccount } from "./InvoicedAccount";
 import { TopUp } from "./TopUp";
 import { UnfinishedPayments } from "./UnfinishedPayments";
 import { WalletHero } from "./WalletHero";
@@ -63,9 +62,19 @@ import { WhereItWent } from "./WhereItWent";
  * NO `<h1>`: the app shell renders the page title from the nav list it also renders.
  */
 export default function CreditsPage() {
-  const { session, href } = useClientRealm();
+  const { session } = useClientRealm();
   const me = useMe(session);
   const wallet = useWallet(session);
+  /*
+   * THE HISTORY, read HERE as well as in the panel below — and it costs no request: both
+   * callers share one query key, so TanStack serves the second from the cache of the
+   * first. What the hero needs from it is one bit that the wallet read structurally
+   * cannot carry: `outbound_stopped` is identically true for an account that has spent
+   * everything and for one that has never had anything, and those are different news.
+   * `null` while it is in flight, never `false` — an unknown is not an answer (§52).
+   */
+  const ledger = useWalletLedger(session);
+  const funded = ledger.data ? ledger.data.entries.length > 0 : null;
 
   /*
    * THE WALLET, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
@@ -112,6 +121,19 @@ export default function CreditsPage() {
                 ? "yes — incoming calls are still answered"
                 : "no",
             },
+            {
+              /* THE SAME BIT THE HERO NEEDS, declared for the same reason: the assistant
+                 must not tell a client on their first afternoon that their credit ran
+                 out, and `outbound_stopped` alone cannot tell it that it did not. */
+              key: "funded",
+              label: "Has anything ever been added to this wallet?",
+              value:
+                funded === null
+                  ? "we have not read the history yet"
+                  : funded
+                    ? "yes"
+                    : "no — nothing has ever moved on it",
+            },
             { key: "spent_inr", label: `Spent in the last ${wallet.data.runway.window_days} days (INR)`, value: wallet.data.drawdown.spent_inr },
             { key: "calls_inr", label: "Of that, calls (INR)", value: wallet.data.drawdown.calls_inr },
             { key: "ai_assist_inr", label: "Of that, extra AI help (INR)", value: wallet.data.drawdown.ai_assist_inr },
@@ -144,41 +166,19 @@ export default function CreditsPage() {
     return <ProblemNotice error={wallet.error} onRetry={() => void wallet.refetch()} />;
   }
 
-  /* AN INVOICED ACCOUNT HAS NO WALLET, and this is not an empty state — it is a true
-     statement with the screen that does apply. Offering a balance of ₹0.00 and a top-up
-     form would be a number about nothing and a control the intent route is bound to
-     refuse (`topup_not_available`). */
+  /* AN INVOICED ACCOUNT HAS NO WALLET, and this is not an empty state — it is a
+     different screen, argued in `InvoicedAccount.tsx`. It used to be four lines saying
+     what this screen is not, which was survivable while nearly every account was invoiced
+     and nobody opened it; prepaid is now what an account gets unless an operator decides
+     otherwise, so this is the RARE branch and the one most likely to be reached by
+     somebody who was told they had a balance. */
   if (walletState(wallet.data) === "not-prepaid") {
-    return (
-      <Card title="This account is invoiced, not prepaid">
-        <p className="text-sm text-ink-muted">
-          You are billed on your plan&apos;s retainer rather than from a credit balance, so
-          there is nothing to top up here and your calls never stop for want of credit.
-        </p>
-        <p className="mt-3 text-sm text-ink-muted">
-          What you have been charged this month is on{" "}
-          <Link
-            href={href(`/c/${session.orgSlug}/usage`)}
-            className="font-medium underline underline-offset-2 hover:text-ink"
-          >
-            Usage
-          </Link>
-          , and your statement is on{" "}
-          <Link
-            href={href(`/c/${session.orgSlug}/invoice`)}
-            className="font-medium underline underline-offset-2 hover:text-ink"
-          >
-            Invoice
-          </Link>
-          .
-        </p>
-      </Card>
-    );
+    return <InvoicedAccount />;
   }
 
   return (
     <div className="space-y-5 pb-12">
-      <WalletHero wallet={wallet.data} />
+      <WalletHero wallet={wallet.data} funded={funded} />
 
       {/* ABOVE the control that would start another payment (UX-DOCTRINE §4): a client
           who has just paid must not have to look past a rate card to find out whether it

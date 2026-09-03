@@ -10,6 +10,7 @@ import {
   PhoneCall,
   Sparkles,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import {
@@ -28,6 +29,7 @@ import type { Dashboard } from "@/lib/api/client";
 import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { useWallet, walletState } from "@/lib/api/wallet";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
@@ -60,6 +62,23 @@ export default function DashboardPage({
   const { session, href } = useClientRealm();
   const dashboard = useDashboard(session);
   const usage = useUsage(session);
+  /*
+   * THE BALANCE, on the screen a client opens first.
+   *
+   * The home screen showed what this month has COST and nothing about what is left to
+   * spend, which was the right pair of facts while every account was invoiced against a
+   * retainer and no balance could stop anything. Prepaid is now what an account gets
+   * unless an operator deliberately puts it on a retainer, so the number that decides
+   * whether the product works tomorrow was the one number missing from the daily entry
+   * point — and the first a client learns of an empty wallet should not be a campaign
+   * that did not go out.
+   *
+   * `wallet:read`, which every client role holds including `staff` (`core/rbac.py`), so
+   * this tile does not fetch something half the team is refused. An INVOICED account
+   * renders nothing at all rather than ₹0.00: it has no wallet, and a zero would be a
+   * number about nothing.
+   */
+  const wallet = useWallet(session);
   const recent = useCalls(session, { limit: 6 });
   // The triage queue's size — same query key the header bell reads, so this costs no
   // extra request. The dashboard is the daily entry point and used to never link to
@@ -94,6 +113,26 @@ export default function DashboardPage({
           ? "the figures below have loaded"
           : dashboard.error
             ? "the dashboard failed to load, so no figure is on screen"
+            : "still loading",
+      },
+      {
+        /* THE TILE THE ASSISTANT WOULD OTHERWISE BE BLIND TO, and the one most likely to
+           be asked about by somebody whose campaigns have stopped. Read off the same
+           query the tile renders, so the two cannot disagree. */
+        key: "calling_credit",
+        label: "Calling credit on this account",
+        value: wallet.data
+          ? wallet.data.prepaid
+            ? `${wallet.data.balance_inr} INR left${
+                wallet.data.outbound_stopped
+                  ? " — outgoing calls have stopped, incoming calls are still answered"
+                  : wallet.data.is_low
+                    ? " — running low"
+                    : ""
+              }`
+            : "this account is invoiced on a retainer and has no credit balance"
+          : wallet.error
+            ? "the balance failed to load"
             : "still loading",
       },
       ...(dashboard.data
@@ -346,6 +385,15 @@ export default function DashboardPage({
               }
             />
           )}
+          {/* CALLING CREDIT — the same three states as the tile above it, spelled the
+              same way (§52), plus a fourth this one has and that one does not: an
+              invoiced account, which renders nothing rather than a balance it has no
+              wallet to hold. */}
+          <CallingCreditTile
+            wallet={wallet}
+            href={href(`/c/${slug}/credits`)}
+          />
+
           {/* `?? {}` here is a PAYLOAD null, not an envelope one, and the difference is
               the whole of §52: `data` is narrowed, so the only `undefined` left is the
               one `DashboardOut.sentiment_split` carries because it has a server-side
@@ -459,6 +507,75 @@ const DAY_CLASSES = [
     fill: "bg-slate-300 dark:bg-slate-600",
   },
 ] as const;
+
+/**
+ * How much calling credit is left, and what that means today.
+ *
+ * **THE STATE IS NEVER CARRIED BY THE FIGURE ALONE.** ₹0.00 means nothing to somebody
+ * skimming a dashboard on a phone; "outgoing calls have stopped" does. So each state has
+ * a SENTENCE under the number, the empty one has an icon that is not the healthy one's,
+ * and none of the three is distinguished by colour (WCAG 1.4.1) — which matters most on
+ * the one tile where a misread is a business day of missed calls.
+ *
+ * **THE EMPTY STATE'S SENTENCE CARRIES THE REASSURANCE**, in the same order the wallet's
+ * own screen uses: what still works, then what stopped. A client who reads "your credit
+ * has run out" on a dashboard concludes their phone has stopped being answered, and
+ * nothing on the tile is big enough to correct that afterwards.
+ *
+ * **AN INVOICED ACCOUNT GETS NO TILE.** `prepaid: false` is a tenant with nothing to top
+ * up, not one whose balance is zero; a ₹0.00 here would be the same false alarm the
+ * credit screen refuses to raise. It is a fact the read RETURNED, so nothing is being
+ * hidden on our own ignorance — the loading and failed arms above it say so themselves.
+ */
+function CallingCreditTile({
+  wallet,
+  href,
+}: {
+  wallet: ReturnType<typeof useWallet>;
+  href: string;
+}) {
+  if (wallet.isLoading) {
+    return (
+      <Card title="Calling credit" bodyClassName="p-4 sm:p-5">
+        <Skeleton rows={2} label="Loading your calling credit" />
+      </Card>
+    );
+  }
+  // `|| !wallet.data` for the PAUSED query (offline): `isLoading` is false, `error` is
+  // null and `data` is undefined, and a tile that fell through all three would print
+  // "—" to a client whose wallet may be empty (§52).
+  if (wallet.error || !wallet.data) {
+    return (
+      <Card title="Calling credit" bodyClassName="p-4 sm:p-5">
+        <ProblemNotice
+          error={wallet.error ?? new Error("Your calling credit did not load.")}
+          onRetry={() => void wallet.refetch()}
+        />
+      </Card>
+    );
+  }
+
+  const state = walletState(wallet.data);
+  if (state === "not-prepaid") return null;
+
+  return (
+    <StatTile
+      label="Calling credit left"
+      value={formatINR(wallet.data.balance_inr)}
+      icon={<Wallet className="h-5 w-5" />}
+      tone={state === "stopped" ? "strong" : "soft"}
+      hint={
+        <Link href={href} className="underline hover:text-ink">
+          {state === "stopped"
+            ? "Outgoing calls have stopped — people ringing you still get through. Add credit"
+            : state === "low"
+              ? "Running low — top up before outgoing calls stop"
+              : "Add credit or see where it went"}
+        </Link>
+      }
+    />
+  );
+}
 
 function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
   if (!days.length) {

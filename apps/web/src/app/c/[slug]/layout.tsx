@@ -162,14 +162,22 @@ function navigation(slug: string): NavGroup[] {
         // its own model, and that control is on the agent.
         { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
-        { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
         // CALLING CREDIT — the wallet, its history, and the one place a client buys more.
         // It sits beside Usage rather than inside it because it answers a different
         // question: Usage is "what has this month cost", this is "how much is left, how
         // long does it last, and how do I add more". It is also the ONE screen in this
         // group that `staff` can read (`wallet:read`), because the thing that stops a
         // staff member dialling is an empty wallet.
+        //
+        // AHEAD OF Usage, and that ordering changed with the billing motion. It sat
+        // seventh in this group while every account was invoiced and the wallet was a
+        // screen almost nobody had a reason to open. Prepaid is now what an account gets
+        // unless an operator deliberately puts it on a retainer, which makes this the
+        // screen a client comes looking for when their campaigns have stopped — and the
+        // one they must be able to find from a phone, in a hurry, without reading nine
+        // labels first.
         { href: `/c/${slug}/credits`, label: "Calling credit", icon: Wallet },
+        { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
         // WHERE the Usage number came from, one screen over. Usage answers "how much and
         // how much is left"; this answers "which agent and which call", which is the
         // question an owner asks the moment the first one has a figure in it. Its own
