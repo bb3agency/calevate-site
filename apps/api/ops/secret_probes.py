@@ -124,13 +124,35 @@ PROBES: Mapping[str, Probe] = {
         source="apps/api/engine/bolna.py (BASE_URL, _request auth header, GET /v2/agent/all)",
         verified=False,
     ),
-    # `apps/api/engine/cartesia.py`: BASE_URL and `X-API-Key`, both read at source and
-    # cited there. `/voices` is a listing that costs nothing.
+    # `apps/api/engine/cartesia.py`: BASE_URL, AUTH_HEADER/AUTH_SCHEME and
+    # VERSION_HEADER/API_VERSION. `/voices` is a listing that costs nothing.
+    #
+    # **THIS PROBE AUTHENTICATED DIFFERENTLY FROM THE ADAPTER IT CITES, WHICH IS THE ONE
+    # THING THE PARAGRAPH ABOVE PROMISES IT NEVER DOES (D-517).** It sent `X-API-Key` and
+    # `Cartesia-Version: 2024-06-10`, and named a constant — `API_KEY_HEADER` — that
+    # `cartesia.py` has not carried since D-271 moved the adapter to
+    # `Authorization: Bearer` after reading both of the vendor's generated clients. That
+    # adapter's own comment records that sending BOTH forms was REJECTED, "because two
+    # credential-bearing headers for one secret hides which one the vendor honoured". So
+    # a valid key refused on the superseded header would have told an operator to rotate
+    # a working credential — precisely the wrong answer this file exists to prevent.
+    #
+    # THE LITERALS CANNOT BE IMPORTED FROM THE ADAPTER: hard rule 2 forbids `apps.api.ops`
+    # naming `apps.api.engine.cartesia`, and import-linter enforces it. They are pinned
+    # instead by `tests/platform_secrets_test.py`, which reads both sides and fails if
+    # they drift again — an attribution nobody checks is the defect class hard rule 12
+    # closes with "if you cite something, open it".
     "cartesia_api_key": Probe(
         method="GET",
         url="https://api.cartesia.ai/voices",
-        headers=lambda value: {"X-API-Key": value, "Cartesia-Version": "2024-06-10"},
-        source="apps/api/engine/cartesia.py (BASE_URL, API_KEY_HEADER)",
+        headers=lambda value: {
+            "Authorization": f"Bearer {value}",
+            "Cartesia-Version": "2026-08-14",
+        },
+        source=(
+            "apps/api/engine/cartesia.py (BASE_URL, AUTH_HEADER, AUTH_SCHEME, "
+            "VERSION_HEADER, API_VERSION)"
+        ),
         verified=False,
     ),
     # `apps/workers/extraction.py`: SARVAM_CHAT_URL with `Authorization: Bearer`. The

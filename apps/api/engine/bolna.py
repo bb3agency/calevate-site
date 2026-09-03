@@ -4033,19 +4033,102 @@ class BolnaEngine:
         such knowledge base.
 
         `GET /knowledgebase/all` is the ONLY route carrying both identifiers on one row
-        (`.../knowledgebase/get_knowledgebases.md:63-94`), and there is no route that
-        reads a knowledge base BY vector id, which is the whole reason a listing is
-        fetched here rather than a row.
+        (`bolna-findings/mirror/pages/api-reference/knowledgebase/
+        get_knowledgebases.md:63-94`), and there is no route that reads a knowledge base
+        BY vector id, which is the whole reason a listing is fetched here rather than a
+        row.
 
-        None is a real answer and the caller must treat it as one: it means the engine
-        does not hold that knowledge base, which for `detach_kb` is the 404 the Protocol
-        says must RAISE rather than pass quietly.
+        **IT IS A PAGE, NOT AN ACCOUNT, AND THIS READ ONE PAGE AND CALLED IT THE ACCOUNT
+        (D-516).** Exactly `_agent_refs`' defect (D-430/F-1) on the one other bare-array
+        listing this adapter reads: the route's own OpenAPI block declares no parameters
+        and answers a bare `KnowledgebaseList` array with no `has_more` and no `total`
+        (`.../knowledgebase/get_knowledgebases.md:29-44,47-51`), while the vendor's pagination
+        page says *"The endpoints also support pagination using the `page_number` and
+        `page_size` query parameters"* and defaults `page_size` to **20**
+        (`.../api-reference/pagination.md:9,13-14`). One Bolna account holds every
+        tenant's knowledge bases, every publish is a fresh CREATE (there is no update
+        route), and orphans linger (gate 43e) -- so 20 rows is a handful of clients, not
+        a distant ceiling.
+
+        WHAT THE UNPAGED READ DID past that boundary was worse than truncation: the
+        21st knowledge base is simply absent from the answer, `detach_kb` reads the
+        absence as the vendor's 404, and a client is told *"The voice platform does not
+        hold that knowledge base"* about a document it is holding, retrieving from, and
+        billing for -- with no retry that could ever succeed.
+
+        SAFE UNDER BOTH READINGS OF THE VENDOR, the same intersection `_agent_refs`
+        takes: if the platform honours `page_number` this walks the account to its end;
+        if it ignores it -- the shape a FastAPI handler with no declared query model has,
+        and their OSS server is FastAPI -- page one already carried every row, page two
+        repeats it, no new vector id appears and the walk stops.
+
+        THREE ANSWERS, NOT TWO, because the third one is the one the caller must not
+        mistake for the second:
+
+        * the rag id -- found;
+        * `None` -- the walk ENDED (a short page: the vendor returned fewer rows than we
+          asked for, so nothing can be hiding behind it) and the handle was not in it.
+          That is the 404 by another name and `detach_kb` raises on it;
+        * `engine_kb_listing_incomplete` -- the walk could not be finished, so "not
+          found" would be a claim about rows we never saw. An unlocatable reference may
+          not look like a cleared one (D-41), and that is the whole asymmetry this
+          module's read helpers are written to keep.
         """
-        for row in _listing_rows(await self._request("GET", "/knowledgebase/all")):
-            if row.get("vector_id") == vector_id:
+        page_number = 1
+        seen: set[str] = set()
+        while True:
+            payload = await self._request(
+                "GET",
+                "/knowledgebase/all",
+                params={"page_number": page_number, "page_size": _LISTING_PAGE_SIZE},
+            )
+            rows = _listing_rows(payload)
+            fresh = 0
+            for row in rows:
+                candidate = row.get("vector_id")
+                if isinstance(candidate, str) and candidate not in seen:
+                    seen.add(candidate)
+                    fresh += 1
+                if candidate != vector_id:
+                    continue
                 rag_id = row.get("rag_id")
-                return rag_id if isinstance(rag_id, str) and rag_id else None
-        return None
+                if isinstance(rag_id, str) and rag_id:
+                    return rag_id
+                # FOUND AND UNADDRESSABLE, which is not "the account does not hold it".
+                # Their own schema declares `rag_id` on this row
+                # (`.../knowledgebase/get_knowledgebases.md:65-70`), so a row carrying a
+                # matching `vector_id` and no usable `rag_id` is a response we cannot
+                # use. Returning None here would have reported the document as already
+                # gone and deleted nothing.
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_bad_response",
+                    title="Voice engine returned an unusable response",
+                    detail=(
+                        "The voice platform listed that knowledge base without an id we "
+                        "can address it by."
+                    ),
+                    failure_stage="CORE_LOGIC",
+                )
+            if len(rows) < _LISTING_PAGE_SIZE:
+                return None
+            if fresh == 0 or page_number >= _LISTING_MAX_PAGES:
+                raise ProblemError(
+                    kind="dependency",
+                    code="engine_kb_listing_incomplete",
+                    title="The voice platform would not list its knowledge bases",
+                    detail=(
+                        "The voice platform's knowledge base listing could not be read to "
+                        "the end, so whether it still holds this document is unknown."
+                    ),
+                    remediation=(
+                        "Nothing was deleted. Try publishing again; if it repeats, the "
+                        "account holds more knowledge bases than the platform will list "
+                        "and support must remove the unreferenced ones."
+                    ),
+                    failure_stage="CORE_LOGIC",
+                )
+            page_number += 1
 
     async def _current_vector_ids(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         """What the AGENT references right now. The engine's answer, not our records."""
