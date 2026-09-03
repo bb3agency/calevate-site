@@ -26,6 +26,16 @@ Three shapes worth explaining before someone "tidies" them:
   a business's own registration state, to that business — and it is the page a blocked
   client will refresh. An audit chain that grows a row per poll stops being readable.
 
+**Calevate's OWN telemarketer registration rides along, and only its id.** It is one
+global fact in `platform_state`, written by ops. It is on this response because the client
+is the only party who can do the thing it is for — naming Calevate as their permitted
+telemarketer on the registrar's portal — and this is the screen that asks them to. It
+replaces `{{DLT_TELEMARKETER_ID}}` in the public Acceptable Use Policy (2 Sep 2026, the
+founder's decision): reachable by the people who need it, not published to the open web
+where it is an operational identifier anybody can copy. Nothing else about the platform
+registration crosses the realm boundary — the dates and the raw status stay on
+`GET /v1/ops/platform`.
+
 Hard rule 1: the session is `deps.db`, so the row is scoped by RLS rather than by a
 predicate anyone could forget. `tests/pe_registration_read_test.py` proves tenant B sees
 zero rows both through this route and on the raw session.
@@ -45,6 +55,7 @@ from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.ops.service import TmRegistration, read_tm_registration
 
 router = APIRouter(prefix="/v1/compliance/dlt-registration", tags=["compliance"])
 
@@ -80,9 +91,23 @@ class PeRegistrationOut(BaseModel):
     # in `record_dlt_registration` stamps `verified_at = now()`.
     verified_at: datetime | None
     is_active: bool
+    # CALEVATE's own Telemarketer registration number, not this tenant's — the one fact on
+    # this response that is the same for every account. It is here because the client is
+    # the only party who can perform the step it is needed for: naming Calevate as their
+    # permitted telemarketer on the registrar's portal (`TM_LINK_COPY.not_linked` says so
+    # in the console's own words). It used to be printed in `/legal/acceptable-use` as
+    # `{{DLT_TELEMARKETER_ID}}`; publishing an operational identifier to the open web to
+    # reach the handful of people who need it was the wrong trade, and this is the right
+    # surface — behind a session, on the screen that explains the authorisation.
+    calevate_tm_id: str | None
+    # Whether that registration is live, in the sense the launch gate means it
+    # (`TmRegistration.is_live`: `active`, not merely applied for). Reported so the screen
+    # can tell "here is the number" apart from "ours is not through yet either" — two
+    # different waits, and only one of them has anything for the client to do.
+    calevate_tm_active: bool
 
 
-def _out(registration: PeRegistration) -> PeRegistrationOut:
+def _out(registration: PeRegistration, platform: TmRegistration) -> PeRegistrationOut:
     return PeRegistrationOut(
         recorded=registration.recorded,
         status=registration.status,
@@ -92,6 +117,8 @@ def _out(registration: PeRegistration) -> PeRegistrationOut:
         registered_at=registration.registered_at,
         verified_at=registration.verified_at,
         is_active=registration.is_active,
+        calevate_tm_id=platform.tm_id,
+        calevate_tm_active=platform.is_live,
     )
 
 
@@ -102,9 +129,11 @@ def _out(registration: PeRegistration) -> PeRegistrationOut:
     summary="This account's DLT Principal Entity registration — absence is data, not a 404",
     description=(
         "What the DLT registrar holds for this business, as the platform last verified "
-        "it. Read-only: registrations are recorded by Calevate operations against the "
-        "registrar, never by the client. A business with nothing filed yet gets "
-        "`recorded: false` and a 200."
+        "it, plus Calevate's own Telemarketer registration number, which the client "
+        "needs in order to authorise us on the registrar's portal. Read-only: "
+        "registrations are recorded by Calevate operations against the registrar, never "
+        "by the client. A business with nothing filed yet gets `recorded: false` and a "
+        "200."
     ),
 )
 async def read_registration(
@@ -112,7 +141,12 @@ async def read_registration(
     principal: RegistrationReader,
 ) -> PeRegistrationOut:
     assert principal.tenant_id is not None
-    return _out(await read_pe_registration(session, tenant_id=principal.tenant_id))
+    return _out(
+        await read_pe_registration(session, tenant_id=principal.tenant_id),
+        # Safe on a tenant-scoped session: `platform_state` carries no `tenant_id` and no
+        # RLS policy, which `read_tm_registration` states where it is defined.
+        await read_tm_registration(session),
+    )
 
 
 __all__ = ["router"]

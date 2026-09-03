@@ -11,6 +11,7 @@
 import { useId, useState } from "react";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 
+import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import {
   DANGER_BUTTON,
@@ -43,6 +44,8 @@ export function Credentials({ session }: { session: Session }) {
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
   const secretId = useId();
+  const valid = useFormValidation();
+  const secretTrack = valid.track("secret", "Paste the secret.");
 
   return (
     <div className="space-y-3 rounded-card border border-line bg-app p-4">
@@ -92,8 +95,8 @@ export function Credentials({ session }: { session: Session }) {
       {open ? (
         <form
           className="space-y-2 border-t border-line pt-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             create.mutate(
               { kind, label, secret },
               {
@@ -104,7 +107,7 @@ export function Credentials({ session }: { session: Session }) {
                 },
               },
             );
-          }}
+          })}
         >
           <div>
             <label className="block">
@@ -125,12 +128,14 @@ export function Credentials({ session }: { session: Session }) {
             <label className="block">
               <span className={FIELD_LABEL}>Name</span>
               <input
+                {...valid.field("label", "Give this credential a name.")}
                 className={FIELD}
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 required
               />
             </label>
+            {valid.error("label")}
           </div>
           <div>
             {/* NOT a wrapping <label> like the two fields above it, and that is the point:
@@ -140,13 +145,25 @@ export function Credentials({ session }: { session: Session }) {
             <label htmlFor={secretId} className={`block ${FIELD_LABEL}`}>
               Secret
             </label>
+            {/* `track`, not `field`: `PasswordInput` owns this control's id (the label
+                points at it) and its aria wiring, so the hook only watches it and the
+                message below is tied to it by hand. */}
             <PasswordInput
+              /* `inputRef`, not `ref`: this component keeps its own ref for the caret
+                 restore and documents `inputRef` as the parent's way in. */
+              inputRef={secretTrack.ref}
+              onInput={secretTrack.onInput}
               id={secretId}
               reveals="secret"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
               required
+              aria-invalid={valid.message("secret") ? true : undefined}
+              aria-describedby={valid.message("secret") ? `${secretId}-error` : undefined}
             />
+            {valid.message("secret") ? (
+              <FieldMessage id={`${secretId}-error`}>{valid.message("secret")}</FieldMessage>
+            ) : null}
           </div>
           {create.isError ? <ProblemNotice error={create.error} /> : null}
           <button type="submit" className={PRIMARY_BUTTON_SM} disabled={create.isPending}>

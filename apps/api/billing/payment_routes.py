@@ -71,6 +71,7 @@ from apps.api.billing.payments import (
     SIGNATURE_HEADER,
     SUPPORTED_CURRENCY,
     RefundEvent,
+    claim_refund,
     credit_captured_payment,
     credit_refund,
     event_name,
@@ -80,16 +81,19 @@ from apps.api.billing.payments import (
     find_topup,
     inr_to_paise,
     issue_refund,
+    payment_attempt_ids,
     payment_capability,
     payments_not_configured,
     razorpay_api_secret,
     razorpay_orders,
+    release_refund_claim,
     topup_receipt,
     verify_checkout_signature,
     verify_signature,
 )
 from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
+from apps.api.billing.wallet import record_attempt, settle_attempt
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
@@ -498,6 +502,29 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
             pack_id=pack_id,
         )
 
+    # THE DURABLE TRACE, WRITTEN BEFORE THE PROVIDER IS CALLED (migration e9b24c73f105).
+    #
+    # Until this row existed a top-up left NO record until money arrived, so a client
+    # whose card was declined came back to a screen indistinguishable from one they had
+    # never touched — and nobody could tell "still settling" from "nothing happened".
+    # It is written FIRST, without an order id, for the reason the idempotency claim
+    # commits first: a provider call that then fails must still leave the attempt behind,
+    # or the one case the table exists for is the one case it misses.
+    #
+    # It is NOT money and it may not refuse a payment — but at THIS point nothing has been
+    # ordered and no money can move, so a failure here is raised rather than swallowed
+    # (the client retries and nothing is lost). Once an order exists the balance of that
+    # judgement flips, and `_remember_order` below says so.
+    async with tenant_session(tenant_id) as session:
+        await record_attempt(
+            session,
+            tenant_id=tenant_id,
+            receipt=receipt,
+            amount_inr=amount,
+            provider_order_id=None,
+            pack_id=pack_id,
+        )
+
     if not capability.creates_orders:
         # No API secret on this deployment (`no_api_secret`), which is every deployment
         # today. The receipt is real and the amount is priced, so the bank-transfer path
@@ -509,9 +536,48 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
         )
         return _intent(None)
 
-    return await _create_order_once(
+    intent = await _create_order_once(
         tenant_id=tenant_id, amount_inr=amount, receipt=receipt, notes=notes, build=_intent
     )
+    if intent.provider_order_id is not None:
+        await _remember_order(
+            tenant_id=tenant_id,
+            receipt=receipt,
+            amount_inr=amount,
+            pack_id=pack_id,
+            order_id=intent.provider_order_id,
+        )
+    return intent
+
+
+async def _remember_order(
+    *, tenant_id: UUID, receipt: str, amount_inr: Decimal, pack_id: str | None, order_id: str
+) -> None:
+    """Fill the provider's order id onto the attempt row — and NEVER fail the payment.
+
+    This runs AFTER a live order exists at the provider, which inverts the judgement made
+    one function up: raising here would turn a real, payable order into an error the
+    client sees, and they would click again and get a second order for the same money.
+    The row is a narrative and the ledger is the record, so the worst a lost write costs
+    is that the webhook cannot find this attempt to mark — which `settle_attempt` already
+    treats as ordinary rather than as an error.
+
+    Swallowed, but never SILENTLY: it alerts, because an attempt table that stops learning
+    order ids degrades into exactly the blind screen it was built to end.
+    """
+    try:
+        async with tenant_session(tenant_id) as session:
+            await record_attempt(
+                session,
+                tenant_id=tenant_id,
+                receipt=receipt,
+                amount_inr=amount_inr,
+                provider_order_id=order_id,
+                pack_id=pack_id,
+            )
+    except Exception:
+        alert("ROUTE_HANDLER", "topup_attempt_not_recorded")
+        log.warning("topup_attempt_order_unrecorded", extra={"tenant_id": str(tenant_id)})
 
 
 async def _create_order_once(
@@ -714,14 +780,44 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
     if event == REFUND_PROCESSED_EVENT:
         return await _apply_refund(envelope, event=event, ip=ip)
     if event == PAYMENT_FAILED_EVENT:
-        # A failed attempt moves no money: there is no order row to mark (module docstring)
-        # and nothing to credit. Log the ids and error CODE so an operator can see it, and
-        # ACK so the provider stops retrying.
+        # A failed attempt moves no money, so nothing is credited and no ledger row is
+        # written. What DOES happen now — and did not before `topup_attempts` existed — is
+        # that the client's own screen learns about it: a declined card has no ledger
+        # entry, so without this mark a client who tried to pay came back to a screen
+        # indistinguishable from one they had never touched.
         log.info("razorpay_payment_failed", extra=failed_payment_summary(envelope))
+        await _mark_attempt_failed(envelope)
+        # ACKed regardless, so the provider stops retrying a failure.
         return WebhookAck(status="failed", event=event)
     # ACK an event this deployment has no handler for, so the provider stops retrying.
     log.info("razorpay_event_ignored", extra={"event": event})
     return WebhookAck(status="ignored", event=event or "unknown")
+
+
+async def _mark_attempt_failed(envelope: Any) -> None:
+    """Mark the top-up attempt behind a `payment.failed` event, if we can tell which.
+
+    Best-effort by design, at both ends. `payment_attempt_ids` returns None when the
+    payload does not carry the ids (the contract is UNVERIFIED — `billing/payments.py`),
+    and `settle_attempt` updates nothing when no row matches; in both cases the attempt
+    simply keeps saying "settling" until it ages into "unfinished". That is the whole
+    reason this state lives in its own table rather than on the ledger: the worst a lost
+    write here can cost is a slightly stale word on a screen, never a rupee.
+
+    `settle_attempt` refuses to move a row OUT of `captured`, so an in-modal retry that
+    fails a first card and then succeeds cannot re-label a paid order as failed.
+    """
+    attempt = payment_attempt_ids(envelope)
+    if attempt is None:
+        return
+    async with tenant_session(attempt.tenant_id) as session:
+        await settle_attempt(
+            session,
+            tenant_id=attempt.tenant_id,
+            order_id=attempt.order_id,
+            payment_id=attempt.payment_id,
+            status="failed",
+        )
 
 
 async def _apply_captured_payment(envelope: Any, *, event: str, ip: str | None) -> WebhookAck:
@@ -773,6 +869,25 @@ async def _apply_captured_payment(envelope: Any, *, event: str, ip: str | None) 
             )
 
         result = await credit_captured_payment(session, payment=payment, ip=ip)
+        # THE ATTEMPT IS MARKED IN THE SAME TRANSACTION AS THE CREDIT, so the client's
+        # screen and the client's wallet cannot disagree about whether this payment
+        # landed. `captured` is terminal in `settle_attempt`, which is what stops a
+        # `payment.failed` for an in-modal first card re-labelling a paid order.
+        #
+        # The order id comes from the envelope rather than from `CapturedPayment`, which
+        # deliberately does not keep it: the typed model carries only what a CREDIT needs,
+        # and the attempt row is keyed on the order because that is the only identifier it
+        # holds before money arrives. `None` (an event whose ids we could not read) simply
+        # marks nothing — the ledger is the record either way.
+        attempt = payment_attempt_ids(envelope)
+        if attempt is not None and attempt.tenant_id == payment.tenant_id:
+            await settle_attempt(
+                session,
+                tenant_id=payment.tenant_id,
+                order_id=attempt.order_id,
+                payment_id=payment.payment_id,
+                status="captured",
+            )
         await mark_inbox_processed(session, row_id=claim.row_id)
 
     return WebhookAck(
@@ -890,11 +1005,27 @@ async def issue_tenant_refund(
 
     1. Resolve the amount — a full refund is the top-up recorded for this payment, read
        from the ledger, so an operator need not retype it and cannot fat-finger it.
-    2. `issue_refund` calls the provider OUTSIDE any transaction (BACKEND-PATTERNS §5).
-    3. Only if the provider reports the refund already PROCESSED do we write the
+    2. CLAIM the refund and COMMIT the claim (`claim_refund`), which is where the ceiling
+       is now enforced. It has to be a committed row rather than a read, because the act
+       it guards happens after the transaction ends — see below.
+    3. `issue_refund` calls the provider OUTSIDE any transaction (BACKEND-PATTERNS §5).
+       If it raises, the claim this request took is RELEASED: no money moved, so nothing
+       may go on counting against what the client can still be refunded.
+    4. Only if the provider reports the refund already PROCESSED do we write the
        compensating entry now (`credit_refund`, idempotent on the refund id). Otherwise
        the `refund.processed` webhook writes it — same single writer, deduped on the same
        ref, so the entry lands exactly once whichever path gets there first.
+
+    **WHY STEP 2 IS A COMMITTED ROW AND NOT THE LEDGER READ IT REPLACES.** This route used
+    to read the refunds already on `credit_ledger` under `lock_tenant_credits` and call
+    that "the check half of a check-then-write". It was not: `pg_advisory_xact_lock` is
+    released by COMMIT, and the transaction ended at the `async with` before the provider
+    was called. Two operators refunding ₹2,000 and ₹1,000 against a ₹2,500 top-up at the
+    same moment both read "nothing refunded yet", both passed, and both issued a provider
+    refund — ₹500 the client never paid, as two entries an append-only ledger cannot take
+    back. `billing/payments.claim_refund` carries the whole argument and migration
+    `c4b8e91d7a05` carries why neither an advisory lock nor a Redis lease can span a
+    vendor call.
 
     Audited on the operator's issuance regardless of whether the entry landed here, because
     the privileged act is asking for the refund; the system-actor `credit.refund` audit
@@ -917,17 +1048,38 @@ async def issue_tenant_refund(
             "A refund amount must be positive.",
             remediation="Send a positive amount, or omit it to refund the whole payment.",
         )
-    if amount > topup_amount:
-        raise ProblemError.business_rule(
-            "refund_exceeds_payment",
-            f"That payment was ₹{to_paise(topup_amount)}, and this asks to refund "
-            f"₹{to_paise(amount)}.",
-            remediation="Refund at most what the payment brought in.",
+
+    # THE CEILING IS ON THE TOTAL, NOT ON THIS REQUEST, and it is enforced by a COMMITTED
+    # CLAIM rather than by a read (`claim_refund`, and the docstring above for why the
+    # read could not hold it). A repeat of an amount already claimed comes back
+    # `claimed=False` and is let through as the replay it is: the provider's own
+    # idempotency key is `(payment_id, amount)`, so it can only collapse onto the refund
+    # that already exists.
+    async with tenant_session(tenant_id) as session:
+        claim = await claim_refund(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payload.payment_id,
+            amount_inr=amount,
+            payment_total_inr=topup_amount,
         )
 
-    refund = await issue_refund(
-        tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
-    )
+    try:
+        refund = await issue_refund(
+            tenant_id=tenant_id, payment_id=payload.payment_id, amount_inr=amount
+        )
+    except Exception:
+        # NOTHING MOVED, SO NOTHING MAY GO ON BEING RESERVED. A claim left behind by a
+        # vendor timeout would shrink what this client can be refunded for ever — money
+        # withheld by an outage, which is a worse failure than the double refund the
+        # claim exists to prevent. Only a claim THIS request took is released; a replay's
+        # belongs to the refund that already exists.
+        if claim.claimed:
+            async with tenant_session(tenant_id) as session:
+                await release_refund_claim(
+                    session, tenant_id=tenant_id, refund_key=claim.refund_key
+                )
+        raise
     ip = client_request_ip(request)
 
     recorded = False

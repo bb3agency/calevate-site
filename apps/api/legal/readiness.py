@@ -133,9 +133,9 @@ ROW_COPY: dict[str, _Copy] = {
         title="Business not verified",
         actor="client",
         next_step=(
-            "Send us your business registration details from the Verification screen. "
-            "There is nothing to upload — we record a public registration number, never "
-            "a document."
+            "Send us your business registration number and we will record it for you. "
+            "There is nothing to upload — it is a public registration number, never a "
+            "document. The Verification screen then shows what we hold."
         ),
     ),
     "kyc_not_verified": _Copy(
@@ -159,7 +159,8 @@ ROW_COPY: dict[str, _Copy] = {
         actor="client",
         next_step=(
             "Register your business as a Principal Entity on an access provider's DLT "
-            "platform, then give us the registration id on the Verification screen."
+            "platform, then send us the registration id and we will record it. The "
+            "Verification screen shows it once it is on file."
         ),
     ),
     "pe_registration_not_active": _Copy(

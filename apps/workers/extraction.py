@@ -1777,6 +1777,36 @@ async def run_assist(
     return AssistResult(output=output, capability=capability)
 
 
+def _nothing_was_said(spec: ExtractionSchemaSpec) -> ExtractionOutput:
+    """The extraction of a call in which nobody said anything, WITHOUT paying for it.
+
+    A model cannot answer a question about words that do not exist, so the only honest
+    answer is the schema's own verdict on an empty object — every required field missing,
+    nothing captured, no summary. `validate_extraction(spec, {})` computes exactly that,
+    so this row is byte-identical to the one a perfectly behaved model would have
+    produced, minus the round trip.
+
+    `outcome_tag` is `dropped` rather than `resolved`: a call with no transcript resolved
+    nothing, and `resolved` is what the CRM fan-out publishes to the client's own system.
+    `sentiment` stays `neutral`, which is what "we cannot tell" has always meant here.
+
+    NOT a `_model` error. `pipeline._settled_extraction` refuses to reuse a row carrying
+    one, because that code means "the provider never answered and a retry is the repair" —
+    and re-driving this call would ask the same unanswerable question again. There is
+    nothing to retry: the transcript is empty and a second look will not fill it.
+    """
+    outcome = validate_extraction(spec, {})
+    return ExtractionOutput(
+        data=outcome.data,
+        summary="",
+        sentiment="neutral",
+        outcome_tag="dropped",
+        valid=outcome.valid,
+        errors=outcome.errors,
+        needs_review=outcome.needs_review,
+    )
+
+
 async def extract_call(
     spec: ExtractionSchemaSpec, transcript: str, *, extractor: Extractor | None = None
 ) -> ExtractionOutput:
@@ -1785,7 +1815,22 @@ async def extract_call(
     A model failure does NOT fail the call: an extraction row still lands with
     `valid=False` and the error, so the call, the lead and the metering all survive an
     LLM outage. Losing the structured fields is recoverable; losing the call is not.
+
+    **A TRANSCRIPT WITH NO WORDS IN IT NEVER REACHES A PROVIDER.** Voicemail, an
+    immediate hangup, a ring the vendor still reports `completed`, a caller who says
+    nothing — all of them arrive here as an empty string, and every one of them used to
+    buy a chargeable round trip (the Sarvam chat leg is priced per token,
+    `billing/rates.SARVAM_LLM_INR_PER_MTOK`) to ask a model what was said in a silence.
+    On an outbound campaign, answering machines are not the rare case. The guard is HERE
+    rather than in the pipeline because `run_assist` reaches this same function and would
+    otherwise keep its own copy of the rule — one door, per CLAUDE.md.
+
+    Whitespace-only counts as empty: `pipeline._persist_transcript` builds this string
+    from turns, so a reading in which every turn's `text` came back blank is a silence
+    spelled with newlines.
     """
+    if not transcript.strip():
+        return _nothing_was_said(spec)
     runner = extractor or get_extractor()
     try:
         raw = await runner.run(spec, transcript)

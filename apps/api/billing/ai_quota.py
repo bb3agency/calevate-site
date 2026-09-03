@@ -84,6 +84,23 @@ When it is spent the feature blocks again and the client is told the month is fi
 not offered a second modal. So the worst case for a client who mis-clicks is one block,
 and the worst case for US is the included quota plus one block per tenant.
 
+**PLUS WHATEVER IS ALREADY IN FLIGHT, AND THAT OVERSHOOT IS ACCEPTED RATHER THAN CLOSED.**
+`require_ai_assist` reads the month's spend, the caller then talks to the provider, and
+`record_ai_assist_usage` meters what came back — a check-then-spend, so N requests that pass
+the gate in the same instant all spend, and the ceiling is exceeded by up to N-1 assists.
+It is stated here because a ceiling nobody has bounded in writing reads as exact:
+
+* the OVERSHOOT IS ONE ASSIST PER CONCURRENT REQUEST — rupees, not a runaway, because every
+  one of them still lands in `usage_events` and moves the platform counter, so it is
+  measured and it is the next request that is refused;
+* the alternative was a per-tenant reservation or an advisory lock spanning the model call.
+  Both hold state across a provider request, which BACKEND-PATTERNS §5 refuses for exactly
+  this shape (a lock whose duration is a vendor's latency), and a reservation would need a
+  release path on every abandonment — a second ledger to reconcile, to save at most a few
+  rupees of an allowance we absorb anyway;
+* what genuinely must not overshoot is the PLATFORM brake, and it does not: it is bumped in
+  one statement (`bump_platform_ai_spend`) and read back, never read-modify-written.
+
 AND NOT IN THE LAST HOUR OF ONE (`LAST_SALEABLE_MINUTES`). The block expires with the
 month, so on the 31st at 23:59 it is the same bargain arithmetically and not the same
 bargain at all — and the same guard closes a race in which the debit lands under a month

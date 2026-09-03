@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Coins, Gauge, PhoneCall, Timer, Wallet } from "lucide-react";
+import { ArrowRight, Coins, Gauge, PhoneCall, Timer, Wallet } from "lucide-react";
 
 import {
   Card,
@@ -16,7 +16,6 @@ import {
   formatRupeeRate,
   hasNonZeroDigit,
 } from "@/components/ui";
-import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
 import { useMe, useUsage, useWriteAccess } from "@/lib/api/hooks";
@@ -24,8 +23,6 @@ import type { Session } from "@/lib/api/client";
 
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
-
-import { TopUp } from "./TopUp";
 
 /**
  * What this month costs (SURFACES §2b, `billing:read` — owners, not staff).
@@ -355,6 +352,13 @@ export default function UsagePage() {
       <SpendLimit session={session} />
 
       {data && data.credit_balance_inr !== null && (
+        /* THE BALANCE, AND THE WAY TO THE SCREEN THAT IS ABOUT IT.
+           The top-up panel used to live HERE, at the bottom of a usage screen behind
+           `billing:read` — so buying credit meant scrolling past a month's figures, and
+           the ledger, the receipts and a failed payment had nowhere at all. All of that
+           is now `/c/{slug}/credits`, on `wallet:read` (which `staff` holds), and this
+           card is the pointer rather than a second copy of it: two panels that both mint
+           a payment intent is how a client ends up with two orders for one top-up. */
         <Card title="Calling credit">
           <p className="flex items-center gap-2 text-2xl font-bold tracking-tight tabular-nums text-ink">
             <Wallet className="h-5 w-5 text-brand" />
@@ -363,11 +367,13 @@ export default function UsagePage() {
           <p className="mt-1 text-xs text-ink-muted">
             Outgoing calls stop when this reaches zero. Incoming calls are unaffected.
           </p>
-          {/* Offered on the tier the server says has a wallet, not on "the balance is
-              not null": an invoiced account would get `topup_not_available` after the
-              click, which is a refusal we can see coming and therefore should not
-              deliver as an error. */}
-          {isPrepaid(data.plan_tier) && <TopUp session={session} />}
+          <Link
+            href={href(`/c/${session.orgSlug}/credits`)}
+            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong underline underline-offset-2 hover:text-ink"
+          >
+            Add credit and see your history
+            <ArrowRight className="h-4 w-4" aria-hidden />
+          </Link>
         </Card>
       )}
     </div>
@@ -442,6 +448,7 @@ function SpendLimit({ session }: { session: Session }) {
 
         <form
           className="flex flex-wrap items-end gap-3"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             save.mutate({

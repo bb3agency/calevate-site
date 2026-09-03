@@ -114,6 +114,7 @@ async def _deliver_to_endpoint(
     data: dict[str, Any],
     delivery_id: UUID,
     attempt: int,
+    payload_occurred_at: Any,
 ) -> service.DeliveryResult:
     """One attempt at one endpoint, whatever kind it is.
 
@@ -122,6 +123,9 @@ async def _deliver_to_endpoint(
     """
     kind = _kind_of(endpoint)
     mapping = endpoint["mapping"] or {}
+    # None for an outbox row queued before the fan-out started stamping it;
+    # `build_envelope` falls back to the clock and says why.
+    occurred_at = str(payload_occurred_at) if payload_occurred_at else None
 
     if kind == service.SHEET_KIND:
         # The attempt number is part of the sheets CONTRACT, not telemetry: a sheet
@@ -140,7 +144,11 @@ async def _deliver_to_endpoint(
     if kind == service.WEBHOOK_KIND:
         body = service.apply_mapping(data, mapping.get("fields") or {})
         envelope = service.build_envelope(
-            event=event, tenant_id=tenant_id, delivery_id=delivery_id, data=body
+            event=event,
+            tenant_id=tenant_id,
+            delivery_id=delivery_id,
+            data=body,
+            occurred_at=occurred_at,
         )
         return await service.deliver(
             url=str(endpoint["url"]),
@@ -295,6 +303,7 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
         data=data,
         delivery_id=delivery_id,
         attempt=attempt,
+        payload_occurred_at=payload.get("occurred_at"),
     )
     # Object storage is a network round trip of its own, and it is best-effort by
     # design — it belongs on this side of the session boundary for the same reason the

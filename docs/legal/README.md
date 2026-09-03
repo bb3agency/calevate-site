@@ -93,7 +93,7 @@ rules that matter legally assertable rather than reviewable by eye:
   truthful-answer floor, in identical words in both documents that carry it;
 - the sub-processor register is the only copy of the vendor list — the DPA's Annex C links
   to it and names no vendor;
-- the pending-review banner is on every page;
+- no page carries the pending-review banner, and no token is left unresolved on one;
 - every section anchor is unique and URL-safe, because clause references cite them;
 - all eight documents pass axe, no heading level is skipped, and every wide table scrolls
   inside a focusable named region.
@@ -105,9 +105,17 @@ instrument it comes from, the code that creates it, whether we satisfy it, and �
 worth more than the policy pages — the ten findings where we do not, each naming what would
 close it.
 
-## Before publishing
+## Published
 
-`PENDING_LEGAL_REVIEW` in `placeholders.ts` is `true` and puts a visible draft banner on
-every page. Turning it off is a publication decision that requires an Indian advocate's
-review first; `tests/legal.test.tsx` fails if it is flipped without also deleting the
-assertion that guards it, so it cannot happen as a side effect of another change.
+The set was published on 2 September 2026, on the founder's instruction given after a
+lawyer's review. `PENDING_LEGAL_REVIEW` in `placeholders.ts` is off and
+`apps/api/legal/catalogue.py` mirrors it; `scripts/check_docs_drift.py` fails CI if the
+two ever disagree.
+
+Two things guard the published state rather than the draft one. `assertLegalSetPublishable`
+refuses to render a document while any fact in `PLACEHOLDERS` is still blank, and
+`tests/legal.test.tsx` asserts that no document carries the banner and that no token is
+left unresolved — so adding a document with a new blank fails the suite instead of showing
+a client `{{A_TOKEN}}`. Putting the set back into draft is the same size of decision as
+publishing it was: it re-demands every acceptance in the ledger, and it needs both sides of
+the mirror moved in one change.

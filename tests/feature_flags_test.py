@@ -779,3 +779,102 @@ async def test_the_read_names_who_set_it_and_why() -> None:
     assert item["declared"] is True
     # NOTHING READS THIS FLAG YET, and the console says so rather than implying otherwise.
     assert item["consumed_by"] is None
+
+
+# --------------------------------------------------- the one hard limit, made measurable
+#
+# `flags/registry.py` states it in capitals — **"a flag must never gate a compliance
+# control"** — names the controls (`campaigns.service.launch_blockers`,
+# `compliance.service.check_dispatch`, DNC, the disclosure line, calling hours, the
+# first-campaign hold, the KYC gates), and grounds it in hard rule 5: "never add a bypass
+# 'for testing'... a per-tenant switch that can turn a TRAI/DPDP control off for one client
+# is that bypass with better manners."
+#
+# NOTHING MEASURED IT. Every other claim this registry makes is asserted at boot
+# (`assert_flag_registry_wellformed`) or in the tests above; this one — the only claim on
+# the page that is about the law rather than about tidiness — was prose. It was true only
+# because no flag is consumed by anything yet, which is a fact about today rather than a
+# property, and the day it stops being true is the day somebody wires the first flag.
+#
+# The check is structural rather than declarative on purpose. Asking `consumed_by` would
+# only catch a flag that ANNOUNCED itself, and the dangerous version does not: a
+# `flag_enabled(session, "…")` inside `check_dispatch` gates a control whatever the
+# registry says about it. So the compliance surfaces are asked instead — may they reach
+# this package at all — and the answer has to be no.
+
+#: The modules that ARE the compliance controls, plus the one that renders the sentences
+#: hard rule 5 says no config row may withdraw. A package name covers everything under it.
+#:
+#: `calevate_shared.engine` is here for `compose_engine_prompt`: hard rule 5 requires the
+#: truthful-AI and recording answers to be appended to every prompt server-side, and "no
+#: column, config row or client-authored script can withdraw it" is the same sentence this
+#: limit makes about flags.
+_COMPLIANCE_SURFACES: tuple[str, ...] = (
+    "apps/api/compliance",
+    "apps/api/campaigns",
+    "packages/shared/src/calevate_shared/engine.py",
+)
+
+
+def test_no_compliance_control_can_read_a_feature_flag() -> None:
+    """A source walk for any route from a compliance module into `apps.api.flags`.
+
+    Import-level rather than call-level: `lint-imports` (hard rule 2) draws engine
+    isolation the same way, and for the same reason — a module that cannot IMPORT the
+    resolver cannot call it, however the call is spelled, and an import is a thing a
+    reviewer sees in a diff.
+
+    A control that genuinely needs to vary per tenant varies through the compliance gate
+    itself, where it is a named rule with a client-facing reason and an audit trail. That
+    is the door; this test is the wall beside it.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    offenders: list[str] = []
+    for surface in _COMPLIANCE_SURFACES:
+        target = root / surface
+        assert target.exists(), (
+            f"{surface} is not on disk. This list names the compliance controls the "
+            "registry's hard limit protects; a renamed one must be renamed here too, or "
+            "the wall has a gap in it."
+        )
+        paths = sorted(target.rglob("*.py")) if target.is_dir() else [target]
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            for line_no, line in enumerate(source.splitlines(), start=1):
+                stripped = line.strip()
+                if not stripped.startswith(("import ", "from ")):
+                    continue
+                if "apps.api.flags" in stripped:
+                    offenders.append(f"{path.relative_to(root)}:{line_no}: {stripped}")
+    assert not offenders, (
+        "a compliance control imports the feature-flag package, which `flags/registry.py` "
+        f"forbids in as many words: {offenders}. Hard rule 5 refuses a bypass 'for "
+        "testing'; a per-tenant boolean that can turn a TRAI/DPDP control off for one "
+        "client is that bypass with better manners. Vary the rule inside the compliance "
+        "gate, where it has a client-facing reason and an audit row."
+    )
+
+
+def test_no_declared_flag_names_a_compliance_control_as_its_consumer() -> None:
+    """The declarative half, which catches the mistake one step earlier than the wall.
+
+    A flag whose `consumed_by` points into a compliance surface is a flag somebody INTENDS
+    to gate a control with. The import guard above would catch it the moment the wiring
+    landed; this catches the declaration, which is the reviewable moment.
+    """
+    packages = tuple(
+        surface.removeprefix("apps/").removesuffix(".py").replace("/", ".")
+        for surface in _COMPLIANCE_SURFACES
+    )
+    offenders = {
+        name: spec.consumed_by
+        for name, spec in FLAGS.items()
+        if spec.consumed_by is not None
+        and any(spec.consumed_by.startswith(prefix) for prefix in packages)
+    }
+    assert not offenders, (
+        f"these flags name a compliance control as their consumer: {offenders}. "
+        "`flags/registry.py`: a flag must never gate a compliance control."
+    )

@@ -333,6 +333,7 @@ export function CopilotPanel({
       {!adminUnserved && (
       <form
         className="border-t border-line px-4 py-3"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           conversation.ask(question);

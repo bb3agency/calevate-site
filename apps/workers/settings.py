@@ -87,7 +87,14 @@ from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
+from apps.workers.callbacks import book_requested_callback, cancel_requested_callback
 from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
+from apps.workers.caller_memory_distil import (
+    DISTIL_MINUTE as CALLER_MEMORY_DISTIL_MINUTE,
+)
+from apps.workers.caller_memory_distil import (
+    distil_caller_memories,
+)
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.dial_recall import recall_queued_dials
@@ -110,6 +117,7 @@ from apps.workers.kb_aggregation import (
 )
 from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
+from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
@@ -128,6 +136,7 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.tls_expiry import check_tls_expiry
+from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -195,6 +204,22 @@ FUNCTIONS: list[Any] = [
         # tick while the dials already queued at the vendor ring anyway, with every screen
         # reporting the number suppressed.
         recall_dials_for_dnc,
+        # D-514. The in-call call-back pair. voice-runtime acks the caller in
+        # milliseconds and queues one of these; unregistered, the agent has told somebody
+        # on the phone "I have booked that for Tuesday at four", arq drops the name, the
+        # row walks into the DLQ and NOTHING ELSE recovers it — there is no post-call pass
+        # behind a call-back the way there is behind an opt-out. That is the sharpest
+        # version of the `check_job_wiring` shape in this list: a promise made to a person.
+        book_requested_callback,
+        cancel_requested_callback,
+        # THE EMPTY-WALLET WARNING (2 Sep 2026). Published by `billing.service.record_entry`
+        # in the same transaction as the ledger entry that crossed the line, so an
+        # unregistered name here is not a dormant feature: the outbox marks the row
+        # `published`, arq drops the job with a warning nothing reads, and a client's
+        # outgoing calls stop with no notice at all — which is precisely the founder's
+        # stated failure ("a client whose phone stops being answered because a top-up
+        # lapsed is a client who leaves"). `check_job_wiring` shape 3.
+        notify_low_balance,
     )
 ]
 
@@ -244,6 +269,26 @@ CRON_JOBS = [
     cron(
         traced_job(distil_copilot_memories),
         minute={DISTILL_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # CROSS-CALL MEMORY: what a finished call taught us about the PERSON who rang (D-513).
+    # Hourly at :50, clear of every other O(tenants) fan-out in this list, and the ceiling
+    # (`caller_memory_distil.MAX_CALLS_PER_TICK`) is per tick — so the cadence IS the spend
+    # rate, exactly as for its sibling above.
+    #
+    # IT COSTS NOTHING ON A DEPLOYMENT WHERE NOBODY HAS SWITCHED THE FEATURE ON, which is
+    # every deployment by default: discovery starts from `agents.caller_memory_enabled`, so
+    # a fleet with the switch everywhere off makes zero model calls and the tick is one
+    # indexed read per tenant.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason. Retrying is safe: the job is
+    # idempotent on `calls.caller_memory_state`, stamped in the same transaction as the
+    # memory rows it produced, so a re-run finds nothing rather than paying twice for the
+    # same conversation — and the state carries the "read it, owed nothing" answer that a
+    # `source_call_id` alone could not express.
+    cron(
+        traced_job(distil_caller_memories),
+        minute={CALLER_MEMORY_DISTIL_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE OTHER HALF OF THE GUARANTEE (D-242). `reconcile_executions` above can only see
@@ -456,6 +501,31 @@ CRON_JOBS = [
     cron(
         traced_job(sweep_kb_drift),
         minute=set(KB_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE ACCOUNT-LEVEL KNOWLEDGE SWEEP (D-519), and it is the sweep above's blind spot
+    # rather than a duplicate of it. That one reads what an AGENT references and therefore
+    # cannot see an object no agent references — which is what every failure in this
+    # feature leaves behind, on an account shared by every tenant, holding a client's
+    # uploaded document with nothing at the vendor saying whose it is.
+    #
+    # DAILY rather than hourly, and one vendor call per tick. `list_account_kb` walks an
+    # account-wide listing that grows with every source every client has ever published —
+    # the dearest read in the adapter, and the one the drift sweep's batch size exists to
+    # avoid making per agent. The residue it finds is made by crashes and by hand; none of
+    # its verdicts becomes more actionable for being eight hours fresher.
+    #
+    # 04:40 because the hours around it are taken (03:17 expiry, 03:40 retention, 04:05
+    # the TLS probe, :23 of every hour the KB drift sweep), and `hour`/`minute` come FROM
+    # the module for its neighbours' reason.
+    #
+    # `max_tries` EXPLICIT: `cron()` defaults it to 1, and the failure this job is most
+    # likely to suffer is a slow vendor listing — precisely the one that must not be
+    # allowed to mean "nothing to report until tomorrow".
+    cron(
+        traced_job(sweep_kb_orphans),
+        hour=set(ORPHAN_SWEEP_HOUR),
+        minute=set(ORPHAN_SWEEP_MINUTE),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that

@@ -99,6 +99,14 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "re-runs three backfills that FORCE-RLS swallowed; no DDL, every statement "
         "idempotent, and the disclosure column's reversal is not expressible"
     ),
+    "a4f7d20c81be": (
+        "seeds the two D-179 retention rows for tenants that predate it; no DDL, and "
+        "the INSERT is ON CONFLICT DO NOTHING so it cannot tell a row it wrote from one "
+        "the tenant already had — deleting them on downgrade would take a setting that "
+        "is now the tenant's and re-open the missing-clock gap. c4d1f7b83e26's own "
+        "downgrade removes both categories if D-179 itself is reversed, which is where "
+        "that deletion belongs"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

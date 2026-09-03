@@ -74,6 +74,13 @@ CREDIT_INR: Final[Decimal] = Decimal("1")
 # auditor reading the row knows it was a pack bonus and which pack funded it.
 PACK_BONUS_META_KIND: Final[str] = "credit_pack_bonus"
 
+# The `meta.kind` on the entry that takes a pack bonus BACK when the purchase that earned it
+# is refunded. Its own kind rather than a flag on the grant's, because the grant row is on an
+# append-only ledger and cannot be annotated (hard rule 4) — and because "how much of this
+# pack's bonus has already been reversed" has to be a query, which it is only if the rows
+# that reverse it are recognisable without reading their sign.
+PACK_BONUS_CLAWBACK_META_KIND: Final[str] = "credit_pack_bonus_clawback"
+
 
 @dataclass(frozen=True, slots=True)
 class CreditPack:
@@ -182,6 +189,7 @@ def pack_gross_margin_ratio(
 __all__ = [
     "CREDIT_INR",
     "MIN_GROSS_MARGIN",
+    "PACK_BONUS_CLAWBACK_META_KIND",
     "PACK_BONUS_META_KIND",
     "PACK_CATALOGUE",
     "CreditPack",

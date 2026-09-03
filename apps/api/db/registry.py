@@ -9,6 +9,7 @@ from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
+from apps.api.callbacks import models as callbacks_models
 from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
 from apps.api.copilot import models as copilot_models
@@ -33,6 +34,7 @@ __all__ = [
     "agents_models",
     "authn_models",
     "billing_models",
+    "callbacks_models",
     "campaigns_models",
     "compliance_models",
     "copilot_models",
@@ -91,6 +93,19 @@ TENANT_TABLES = [
     # what this client was billed once, read by the invoice.
     "one_time_charges",
     "spend_state",
+    # A refund this platform has committed to asking the provider for, written BEFORE the
+    # ask (migration c4b8e91d7a05). Tenant money: which of this client's payments is being
+    # returned and how much. NOT append-only — a claim whose provider call failed is
+    # released, which is why it is here and not in APPEND_ONLY_TABLES.
+    "refund_intents",
+    # Self-serve top-ups that were STARTED, and what became of them (migration
+    # e9b24c73f105). Tenant money-adjacent: which of this client's payment attempts
+    # failed, which is still settling, and which became a credit. NOT append-only, and
+    # deliberately: it is a CLAIM rather than an assertion of money — the row is UPDATEd
+    # from `created` to `captured`/`failed`, it is never summed into a balance, and the
+    # append-only record of the money itself is the `credit_ledger` entry the same webhook
+    # writes. A lost UPDATE here costs a stale word on a screen; it cannot cost a rupee.
+    "topup_attempts",
     "consent_ledger",
     # The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7): our own customer's owner
     # agreeing to receive hot-lead alerts from the Calevate WABA. Tenant data — it names
@@ -183,6 +198,13 @@ TENANT_TABLES = [
     # excellent search result.
     "caller_chunks",
     "caller_memories",
+    # The call-back a caller asked for on a call (D-514, migration d8f31a7c2409). Tenant
+    # data of the plainest kind — a phone number, a time we promised, and the gate's own
+    # sentence for why we could not keep it — and FORCE-RLS'd like every other row that
+    # names one of a client's callers. NOT append-only: the row IS a state machine
+    # (`scheduled -> dialing -> one of five endings`), which is what lets one promise stay
+    # one row however many times a tick claims it.
+    "scheduled_callbacks",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
     # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the
@@ -261,6 +283,22 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "the global staleness queue nor the cross-tenant ops summary. Those three hold a "
         "verdict from a fixed six-value vocabulary and two timestamps: no source name, no "
         "chunk, and no engine handle."
+    ),
+    "engine_kb_routes": (
+        "the claim that ties ONE vendor knowledge base to one tenant (migration "
+        "f1c9e0a73b46, D-519), and the exemption is for READS ONLY on exactly "
+        "`engine_agent_routes`'s pattern — `engine_kb_routes_global_read` "
+        "(FOR SELECT USING (true)) beside a FORCEd `tenant_isolation` policy covering "
+        "INSERT/UPDATE/DELETE, so one client's session can neither delete nor re-tenant "
+        "another's claim. The read genuinely is global: we run ONE engine account for "
+        "every tenant, the vendor's knowledge base is an ACCOUNT-level object with no "
+        "owner field, and the question the orphan sweep asks — which objects on this "
+        "account does no tenant of ours claim — cannot be asked from a tenant session at "
+        "all. Keeping it here is what lets `kb_sources` and `kb_documents`, which hold "
+        "the client's actual content, stay FORCE-RLS'd with no exemption. Carries four "
+        "opaque ids, a content digest and two timestamps: no source name, no chunk, no "
+        "PII. NOT append-only — the handle is recorded on attach and the row is deleted "
+        "on detach, which is the same lifecycle the JSONB key it replaces had."
     ),
     "fx_rate_observations": (
         "platform-scoped. The published USD/INR rate this deployment pulls every five "

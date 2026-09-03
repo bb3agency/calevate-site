@@ -608,19 +608,26 @@ describe("the big red switch", () => {
     expect((halt as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("refuses a whitespace reason the server would strip and reject", async () => {
-    renderAdminPage(<OpsPage />, routes(platform()));
+  it("refuses a whitespace reason the server would strip and reject, and says so", async () => {
+    // Whitespace is not a reason: the server strips it and refuses under three
+    // characters, so a switch that fired on "   " would teach the operator that the API
+    // is flaky. It USED to be enforced by deadening the button, which said nothing at
+    // all — the rule is now on the control and answers in our own words.
+    const { calls } = renderAdminPage(<OpsPage />, routes(platform()));
 
     const halt = await screen.findByRole("button", {
       name: /Halt all outbound calling/,
     });
-    fireEvent.change(screen.getByPlaceholderText(/spike in complaints/), {
-      target: { value: "   " },
-    });
+    const reason = screen.getByPlaceholderText(/spike in complaints/);
+    fireEvent.change(reason, { target: { value: "   " } });
     fireEvent.change(screen.getByPlaceholderText("HALT"), {
       target: { value: "HALT" },
     });
-    expect((halt as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(halt);
+
+    await screen.findByText("Say why you are making this change.");
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    expect(reason.getAttribute("aria-invalid")).toBe("true");
   });
 
   it("says what the click will do BEFORE it is clicked, and sends the step-up header", async () => {
@@ -769,14 +776,17 @@ describe("the load-shed mode", () => {
     expect((button as HTMLButtonElement).disabled).toBe(true);
 
     // Whitespace is not a reason: the server strips it and refuses under three chars, so
-    // a button that lights up on "   " teaches the operator that the API is flaky.
+    // a mode change that went through on "   " teaches the operator that the API is
+    // flaky. The rule lives on the CONTROL now, so the button is alive once the word is
+    // typed and the press produces a sentence instead of silence.
     fireEvent.change(screen.getByPlaceholderText(/database under heavy load/), {
       target: { value: "   " },
     });
     fireEvent.change(screen.getByPlaceholderText("MAINTENANCE"), {
       target: { value: "MAINTENANCE" },
     });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+    await screen.findByText("Say why you are making this change.");
 
     // The wrong mode's word is not enough either — this is the guard that keeps consent
     // to `reduced` from authorising `maintenance`.

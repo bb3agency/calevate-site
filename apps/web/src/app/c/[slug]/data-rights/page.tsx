@@ -27,7 +27,9 @@ import {
   DANGER_BUTTON,
   formatCount,
   formatIST,
+  istDateStamp,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   DELETION_REQUEST_LIST_LIMIT,
   downloadJson,
@@ -231,8 +233,7 @@ function SubjectExportCard({ session }: { session: Session }) {
   const access = useSubjectExportAccess(session);
   const exportDocument = useSubjectExport(session);
   const [phone, setPhone] = useState("");
-
-  const ready = phone.trim().length >= 8;
+  const valid = useFormValidation();
 
   return (
     <Card title="What we hold about a person">
@@ -248,20 +249,24 @@ function SubjectExportCard({ session }: { session: Session }) {
 
       <form
         className="mt-3 space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           exportDocument.mutate(phone.trim());
-        }}
+        })}
       >
         <Field
           id="subject-export-phone"
           label="Their phone number"
-          hint="Ten digits, or the full number starting with +. It is sent in the request body and never appears in a web address."
+          hint="Ten digits, or the full number starting with +. We send it privately — it never appears in the web address at the top of your browser, and never in your history."
         >
           <input
+            {...valid.field(
+              "phone",
+              "Enter their phone number.",
+              "subject-export-phone-hint",
+            )}
             required
             id="subject-export-phone"
-            aria-describedby="subject-export-phone-hint"
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value);
@@ -276,12 +281,15 @@ function SubjectExportCard({ session }: { session: Session }) {
             disabled={!access.allowed}
             className={`${FIELD} font-mono`}
           />
+          {valid.error("phone")}
         </Field>
 
         <button
           type="submit"
           title={access.reason ?? undefined}
-          disabled={!access.allowed || !ready || exportDocument.isPending}
+          /* `ready` (eight digits) is not repeated here: the field answers it in a
+             sentence, and a dead button said nothing. */
+          disabled={!access.allowed || exportDocument.isPending}
           className={PRIMARY_BUTTON_SM}
         >
           <FileDown aria-hidden className="h-4 w-4" />
@@ -350,8 +358,10 @@ function SubjectExportCard({ session }: { session: Session }) {
                 downloadJson(
                   exportDocument.data,
                   // Named for the day, never for the number (hard rule 6): filenames end
-                  // up in mail clients, chat threads and shared folders.
-                  `subject-access-export-${new Date().toISOString().slice(0, 10)}.json`,
+                  // up in mail clients, chat threads and shared folders. The IST day —
+                  // `toISOString()` is still on yesterday until 05:30 IST, and this is a
+                  // statutory record whose date somebody may later have to place.
+                  `subject-access-export-${istDateStamp()}.json`,
                 )
               }
               className={`${SECONDARY_BUTTON_SM} mt-3`}
@@ -386,6 +396,7 @@ function ErasureCard({ session }: { session: Session }) {
   const preview = useSubjectExport(session);
 
   const [phone, setPhone] = useState("");
+  const valid = useFormValidation();
   const [confirmation, setConfirmation] = useState("");
 
   const armed = phone.trim().length >= 8 && confirmation === ERASE_CONFIRMATION;
@@ -418,8 +429,8 @@ function ErasureCard({ session }: { session: Session }) {
 
         <form
           className="mt-3 space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             file.mutate(phone.trim(), {
               onSuccess: () => {
                 // The filed request arrives from the register, which the mutation
@@ -429,7 +440,7 @@ function ErasureCard({ session }: { session: Session }) {
                 preview.reset();
               },
             });
-          }}
+          })}
         >
           {/* Not "Their phone number", which the export field above already carries: two
               controls with one accessible name is a screen reader announcing the erasure
@@ -441,9 +452,9 @@ function ErasureCard({ session }: { session: Session }) {
             hint="Check it twice. We erase whoever this number belongs to, and there is no undo."
           >
             <input
+              {...valid.field("phone", "Enter the number to erase.", "erasure-phone-hint")}
               required
               id="erasure-phone"
-              aria-describedby="erasure-phone-hint"
               value={phone}
               onChange={(e) => {
                 setPhone(e.target.value);
@@ -458,6 +469,7 @@ function ErasureCard({ session }: { session: Session }) {
               disabled={!access.allowed}
               className={`${FIELD} font-mono`}
             />
+            {valid.error("phone")}
           </Field>
 
           {previewAccess.allowed && phone.trim().length >= 8 && (

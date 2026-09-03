@@ -18,6 +18,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { useFormValidation } from "@/components/formValidation";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { lookup } from "@/lib/lookup";
 import {
@@ -89,6 +90,7 @@ export default function TeamPage() {
   const revoke = useRevokeInvitation(session);
 
   const [email, setEmail] = useState("");
+  const valid = useFormValidation();
   const [role, setRole] = useState<MemberRole>("staff");
   /* Held here, never in the query cache: this is a credential, and the API cannot
      reissue it. Cleared when another invitation is created. */
@@ -207,8 +209,8 @@ export default function TeamPage() {
         <Card title="Invite a colleague">
           <form
             className="mt-1 flex flex-wrap items-end gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={valid.onSubmit(() => {
               invite.mutate(
                 { email: email.trim(), role },
                 {
@@ -218,21 +220,29 @@ export default function TeamPage() {
                   },
                 },
               );
-            }}
+            })}
           >
-            <label className="block">
-              <span className={FIELD_LABEL}>Their email address</span>
-              <input
-                required
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="off"
-                placeholder="priya@yourbusiness.in"
-                aria-label="Email address to invite"
-                className={`${FIELD} mt-1 w-72`}
-              />
-            </label>
+            {/* The message sits OUTSIDE the wrapping label on purpose: a `<label>` that
+                encloses it would fold the refusal into the field's accessible NAME, so a
+                screen reader would read it back on every subsequent visit to the field.
+                `aria-describedby` is the association that belongs to a message. */}
+            <div>
+              <label className="block">
+                <span className={FIELD_LABEL}>Their email address</span>
+                <input
+                  {...valid.field("email", "Enter their email address.")}
+                  required
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="off"
+                  placeholder="priya@yourbusiness.in"
+                  aria-label="Email address to invite"
+                  className={`${FIELD} mt-1 w-72`}
+                />
+              </label>
+              {valid.error("email")}
+            </div>
             <label className="block">
               <span className={FIELD_LABEL}>Role</span>
               <select

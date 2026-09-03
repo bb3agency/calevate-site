@@ -393,6 +393,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "smtp_username": AppliesRule(LIVE),
     "smtp_use_tls": AppliesRule(LIVE),
     "notifications_from": AppliesRule(LIVE),
+    "notifications_reply_to": AppliesRule(LIVE),
     "alerts_email": AppliesRule(LIVE),  # core/alerting, per alert
     # workers/tls_expiry reads it inside the daily cron, so the next run uses the new
     # value with no restart.
@@ -548,6 +549,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "redirect errors until every server process is restarted.",
     ),
     # Read at the point of use, per call or per request.
+    # Read per request, inside the handler, from the settings snapshot
+    # (`compliance/caller_data_routes._authorized`) — nothing captures it at boot, so a
+    # rotation is in force on the next inbound call.
+    "bolna_caller_data_token": AppliesRule(LIVE),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
     # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,

@@ -21,6 +21,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/agents";
@@ -147,6 +148,7 @@ export default function KnowledgePage() {
 
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
+  const valid = useFormValidation();
   const [agentId, setAgentId] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const chunks = useKbChunks(session, selected);
@@ -260,8 +262,8 @@ export default function KnowledgePage() {
           <Card title="Add knowledge">
             <form
               className="space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault();
+              noValidate
+              onSubmit={valid.onSubmit(() => {
                 if (!selectedAgentId) return;
                 submit.mutate(
                   { agentId: selectedAgentId, name, body },
@@ -272,7 +274,7 @@ export default function KnowledgePage() {
                     },
                   },
                 );
-              }}
+              })}
             >
               {hasNoAgents && (
                 <p className="rounded-lg border border-line bg-app px-3 py-2 text-xs text-ink-muted">
@@ -310,6 +312,7 @@ export default function KnowledgePage() {
               )}
 
               <input
+                {...valid.field("title", "Say what this is about.")}
                 /* The copilot field id — what the "filled" outline is drawn on. The
                    control is named by its own `aria-label`, so nothing else needs it. */
                 id="kb-title"
@@ -321,7 +324,9 @@ export default function KnowledgePage() {
                 placeholder={`What is this about? e.g. ${eg.knowledgeTitle}`}
                 className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
               />
+              {valid.error("title")}
               <textarea
+                {...valid.field("body", "Write what the agent should say.")}
                 id="kb-body"
                 required
                 minLength={10}
@@ -336,6 +341,7 @@ export default function KnowledgePage() {
                 }
                 className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
               />
+              {valid.error("body")}
               {/* Chunking is paragraph-aware, so telling the client that changes how
                   they write — and what they write is what the agent carries verbatim,
                   so better input is the only lever there is. */}
@@ -345,7 +351,11 @@ export default function KnowledgePage() {
               </p>
               <button
                 type="submit"
-                disabled={!write.allowed || submit.isPending || !selectedAgentId || body.length < 10}
+                /* The length rule is not repeated here — pressing now answers in words
+                   instead of the button going quietly dead at nine characters. Having no
+                   agent to teach IS still a dead button, because that one is not about
+                   an answer the person can correct on this form. */
+                disabled={!write.allowed || submit.isPending || !selectedAgentId}
                 /* The reason travels WITH the control as well as sitting at the top of
                    the screen: `RestrictionNote` is above the fold on a phone only by
                    luck, and a dead button with the explanation off-screen is the 403 we
@@ -441,7 +451,12 @@ export default function KnowledgePage() {
                                     key={chunk.idx}
                                     className="rounded-md border border-line bg-surface p-2 text-xs text-ink-muted"
                                   >
-                                    <p>{chunk.content}</p>
+                                    {/* The client's OWN words, at whatever length and in
+                                        whatever script they typed them. A price list or a
+                                        URL with no space in it walked this card off the
+                                        side of a phone; `break-words` is the only thing
+                                        between an unbroken token and a sideways page. */}
+                                    <p className="break-words">{chunk.content}</p>
                                     {/* THE GLOSS, AND IT IS LABELLED AS A MACHINE'S WORK.
                                         It is a SEARCH AID, not something the agent says:
                                         it exists so a caller who asks in Telugu typed in
@@ -451,7 +466,7 @@ export default function KnowledgePage() {
                                         the label is part of the feature rather than
                                         decoration. */}
                                     {chunk.gloss ? (
-                                      <p className="mt-2 border-t border-line pt-2 text-ink-faint">
+                                      <p className="mt-2 break-words border-t border-line pt-2 text-ink-faint">
                                         <span className="font-medium">
                                           Auto-translated for search
                                         </span>{" "}

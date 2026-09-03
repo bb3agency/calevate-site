@@ -27,6 +27,7 @@ import {
   TermGloss,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ActionButton } from "@/components/actionButton";
 import { ApiProblem } from "@/lib/api/client";
 // The SAME derivation the self-serve form previews with, imported rather than re-typed:
@@ -349,6 +350,7 @@ export default function NewClientPage() {
 
   const createTenant = useCreateTenant();
   const refusal = refusalReason(createTenant.error);
+  const valid = useFormValidation();
 
   const derivedSlug = slug || previewSlug(name);
   // The server REFUSES to invent a URL for a name it cannot fold to ASCII
@@ -382,8 +384,8 @@ export default function NewClientPage() {
         <Card title="Account details">
           <form
             className="space-y-5"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={valid.onSubmit(() => {
               createTenant.mutate(
                 {
                   name,
@@ -397,14 +399,18 @@ export default function NewClientPage() {
                 },
                 { onSuccess: (account) => setCreated(createdAccount(account)) },
               );
-            }}
+            })}
           >
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Business name</span>
               <input
-                /* The id is the copilot field id (see `useCopilotSurface` above): it is
-                   what the "filled" outline is drawn on. The wrapping label already
-                   associates the two, so nothing else depends on it. */
+                {...valid.field("name", "Give this client its business name.")}
+                /* AFTER the spread, deliberately: `field()` supplies an id of its own and
+                   the last one wins, and this one is the COPILOT field id (see
+                   `useCopilotSurface` above) — what the "filled" outline is drawn on.
+                   Overriding it costs nothing: the wrapping label associates the control,
+                   and `field()`'s message is tied to it by `aria-describedby`, which names
+                   the message's own id rather than the control's. */
                 id="new-client-name"
                 required
                 minLength={2}
@@ -413,11 +419,13 @@ export default function NewClientPage() {
                 placeholder={examplesFor(vertical).orgName}
                 className={FIELD}
               />
+              {valid.error("name")}
             </label>
 
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Slug</span>
               <input
+                {...valid.field("slug", "Choose the web address for this client.")}
                 id="new-client-slug"
                 required={mustChooseSlug}
                 minLength={mustChooseSlug ? 3 : undefined}
@@ -426,6 +434,7 @@ export default function NewClientPage() {
                 placeholder={previewSlug(name) || examplesFor(vertical).orgSlug}
                 className={`${FIELD} font-mono`}
               />
+              {valid.error("slug")}
               <span className={FIELD_HINT}>
                 Appears in every client URL and cannot be changed once the client is
                 created.{" "}
@@ -515,6 +524,7 @@ export default function NewClientPage() {
             <label className="block max-w-sm">
               <span className={FIELD_LABEL}>Billing email</span>
               <input
+                {...valid.field("email", "Enter a billing address, or leave it blank.")}
                 id="new-client-email"
                 type="email"
                 value={email}
@@ -522,6 +532,7 @@ export default function NewClientPage() {
                 placeholder="owner@business.com"
                 className={FIELD}
               />
+              {valid.error("email")}
               <span className={FIELD_HINT}>
                 Where hot-lead alerts and invoices go. Offered again as the invite address
                 in step 3.
@@ -539,7 +550,10 @@ export default function NewClientPage() {
               type="submit"
               title={refusal ?? undefined}
               loading={createTenant.isPending}
-              disabled={name.trim().length < 2 || Boolean(refusal)}
+              /* The name's minimum length is answered at the field now, so the button
+                 stays live and a press produces a sentence rather than nothing. What is
+                 left is `refusal`, which is not about an answer on this form. */
+              disabled={Boolean(refusal)}
             >
               <Building2 aria-hidden className="h-4 w-4" />
               Create client
@@ -783,6 +797,7 @@ function CreatedPanel({
   // at every submit so a send to one address can never sit under a refusal for another.
   const [sentTo, setSentTo] = useState<string | null>(null);
   const refusal = refusalReason(invite.error);
+  const inviteValid = useFormValidation();
   // THE EXIT FROM THE SERVER'S OWN REFUSAL, and the reason it needs its own state.
   //
   // A second live token for one address is refused (`invitation_already_pending`), which
@@ -880,8 +895,8 @@ function CreatedPanel({
 
           <form
             className="flex flex-wrap items-start gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={inviteValid.onSubmit(() => {
               // A previous confirmation must not survive this attempt: "sent to …" left
               // over from an earlier address is a claim about mail nobody sent.
               setSentTo(null);
@@ -898,11 +913,12 @@ function CreatedPanel({
                   },
                 },
               );
-            }}
+            })}
           >
             <label className="block flex-1 sm:min-w-[16rem]">
               <span className={FIELD_LABEL}>Owner&apos;s email</span>
               <input
+                {...inviteValid.field("email", "Enter the owner's email address.")}
                 required
                 type="email"
                 value={email}
@@ -910,12 +926,15 @@ function CreatedPanel({
                 placeholder="owner@business.com"
                 className={FIELD}
               />
+              {inviteValid.error("email")}
             </label>
             <ActionButton
               type="submit"
               title={refusal ?? undefined}
               loading={invite.isPending}
-              disabled={!email.trim() || Boolean(refusal)}
+              /* Emptiness is answered at the field now. `refusal` is a permission or a
+                 lifecycle gate and stays. */
+              disabled={Boolean(refusal)}
               className="mt-5"
             >
               <Mail aria-hidden className="h-4 w-4" />

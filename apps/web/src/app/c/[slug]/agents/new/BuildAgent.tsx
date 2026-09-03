@@ -12,6 +12,7 @@ import {
   ProblemNotice,
   RestrictionNote,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import {
   useCreateAgent,
@@ -82,6 +83,7 @@ export function BuildAgent({ slug }: { slug: string }) {
   const write = useWriteAccess(session, "org:manage", "create an agent");
 
   const [name, setName] = useState("");
+  const valid = useFormValidation();
   const [direction, setDirection] = useState<AgentDirection>("inbound");
   const [language, setLanguage] = useState<AgentLanguage>("te-IN");
   const [capMinutes, setCapMinutes] = useState("");
@@ -208,8 +210,8 @@ export function BuildAgent({ slug }: { slug: string }) {
           <Card title="Build an agent">
             <form
               className="space-y-6"
-              onSubmit={(event) => {
-                event.preventDefault();
+              noValidate
+              onSubmit={valid.onSubmit(() => {
                 create.mutate(
                   {
                     name,
@@ -221,27 +223,34 @@ export function BuildAgent({ slug }: { slug: string }) {
                   },
                   { onSuccess: (agent) => setCreated(agent) },
                 );
-              }}
+              })}
             >
-              <label className="block max-w-sm">
-                <span className={FIELD_LABEL}>What do you want to call it?</span>
-                <input
-                  /* The copilot field id, which is what the "filled" outline is drawn
-                     on. The wrapping label already associates the two. */
-                  id="new-agent-name"
-                  required
-                  minLength={2}
-                  maxLength={80}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="e.g. Front desk"
-                  className={FIELD}
-                />
-                <span className={FIELD_HINT}>
-                  Only you see this name — it is how you tell your agents apart here and on
-                  your call log. Callers never hear it.
-                </span>
-              </label>
+              {/* The message is outside the wrapping `<label>` so it describes the field
+                  rather than becoming part of its name. */}
+              <div className="max-w-sm">
+                <label className="block">
+                  <span className={FIELD_LABEL}>What do you want to call it?</span>
+                  <input
+                    {...valid.field("name", "Give this agent a name.")}
+                    /* The copilot field id, which is what the "filled" outline is drawn
+                       on. It overrides the generated one; the message is tied to the
+                       control by `aria-describedby` either way. */
+                    id="new-agent-name"
+                    required
+                    minLength={2}
+                    maxLength={80}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="e.g. Front desk"
+                    className={FIELD}
+                  />
+                  <span className={FIELD_HINT}>
+                    Only you see this name — it is how you tell your agents apart here and
+                    on your call log. Callers never hear it.
+                  </span>
+                </label>
+                {valid.error("name")}
+              </div>
 
               <fieldset>
                 <legend className={FIELD_LABEL}>What should it do?</legend>
@@ -286,6 +295,7 @@ export function BuildAgent({ slug }: { slug: string }) {
                 lanes={lanes}
                 value={capMinutes}
                 onChange={setCapMinutes}
+                validation={valid}
               />
 
               <ComplianceFloor />
@@ -293,7 +303,9 @@ export function BuildAgent({ slug }: { slug: string }) {
               <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
                 <button
                   type="submit"
-                  disabled={!write.allowed || create.isPending || name.trim().length < 2}
+                  /* The name rule is NOT repeated here. A button that stays dead until
+                     the second character explains nothing; pressing it now answers. */
+                  disabled={!write.allowed || create.isPending}
                   /* The reason travels WITH the control as well as sitting at the top of
                      the screen: a dead button whose explanation is off-screen on a phone is
                      the 403 this pattern exists to avoid shipping. */

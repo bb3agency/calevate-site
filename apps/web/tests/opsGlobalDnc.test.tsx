@@ -129,7 +129,7 @@ describe("the platform-wide do-not-call list", () => {
   });
 
   it("will not submit a whitespace reason the server would strip and reject", async () => {
-    renderAdminPage(<GlobalDncPage />, routes());
+    const { calls } = renderAdminPage(<GlobalDncPage />, routes());
 
     const button = await screen.findByRole("button", { name: /Suppress/ });
     // Deliberately NOT the number in the list fixture: since D-436 the list renders its
@@ -149,10 +149,14 @@ describe("the platform-wide do-not-call list", () => {
     // lands. This assertion is what stops the next one passing vacuously.
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
 
+    // The rule moved from the button to the CONTROL: a press with a whitespace reason
+    // now says what is missing and sends nothing, where before it did nothing at all.
     fireEvent.change(screen.getByPlaceholderText(/TRAI escalation/), {
       target: { value: "   " },
     });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(button);
+    await screen.findByText("Say why the platform refuses these numbers.");
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
   it("answers a completed suppression with counts and never echoes what was typed", async () => {

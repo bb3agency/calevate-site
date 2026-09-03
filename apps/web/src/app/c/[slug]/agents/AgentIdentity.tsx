@@ -40,6 +40,7 @@ import {
   ProblemNotice,
   RestrictionNote,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ARCHIVED_STATUS, LANGUAGE_NAMES } from "@/lib/agentState";
 import {
   useUpdateAgent,
@@ -60,6 +61,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const write = useWriteAccess(session, "org:manage", "change this agent's details");
 
   const [name, setName] = useState(agent.name);
+  const valid = useFormValidation();
   /* `AgentOut.direction` is the SAME generated union `AgentUpdateIn` accepts (D-440 typed
      both columns), so the current value needs no narrowing on the way in or out. It was
      `string` on both sides until that change, and a widened value would have had to be
@@ -98,30 +100,36 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   return (
     <form
       className="space-y-6"
-      onSubmit={(event) => {
-        event.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         if (!changed) return;
         save.mutate(patch);
-      }}
+      })}
     >
       <RestrictionNote reason={write.reason} />
       {save.error && <ProblemNotice error={save.error} />}
 
-      <label className="block max-w-sm">
-        <span className={FIELD_LABEL}>Name</span>
-        <input
-          required
-          minLength={2}
-          maxLength={80}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className={FIELD}
-        />
-        <span className={FIELD_HINT}>
-          Only you see this — it is how you tell your agents apart here and on your call
-          log. Callers never hear it.
-        </span>
-      </label>
+      {/* The message sits outside the wrapping `<label>`: enclosed, it would be read
+          back as part of the field's name instead of as its description. */}
+      <div className="max-w-sm">
+        <label className="block">
+          <span className={FIELD_LABEL}>Name</span>
+          <input
+            {...valid.field("name", "Give this agent a name.")}
+            required
+            minLength={2}
+            maxLength={80}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className={FIELD}
+          />
+          <span className={FIELD_HINT}>
+            Only you see this — it is how you tell your agents apart here and on your call
+            log. Callers never hear it.
+          </span>
+        </label>
+        {valid.error("name")}
+      </div>
 
       <fieldset>
         <legend className={FIELD_LABEL}>What it does</legend>

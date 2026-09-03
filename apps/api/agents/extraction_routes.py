@@ -44,7 +44,7 @@ from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,14 +69,47 @@ Owner = Annotated[Principal, Depends(requires("org:manage"))]
 Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
 
+#: THE CEILINGS THIS SURFACE HAD NONE OF, and the reason they are needed NOW rather than
+#: when the list was hand-written. D-460 turned this from an operator-only surface into one
+#: a client OWNER writes, which moves `fields` into the class `scripts/check_list_bounds`
+#: calls caller-controlled — "rows a tenant can mint" — and off the "bounded by nature"
+#: shelf its registry entry used to put it on. Nothing here was refusing a PUT of fifty
+#: thousand variables, or one variable whose `reason` is a megabyte of prose.
+#:
+#: THE COST IS NOT THE ROW, IT IS EVERY CALL AFTERWARDS. Each variable and its `reason` are
+#: folded verbatim into the extraction prompt and the JSON schema the model is given
+#: (`workers/extraction.py`), so an oversized list is paid for on EVERY post-call
+#: extraction that agent ever runs — in tokens, in latency, and eventually in an extraction
+#: that fails outright because the prompt no longer fits. It also becomes a Leads table with
+#: fifty thousand columns (`crm/columns.available`), a CSV header to match, and a
+#: projection the retrieval store embeds field by field (`crm/lead_projection.py`).
+#:
+#: The numbers are generous against the real thing: the largest vertical template in
+#: `scripts/seed.py::VERTICAL_TEMPLATES` is 7 variables with reasons under 200 characters.
+#: They are ceilings on a mistake, not a product limit anyone will meet.
+MAX_EXTRACTION_FIELDS = 50
+MAX_LABEL_LEN = 80
+MAX_REASON_LEN = 500
+MAX_ENUM_VALUES = 50
+MAX_ENUM_VALUE_LEN = 80
+
+
 class ExtractionSchemaIn(BaseModel):
     """The whole new ordered field list. `extra="forbid"` on every field
     (`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently
-    dropped edit."""
+    dropped edit.
+
+    `max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.
+    Those two models also parse what is ALREADY STORED (`_read_current`, `crm.service.
+    lead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a
+    ceiling that turns every row written before it existed into a 500 on the client's own
+    Leads screen. A bound belongs on the write, where the person who can act on it is
+    holding the form.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    fields: list[ExtractionField]
+    fields: list[ExtractionField] = Field(max_length=MAX_EXTRACTION_FIELDS)
 
 
 class ExtractionSchemaOut(BaseModel):
@@ -118,6 +151,46 @@ def _validate_fields(fields: list[ExtractionField]) -> None:
             detail="One or more variables are invalid.",
             fields=[{"name": "fields", "reason": "invalid variable list"}],
         ) from exc
+
+    # The per-VARIABLE sizes, which `max_length` on the list above cannot state. Each one
+    # names the offending variable by key, because "a label is too long" against a form of
+    # fifty rows is not something anybody can act on.
+    for field in fields:
+        if len(field.label) > MAX_LABEL_LEN:
+            raise ProblemError(
+                kind="validation",
+                code="extraction_field_label_too_long",
+                title="A variable's name is too long",
+                detail=(
+                    f"'{field.key}' has a name of {len(field.label)} characters; the "
+                    f"limit is {MAX_LABEL_LEN}. It is a column header on the Leads table."
+                ),
+                fields=[{"name": "fields", "reason": f"label too long: {field.key}"}],
+            )
+        if len(field.reason) > MAX_REASON_LEN:
+            raise ProblemError(
+                kind="validation",
+                code="extraction_field_reason_too_long",
+                title="A variable's reason is too long",
+                detail=(
+                    f"'{field.key}' has a reason of {len(field.reason)} characters; the "
+                    f"limit is {MAX_REASON_LEN}. The AI reads this on every single call, "
+                    "so a short, specific sentence works better than a long one."
+                ),
+                fields=[{"name": "fields", "reason": f"reason too long: {field.key}"}],
+            )
+        values = field.enum_values or []
+        if len(values) > MAX_ENUM_VALUES or any(len(v) > MAX_ENUM_VALUE_LEN for v in values):
+            raise ProblemError(
+                kind="validation",
+                code="extraction_field_choices_invalid",
+                title="A variable has too many choices",
+                detail=(
+                    f"'{field.key}' may have at most {MAX_ENUM_VALUES} choices of "
+                    f"{MAX_ENUM_VALUE_LEN} characters each."
+                ),
+                fields=[{"name": "fields", "reason": f"choices too large: {field.key}"}],
+            )
 
     reserved = sorted({f.key for f in fields} & FIXED_KEYS)
     if reserved:
@@ -249,7 +322,10 @@ _DESCRIPTION = (
     "Saving creates a new schema version used on the NEXT call's extraction; calls already "
     "recorded keep the variables they were extracted with. A variable whose key is a "
     "built-in lead column, or a duplicate key, is refused. Renaming or removing a "
-    "variable's key stops older leads from showing that column (their values are kept)."
+    "variable's key stops older leads from showing that column (their values are kept).\n\n"
+    f"At most {MAX_EXTRACTION_FIELDS} variables, each with a name of "
+    f"{MAX_LABEL_LEN} characters or fewer, a reason of {MAX_REASON_LEN} or fewer, and at "
+    f"most {MAX_ENUM_VALUES} choices."
 )
 
 

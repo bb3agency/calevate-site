@@ -37,6 +37,7 @@ import {
   formatISTInput,
   istInputToInstant,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   usePlatformState,
   useReplayOutbox,
@@ -548,7 +549,11 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
 
   const halted = state.outbound_halted;
   const confirmWord = halted ? "RESUME" : "HALT";
-  const ready = reason.trim().length >= 3 && confirm === confirmWord;
+  const valid = useFormValidation();
+  // The reason is answered at its own control now — pressing the button with an
+  // empty reason says so rather than doing nothing. The typed word stays in `ready`:
+  // it is a gate on the act, not an answer on the form.
+  const ready = confirm === confirmWord;
 
   return (
     <Card>
@@ -590,8 +595,8 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
 
         <form
           className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             setState.mutate(
               { outboundHalted: !halted, reason: reason.trim() },
               {
@@ -601,7 +606,7 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
                 },
               },
             );
-          }}
+          })}
         >
           {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON. Blast radius first, then what is
               NOT affected, then the fact that it is recorded — in that order, because
@@ -639,6 +644,7 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
           <label className="block">
             <span className={FIELD_LABEL}>Reason</span>
             <input
+              {...valid.field("reason", "Say why you are making this change.")}
               required
               minLength={3}
               maxLength={500}
@@ -652,6 +658,7 @@ function OutboundHaltPanel({ state, access }: { state: PlatformState; access: Op
               }
               className={FIELD}
             />
+            {valid.error("reason")}
             <span className={FIELD_HINT}>
               Whoever finds outbound calling stopped at 3am reads this to decide whether the
               reason still holds. It stays on record here, not only in the activity log.
@@ -741,7 +748,11 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
   // refuses the empty transition for that exact reason; this is the same objection one
   // step earlier, where the operator can still see it.
   const unchanged = target === current;
-  const ready = !unchanged && reason.trim().length >= 3 && confirm === confirmWord;
+  const valid = useFormValidation();
+  // The reason is answered at its own control now — pressing the button with an
+  // empty reason says so rather than doing nothing. The typed word stays in `ready`:
+  // it is a gate on the act, not an answer on the form.
+  const ready = !unchanged && confirm === confirmWord;
 
   return (
     <Card title="Protective slowdown">
@@ -770,8 +781,8 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
 
         <form
           className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             setState.mutate(
               { loadShedMode: target, reason: reason.trim() },
               {
@@ -781,7 +792,7 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
                 },
               },
             );
-          }}
+          })}
         >
           <label className="block">
             <span className={FIELD_LABEL}>Change the mode to</span>
@@ -832,6 +843,7 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
           <label className="block">
             <span className={FIELD_LABEL}>Reason</span>
             <input
+              {...valid.field("reason", "Say why you are making this change.")}
               required
               minLength={3}
               maxLength={500}
@@ -841,6 +853,7 @@ function LoadShedPanel({ state, access }: { state: PlatformState; access: OpsAcc
               placeholder="e.g. 'database under heavy load — pausing changes until it recovers'"
               className={FIELD}
             />
+            {valid.error("reason")}
             <span className={FIELD_HINT}>
               Whoever finds the platform slowed reads this to decide whether the condition
               still holds.
@@ -942,7 +955,11 @@ function TmRegistrationPanel({
   const makingLive = status === "active";
   const confirmWord = makingLive ? "RECORD" : "WITHDRAW";
   const live = registration.is_live;
-  const ready = reason.trim().length >= 3 && confirm === confirmWord;
+  const valid = useFormValidation();
+  // The reason is answered at its own control now — pressing the button with an
+  // empty reason says so rather than doing nothing. The typed word stays in `ready`:
+  // it is a gate on the act, not an answer on the form.
+  const ready = confirm === confirmWord;
 
   return (
     <Card title="Our telemarketer registration">
@@ -1012,8 +1029,8 @@ function TmRegistrationPanel({
 
         <form
           className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             record.mutate(
               {
                 status,
@@ -1023,7 +1040,7 @@ function TmRegistrationPanel({
               },
               { onSuccess: () => setConfirm("") },
             );
-          }}
+          })}
         >
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="block">
@@ -1080,6 +1097,7 @@ function TmRegistrationPanel({
           <label className="block">
             <span className={FIELD_LABEL}>Reason</span>
             <input
+              {...valid.field("reason", "Say why you are making this change.")}
               required
               minLength={3}
               maxLength={500}
@@ -1089,6 +1107,7 @@ function TmRegistrationPanel({
               placeholder="e.g. 'registrar grant letter 2026-08-04'"
               className={FIELD}
             />
+            {valid.error("reason")}
             <span className={FIELD_HINT}>Recorded in the activity log with this change.</span>
           </label>
 
@@ -1837,6 +1856,10 @@ function OutboxReplayPanel({
 
         <form
           className="space-y-3"
+          // No constraint attributes here: the scope select and the typed word are gates,
+          // not answers a rule can be read off. `noValidate` all the same, so no later
+          // edit hands this form back to the browser.
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             replay.mutate(job, { onSuccess: () => setConfirm("") });

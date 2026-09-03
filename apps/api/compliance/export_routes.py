@@ -68,11 +68,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.export import build_subject_export, subject_ref
+from apps.api.compliance.subject_phone import SubjectPhone
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -95,10 +96,12 @@ class SubjectExportIn(Strict):
     """`extra="forbid"` so a caller cannot smuggle a second selector (a lead id, a
     tenant slug) into a request whose whole security argument is "one phone number"."""
 
-    # E.164 (conventions), same pattern as the admin DNC endpoint. A POST rather than a
-    # GET for one reason: the identifier IS the personal data, and a GET would write it
-    # into access logs, proxy logs and browser history (hard rule 6).
-    phone: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    # Raw as pasted, then normalized by the one door (`compliance/subject_phone.py`) —
+    # the same handling as the admin DNC endpoint, which is what the form in front of
+    # this one has always promised. A POST rather than a GET for one reason: the
+    # identifier IS the personal data, and a GET would write it into access logs, proxy
+    # logs and browser history (hard rule 6).
+    phone: SubjectPhone
 
 
 # --- the document ------------------------------------------------------------------
@@ -219,6 +222,46 @@ class SubjectExportDoNotCallOut(Strict):
     added_at: str | None
 
 
+class SubjectExportCampaignContactOut(Strict):
+    """This number on a client's uploaded calling list, whether or not it was ever called.
+
+    Present for `SubjectExportDoNotCallOut`'s reason, and the case is starker: §12 erases
+    `campaign_contacts` and §11 reported it nowhere, so a person whose number a client
+    uploaded and who NEVER CALLED was told we hold nothing about them. They are the least
+    likely of anyone to know otherwise, having had no contact through which to find out.
+
+    `has_custom_fields` rather than the fields themselves: `campaign_contacts.custom` holds
+    whatever columns the client uploaded as merge variables, in shapes we do not model. The
+    boolean tells the subject such data exists so they can ask for it specifically — the
+    same halfway house as `recording_available` and `evidence_recorded`.
+    """
+
+    campaign_name: str
+    status: str
+    attempts: int
+    last_attempt_at: str | None
+    has_custom_fields: bool
+    added_at: str | None
+
+
+class SubjectExportRememberedOut(Strict):
+    """A fact one of this account's agents had remembered about the subject (D-506/D-507).
+
+    THE SENTENCE ITSELF IS DISCLOSED, unlike a campaign's `custom` fields, and the
+    difference is who wrote it: `custom` is the client's data about the person, while this
+    is OUR distilled sentence about them. A subject access request is precisely the
+    instrument for reading what a company has written down about you.
+
+    Nothing writes these yet — the producer is unbuilt and `agents.caller_memory_enabled`
+    defaults false — so this list is empty on every account today. It is modelled anyway,
+    because a disclosure that silently lags a new store is the exact defect that made this
+    document incomplete in the first place.
+    """
+
+    fact: str
+    occurred_at: str | None
+
+
 class SubjectExportCountsOut(Strict):
     """What the document contains, stated in the document.
 
@@ -232,6 +275,8 @@ class SubjectExportCountsOut(Strict):
     transcript_turns: int
     consent_records: int
     recordings_available: int
+    campaign_contacts: int
+    remembered_facts: int
 
 
 class SubjectExportOut(Strict):
@@ -250,6 +295,8 @@ class SubjectExportOut(Strict):
     transcripts: list[SubjectExportTranscriptOut]
     consent: list[SubjectExportConsentOut]
     do_not_call: SubjectExportDoNotCallOut
+    campaign_contacts: list[SubjectExportCampaignContactOut]
+    remembered: list[SubjectExportRememberedOut]
     counts: SubjectExportCountsOut
 
 

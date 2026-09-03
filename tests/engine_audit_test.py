@@ -1598,6 +1598,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         "agent_name",
         "agent_prompts",
         "agent_type",
+        # The vendor's name for the uploaded document on a knowledge-base listing row
+        # (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md:55-110`).
+        # VENDOR-ONLY rather than shared: we WRITE into it (the upload sends
+        # `calevate-kb-<source id>.pdf`, which is what the orphan sweep reads back to
+        # attribute a row), but we hold no `file_name` of our own anywhere outside the
+        # engine boundary — no column, no model field, no domain term.
+        "file_name",
         # The greeting field — Bolna's own noun for it. Read since P3.3, because the
         # disclosure verdict has to be scored against the field that SPEAKS.
         "agent_welcome_message",

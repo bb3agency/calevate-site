@@ -393,8 +393,15 @@ campaign before any tenant dialled:
 | `spend_cap` | non-terminal — tenant hit their monthly cap (`spend_state.capped`) |
 | `no_credits` | non-terminal — self_serve/trial wallet empty (D-34) |
 | `calling_hours` | non-terminal — outside 09:00–21:00 IST (`DEFAULT_WINDOW`) |
+| `agreements_not_accepted` | non-terminal — the client has not accepted the current Terms/DPA/AUP |
+| `tm_registration_missing` | non-terminal — Calevate's own TM registration is not live |
+| `pe_registration_missing` / `pe_registration_not_active` / `pe_verification_stale` / `tm_link_not_active` | non-terminal — the client's DLT entity chain; `dispatch_blockers` normally stops the whole campaign first |
+| `number_not_bound_to_agent` / `number_not_registered` | non-terminal — the agent has no DLT-registered header to dial FROM |
+| `campaign_not_running` / `campaign_window_closed` | non-terminal — the campaign itself was paused/cancelled, or its own narrowed window closed mid-batch |
 | `dnc` | TERMINAL: contact set to `dnc_blocked` |
 | `no_consent` | TERMINAL: contact set to `dnc_blocked` — they withdrew or never gave permission (D-117) |
+| `consent_expired` | TERMINAL: contact set to `dnc_blocked` — a granted opt-in whose own `expires_at` has passed. Only a fresh grant lifts it, which is the same act that lifts `no_consent`; waiting never does |
+| `destination_not_india` | TERMINAL: contact set to `dnc_blocked` — a non-`+91` number, out of scope for the freeze |
 
 **Terminal is exactly `compliance.service.PERSON_LEVEL_REFUSALS`** — the refusals that
 are facts about the PERSON and will not become false by waiting. Everything else returns
@@ -404,10 +411,21 @@ looks like step 7's all-waiting-on-backoff picture, repeating every 30 minutes �
 `spend_state`, credits, and the clock before suspecting the dispatcher.
 
 A campaign stuck `running` with one or two contacts cycling every 30 minutes and never
-completing used to be `no_consent`: it was not in the terminal set, so the contact was
-re-claimed and refused forever and the `pending` row kept `complete_or_rearm` from ever
-firing. If you see that shape now, it is a rule that genuinely has not cleared — read the
-`compliance_blocks` label rather than guessing.
+completing used to be `no_consent`, then `destination_not_india`, then `consent_expired`:
+none of them was in the terminal set, so the contact was re-claimed and refused forever and
+the `pending` row kept `complete_or_rearm` from ever firing. If you see that shape now, it
+is a rule that genuinely has not cleared — read the `compliance_blocks` label rather than
+guessing, and if the label names a fact that can never change, that is a fourth one and it
+belongs in `PERSON_LEVEL_REFUSALS` (`tests/dispatch_refusal_settlement_test.py`).
+
+**A campaign stuck `running` with ZERO contacts left is a different shape and is now
+fixed.** Completion used to sit behind the standing §3 gate, so a campaign whose last call
+finished and whose paperwork then lapsed — most often the national DND scrub expiring at
+midnight IST — never completed and never fired `campaign.completed`.
+`campaign_dispatch._settle_finished_campaign` runs BEFORE that gate now. If you still see
+it, the campaign is not being visited at all: check that its tenant appears in
+`dispatch_scan()` and that its own narrowed window is open (a closed window skips the
+campaign until the window next opens, which is at most a day).
 
 DNC membership check (existence only — do not select the number):
 

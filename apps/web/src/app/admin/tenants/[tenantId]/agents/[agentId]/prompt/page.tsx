@@ -18,6 +18,7 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
+import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { ActionButton } from "@/components/actionButton";
 import { SuccessRipple } from "@/components/successRipple";
 import { useTenant, useTenantAgents } from "@/lib/api/admin";
@@ -105,6 +106,7 @@ export default function AgentPromptPage({
   const write = useAdminAccess("agents:write", "change this agent's script");
 
   const [body, setBody] = useState("");
+  const valid = useFormValidation();
   const [notes, setNotes] = useState("");
 
   /*
@@ -345,8 +347,8 @@ export default function AgentPromptPage({
           {newVersion.error && <ProblemNotice error={newVersion.error} />}
           <form
             className="space-y-2"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={valid.onSubmit(() => {
               newVersion.mutate(
                 { body, ...(notes.trim() ? { notes: notes.trim() } : {}) },
                 {
@@ -357,9 +359,10 @@ export default function AgentPromptPage({
                   },
                 },
               );
-            }}
+            })}
           >
             <textarea
+              {...valid.field("body", "Write the agent's instructions.")}
               required
               minLength={20}
               rows={8}
@@ -369,6 +372,7 @@ export default function AgentPromptPage({
               placeholder="The full system prompt for this agent (min 20 characters)."
               className={FIELD}
             />
+            {valid.error("body")}
             <input
               value={notes}
               disabled={!write.allowed}
@@ -379,7 +383,9 @@ export default function AgentPromptPage({
             />
             <button
               type="submit"
-              disabled={newVersion.isPending || body.length < 20 || !write.allowed}
+              /* The 20-character rule is the field's now, so the button stays live and a
+                 press produces a sentence rather than nothing. */
+              disabled={newVersion.isPending || !write.allowed}
               className={PRIMARY_BUTTON_SM}
             >
               Save as new version
@@ -947,6 +953,7 @@ function CallCapPanel({
   // empty string is a real instruction (clear the override, fall back to the platform
   // default) and must not be confused with "unchanged".
   const [seconds, setSeconds] = useState<string | null>(null);
+  const capValid = useFormValidation();
 
   const field =
     seconds ??
@@ -1004,10 +1011,10 @@ function CallCapPanel({
 
         <form
           className="flex flex-wrap items-end gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={capValid.onSubmit(() => {
             save.mutate({ max_call_duration_s: parsed });
-          }}
+          })}
         >
           <div className="flex flex-col gap-1">
             <label htmlFor="call-cap" className="text-xs text-ink-muted">
@@ -1015,6 +1022,7 @@ function CallCapPanel({
             </label>
             <input
               id="call-cap"
+              {...capValid.track("seconds", "Enter how many seconds a call may run.")}
               type="number"
               inputMode="numeric"
               value={field}
@@ -1026,7 +1034,12 @@ function CallCapPanel({
                 lanes.data ? String(lanes.data.call_cap_default_s) : "platform default"
               }
               className={`w-32 tabular-nums ${FIELD}`}
+              aria-invalid={capValid.message("seconds") ? true : undefined}
+              aria-describedby={capValid.message("seconds") ? "call-cap-error" : undefined}
             />
+            {capValid.message("seconds") ? (
+              <FieldMessage id="call-cap-error">{capValid.message("seconds")}</FieldMessage>
+            ) : null}
           </div>
           <button
             type="submit"
@@ -1175,6 +1188,9 @@ function VoicePanel({
 
             <form
               className="flex flex-wrap items-end gap-3"
+              // A select with a value always chosen — no rule to word. `noValidate` so a
+              // rule added later cannot be answered by the browser in its own language.
+              noValidate
               onSubmit={(event) => {
                 event.preventDefault();
                 save.mutate(selected);
@@ -1631,6 +1647,7 @@ function StartExperimentForm({
   }) => void;
 }) {
   const [name, setName] = useState("");
+  const expValid = useFormValidation();
   const [control, setControl] = useState<string>("");
   const [challenger, setChallenger] = useState<string>("");
   const [metric, setMetric] = useState(rules.default_metric);
@@ -1647,7 +1664,6 @@ function StartExperimentForm({
 
   const parsed = { control: Number(control), challenger: Number(challenger) };
   const ready =
-    name.trim().length >= 3 &&
     Number.isFinite(parsed.control) &&
     Number.isFinite(parsed.challenger) &&
     parsed.control !== parsed.challenger &&
@@ -1657,8 +1673,8 @@ function StartExperimentForm({
   return (
     <form
       className="space-y-2"
-      onSubmit={(event) => {
-        event.preventDefault();
+      noValidate
+      onSubmit={expValid.onSubmit(() => {
         onStart({
           name: name.trim(),
           control_version: parsed.control,
@@ -1669,9 +1685,12 @@ function StartExperimentForm({
           split_bp: rules.split_total_bp / 2,
           conversion_metric: metric,
         });
-      }}
+      })}
     >
       <input
+        {...expValid.field("name", "Say what is being tested.")}
+        required
+        minLength={3}
         value={name}
         disabled={!write.allowed}
         onChange={(event) => setName(event.target.value)}
@@ -1679,6 +1698,7 @@ function StartExperimentForm({
         placeholder="What is being tested (e.g. 'direct booking greeting')"
         className={FIELD}
       />
+      {expValid.error("name")}
       <div className="flex flex-wrap gap-2">
         <VersionSelect
           label="Control (A)"

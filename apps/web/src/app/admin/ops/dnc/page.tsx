@@ -37,6 +37,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { DNC_LIST_LIMIT, MAX_NUMBERS_PER_ADD, parsePastedNumbers } from "@/lib/api/dnc";
 import {
   useGlobalDncList,
@@ -315,18 +316,19 @@ function SuppressPanel({
   // both surfaces.
   const parsed = parsePastedNumbers(paste);
   const tooMany = parsed.length > MAX_NUMBERS_PER_ADD;
-  const ready =
-    parsed.length > 0 &&
-    !tooMany &&
-    reason.trim().length >= 3 &&
-    confirmMatches(confirm, "SUPPRESS");
+  const valid = useFormValidation();
+  // The reason's rule left `ready` and went to the control, so pressing Suppress with an
+  // empty reason now SAYS so instead of doing nothing. What stays are the two gates that
+  // are not answers on a control: whether the paste parsed into numbers at all, and the
+  // typed confirmation.
+  const ready = parsed.length > 0 && !tooMany && confirmMatches(confirm, "SUPPRESS");
 
   return (
     <Card title="Suppress a number for every client">
       <form
         className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           mutation.mutate(
             { numbers: parsed, source, reason: reason.trim() },
             {
@@ -337,7 +339,7 @@ function SuppressPanel({
               },
             },
           );
-        }}
+        })}
       >
         {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON. Blast radius first, then what is NOT
             affected, then the fact that it is recorded — in that order, because an
@@ -415,6 +417,7 @@ function SuppressPanel({
         <label className="block">
           <span className={FIELD_LABEL}>Reason</span>
           <input
+            {...valid.field("reason", "Say why the platform refuses these numbers.")}
             required
             minLength={3}
             maxLength={500}
@@ -424,6 +427,7 @@ function SuppressPanel({
             placeholder="e.g. 'TRAI escalation TR-4471 named this number'"
             className={FIELD}
           />
+          {valid.error("reason")}
           <span className={FIELD_HINT}>
             What you write here goes into the audit log. It is the record of who refused
             these numbers for the whole platform, and on whose instruction — the answer

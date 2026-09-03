@@ -89,6 +89,12 @@ export function SavedViewBar({
         {naming ? (
           <form
             className="flex items-end gap-2"
+            /* No rule on this form can refuse a submit, and `noValidate` is still here:
+               it is the client realm's invariant that the BROWSER never writes a refusal
+               on our screens (tests/formValidation.test.tsx pins it), and a form that
+               opts out only when it happens to carry a rule is one attribute away from
+               speaking Chrome's words in Chrome's language. */
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               saveView.mutate(

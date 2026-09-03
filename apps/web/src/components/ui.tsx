@@ -529,12 +529,44 @@ export function TermGloss({
 }
 
 /**
+ * The problem kinds where a support reference is worth printing.
+ *
+ * A reference is for a failure only WE can look into. `validation`, `permission`,
+ * `auth`, `not_found`, `conflict` and `business_rule` are the API telling the person what
+ * it needs — a 32-character id beside "check what you entered" makes a typo look like an
+ * outage, which is exactly what the photographed sign-in box did. The three kinds here
+ * are the ones whose answer is in a log line rather than on the screen
+ * (`apps/api/core/errors.py`: `dependency`, `transient`, `internal`).
+ */
+const REFERENCE_KINDS = new Set(["dependency", "transient", "internal"]);
+
+/**
  * Renders an RFC-9457 problem the way its fields intend.
  *
  * The reason this exists instead of `alert(error.message)`: the API distinguishes a
  * compliance refusal ("this number is on the do-not-call list") from a transient
  * failure, and tells us which is which via `retryable` + `remediation`. Flattening
  * both into "something went wrong" would make the compliance gate look like a bug.
+ *
+ * ## The hierarchy, and why the support reference moved down it
+ *
+ * A live sign-in refusal was photographed reading: *"One or more fields are invalid /
+ * Correct the fields named in this response and send the request again / password: String
+ * should have at least 12 characters / Support reference: 9c83825c…"*. The server half of
+ * that is somebody else's fix. THIS half is that four things were given near-equal weight,
+ * and the only one that helped — use a longer password — was third.
+ *
+ * So: the sentence is the loudest thing in the box; what to do next sits under it; and the
+ * support reference is shown **only when there is genuinely something for support to look
+ * up**. A 4xx is the API telling the person what it needs — a 32-character id beside it is
+ * noise that makes a fixable refusal look like an outage. A 5xx, an unclassified failure,
+ * or a refusal that names nothing to do, is ours: there the reference is the whole point,
+ * because it is what turns "it broke" into a row somebody can find.
+ *
+ * `break-words` on every element that can hold server prose, because the server puts the
+ * CLIENT's own strings in it — the endpoint URL they typed on `/integrations`, a slug, a
+ * host. One 300-character token with no space in it walked a 320px card off the screen,
+ * and `overflow-wrap` does not inherit past a child that sets its own.
  */
 export function ProblemNotice({
   error,
@@ -545,34 +577,51 @@ export function ProblemNotice({
 }) {
   if (!error) return null;
   const problem = error instanceof ApiProblem ? error : null;
-  const title = problem?.message ?? "Something went wrong.";
+  // A blank `detail` is the ABSENCE of a sentence, and `ApiProblem` now hands one back as
+  // `"We could not finish that."` rather than as `""` — but a plain `Error` thrown by a
+  // screen ("This preview could not be loaded.") reaches here too, and an empty message on
+  // one of those would still paint a box with no words in it.
+  const title = problem?.message?.trim() || (problem === null ? "Something went wrong." : "We could not finish that.");
   // Anything that is not an ApiProblem never reached the API — a dropped connection,
   // a DNS failure, a laptop that slept. The API's `retryable` cannot speak for those,
   // and they are the most retryable failures there are, so the button must not depend
   // on it: without this, a client on a train watches a screen with no way forward
   // except reloading the page.
   const canRetry = Boolean(onRetry) && (problem === null || problem.retryable);
+  // See the docstring: a reference is for a failure only WE can look into. A 4xx that
+  // told the person what it needs is not one, and the id beside it only competes with the
+  // instruction.
+  const ours = problem !== null && REFERENCE_KINDS.has(problem.kind);
   return (
     <div
       role="alert"
       className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      <p className="font-medium">{title}</p>
+      <p className="break-words text-[15px] font-semibold leading-snug">{title}</p>
       {problem?.remediation && (
-        <p className="mt-1 text-rose-800 dark:text-rose-300">
+        <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
           {problem.remediation}
         </p>
       )}
       {problem === null && (
-        <p className="mt-1 text-rose-800 dark:text-rose-300">
+        <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
           We could not reach Calevate. Check your connection and try again.
         </p>
       )}
       {problem?.fields?.length ? (
         <ul className="mt-2 list-inside list-disc">
           {problem.fields.map((f) => (
-            <li key={f.field}>
-              <span className="font-medium">{f.field}</span>: {f.message}
+            /* The NOUN comes from the server (`label`) or is left off entirely. It used
+               to be derived here from `f.field`, which is a wire path — that derivation
+               printed `password: String should have at least 12 characters` in the
+               photographed box, our schema's word for the thing in front of the person's
+               own word for it. The path is still sent, and is still used to mark the
+               right input; it is not for reading. */
+            <li key={f.field} className="break-words">
+              {f.label ? (
+                <span className="break-words font-medium">{f.label}: </span>
+              ) : null}
+              {f.message}
             </li>
           ))}
         </ul>
@@ -586,10 +635,10 @@ export function ProblemNotice({
           Try again
         </button>
       )}
-      {problem?.traceId && (
-        <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-400">
-          Support reference:{" "}
-          <span className="font-mono">{problem.traceId}</span>
+      {ours && problem.traceId && (
+        <p className="mt-2 break-words text-[11px] text-rose-700 dark:text-rose-400">
+          If you tell us about this, quote{" "}
+          <span className="break-all font-mono">{problem.traceId}</span>
         </p>
       )}
     </div>
@@ -1182,16 +1231,47 @@ export function hasNonZeroDigit(value: string): boolean {
   return /[1-9]/.test(value);
 }
 
-/** Times are stored UTC and shown IST at the edge (CLAUDE.md conventions). */
+/**
+ * Times are stored UTC and shown IST at the edge (CLAUDE.md conventions).
+ *
+ * The unparseable arm is not defensive padding: `new Date("…").toLocaleString()` renders
+ * the literal words **"Invalid Date"**, and this is the helper all hundred-odd timestamps
+ * on this console go through. Every other date helper in this file and beside it already
+ * guards it (`formatCallCap`, `istDateToInstant`, the quality screen's `calendarDay`);
+ * this one did not, so one malformed instant anywhere in an API response put a phrase from
+ * a JavaScript runtime in front of a shop owner. "—" is the same absence marker the null
+ * arm above already uses, and it is honest: we do not know when this happened.
+ */
 export function formatIST(value: string | null | undefined): string {
   if (!value) return "—";
-  return new Date(value).toLocaleString("en-IN", {
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "—";
+  return at.toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * The calendar day in India, as `YYYY-MM-DD` — for naming a file after the day it was taken.
+ *
+ * `new Date().toISOString().slice(0, 10)` is the spelling this replaces, and it is wrong
+ * for the whole of an Indian small hours: at 00:30 IST, UTC is still on the previous day,
+ * so the CSV a client exported on the 4th was called `leads-2026-09-03.csv`. Those two
+ * files — the leads export and the subject-access JSON — are the ones a client is most
+ * likely to keep, forward and later have to place in time, which is exactly when a
+ * filename that is a day out costs something. `campaigns/page.tsx::todayInputValue`
+ * already carried the warning for a date picker's `max`; the filenames had not heard it.
+ *
+ * `en-CA` because it formats as `YYYY-MM-DD` — the same trick `currentISTMonth` was
+ * already using, which is why that helper now reads its answer from here rather than
+ * spelling the conversion a second time.
+ */
+export function istDateStamp(at: Date = new Date()): string {
+  return at.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 }
 
 /**

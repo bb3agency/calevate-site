@@ -29,8 +29,10 @@ CONCURRENCY: every test mints its own tenant, so this file runs beside the other
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import Any
 from urllib.parse import parse_qs, unquote
@@ -838,6 +840,7 @@ def test_every_sheets_refusal_has_a_sentence_for_the_client() -> None:
         sheets_sync.NO_CREDENTIAL_REF_REASON,
         sheets_sync.NO_SPREADSHEET_REASON,
         sheets_sync.DEV_SINK_OUTSIDE_LOCAL_REASON,
+        google_sheets.APPEND_DEADLINE_REASON,
         google_sheets.AUTH_FAILED_REASON,
         google_sheets.CREDENTIAL_REF_UNKNOWN_REASON,
         google_sheets.CREDENTIAL_UNRESOLVABLE_REASON,
@@ -860,3 +863,37 @@ def test_the_delivery_log_is_still_the_one_definition_of_delivered() -> None:
     # `ALREADY_PRESENT` is an ADAPTER outcome, not a delivery status: it collapses into
     # `delivered` before it reaches the log, because the client's lead is in their sheet.
     assert AppendStatus.ALREADY_PRESENT.value not in ("delivered", "failed", "skipped")
+
+
+async def test_a_google_that_never_finishes_answering_is_cut_off_not_waited_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`httpx.Timeout` is four per-phase budgets, not a deadline — its READ budget is the
+    maximum wait for A CHUNK and restarts on every byte. Measured on the sibling path
+    (`tests/outbound_delivery_deadline_test.py`), that let a dribbling counterparty hold a
+    delivery for over 45 seconds under a "10 second" timeout; an append is up to four
+    round trips, so it multiplies. `APPEND_BUDGET_S` is the wall clock over the whole
+    thing.
+
+    The two assertions that matter are that it is BOUNDED and that it comes back as a
+    RESULT. An exception escaping here is not an `arq.Retry`, so the job would finish
+    after one attempt and no delivery row would ever say what happened — the mechanism
+    `outbound_webhooks.py` documents at length.
+    """
+    monkeypatch.setattr(google_sheets, "APPEND_BUDGET_S", 0.25)
+
+    async def never_answers(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable: the deadline should have fired")
+
+    started = time.monotonic()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(never_answers)) as client:
+        result = await GoogleSheetsTransport(_credential_json(), client=client).append(_request())
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 5.0, f"the append waited {elapsed:.1f}s on a 0.25s budget"
+    assert result.status is AppendStatus.TRANSPORT_FAILED, (
+        "a deadline is Google being slow, not a verdict that this row can never be written"
+    )
+    assert result.reason == google_sheets.APPEND_DEADLINE_REASON
+    assert result.retryable is True

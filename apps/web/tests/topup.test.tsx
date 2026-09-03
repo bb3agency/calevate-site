@@ -1,10 +1,9 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import UsagePage from "@/app/c/[slug]/usage/page";
+import CreditsPage from "@/app/c/[slug]/credits/page";
 import type { Me } from "@/lib/api/client";
-import type { Caps } from "@/lib/api/caps";
-import type { UsagePanel } from "@/lib/api/hooks";
+import type { Wallet } from "@/lib/api/wallet";
 import { RAZORPAY_CHECKOUT_SRC } from "@/lib/razorpayCheckout";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -13,6 +12,12 @@ import { expectTextCount, problem, renderClientPage } from "./harness";
 /**
  * The top-up panel (D-98) — a control that must not exist unless it can work, and, since
  * the checkout landed, one that must take a payment all the way through.
+ *
+ * IT MOVED. The panel used to sit at the bottom of `/c/<slug>/usage`, behind
+ * `billing:read`, so buying credit meant scrolling past a month's usage figures — and the
+ * ledger, the receipts and a payment that had failed had nowhere at all. It is now the
+ * "Add credit" card on `/c/<slug>/credits`; `tests/credits.test.tsx` holds that screen's
+ * own states and this file follows the panel, unchanged.
  *
  * `tests/usage.test.tsx` holds the money formatting and the permission gate. This file
  * holds the capability states and the four ways a payment window can end, because each of
@@ -44,7 +49,9 @@ const ME: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["billing:read", "org:manage"],
+  // `wallet:read` is what the credits screen reads on and `org:manage` is what BUYING
+  // needs — the founder's split (2 Sep 2026), and an owner holds both.
+  permissions: ["billing:read", "wallet:read", "org:manage"],
   impersonating: false,
   organization: {
     id: "o1",
@@ -54,49 +61,47 @@ const ME: Me = {
   },
 };
 
-const CAPS: Caps = {
-  capped: false,
-  month: "2026-08",
-  minutes_used: "0.00",
-  spend_used_inr: "0.00",
-  client_cap_minutes: null,
-  client_cap_spend_inr: null,
-  effective_cap_minutes: null,
-  effective_cap_spend_inr: null,
-  plan_cap_minutes: null,
-  plan_cap_spend_inr: null,
-};
-
-/** A PREPAID tenant with a wallet — the only shape that renders the top-up panel. */
-function usage(over: Partial<UsagePanel> = {}): UsagePanel {
+/**
+ * A PREPAID wallet with credit on it — the only shape that renders the "Add credit" card.
+ *
+ * Healthy on purpose: this file is about the PAYMENT WINDOW, and a stopped or low wallet
+ * would put a banner above the panel that has nothing to do with what these tests drive.
+ * `tests/credits.test.tsx` holds those states.
+ */
+function wallet(over: Partial<Wallet> = {}): Wallet {
   return {
-    month: "2026-08",
-    calls: 3,
-    capped: false,
-    cap_minutes: null,
-    minutes_left: null,
-    included_minutes: 0,
-    minutes_used: "12.00",
-    credit_balance_inr: "1200.00",
-    monthly_fee_inr: "0.00",
-    month_charges_inr: "0.00",
-    overage_cost_inr: "0.00",
-    overage_minutes: "0.00",
-    overage_minutes_premium: "0.00",
-    overage_minutes_value: "0.00",
-    overage_rate_inr: "6.0000",
-    overage_rate_value_inr: null,
-    // D-455: the model surcharge, unset on every plan today — so a ₹0.00 total and no
-    // models named is the shipped shape of this panel.
-    llm_surcharge_rate_inr: null,
-    llm_surcharge_minutes: "0.00",
-    llm_surcharge_inr: "0.00",
-    llm_surcharge_models: [],
-    plan_tier: "self_serve",
-    spend_used_inr: "72.00",
+    tenant_id: "o1",
+    prepaid: true,
+    balance_inr: "1200.00",
+    is_low: false,
+    low_balance_threshold_inr: "200.00",
+    outbound_stopped: false,
+    runway: {
+      basis: "projected",
+      days: 9,
+      daily_burn_inr: "130.00",
+      history_days: 21,
+      beyond_horizon: false,
+      window_days: 30,
+      min_history_days: 7,
+      max_days: 365,
+    },
+    minutes_left: 240,
+    drawdown: {
+      calls_inr: "2730.00",
+      ai_assist_inr: "0.00",
+      adjustments_inr: "0.00",
+      spent_inr: "2730.00",
+      added_inr: "3930.00",
+      refunded_inr: "0.00",
+    },
     ...over,
   };
 }
+
+const WALLET = "/v1/billing/wallet";
+const LEDGER = "/v1/billing/wallet/ledger?limit=50";
+const ATTEMPTS = "/v1/billing/wallet/topups";
 
 const CAPABILITY = "/v1/billing/topups/capability";
 const PACKS = "/v1/billing/topups/packs";
@@ -162,8 +167,13 @@ const CHECKOUT_RESPONSE = {
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
-    "/v1/usage": usage(),
-    "/v1/billing/caps": CAPS,
+    [WALLET]: wallet(),
+    // Both are read by the screen AROUND the panel. Routed with the emptiest honest
+    // answer, because an unrouted request throws in this harness — a hole in a test's
+    // premise should say so rather than render an error state that happens to contain
+    // the string it was looking for.
+    [LEDGER]: { entries: [], payments: [] },
+    [ATTEMPTS]: [],
     [CAPABILITY]: {
       online_payments_available: true,
       provider_orders_available: true,
@@ -173,7 +183,7 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
-const page = <UsagePage />;
+const page = <CreditsPage />;
 
 /**
  * The provider's global, as a stub that RECORDS rather than one that pretends.
@@ -464,10 +474,17 @@ describe("the payment window", () => {
 
     // The balance is REFETCHED, never computed: `credit_pending` is true on every
     // successful callback, so the only honest number is the server's next one.
+    //
+    // ASSERTED ON THE WALLET, which is the screen the panel now lives on. It used to
+    // assert `/v1/usage`, and when the panel moved that assertion kept passing against a
+    // read this screen does not make while the balance beside the button went stale — the
+    // defect `useConfirmTopUp` now names in its own header.
     await waitFor(() =>
-      expect(calls.filter((c) => c.path === "/v1/usage").length).toBeGreaterThan(1),
+      expect(calls.filter((c) => c.path === WALLET).length).toBeGreaterThan(1),
     );
-    expect(calls.filter((c) => c.path === "/v1/billing/caps").length).toBeGreaterThan(1);
+    // The unfinished-payments list is re-read too: the attempt just completed must stop
+    // being listed as outstanding.
+    expect(calls.filter((c) => c.path === ATTEMPTS).length).toBeGreaterThan(1);
     // ₹1,200.00 is the balance the fixture keeps returning. Nothing on screen may claim
     // ₹3,700.10 — the sum this browser could have worked out and has no right to.
     expect(container.textContent).not.toContain("₹3,700.10");

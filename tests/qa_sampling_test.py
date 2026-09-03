@@ -239,6 +239,39 @@ async def test_only_completed_calls_are_in_the_frame() -> None:
     assert drawn.population == 20
 
 
+async def test_a_completed_call_with_nothing_said_on_it_is_still_in_the_frame() -> None:
+    """The frame's one honest limitation, MEASURED rather than assumed.
+
+    `status = 'completed'` is the vendor's word for "the call connected and ended", not
+    for "somebody spoke": a voicemail, an immediate hangup and a caller who says nothing
+    all arrive as completed executions with zero transcript turns. So a reviewer's queue
+    can contain a call whose transcript is empty, and the 5% denominator counts it.
+
+    This test exists because the module docstring used to argue the frame the other way
+    ("reviewing one reviews nothing"), which is true of these rows too. Narrowing the
+    frame to calls that carry a turn is a decision about what "5% of calls" means to a
+    client and to a regulator, and it belongs to whoever makes it — with this test and
+    that paragraph changed together, deliberately, rather than discovered by a reviewer
+    opening a blank screen.
+    """
+    tenant_id = await _tenant()
+    silent = await _calls(tenant_id, count=20, when=LAST_WEEK)
+    week = ist_week_start(LAST_WEEK)
+    async with tenant_session(tenant_id) as session:
+        drawn = await draw_week_sample(session, tenant_id=tenant_id, week_start=week)
+        drawn_ids = {row.call_id for row in await list_samples(session)}
+
+    assert drawn.population == 20, (
+        "the frame is by STATUS: a completed call with no transcript is counted, and the "
+        "module docstring says so"
+    )
+    assert drawn.inserted == 1, "5% of 20, and the row was filed against a blank transcript"
+    assert drawn_ids <= set(silent), (
+        "a silent completed call reaches a reviewer's queue — if this ever stops being "
+        "true, the docstring's `WHAT THE FRAME IS` section is what has to change with it"
+    )
+
+
 async def test_the_job_only_ever_asks_for_weeks_that_have_closed() -> None:
     """A tick that drew the current week would sample a Monday morning and file it as a
     week — 5% of one day, presented as 5% of seven."""

@@ -54,20 +54,22 @@ import type { LegalDocument } from "./types";
  *    instrument that displaces it — we have none. So OUR undertaking stands unqualified
  *    and the VENDOR position is stated rather than promised away, in §6 here, clause 2 of
  *    the DPA and §3.4 of the sub-processor register.
- * 4. **The Data Fiduciary named in §1 is a PERSON, not a company, and §1 says so.**
- *    Corrected 26 August 2026. The notice opened "Calevate is a product of X … mean that
- *    company", which was false in a way that matters here more than in most documents: a
- *    privacy notice's first job is to identify the Data Fiduciary a reader is dealing
- *    with, and the reader was being pointed at a corporate body that does not exist.
- *    `docs/legal/LEGAL-OPS-PLAYBOOK.md:16` — Calevate is a "product / trade name, not a
- *    separate company"; `:82` — "You and the business are the same legal person"; `:94`
- *    permits contracting under the trade name, which is the founder's decision and is why
- *    `{{LEGAL_ENTITY_NAME}}` resolves to "Calevate". `{{ENTITY_FORM}}` carries the rest,
- *    so no document has to guess what kind of person is on the other side of it.
- *    The consequence a reader can act on is unlimited personal liability (playbook §3),
- *    and it is stated rather than left as an inference from "sole proprietorship" — it is
- *    the one thing that makes this shape STRONGER for a complainant, and burying it would
- *    be as dishonest as the corporate framing it replaces.
+ * 4. **§1 IDENTIFIES the Data Fiduciary and does not NARRATE it.** The notice once opened
+ *    "Calevate is a product of X … mean that company", naming a corporate body that does
+ *    not exist; the correction of 26 August 2026 replaced that with a paragraph about
+ *    what kind of legal person the supplier is and what follows from it, and a callout
+ *    headed "The Data Fiduciary here is a person, not a company". Both are gone (2 Sep
+ *    2026, the founder's decision). A privacy notice's first job is to say WHO the reader
+ *    is dealing with and where to reach them, and §1 does that with the three items the
+ *    Consumer Protection (E-Commerce) Rules 2020 actually require displayed — the name
+ *    (`{{LEGAL_ENTITY_NAME}}`, which the Udyam certificate carries as the enterprise
+ *    name), the registration number and the principal place of business. It makes no
+ *    statement about the supplier's legal FORM, because none of those rules asks for one
+ *    and a document that editorialises about its own author's constitution reads as a
+ *    draft. What it must never do instead is claim an incorporation that has not
+ *    happened: there is no assertion anywhere in this set that Calevate is a company, a
+ *    private limited or the holder of a CIN, and `tests/legal.test.tsx` fails on the
+ *    shapes of all three.
  * 5. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
  *    Whether the agent announces itself at the start of a call is the client's setting;
  *    that it answers truthfully when asked is enforced server-side and cannot be
@@ -92,40 +94,11 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "Calevate is a product operated by {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}} " +
-            "(Udyam registration number {{ENTITY_REGISTRATION_NUMBER}}), whose principal " +
+            "Calevate is a product operated by {{LEGAL_ENTITY_NAME}} (Udyam " +
+            "registration number {{ENTITY_REGISTRATION_NUMBER}}), whose principal " +
             "place of business is {{REGISTERED_ADDRESS}}. In this notice \"we\", \"us\" and " +
             "\"Calevate\" mean that business; \"you\" means whichever of the three groups " +
             "below you fall into.",
-        },
-        {
-          kind: "callout",
-          tone: "note",
-          title: "The Data Fiduciary here is a person, not a company",
-          text:
-            "There is no company behind Calevate and no parent organisation. A sole " +
-            "proprietorship has no legal identity separate from the individual who runs " +
-            "it, so the trade name above is a name that a sole proprietor contracts " +
-            "under, and " +
-            "every duty in this notice is owed to you by that person. Two things follow " +
-            "that are yours rather than ours: the liability behind those duties is " +
-            "personal and unlimited, with none of the shelter a limited company would " +
-            "give — and there is nobody above the contacts in section 14 to escalate to " +
-            "internally, which is why the grievance page sends you outside Calevate " +
-            "instead. Being a sole proprietorship is not an exemption from anything on " +
-            "this page. The privacy rules operative in India today — the 2011 " +
-            "sensitive-personal-data rules — are made under section 43A of the " +
-            "Information Technology Act 2000 and bind a \"body corporate\", and that " +
-            "section's own Explanation defines the term to include a sole " +
-            "proprietorship. What section 43A itself does is narrower than it is often " +
-            "made to sound, and we would rather say which: it makes a body corporate " +
-            "liable to pay compensation where it was negligent in implementing and " +
-            "maintaining reasonable security practices for SENSITIVE personal data and " +
-            "that negligence caused someone a wrongful loss or someone else a wrongful " +
-            "gain. It is not the source of the duties in this notice — those come from " +
-            "the 2011 rules, and from the Digital Personal Data Protection Act 2023 " +
-            "when its substantive parts commence (section 12.1) — and nothing here " +
-            "relies on it for authority.",
         },
         {
           kind: "para",
@@ -1361,7 +1334,8 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               term: "Who you are dealing with",
               detail:
-                "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, principal place of business " +
+                "{{LEGAL_ENTITY_NAME}}, Udyam registration number " +
+                "{{ENTITY_REGISTRATION_NUMBER}}, principal place of business " +
                 "{{REGISTERED_ADDRESS}}. Telephone {{CONTACT_PHONE}}. That address " +
                 "identifies the Data Fiduciary; we do not operate a postal channel.",
             },

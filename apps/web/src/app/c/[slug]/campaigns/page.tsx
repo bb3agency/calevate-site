@@ -36,6 +36,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "@/components/ui";
+import { useFormValidation, type FormValidation } from "@/components/formValidation";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   consentCollectedAt,
@@ -682,6 +683,7 @@ export default function CampaignsPage() {
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [agentId, setAgentId] = useState("");
   const [name, setName] = useState("");
+  const valid = useFormValidation();
   const [classification, setClassification] =
     useState<Classification>("service");
   const [concurrency, setConcurrency] = useState(3);
@@ -1246,8 +1248,8 @@ export default function CampaignsPage() {
         <Card title="New campaign">
           <form
             className="space-y-5"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={valid.onSubmit(() => {
               if (!selectedAgentId) return;
               create.mutate(
                 {
@@ -1267,19 +1269,25 @@ export default function CampaignsPage() {
                 },
                 { onSuccess: (data) => setCampaignId(data.id) },
               );
-            }}
+            })}
           >
-            <label className="block max-w-sm">
-              <span className={FIELD_LABEL}>Name</span>
-              <input
-                required
-                minLength={2}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Diwali service reminder"
-                className={FIELD}
-              />
-            </label>
+            {/* Outside the wrapping label, so the sentence describes the field instead
+                of becoming part of its name. */}
+            <div className="max-w-sm">
+              <label className="block">
+                <span className={FIELD_LABEL}>Name</span>
+                <input
+                  {...valid.field("name", "Give this campaign a name.")}
+                  required
+                  minLength={2}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Diwali service reminder"
+                  className={FIELD}
+                />
+              </label>
+              {valid.error("name")}
+            </div>
 
             {/* Rendered whenever the server has ANSWERED with at least one assignable
                 agent — never off a list that is empty because the read is in flight or
@@ -1426,21 +1434,25 @@ export default function CampaignsPage() {
               </label>
             </div>
 
-            <label className="block max-w-xs">
-              <span className={FIELD_LABEL}>Calls at the same time</span>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={concurrency}
-                onChange={(e) => setConcurrency(Number(e.target.value))}
-                className={FIELD}
-              />
-              <span className={FIELD_HINT}>
-                Lower means the list takes longer. Lines are always kept free
-                for people calling you.
-              </span>
-            </label>
+            <div className="max-w-xs">
+              <label className="block">
+                <span className={FIELD_LABEL}>Calls at the same time</span>
+                <input
+                  {...valid.field("concurrency", "Enter how many calls may run at once.")}
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={concurrency}
+                  onChange={(e) => setConcurrency(Number(e.target.value))}
+                  className={FIELD}
+                />
+                <span className={FIELD_HINT}>
+                  Lower means the list takes longer. Lines are always kept free
+                  for people calling you.
+                </span>
+              </label>
+              {valid.error("concurrency")}
+            </div>
 
             {/* The calling window NARROWS a bound that already exists; it does not set
                 one. 9am-9pm is TRAI law applied to every dial (hard rule 5), so the
@@ -1468,26 +1480,34 @@ export default function CampaignsPage() {
 
               {restrictHours && (
                 <div className="mt-2 grid max-w-xs gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className={FIELD_LABEL}>From</span>
-                    <input
-                      type="time"
-                      required
-                      value={windowStart}
-                      onChange={(e) => setWindowStart(e.target.value)}
-                      className={FIELD}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className={FIELD_LABEL}>Until</span>
-                    <input
-                      type="time"
-                      required
-                      value={windowEnd}
-                      onChange={(e) => setWindowEnd(e.target.value)}
-                      className={FIELD}
-                    />
-                  </label>
+                  <div>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>From</span>
+                      <input
+                        {...valid.field("windowStart", "Choose a start time.")}
+                        type="time"
+                        required
+                        value={windowStart}
+                        onChange={(e) => setWindowStart(e.target.value)}
+                        className={FIELD}
+                      />
+                    </label>
+                    {valid.error("windowStart")}
+                  </div>
+                  <div>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Until</span>
+                      <input
+                        {...valid.field("windowEnd", "Choose an end time.")}
+                        type="time"
+                        required
+                        value={windowEnd}
+                        onChange={(e) => setWindowEnd(e.target.value)}
+                        className={FIELD}
+                      />
+                    </label>
+                    {valid.error("windowEnd")}
+                  </div>
                 </div>
               )}
             </fieldset>
@@ -1499,6 +1519,7 @@ export default function CampaignsPage() {
                 that cannot launch, and finding that out at the launch check — after the
                 list is uploaded — is a worse place to learn it. */}
             <ConsentProvenanceFields
+              validation={valid}
               idPrefix="new"
               source={consentSource}
               collectedAt={consentDate}
@@ -2222,12 +2243,15 @@ function ConsentProvenanceFields({
   collectedAt,
   onSource,
   onCollectedAt,
+  validation,
 }: {
   idPrefix: string;
   source: ConsentSource | "";
   collectedAt: string;
   onSource: (value: ConsentSource) => void;
   onCollectedAt: (value: string) => void;
+  /** The campaign form's validation — this block is part of that form, not its own. */
+  validation: FormValidation;
 }) {
   return (
     <div className="space-y-4">
@@ -2268,20 +2292,24 @@ function ConsentProvenanceFields({
         </div>
       </fieldset>
 
-      <label className="block max-w-xs">
-        <span className={FIELD_LABEL}>When did they agree?</span>
-        <input
-          type="date"
-          value={collectedAt}
-          max={todayInputValue()}
-          onChange={(e) => onCollectedAt(e.target.value)}
-          className={FIELD}
-        />
-        <span className={FIELD_HINT}>
-          The date on the form, bill or enquiry. If the list was built up over
-          time, use the day the most recent person was added.
-        </span>
-      </label>
+      <div className="max-w-xs">
+        <label className="block">
+          <span className={FIELD_LABEL}>When did they agree?</span>
+          <input
+            {...validation.field("consentDate", "Choose the day they agreed.")}
+            type="date"
+            value={collectedAt}
+            max={todayInputValue()}
+            onChange={(e) => onCollectedAt(e.target.value)}
+            className={FIELD}
+          />
+          <span className={FIELD_HINT}>
+            The date on the form, bill or enquiry. If the list was built up over
+            time, use the day the most recent person was added.
+          </span>
+        </label>
+        {validation.error("consentDate")}
+      </div>
     </div>
   );
 }
@@ -2316,17 +2344,18 @@ function ConsentProvenanceAnswer({
   const declare = useDeclareConsentProvenance(session, campaignId);
   const [source, setSource] = useState<ConsentSource | "">("");
   const [collectedAt, setCollectedAt] = useState("");
+  const valid = useFormValidation();
 
   const iso = consentCollectedAt(collectedAt);
 
   return (
     <form
       className="space-y-4 rounded-card border border-line bg-app p-4"
-      onSubmit={(e) => {
-        e.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         if (!source || !iso) return;
         declare.mutate({ source, collected_at: iso });
-      }}
+      })}
     >
       <p className="text-sm font-semibold text-ink">
         {correcting
@@ -2339,6 +2368,7 @@ function ConsentProvenanceAnswer({
       </p>
 
       <ConsentProvenanceFields
+        validation={valid}
         idPrefix={`answer-${campaignId}`}
         source={source}
         collectedAt={collectedAt}

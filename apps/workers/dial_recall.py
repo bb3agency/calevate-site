@@ -19,8 +19,22 @@ the engine, and the alarm below says so rather than letting a count of "stopped:
 the line is quiet. What the count cannot yet SEPARATE is OPERATIONS §2 gate 35: their
 docs state the limit but never say what the route returns when you hit it, so "already
 ringing" and "unknown execution id" arrive here as the same refusal. Both are counted
-unstoppable, which over-reports the phones that will ring rather than under-reporting
+unreachable, which over-reports the phones that will ring rather than under-reporting
 them, and that is the direction to be wrong in.
+
+**THAT LAST SENTENCE WAS TRUE OF THE REFUSAL PATH AND FALSE OF THE SUCCESS PATH, WHICH IS
+WHY THIS JOB NOW READS THE VERDICT** (D-509). `end_call` returns a `RecallOutcome`, and
+`ALREADY_RUNNING` — the vendor saying the dial had already left the queue, so it rang or
+is ringing — arrives as a normal return, not an exception. Every non-raising call was
+counted as `stopped`, so the one job whose whole purpose is to tell an operator mid-
+incident how many phones are still live UNDER-reported them, in exactly the direction the
+paragraph above says not to be wrong in. D-428 made the halt best-effort and that is
+unchanged: nothing here retries, nothing fails the halt because a stop failed. Best-effort
+is a decision about BEHAVIOUR; it was never a reason to discard a verdict the adapter had
+already adjudicated and we had already paid a round trip for. `dnc_recall` reads the same
+verdict and its docstring says outright that this job ignores it — two ways of doing one
+thing, which CLAUDE.md calls a defect even when both work, resolved toward the one that
+tells the truth.
 
 WHY IT IS FIRED BY THE HALT RATHER THAN CRONNED. The condition is a transition, not a
 state: dials are only ever illegitimately queued *because* somebody just halted, and a
@@ -47,6 +61,7 @@ from typing import Any, NamedTuple
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.engine import RecallOutcome
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
@@ -150,11 +165,19 @@ async def _recall() -> str:
         return "skipped_not_halted"
 
     dials = await _queued_dials(RECALL_SCAN_LIMIT)
-    stopped: dict[UUID, list[UUID]] = defaultdict(list)
-    unstoppable: list[UUID] = []
+    # PREVENTED ONLY. `stopped` used to mean "the vendor did not raise", which counted a
+    # dial the vendor told us was already ringing as one we had stopped.
+    prevented: dict[UUID, list[UUID]] = defaultdict(list)
+    #: Answered, and NOT stopped: `ALREADY_RUNNING` (it rang) and `UNKNOWN` (the vendor
+    #: said nothing about what it caught — silence is not a denial that the phone rang).
+    #: Together because the distinction that matters to an operator mid-incident is binary:
+    #: is this line quiet, or might it not be. `dnc_recall` folds the same two for the same
+    #: reason, one rule along.
+    still_live: list[UUID] = []
+    unreachable: list[UUID] = []
     for dial in dials:
         try:
-            await engine.end_call(dial.engine_call_id)
+            outcome = await engine.end_call(dial.engine_call_id)
         except Exception as exc:
             # ONE DIAL'S FAILURE IS NOT THE RUN'S — `report_stalled_pipeline`'s argument,
             # and sharper here: the loop is what stops phones ringing, and abandoning it
@@ -164,9 +187,12 @@ async def _recall() -> str:
                 "dial_recall_failed",
                 extra={"call_id": str(dial.call_id), "reason": exc.__class__.__name__},
             )
-            unstoppable.append(dial.call_id)
+            unreachable.append(dial.call_id)
             continue
-        stopped[dial.tenant_id].append(dial.call_id)
+        if outcome is RecallOutcome.PREVENTED:
+            prevented[dial.tenant_id].append(dial.call_id)
+        else:
+            still_live.append(dial.call_id)
         # STAMPED HERE, NOT AFTER THE LOOP — `dnc_recall._recall` carries the full
         # argument and this is the same defect in the same shape. In short: batched at the
         # end, the stamp existed only if the loop finished, and the loop not finishing is
@@ -180,16 +206,20 @@ async def _recall() -> str:
         # most expensive.
         await _stamp_recalled(dial.tenant_id, [dial.call_id])
 
-    total_stopped = sum(len(v) for v in stopped.values())
+    total_prevented = sum(len(v) for v in prevented.values())
+    # THE NUMBER AN OPERATOR ACTS ON. Everything we cannot say we stopped, together —
+    # answered-but-running, answered-but-silent, and never answered at all.
+    not_stopped = still_live + unreachable
     capped = len(dials) >= RECALL_SCAN_LIMIT
     log.info(
         "dial_recall",
         extra={
             "engine": engine.name,
             "found": len(dials),
-            "stopped": total_stopped,
-            "unstoppable": len(unstoppable),
-            "tenants": len(stopped),
+            "prevented": total_prevented,
+            "still_live": len(still_live),
+            "unreachable": len(unreachable),
+            "tenants": len(prevented),
             "capped": capped,
         },
     )
@@ -207,8 +237,8 @@ async def _recall() -> str:
             ),
         )
 
-    if unstoppable:
-        named = ", ".join(str(c) for c in unstoppable[:_ALERT_ID_LIMIT])
+    if not_stopped:
+        named = ", ".join(str(c) for c in not_stopped[:_ALERT_ID_LIMIT])
         alert(
             # WORKER_STALL for `engine_violation_open`'s reason: a scheduled action
             # reporting a bad state of the world it went and measured, not a worker dying.
@@ -216,14 +246,19 @@ async def _recall() -> str:
             "WORKER_STALL",
             "dial_recall_unstopped",
             detail=(
-                f"{len(unstoppable)} of {len(dials)} queued dial(s) could not be recalled "
-                "after the outbound halt. The engine cannot stop a call already in "
-                "progress, so a dial that started ringing between the scan and the stop "
-                f"will run to its end. Call ids: {named}"
+                f"{len(not_stopped)} of {len(dials)} queued dial(s) were NOT stopped by "
+                f"the outbound halt ({len(still_live)} the vendor answered for without "
+                f"confirming a cancel, {len(unreachable)} it did not answer for at all). "
+                "The engine cannot stop a call already in progress, so a dial that started "
+                "ringing between the scan and the stop will run to its end. Call ids: "
+                f"{named}"
             ),
         )
 
-    return f"found={len(dials)} stopped={total_stopped} unstopped={len(unstoppable)}"
+    return (
+        f"found={len(dials)} prevented={total_prevented} "
+        f"still_live={len(still_live)} unreachable={len(unreachable)}"
+    )
 
 
 async def recall_queued_dials(ctx: dict[str, Any]) -> str:

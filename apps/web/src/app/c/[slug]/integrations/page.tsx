@@ -16,6 +16,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
@@ -737,6 +738,7 @@ function WebhookForm({
 }) {
   const create = useCreateEndpoint(session);
   const [url, setUrl] = useState("");
+  const valid = useFormValidation();
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
   // The three `call.completed` opt-ins. All start OFF, matching the server default and
   // the base contract (summary and outcome only). `includeRawTranscript` is layered on
@@ -758,8 +760,8 @@ function WebhookForm({
       )}
       <form
         className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           create.mutate(
             {
               url,
@@ -777,7 +779,7 @@ function WebhookForm({
               },
             },
           );
-        }}
+        })}
       >
         {/* A PERSISTENT label, not the placeholder alone. axe's `label` rule accepts a
             placeholder as an accessible name (tests/a11y.ts says so, and it is why this
@@ -785,18 +787,24 @@ function WebhookForm({
             somebody types — which is WCAG 3.3.2's entire complaint, and worst for the
             reader who most needs to re-check what a field wanted. The rest of the
             console labels its fields this way; this input was the exception. */}
-        <label className="block">
-          <span className={FIELD_LABEL}>Where should we send them?</span>
-          <input
-            required
-            type="url"
-            value={url}
-            disabled={!write.allowed}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://your-crm.example.com/calevate"
-            className={INPUT}
-          />
-        </label>
+        <div>
+          <label className="block">
+            <span className={FIELD_LABEL}>Where should we send them?</span>
+            <input
+              {...valid.field("url", "Enter the web address to send events to.")}
+              required
+              type="url"
+              value={url}
+              disabled={!write.allowed}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://your-crm.example.com/calevate"
+              className={INPUT}
+            />
+          </label>
+          {/* Outside the label for the reason the comment above it gives about the hint:
+              enclosed, the sentence becomes part of the field's accessible name. */}
+          {valid.error("url")}
+        </div>
         <EventChoices
           catalogue={catalogue}
           selected={events}
@@ -969,6 +977,7 @@ function SheetsForm({
 }) {
   const create = useCreateSheetsEndpoint(session);
   const [spreadsheet, setSpreadsheet] = useState("");
+  const valid = useFormValidation();
   const [worksheet, setWorksheet] = useState("");
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
 
@@ -1024,8 +1033,8 @@ function SheetsForm({
       )}
       <form
         className="mt-3 space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           create.mutate(
             {
               spreadsheet,
@@ -1036,7 +1045,7 @@ function SheetsForm({
             },
             { onSuccess: () => setSpreadsheet("") },
           );
-        }}
+        })}
       >
         {/* The hint sits OUTSIDE the label on purpose. A `<label>` wrapping both the
             field and a sentence of guidance makes the whole paragraph the field's
@@ -1045,6 +1054,7 @@ function SheetsForm({
         <label className="block">
           <span className={FIELD_LABEL}>Which sheet?</span>
           <input
+            {...valid.field("spreadsheet", "Paste the sheet address, or its id.")}
             required
             value={spreadsheet}
             disabled={!write.allowed}
@@ -1053,6 +1063,7 @@ function SheetsForm({
             className={INPUT}
           />
         </label>
+        {valid.error("spreadsheet")}
         <p className="-mt-2 text-xs text-ink-faint">
           Paste the address bar while the sheet is open, or just the document id.
         </p>

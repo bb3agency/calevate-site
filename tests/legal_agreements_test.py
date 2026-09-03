@@ -597,7 +597,13 @@ async def test_the_owner_accepts_and_gets_the_whole_screen_back() -> None:
         assert screen["may_operate"] is False
         assert screen["can_accept"] is True and screen["can_accept_reason"] is None
         assert screen["pending_legal_review"] is catalogue.PENDING_LEGAL_REVIEW
-        assert screen["provisional_notice"] == statements.PROVISIONAL_NOTICE
+        # The notice belongs to the DRAFT state and is None once the set is published,
+        # which is the state today. Written against the constant rather than against
+        # either value, so publishing the set — or putting it back into draft — moves
+        # this assertion with it instead of failing it.
+        assert screen["provisional_notice"] == (
+            statements.PROVISIONAL_NOTICE if catalogue.PENDING_LEGAL_REVIEW else None
+        )
         assert screen["acceptance_statement"] == statements.statement_text()
         assert {doc["slug"] for doc in screen["documents"]} == {
             spec.slug for spec in catalogue.DOCUMENTS
@@ -871,7 +877,7 @@ def test_a_document_whose_version_moved_materially_reads_as_needing_reacceptance
         ),
     )
     # `version_of` and NOT a bare "1": the wire version carries the review-state suffix
-    # while `PENDING_LEGAL_REVIEW` stands, and a bare revision trips the REVIEW-STATE arm
+    # whenever `PENDING_LEGAL_REVIEW` stands, and a bare revision trips the REVIEW-STATE arm
     # of `reacceptance_required` instead of the material one. This test passed on that
     # accident before the sibling test below exposed it — it was green for a reason that
     # had nothing to do with materiality.
@@ -884,10 +890,11 @@ def test_a_non_material_revision_notifies_and_does_not_block() -> None:
     """The `changed` arm — the half of the founder's versioning rule that must NOT block.
 
     A material revision re-demands acceptance; a minor one (a typo, a subprocessor of a
-    kind already disclosed) shows a banner and blocks nothing. Every document in the
-    catalogue is at its first revision today, so this state is unreachable from real data
-    and would have stayed untested until the first correction we publish — which is
-    exactly when getting it wrong would halt every client's calls over a typo.
+    kind already disclosed) shows a banner and blocks nothing. The catalogue now carries a
+    real non-material revision — the 2 September 2026 publication, which filled the
+    placeholders and changed no obligation — and this stays a constructed spec anyway, so
+    the arm is proved by its own fixture rather than by whichever revision happens to be
+    last in `DOCUMENTS`.
 
     The spec is built here rather than added to the catalogue: a fixture revision in
     `DOCUMENTS` would ship in the product and appear on `/legal`.

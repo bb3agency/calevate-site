@@ -36,6 +36,7 @@ from typing import Final
 from uuid import UUID
 
 import httpx
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
@@ -264,6 +265,45 @@ async def embed_query_vector(
     return list(vector)
 
 
+#: The declared width of a projection's `embedding` column, read from the catalogue.
+#:
+#: `atttypmod` IS the dimension count for a pgvector `vector` column — pgvector stores the
+#: declared width there directly rather than with an offset (MEASURED-HERE 1 Sep 2026:
+#: `kb_chunks.embedding` reports `atttypmod = 1536` and `format_type` renders
+#: `vector(1536)`). `to_regclass` rather than a cast so a table this deployment does not
+#: have answers None instead of raising `UndefinedTable` inside a sweep.
+_COLUMN_WIDTH_SQL: Final = (
+    "SELECT atttypmod FROM pg_attribute "
+    "WHERE attrelid = to_regclass(:table) AND attname = 'embedding' AND NOT attisdropped"
+)
+
+
+async def stored_vector_width(session: AsyncSession, *, table: str) -> int | None:
+    """How wide `<table>.embedding` actually is, or None when it cannot be read.
+
+    **WHY A SWEEP HAS TO ASK THIS BEFORE IT SPENDS (hard rule 7).** `EMBEDDING_DIMS` sizes
+    the column in a migration and is sent as the request's `dimensions`, so the two agree
+    only while the constant and the applied schema were deployed together. Change the
+    constant alone — the exact move the Matryoshka narrowing above invites, since it is
+    "free" at the provider — and the sweep's staleness clause re-claims every `ready` row,
+    buys a vector for each of them, and the UPDATE fails with `DataError: expected 1536
+    dimensions`. That raise rolls back the claim AND the `usage_events` row written beside
+    it, so the tick pays the provider, records nothing, changes nothing, and does it again
+    on the next tick for ever. Reproduced before it was guarded
+    (`tests/kb_embedding_sweep_test.py::test_a_width_the_column_cannot_hold_is_refused_
+    before_anything_is_bought`).
+
+    It is the catalogue and not a constant because a constant compared against itself
+    proves nothing: the fact that matters is what the DATABASE will accept, and only the
+    database has it.
+
+    A catalogue read, so it needs no tenancy and sees no client data — which is why the
+    callers take it on whatever session they already hold.
+    """
+    width = (await session.execute(text(_COLUMN_WIDTH_SQL), {"table": table})).scalar()
+    return None if width is None else int(width)
+
+
 def vector_literal(vector: list[float] | None) -> str | None:
     """A vector as the text form `CAST(:q AS vector)` accepts, or None.
 
@@ -287,5 +327,6 @@ __all__ = [
     "embed_query_vector",
     "embedding_leg",
     "embedding_price_is_billable",
+    "stored_vector_width",
     "vector_literal",
 ]

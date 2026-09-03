@@ -350,12 +350,27 @@ kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, 
   -- still cannot reach an agent.
 kb_documents(id, tenant_id, source_id, idx INT, title, content TEXT, meta JSONB,
   UNIQUE(source_id, idx))          -- idx = chunk order; the chunks ARE the document
-  -- meta is where provider-side ids live (see the D-28 note above). Specifically
-  -- `meta->>'engine_kb_ref'` on idx = 0 holds the ENGINE's handle for this source's
-  -- attached copy — a source is pushed to the engine as one document, so the handle
-  -- hangs off its first chunk. Without it a published version cannot be withdrawn
-  -- (D-41); it is cleared on detach, because a handle left behind after the engine copy
-  -- is gone would make the NEXT publish refuse for a reason that is no longer true.
+  -- meta held the provider-side ids until D-519 and NO LONGER DOES: `engine_kb_ref` and
+  -- `engine_kb_digest` moved to `engine_kb_routes` (migration f1c9e0a73b46), which
+  -- migrates the values across and clears the keys. Do not write them here again.
+engine_kb_routes(engine, engine_kb_ref, tenant_id, agent_id, source_id, digest,
+  created_at, updated_at,
+  PRIMARY KEY (engine, engine_kb_ref), UNIQUE (source_id, engine))
+  -- THE CLAIM THAT TIES ONE VENDOR KNOWLEDGE BASE TO ONE TENANT. We run one engine
+  -- account for every tenant and the vendor's knowledge base is an ACCOUNT-level object
+  -- with no owner field, so this row is the only thing that says whose it is. Without it
+  -- a published version cannot be withdrawn (D-41) and no erasure path can find it.
+  -- `engine_kb_ref` is the handle the AGENT references (Bolna: the vector id), never the
+  -- id the vendor's DELETE route takes — that one is recovered inside the adapter.
+  -- The PK is the uniqueness that matters: two sources may not claim one vendor object.
+  -- Globally readable + FORCEd tenant_isolation for writes, exactly like
+  -- engine_agent_routes and for the same reason (the orphan question is cross-tenant);
+  -- registered in RLS_EXEMPT_TENANT_COLUMNS with that reason.
+  -- NO foreign key to kb_sources ON PURPOSE: the claim must OUTLIVE our own rows, or a
+  -- retention expiry or a tenant erasure would delete the only record that can address
+  -- the vendor's copy at the moment we promise a client it is gone.
+  -- The row is deleted on detach, because a claim on an object we no longer believe
+  -- exists is exactly what the orphan sweep must not see.
 kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
   embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,
   chunk_meta JSONB, version INT, is_active BOOL)   -- BUILT (D-502, migration dc1aaeeeff02)
@@ -422,6 +437,40 @@ caller_memories(id, tenant_id, agent_id, subject_ref TEXT, subject_ref_kek_id IN
 -- and NOT created_at, or a backfill would restart every caller's retention clock. Gated by
 -- `agents.caller_memory_enabled`, DEFAULT FALSE — the opposite of the disclosure toggles,
 -- because the posture a silence must not produce here is "remembers".
+-- ITS PRODUCER AND ITS SWITCH LANDED IN D-513: `calls.caller_memory_state`
+-- (pending|remembered|nothing|skipped, migration a1f6c30d92be) is the distiller's
+-- idempotency marker, and the THIRD value is why it exists — `source_call_id` can record
+-- that a call produced a fact and can never record that a call was read and owed nothing,
+-- which is what most calls owe, so without it a retry re-buys the same answer.
+-- `organizations.caller_memory_attested_at`/`_attested_by` is the per-tenant permission
+-- the enable route requires: on the ORGANISATION because the attested fact is about the
+-- business, so a client with four agents answers once.
+
+scheduled_callbacks(id, tenant_id, agent_id, source_call_id UUID NULL,
+  source_execution_id TEXT, lead_id UUID NULL, phone_e164 TEXT,
+  requested_at TIMESTAMPTZ, booked_at TIMESTAMPTZ,
+  status ENUM[scheduled,dialing,completed,cancelled,refused,missed,failed],
+  attempts INT, next_attempt_at TIMESTAMPTZ NULL,
+  last_refusal_rule TEXT NULL, last_refusal_reason TEXT NULL,
+  last_call_id UUID NULL, settled_at TIMESTAMPTZ NULL,
+  note TEXT NULL, language TEXT NULL)  -- BUILT (D-514, migration d8f31a7c2409)
+-- "Ring me back Tuesday at four", booked by the in-call tool and dialled by the campaign
+-- tick through `dispatch_call` — the one outbound entry point, which is what makes a
+-- call-back inherit the DLT header, the A/B arm and cross-call memory without knowing they
+-- exist. FORCEd RLS.
+-- THE IDENTITY IS `(tenant_id, source_execution_id)`, not the call: the `calls` row is
+-- written by the status webhook and may not exist when the promise is made, so
+-- `source_call_id` is a nullable POINTER. The upsert is guarded by `booked_at` rather than
+-- DO NOTHING, because "make it five, not four" is an ordinary sentence and two jobs racing
+-- must land on the caller's LATER word.
+-- `requested_at` IS WHAT THE CALLER WAS TOLD AND NEVER MOVES. A transient refusal defers
+-- `next_attempt_at`; the first draft moved `requested_at` and the two-hour staleness cutoff
+-- then receded by five minutes every five minutes, which is the livelock class
+-- `tests/dispatch_refusal_settlement_test.py` exists for.
+-- FIVE OF THE SEVEN STATUSES ARE ENDINGS, and `last_refusal_reason` carries the compliance
+-- gate's OWN client-facing sentence for the two that are refusals — so the client's screen
+-- says why a call they were promised did not happen, in the words the dial button would
+-- have shown them.
 kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
   top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
   -- `top_ids UUID[]` was specified here and is NOT in the shipped table. Its stated

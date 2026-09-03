@@ -817,8 +817,10 @@ class RestoreDrill:
                 f"'self_serve_console', 'v1', '{user}')",
                 # Contract formation, not consent: this ledger has no status column
                 # and no withdrawal row, so the fixture is simply one accepted
-                # agreement. The version string carries the review state, exactly as
-                # `legal.catalogue.version_of` renders it.
+                # agreement. The version string carries the review state; `+pre-review`
+                # is deliberately a PRE-PUBLICATION acceptance — the set was published on
+                # 2 Sep 2026 and `version_of` no longer renders that suffix, but rows
+                # naming it are exactly what a restore has to carry back intact.
                 "INSERT INTO legal_acceptances (id, tenant_id, document_slug, "
                 "document_version, statement_version, accepted_by_user_id) VALUES "
                 f"('{_uuid7()}', '{tenant}', 'terms', '1+pre-review', '1+pre-review', "

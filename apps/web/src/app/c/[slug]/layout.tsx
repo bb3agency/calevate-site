@@ -24,6 +24,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PhoneCall,
+  PhoneForwarded,
   PhoneOff,
   ReceiptIndianRupee,
   ScrollText,
@@ -31,6 +32,7 @@ import {
   Sparkles,
   UserCog,
   Target,
+  Wallet,
   Users,
   X,
 } from "lucide-react";
@@ -105,6 +107,10 @@ function navigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
+        // Beside Leads rather than under "Compliance & data": a promised call-back is
+        // work waiting to happen, checked daily by whoever watches the leads, not a
+        // record consulted when something goes wrong.
+        { href: `/c/${slug}/callbacks`, label: "Call-backs", icon: PhoneForwarded },
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
       ],
@@ -157,6 +163,13 @@ function navigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
         { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
+        // CALLING CREDIT — the wallet, its history, and the one place a client buys more.
+        // It sits beside Usage rather than inside it because it answers a different
+        // question: Usage is "what has this month cost", this is "how much is left, how
+        // long does it last, and how do I add more". It is also the ONE screen in this
+        // group that `staff` can read (`wallet:read`), because the thing that stops a
+        // staff member dialling is an empty wallet.
+        { href: `/c/${slug}/credits`, label: "Calling credit", icon: Wallet },
         // WHERE the Usage number came from, one screen over. Usage answers "how much and
         // how much is left"; this answers "which agent and which call", which is the
         // question an owner asks the moment the first one has a figure in it. Its own

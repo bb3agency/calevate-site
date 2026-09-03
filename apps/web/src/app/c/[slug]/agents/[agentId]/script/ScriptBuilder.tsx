@@ -30,6 +30,7 @@ import {
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  formatCount,
 } from "@/components/ui";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -351,7 +352,7 @@ function Editor({
           <span
             className={`text-xs ${compiledChars > CHAR_BUDGET ? "text-rose-600" : "text-ink-faint"}`}
           >
-            Compiled length {compiledChars.toLocaleString()} characters
+            Compiled length {formatCount(compiledChars)} characters
             {compiledChars > CHAR_BUDGET ? " — over the recommended budget" : ""}
           </span>
         )}

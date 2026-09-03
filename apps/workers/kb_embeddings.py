@@ -39,6 +39,11 @@ no:
   embedding price (`platform.openai.com` and `azure.microsoft.com` are both egress-blocked
   here, measured 1 Sep 2026), so no figure is invented: an operator enters theirs from their
   own invoice and until they do this sweep does nothing and says so.
+* **THE WIDTH PREFLIGHT, WHICH IS THE SAME ARGUMENT AS THE PRICE GATE POINTED AT THE
+  SCHEMA.** `_column_can_hold_our_vectors` asks the catalogue whether `kb_chunks.
+  embedding` is as wide as the vectors this deployment buys, because if it is not, every
+  purchase in the tick is paid for and then thrown away by a `DataError` that rolls back
+  the ledger row beside it — spend for ever, recorded never.
 * `MAX_CHUNKS_PER_TICK` — the fleet-wide ceiling on embedded chunks per tick.
 * `MAX_CHUNKS_PER_TENANT` — so one account pasting a book cannot consume the whole tick and
   starve the rest (`retention.py`'s `TENANT_ROW_BUDGET` argument, on calls).
@@ -83,7 +88,7 @@ from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.gloss import GLOSS_PENDING
 from apps.api.kb.models import EMBED_PENDING, EMBED_READY, EMBED_REFUSED
 from apps.api.retrieval.embedding import (
@@ -94,6 +99,7 @@ from apps.api.retrieval.embedding import (
     EMBEDDING_MODEL,
     embedding_leg,
     embedding_price_is_billable,
+    stored_vector_width,
 )
 from apps.workers import chat
 from apps.workers.kb_gloss import tenants_holding_knowledge
@@ -117,6 +123,10 @@ MAX_CHUNKS_PER_TICK: Final = 256
 
 #: Per tenant, so one account pasting a 200-page manual cannot consume the whole tick.
 MAX_CHUNKS_PER_TENANT: Final = 96
+
+#: The table this sweep fills. Named once because the width preflight reads its column
+#: type out of the catalogue and a second spelling would check a table nobody writes.
+_PROJECTION_TABLE: Final = "kb_chunks"
 
 #: The claim. `FOR UPDATE ... SKIP LOCKED` is this repo's single-flight primitive
 #: (`reliability/service.py`, `agents/reconciliation.py`) and it is here for the same
@@ -287,6 +297,54 @@ async def _embed_batch(
     return stored
 
 
+async def _column_can_hold_our_vectors() -> bool:
+    """Will `kb_chunks.embedding` accept a vector of the width this deployment buys?
+
+    **ASKED ONCE PER TICK, BEFORE THE PROVIDER, AND FOR HARD RULE 7's REASON RATHER THAN
+    FOR TIDINESS.** `EMBEDDING_DIMS` does two jobs — it sized the column in migration
+    `dc1aaeeeff02` and it is sent as the request's `dimensions` — so the two agree only
+    while the constant and the applied schema shipped together. Narrowing the constant
+    alone is an inviting move (these models are Matryoshka-style, so a smaller width is a
+    re-request rather than a re-embedding) and it produces this, measured before it was
+    guarded: the staleness clause in `_CLAIM_SQL` re-claims every `ready` row because
+    `embed_dim` no longer matches, `chat.embed` is paid for a batch of them, and
+    `_STORE_SQL` dies on `DataError: expected 1536 dimensions`. The raise rolls back the
+    claim AND the `usage_events` row written in the same transaction, so the tick spends
+    money, records none of it, changes no row — and does it again in thirty minutes, for
+    every tenant, for ever. The generic per-tenant `except` logs it as a tenant failure,
+    which is where it hid.
+
+    The check is against the CATALOGUE and not against a second constant, because the fact
+    that decides the outcome is what the database will accept and only the database holds
+    it. One indexed catalogue read per tick against a job that otherwise makes network
+    calls in batches of 32.
+
+    An alert rather than a log line: unlike an unpriced model this is not a state anybody
+    chose, every embedding in the fleet stops until it is fixed, and the repair is a
+    migration or a revert that only an operator can make. `alerting` suppresses a repeated
+    fingerprint for 15 minutes, so a twice-hourly sweep cannot turn it into noise.
+    """
+    async with untenanted_session() as session:
+        width = await stored_vector_width(session, table=_PROJECTION_TABLE)
+    if width == EMBEDDING_DIMS:
+        return True
+    log.error(
+        "kb_embed_width_mismatch",
+        extra={"want": EMBEDDING_DIMS, "column": width, "table": _PROJECTION_TABLE},
+    )
+    alert(
+        "CORE_LOGIC",
+        "kb_embed_width_mismatch",
+        detail=(
+            f"the embedding column is {width!r} wide and this deployment buys vectors of "
+            f"{EMBEDDING_DIMS} — no knowledge chunk can be embedded until the two agree, "
+            "and nothing was bought. Apply the migration that resizes the column, or "
+            "restore the previous EMBEDDING_DIMS."
+        ),
+    )
+    return False
+
+
 async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
     """Twice hourly. Give every published knowledge chunk a vector, within a budget.
 
@@ -312,6 +370,8 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
         # `/healthz/ready`.
         log.info("kb_embed_no_provider")
         return "no_provider"
+    if not await _column_can_hold_our_vectors():
+        return "width_mismatch"
 
     try:
         tenants = await tenants_holding_knowledge()

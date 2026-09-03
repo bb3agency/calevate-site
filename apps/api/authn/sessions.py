@@ -57,9 +57,42 @@ token being read as a stale request.
 departs from that reference, so it is argued rather than assumed. Their rotation happens
 on every access-token refresh, so parallel tabs racing the same refresh token is the
 ORDINARY case and a 10-second grace was the only way to stop legitimate users being
-logged out. Ours rotates on PRIVILEGE CHANGE ONLY — sign-in, MFA completion, role change
-— which are single user-initiated actions, never a burst of background fetches. A grace
-window here would buy nothing and would sell a 10-second replay window for it.
+logged out. Ours does not rotate on a schedule, so a burst of background fetches racing
+one token is not a state this design has to survive — and the grace window it would cost
+is a 10-second replay window on a stolen cookie.
+
+**WHICH ACTS ROTATE IS THEREFORE LOAD-BEARING, AND THIS PARAGRAPH USED TO NAME THE WRONG
+THREE.** It said "PRIVILEGE CHANGE ONLY — sign-in, MFA completion, role change", and two
+of those are not rotations at all: `service.sign_in` ISSUES a new family (a sign-in has no
+prior session of ours to rotate, which is what makes it a fixation defence), and a role
+change REVOKES (`operators.set_operator_role` → `revoke_subject_sessions`; the role itself
+is re-read from `admin_users` on every request, so nothing is left to re-mint). The census
+in `tests/authn_session_test.py::test_the_only_rotation_callers_are_the_three_recorded_here`
+reads the tree rather than this sentence, so the list below cannot go stale again:
+
+  1. `service.complete_second_factor` — a second factor proved. A privilege change.
+  2. `service.complete_step_up` — a factor re-proved for a dangerous act. A privilege change.
+  3. `service.refresh`, behind `POST /v1/auth/{realm}/session/refresh` — **NOT a privilege
+     change.** It is the console's idle-extension button (`apps/web/src/components/authn/
+     adminIdleTimeoutModal.tsx`), so it is the one caller a client can reach at will and
+     the one this decision actually rests on.
+
+**WHERE THE "NEVER A BURST" PREMISE IS ENFORCED, since it is not enforced here.** It is a
+requirement on the browser, and `apps/web/src/lib/authn/realm.ts` states it as one and
+carries the two mechanisms that hold it up: a single-flight plus result cache so concurrent
+callers in one tab collapse into one rotation, and a rotation BARRIER that makes every
+other call to that realm wait, so no request is carrying the old cookie at the moment the
+new one is minted. `tests/authnSession.test.ts` drives both.
+
+**WHAT IS LEFT, STATED RATHER THAN IMPLIED.** Those mechanisms are per JavaScript context,
+and two tabs share one cookie jar — so two `POST /session/refresh` calls overlapping across
+tabs would have the second present a superseded token and revoke the family. The outcome is
+a forced sign-out, not an entry: it fails in the direction this module prefers, it needs two
+tabs to reach the idle warning and be clicked inside the same round trip, and closing it
+would mean buying back the replay window above. If a SERVER-side rotation caller is ever
+added — a periodic re-mint, a middleware, anything that fires without a person clicking —
+that trade changes and this paragraph is what it invalidates, which is why the census test
+exists.
 
 ═══ TIMEOUTS ═══
 

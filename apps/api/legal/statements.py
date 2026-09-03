@@ -9,8 +9,11 @@ returns; it never carries its own copy.
 Two statements, because there are two states of the world and they are not the same
 promise. Which one is in force is decided by `catalogue.PENDING_LEGAL_REVIEW`, so the
 version string moves with the documents' own version rather than being bumped separately.
+Since the set was published on 2 September 2026 the REVIEWED statement is the one in
+force; the provisional wording below stays because rows in the acceptance ledger name it
+and must still be producible years later, which is the whole reason this module exists.
 
-═══ WHAT THE PROVISIONAL WORDING MAY AND MAY NOT SAY ═══
+═══ WHAT THE PROVISIONAL WORDING MAY AND MAY NOT SAY (it is no longer in force) ═══
 
 `docs/LEGAL-SURFACE.md` findings F-11..F-15 are five occasions on which a client-facing
 sentence in this product claimed something the product does not do, and every one of them

@@ -204,7 +204,11 @@ describe("the owner invite", () => {
         detail: "That address is not deliverable.",
       }),
     });
-    fireEvent.change(emailBox, { target: { value: "owner@typo" } });
+    // A SHAPE THE CLIENT ACCEPTS, so the SERVER is the one doing the refusing — which is
+    // what this test is about. `owner@typo` was the address here until the form gained its
+    // own validation, and that now stops at the field: a plausible-looking address the
+    // server rejects is the only way to drive the sequence this test exists for.
+    fireEvent.change(emailBox, { target: { value: "owner@typo.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
 
     await screen.findByText("That address is not deliverable.");
@@ -218,8 +222,12 @@ describe("the owner invite", () => {
 
     // The billing email was left blank in step 1, so the invite opens empty — and an empty
     // invite is a token nobody can use plus a membership row nobody asked for.
+    //
+    // The button is LIVE and the press is refused at the field, which is the change: a
+    // dead button beside an empty box told the operator nothing about which box or why.
     const button = screen.getByRole("button", { name: "Create invite" }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    await screen.findByText("Enter the owner's email address.");
     expect(calls.some((c) => c.path === INVITATIONS)).toBe(false);
   });
 });

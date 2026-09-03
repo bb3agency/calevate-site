@@ -19,11 +19,13 @@ import type { LegalDocument } from "./types";
  * parties clause from the Terms, which until 26 August 2026 described a company that
  * does not exist (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`). A processing
  * contract that does not say who the processor is fails at the first thing rule 6 of the
- * DPDP Rules 2025 is read for, so clause 1 now names the supplier and its form. The
- * DPDP Act's definitions turn on "person", not on "company", so the substantive
- * obligations are unchanged — which is the point worth stating, because a client's
- * natural worry about a non-corporate supplier is that the controls are lighter. Clause
- * 3 answers it with the assurance and not with our staffing: the controls bind EVERY
+ * DPDP Rules 2025 is read for, so clause 1 IDENTIFIES the supplier — name, registration
+ * number, principal place of business — and states no legal form at all. It used to
+ * state one, and explain at length that the DPDP Act's definitions turn on "person"
+ * rather than "company" so nothing was owed differently; that narration went on
+ * 2 September 2026 (the founder's decision), and what it was defending is better said by
+ * the obligations themselves, which is where clause 1 now points. Clause
+ * 3 answers the same worry with the assurance and not with our staffing: the controls bind EVERY
  * operator account without exception, which is a property of the code — MFA is required
  * by REALM (`authn/routes.py:298`, `service.MFA_REQUIRED_REALMS`), not by who the
  * operator is. That bullet used to name the headcount ("one individual … the proprietor
@@ -59,17 +61,13 @@ export const DPA: LegalDocument = {
         {
           kind: "para",
           text:
-            "In this Addendum \"we\" means {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, and " +
-            "\"you\" means the client named on the account. The Processor is therefore " +
-            "not a company but an individual carrying on business under that name, and " +
-            "that individual and the business are the same legal person. The Digital " +
-            "Personal Data Protection Act 2023 defines a Data Processor as a PERSON who " +
-            "processes personal data on a Data Fiduciary's behalf, so the form changes " +
-            "who signs and changes nothing about what is owed: every obligation below — " +
-            "the security measures in Annex B, the 48-hour breach clock in clause 7, " +
-            "the audit right in clause 10 — binds that individual exactly as it would " +
-            "bind a company, and clause 14.1 of the Terms of Service records that his " +
-            "liability is personal and is not bounded by a company's assets.",
+            "In this Addendum \"we\" means {{LEGAL_ENTITY_NAME}} (Udyam registration " +
+            "number {{ENTITY_REGISTRATION_NUMBER}}, principal place of business " +
+            "{{REGISTERED_ADDRESS}}), and \"you\" means the client named on the " +
+            "account. Every obligation below — the security measures in Annex B, the " +
+            "48-hour breach clock in clause 7, the audit right in clause 10 — binds us, " +
+            "and clause 14 of the Terms of Service is the only thing that limits what we " +
+            "owe you under them.",
         },
         {
           kind: "para",

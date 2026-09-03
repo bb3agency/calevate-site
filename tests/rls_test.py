@@ -4,6 +4,7 @@ Run: uv run pytest -k rls
 Requires the local Postgres (docker compose up -d) with migrations applied.
 """
 
+import re
 import uuid
 
 import pytest
@@ -236,3 +237,87 @@ async def test_user_guc_does_not_unlock_tenant_data() -> None:
     async with user_session(user) as s:
         leads = (await s.execute(text("SELECT count(*) FROM leads"))).scalar()
     assert leads == 0, "the user GUC must not widen access to tenant business data"
+
+
+# --- The read-widening GUCs, as a CATALOGUE property (hard rule 1) ------------
+#
+# `db/session.py` opens five sessions that are not `tenant_session`, and four of them
+# widen a policy on purpose so that authentication can happen at all: `app.user_id` (your
+# own memberships and the organizations they point at), `app.invite_hash` (the one
+# invitation whose token you can name), `app.ingest_webhook_id` (the one ingest config in
+# the URL) and `app.admin` (the tenant DIRECTORY). Each of those four docstrings makes the
+# SAME promise in its own words — "widens the READ policy ... and widens the WRITE policy
+# by nothing", "it widens no WITH CHECK anywhere" — and until this test nothing measured it.
+#
+# The tests above measure ONE of them, behaviourally, for `app.user_id`. That is the right
+# shape and it does not scale: a widening added by a future migration arrives with no
+# behavioural test of its own, and the failure is silent in the worst direction. A
+# `WITH CHECK` carrying `app.user_id` would let any signed-in person INSERT a `memberships`
+# row naming themselves `owner` of ANY tenant; one carrying `app.admin` would let the
+# directory session write organizations it can only enumerate.
+#
+# So this asks the catalogue instead, over every policy on the database the suite is
+# pointed at, which is the same source `scripts/check_rls_coverage.py` reads. It is a
+# one-directional rule and deliberately so: a widening GUC may appear in `qual` (that is
+# what widening IS) and may never appear in `with_check`.
+
+#: The GUCs that exist to widen a READ and must never widen a WRITE, with the session that
+#: sets each — named so a failure says which door was left open, not just which string.
+_READ_ONLY_WIDENING_GUCS: dict[str, str] = {
+    "app.user_id": "user_session() — 'which tenants may this user enter?'",
+    "app.invite_hash": "invite_session() — the one invitation whose token the caller holds",
+    "app.ingest_webhook_id": "ingest_config_session() — the one ingest config named in the URL",
+    "app.admin": "admin_session() — the tenant directory, enumerate only",
+}
+
+
+async def test_a_read_widening_guc_never_widens_a_write() -> None:
+    """`USING` may name these; `WITH CHECK` may not. Read from `pg_policies`, not assumed.
+
+    A `DELETE` policy is exempt because a DELETE has no `WITH CHECK` in SQL at all — the
+    one that exists (`organizations_delete_admin_only`, migration d1b8f30c94a7) is a
+    deliberate admin authority with its own suite (`tests/organizations_delete_rls_test.py`).
+    """
+    async with untenanted_session() as s:
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT tablename, policyname, cmd, with_check FROM pg_policies "
+                    "WHERE with_check IS NOT NULL ORDER BY tablename, policyname"
+                )
+            )
+        ).all()
+    assert rows, "found no policies with a WITH CHECK — this test would pass vacuously"
+    offenders = [
+        f"{table}.{policy} ({cmd}) has {guc} in its WITH CHECK. That GUC is set by "
+        f"{door}, and it is a READ widening — putting it in a WITH CHECK makes it a WRITE "
+        f"one: {with_check}"
+        for table, policy, cmd, with_check in rows
+        for guc, door in _READ_ONLY_WIDENING_GUCS.items()
+        if guc in str(with_check)
+    ]
+    assert not offenders, "; ".join(offenders)
+
+
+def test_every_widening_guc_this_repo_sets_is_covered_by_the_rule_above() -> None:
+    """The other direction: a new GUC in `db/session.py` cannot slip past that assertion.
+
+    `_READ_ONLY_WIDENING_GUCS` is a hand-kept list, and a hand-kept list of security
+    exemptions rots the moment somebody adds a fifth session helper. `app.tenant_id` is the
+    tenancy key itself (it is SUPPOSED to be in every `WITH CHECK`) and `app.auth` is the
+    credential store's whole policy rather than a widening of a tenant one — those two are
+    named here so the census is an equality rather than a subset.
+    """
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parent.parent / "apps" / "api" / "db" / "session.py"
+    ).read_text(encoding="utf-8")
+    found = set(re.findall(r"set_config\('(app\.[a-z_]+)'", source))
+    accounted = set(_READ_ONLY_WIDENING_GUCS) | {"app.tenant_id", "app.auth"}
+    assert found == accounted, (
+        f"`db/session.py` sets {sorted(found)} but this file accounts for "
+        f"{sorted(accounted)}. A new GUC is a new door: add it to "
+        "`_READ_ONLY_WIDENING_GUCS` if it widens a read, or beside `app.tenant_id` if it "
+        "is a tenancy key in its own right."
+    )

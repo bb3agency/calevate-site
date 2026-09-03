@@ -438,18 +438,43 @@ async def lead_columns(
 
 # The lead row's columns, in `_lead_out`'s order, and the join that names its owner.
 #
-# `memberships` carries the join rather than `users` directly, and that is the whole
-# tenancy control on this line: `users` is a GLOBAL table with no RLS (DATA-MODEL §2 —
-# identity crosses tenants), so `JOIN users ON users.id = l.assigned_to` would happily
-# print a stranger's name. `memberships` IS force-RLS'd on `tenant_id`, so a row this
-# tenant may not see resolves to NULL and `LeadOut.assigned_to_name` says so.
+# `memberships` carries the join rather than `users` directly: `users` is a GLOBAL table
+# with no RLS (DATA-MODEL §2 — identity crosses tenants), so
+# `JOIN users ON users.id = l.assigned_to` would happily print a stranger's name.
+# `memberships` is FORCE-RLS'd, so a person this tenant may not see resolves to NULL and
+# `LeadOut.assigned_to_name` says so.
+#
+# **`m.tenant_id = l.tenant_id` IS THE SECOND HALF, and this comment used to assert the
+# first half was all of it.** It said `memberships` is "force-RLS'd on `tenant_id`", full
+# stop. That is not what the policy says: migration `8c31d0f4ab27` widened it to
+# `tenant_id = app.tenant_id OR user_id = app.user_id`, deliberately, so that a session can
+# answer "which tenants may I enter" before it has a tenant. Under that second arm the
+# requesting user's own membership rows in EVERY tenant they belong to are visible, and a
+# `LEFT JOIN` with no tenant predicate multiplies against them — one lead assigned to the
+# person reading the page would come back once per account that person holds, spending the
+# page's `LIMIT` on duplicates and writing the same contact into `export.csv` that many
+# times.
+#
+# **THAT IS NOT REACHABLE TODAY, and the reason is a fact about a DIFFERENT module.**
+# `app.user_id` is set in exactly one place — `db.session.user_session`, the pre-tenant
+# identity lookup — and never inside `tenant_session`, so the second arm evaluates against
+# NULL and is inert on every request that reaches this SQL (verified: `app.user_id` has one
+# writer in the tree). The predicate is here because that is a property of the session
+# plumbing, not of this query, and it is the sort of fact a future `tenant_session` that
+# carries the caller's identity would silently take away.
+# `tests/lead_owner_join_tenancy_test.py` sets the GUC by hand to hold the join to it
+# either way.
+#
+# Spelled `m.tenant_id = l.tenant_id` rather than against the GUC because it states that
+# these two rows belong together, which is true whatever the session is scoped to.
+
 _LEAD_COLUMNS = (
     "l.id, l.phone_e164, l.name, l.status, l.source, l.data, l.schema_version, "
     "l.call_count, l.is_repeat_caller, l.last_call_id, l.created_at, l.updated_at, "
     "l.assigned_to, owner.name AS assigned_to_name"
 )
 _LEAD_OWNER_JOIN = (
-    "LEFT JOIN memberships m ON m.user_id = l.assigned_to "
+    "LEFT JOIN memberships m ON m.user_id = l.assigned_to AND m.tenant_id = l.tenant_id "
     "LEFT JOIN users owner ON owner.id = m.user_id"
 )
 

@@ -336,7 +336,12 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "is no number to search the content for. Versions the client replaced or had "
             "rejected are deleted once they pass this account's knowledge-base retention "
             "period. If caller details were put into the live content, finding and "
-            "removing them is manual work on both copies."
+            "removing them is manual work on both copies. What DID change (D-519): the "
+            "copies held by the voice platform are now named — every knowledge base we "
+            "recorded for this client is quoted by its platform identifier in the "
+            "written deletion request opened above, because that platform files every "
+            "client's documents in one account and those identifiers are the only thing "
+            "that can find this client's again."
         ),
         authority=(
             "SECURITY-COMPLIANCE §4 enumerates the erasure scope as calls, transcript "

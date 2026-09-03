@@ -177,13 +177,16 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.credit_packs import (
+    PACK_BONUS_CLAWBACK_META_KIND,
     PACK_BONUS_META_KIND,
     CreditPack,
     pack_by_id,
 )
+from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import (
     Balance,
     find_entry_by_ref,
@@ -197,6 +200,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.db.base import uuid7
 from apps.api.reliability.service import body_hash
 
 log = get_logger(__name__)
@@ -1337,6 +1341,300 @@ def extract_refund(envelope: Any) -> RefundEvent:
     )
 
 
+#: WHAT A REFUND ROW SAYS IT REVERSES. `credit_refund` stamps `meta.payment_ref` on every
+#: entry it writes, so "how much of this payment has gone back" is one indexed-by-tenant scan
+#: of the wallet rather than a join against the provider. Named because two readers ask it —
+#: the aggregate ceiling on the refund route and the bonus clawback below — and a second
+#: spelling of one money predicate is the shape this module has already been bitten by.
+_REFUNDED_FOR_PAYMENT_SQL: Final = (
+    "SELECT COALESCE(SUM(abs(delta)), 0) FROM credit_ledger "
+    "WHERE tenant_id = :tid AND reason = 'refund' AND meta->>'payment_ref' = :pid"
+)
+
+
+async def refunded_total_inr(session: AsyncSession, *, tenant_id: UUID, payment_id: str) -> Decimal:
+    """How much of this payment is already back with the client, across every refund of it.
+
+    **THE PER-REQUEST CEILING WAS NOT A CEILING.** `issue_tenant_refund` refused an amount
+    larger than the payment and nothing else, so ₹2,000 and then ₹1,000 against a ₹2,500
+    top-up both passed — two provider refunds, two compensating entries, ₹500 returned that
+    the client never paid. A ceiling that only ever sees one request cannot bound a total,
+    and on an append-only ledger the second entry cannot afterwards be taken back.
+
+    Read under `lock_tenant_credits` when a write depends on it: this is the check half of a
+    check-then-write, and the lock is what stops two operators refunding the same remainder.
+    """
+    total = (
+        await session.execute(
+            text(_REFUNDED_FOR_PAYMENT_SQL), {"tid": tenant_id, "pid": payment_id}
+        )
+    ).scalar()
+    return Decimal(str(total or 0))
+
+
+@dataclass(frozen=True, slots=True)
+class RefundClaim:
+    """The outcome of claiming a refund BEFORE the provider is asked for it."""
+
+    #: The key sent to the provider, and the unique key of the claim row.
+    refund_key: str
+    #: False when this exact refund was already claimed — a replay, not a second refund.
+    #: The caller still calls the provider (its own idempotency collapses the two) but
+    #: must not release the claim on failure: it is not this request's to withdraw.
+    claimed: bool
+
+
+async def claimed_refund_total_inr(
+    session: AsyncSession, *, tenant_id: UUID, payment_id: str
+) -> Decimal:
+    """How much of this payment refunds have already been COMMITTED TO — claimed, not
+    settled.
+
+    The ceiling's own read. It counts claims rather than `credit_ledger` rows because a
+    refund the provider has accepted and not yet processed has moved real money and has no
+    ledger entry yet (`credit_refund` is keyed on the provider's refund id, which is its
+    answer to the call). Measuring the ceiling against settlements is what let two
+    concurrent refunds of one payment both pass it.
+
+    Read under `lock_tenant_credits` when a write depends on it: it is the check half of a
+    check-then-write whose write is an irreversible provider call.
+    """
+    total = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(SUM(amount_inr), 0) FROM refund_intents "
+                "WHERE tenant_id = :tid AND payment_ref = :pid"
+            ),
+            {"tid": tenant_id, "pid": payment_id},
+        )
+    ).scalar()
+    return Decimal(str(total or 0))
+
+
+async def claim_refund(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    payment_id: str,
+    amount_inr: Decimal,
+    payment_total_inr: Decimal,
+) -> RefundClaim:
+    """Reserve one refund against a payment, or refuse it. **Commit before calling the
+    provider.**
+
+    THE DEFECT THIS CLOSES, stated where the fix is rather than only in the migration.
+    The ceiling on "the refunds of one payment may not exceed the payment" was checked
+    against `credit_ledger` inside a `tenant_session` and the provider was called AFTER
+    that block ended — and `pg_advisory_xact_lock` is released by COMMIT. So the lock was
+    gone before the act it was guarding: ₹2,000 and ₹1,000 against a ₹2,500 top-up, asked
+    for at the same moment, both read "nothing refunded yet" and both issued a provider
+    refund. ₹500 returned that the client never paid, as two compensating entries an
+    append-only ledger cannot take back (hard rule 4).
+
+    A claim COMMITTED before the network call is what makes the section span it. The lock
+    still serializes the read-decide-write, and `ux_refund_intents_tenant_key` is the
+    backstop behind it exactly as `ux_usage_events_tenant_call_unit` is behind
+    `lock_call_writes`.
+
+    **A REPEAT OF AN AMOUNT ALREADY CLAIMED IS A REPLAY AND IS ALLOWED THROUGH.** The
+    provider idempotency key is derived from `(payment_id, amount)`, so a second click on
+    one refund is the same key at the vendor and the same row here — it can only ever
+    collapse onto the refund that already exists, never add to what was returned. It
+    therefore must not be refused as a breach of a ceiling it does not move; that would
+    turn today's harmless double-click into an error on a money dialog. Two genuinely
+    distinct refunds of one payment for the identical amount are not representable at the
+    provider either, so this admits a replay and nothing else.
+
+    Raises `refund_exceeds_payment` when a NEW claim would take the total past the
+    payment. Nothing is written on that path and nothing has been asked of the provider.
+    """
+    await lock_tenant_credits(session, tenant_id)
+    key = refund_idempotency_key(payment_id=payment_id, amount_inr=amount_inr)
+    existing = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM refund_intents WHERE tenant_id = :tid AND refund_key = :key LIMIT 1"
+            ),
+            {"tid": tenant_id, "key": key},
+        )
+    ).first()
+    if existing:
+        return RefundClaim(refund_key=key, claimed=False)
+
+    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    remaining = payment_total_inr - claimed
+    if amount_inr > remaining:
+        raise ProblemError.business_rule(
+            "refund_exceeds_payment",
+            f"That payment was ₹{to_paise(payment_total_inr)}, ₹{to_paise(claimed)} of it "
+            f"has already been refunded, and this asks to refund ₹{to_paise(amount_inr)}.",
+            remediation=(
+                f"Refund at most the ₹{to_paise(max(remaining, Decimal('0')))} still "
+                "outstanding on it."
+            ),
+        )
+    await session.execute(
+        text(
+            "INSERT INTO refund_intents (id, tenant_id, payment_ref, refund_key, amount_inr, "
+            "created_at) VALUES (:id, :tid, :pid, :key, :amount, now())"
+        ),
+        {
+            "id": uuid7(),
+            "tid": tenant_id,
+            "pid": payment_id,
+            "key": key,
+            "amount": amount_inr,
+        },
+    )
+    log.info(
+        "razorpay_refund_claimed",
+        extra={"tenant_id": str(tenant_id), "payment_ref": payment_id},
+    )
+    return RefundClaim(refund_key=key, claimed=True)
+
+
+async def release_refund_claim(session: AsyncSession, *, tenant_id: UUID, refund_key: str) -> None:
+    """Withdraw a claim whose provider call never happened. THE only DELETE on this table.
+
+    A refund the provider REFUSED moved no money, so the claim must not go on counting
+    against the client's remaining refundable balance — one transient 502 would otherwise
+    withhold money permanently, which is a worse failure than the one the claim prevents.
+
+    `refund_intents` is a claim table and not a ledger, which is why this is a DELETE and
+    not a compensating row: it is in neither `db/registry.APPEND_ONLY_TABLES` nor any
+    reader of money. `outbox_messages` and `webhook_inbox_events` release a claim they
+    could not honour the same way (BACKEND-PATTERNS §4).
+
+    Called ONLY for a claim this request actually took (`RefundClaim.claimed`). Releasing
+    a replay's claim would withdraw a reservation that belongs to the refund that already
+    exists at the provider.
+    """
+    await session.execute(
+        text("DELETE FROM refund_intents WHERE tenant_id = :tid AND refund_key = :key"),
+        {"tid": tenant_id, "key": refund_key},
+    )
+    log.info(
+        "razorpay_refund_claim_released",
+        extra={"tenant_id": str(tenant_id)},
+    )
+
+
+async def _clawed_back_bonus_inr(
+    session: AsyncSession, *, tenant_id: UUID, payment_id: str
+) -> Decimal:
+    """How much of this pack's bonus previous refunds have already taken back.
+
+    Keyed on `meta.kind` AND `meta.payment_ref`, so it counts the clawbacks of THIS purchase
+    and nothing else — the grant itself is a positive `bonus` row with a different kind, and
+    a filter on the sign alone would have counted it.
+    """
+    total = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(SUM(abs(delta)), 0) FROM credit_ledger "
+                "WHERE tenant_id = :tid AND reason = 'bonus' AND meta->>'kind' = :kind "
+                "AND meta->>'payment_ref' = :pid"
+            ),
+            {"tid": tenant_id, "kind": PACK_BONUS_CLAWBACK_META_KIND, "pid": payment_id},
+        )
+    ).scalar()
+    return Decimal(str(total or 0))
+
+
+async def _claw_back_pack_bonus(
+    session: AsyncSession, *, refund: RefundEvent, ip: str | None
+) -> Decimal:
+    """Take back the share of a pack's BONUS that this refund reverses. Returns what moved.
+
+    **THE DEFECT.** A pack grants paid credits and, on top, bonus credits WE fund
+    (`_grant_pack_bonus`). A refund reversed the paid leg only, so a client could buy the
+    ₹2,999 pack, receive ₹3,088.97 of credits, ask for their money back and keep ₹89.97 of
+    talk time — repeatably, for as long as they cared to. Nothing in the wallet, the
+    reconciler or the invoice would have shown it as anything but a bonus somebody earned.
+
+    **PROPORTIONAL, AND EXPRESSED AS A CUMULATIVE TARGET RATHER THAN AN INCREMENT.** The
+    bonus is consideration for the purchase, so half the purchase back is half the bonus
+    back. Computing "bonus x (total refunded so far) / (amount paid)" and subtracting what
+    previous refunds already clawed makes the SEQUENCE of partial refunds land on exactly
+    the bonus granted — an increment quantized per refund would not, and the residue would
+    be a few paise of free credit or a few paise of overdraft that nothing could explain.
+    Clamped at the bonus so no arithmetic can take back more than was ever given.
+
+    Written as a `bonus` entry keyed on the REFUND id, a key distinct from the grant's
+    (which is keyed on the payment id) and unique under `ux_credit_ledger_bonus_ref`, so the
+    reversal is idempotent in the database exactly as every other writer on this ledger is.
+
+    `allow_negative=True` for `credit_refund`'s reason: the credits may already be spent,
+    and refusing to record a movement that happened would hide it.
+    """
+    paid = await find_topup(session, tenant_id=refund.tenant_id, ref=refund.payment_id)
+    grant = await find_entry_by_ref(
+        session, tenant_id=refund.tenant_id, reason="bonus", ref=refund.payment_id
+    )
+    # No paid row (a refund of a payment this wallet never recorded) or no bonus (a plain
+    # top-up, or the 0%-bonus starter pack): there is nothing proportional to take back.
+    if paid is None or paid.amount_inr <= 0 or grant is None or grant.amount_inr <= 0:
+        return Decimal("0")
+
+    refunded = await refunded_total_inr(
+        session, tenant_id=refund.tenant_id, payment_id=refund.payment_id
+    )
+    target = min(
+        grant.amount_inr,
+        (grant.amount_inr * refunded / paid.amount_inr).quantize(MONEY_Q, rounding=ROUNDING),
+    )
+    already = await _clawed_back_bonus_inr(
+        session, tenant_id=refund.tenant_id, payment_id=refund.payment_id
+    )
+    delta = target - already
+    if delta <= 0:
+        return Decimal("0")
+
+    balance = await record_entry(
+        session,
+        tenant_id=refund.tenant_id,
+        delta=-delta,
+        reason="bonus",
+        ref=refund.refund_id,
+        meta={
+            "kind": PACK_BONUS_CLAWBACK_META_KIND,
+            "source": PROVIDER,
+            "payment_ref": refund.payment_id,
+            "refund_ref": refund.refund_id,
+            # Digit STRINGS (hard rule 7): a rupee amount that goes into JSON as a number
+            # comes back a float in some reader.
+            "granted_inr": str(grant.amount_inr),
+            "clawed_back_inr": str(delta),
+        },
+        allow_negative=True,
+    )
+    await write_audit(
+        session,
+        action="credit.pack_bonus_clawback",
+        actor_type="system",
+        tenant_id=refund.tenant_id,
+        object_type="credit_ledger",
+        object_id=str(grant.entry_id),
+        ip=ip,
+        summary={
+            "source": PROVIDER,
+            "payment_ref": refund.payment_id,
+            "refund_ref": refund.refund_id,
+            "amount_inr": str(delta),
+            "balance_after_inr": str(balance.amount_inr),
+        },
+    )
+    log.info(
+        "razorpay_pack_bonus_clawed_back",
+        extra={
+            "tenant_id": str(refund.tenant_id),
+            "payment_ref": refund.payment_id,
+            "refund_ref": refund.refund_id,
+        },
+    )
+    return delta
+
+
 async def credit_refund(
     session: AsyncSession, *, refund: RefundEvent, ip: str | None = None
 ) -> TopUpResult:
@@ -1412,6 +1710,12 @@ async def credit_refund(
         "razorpay_refund_recorded",
         extra={"tenant_id": str(refund.tenant_id), "entry_id": str(written.entry_id)},
     )
+
+    # The bonus this refund reverses, in the SAME transaction as the refund itself, so a
+    # wallet can never hold a pack's bonus without the purchase that earned it — the mirror
+    # of the invariant `credit_captured_payment` keeps when it grants the two together.
+    if await _claw_back_pack_bonus(session, refund=refund, ip=ip) > 0:
+        balance = await get_balance(session, tenant_id=refund.tenant_id)
     return TopUpResult(entry_id=written.entry_id, balance=balance, recorded=True)
 
 
@@ -1466,6 +1770,64 @@ def failed_payment_summary(envelope: Any) -> dict[str, str]:
     return out
 
 
+@dataclass(frozen=True, slots=True)
+class PaymentAttemptIds:
+    """The three identifiers an event needs to reach a `topup_attempts` row."""
+
+    tenant_id: UUID
+    order_id: str
+    payment_id: str | None
+
+
+def payment_attempt_ids(envelope: Any) -> PaymentAttemptIds | None:
+    """Which top-up attempt an event belongs to, or None when it cannot be told.
+
+    NONE IS A REAL AND EXPECTED ANSWER, and it is why this returns rather than raises.
+    Nothing that reads it moves money: `topup_attempts` is a narrative and the ledger is
+    the record, so the only thing lost when the ids cannot be read is that a row keeps
+    saying "settling" until `PENDING_GRACE_HOURS` turns it into "unfinished" — a slightly
+    staler word on a screen, which is exactly the cost `billing/wallet.py` argues that
+    table is allowed to pay. Refusing a `payment.failed` event instead would make the
+    provider retry a failure for ever.
+
+    It reads the SAME entity path and the SAME `notes[NOTES_TENANT_KEY]` as
+    `extract_captured_payment`, deliberately — so this is not a second, independently
+    wrong guess at an UNVERIFIED payload contract, it is the same one. Verifying that
+    contract against a real account fixes both functions at once. `order_id` is the field
+    the captured extractor does NOT keep, and it is the one this needs: it is the only
+    identifier our own attempt row holds before money arrives.
+    """
+    entity: Any = None
+    if isinstance(envelope, dict):
+        payload = envelope.get("payload")
+        if isinstance(payload, dict):
+            payment = payload.get("payment")
+            if isinstance(payment, dict):
+                entity = payment.get("entity")
+    if not isinstance(entity, dict):
+        return None
+    order_id = entity.get("order_id")
+    if not isinstance(order_id, str) or not order_id.strip():
+        # WITHOUT AN ORDER ID THERE IS NOTHING TO KEY ON. `settle_attempt` finds a row by
+        # (tenant, order id) and nothing else, because that is the only identifier our own
+        # row holds before money arrives.
+        return None
+    notes = entity.get("notes")
+    raw_tenant = notes.get(NOTES_TENANT_KEY) if isinstance(notes, dict) else None
+    try:
+        tenant_id = UUID(str(raw_tenant))
+    except (TypeError, ValueError):
+        return None
+    payment_id = entity.get("id")
+    return PaymentAttemptIds(
+        tenant_id=tenant_id,
+        order_id=order_id.strip(),
+        payment_id=(
+            payment_id.strip() if isinstance(payment_id, str) and payment_id.strip() else None
+        ),
+    )
+
+
 __all__ = [
     "API_VERSION_PATH",
     "BASE_URL",
@@ -1492,12 +1854,16 @@ __all__ = [
     "SIGNATURE_HEADER",
     "SUPPORTED_CURRENCY",
     "CapturedPayment",
+    "PaymentAttemptIds",
     "PaymentCapability",
     "ProviderOrder",
     "ProviderRefund",
     "RazorpayOrders",
+    "RefundClaim",
     "RefundEvent",
     "TopUpResult",
+    "claim_refund",
+    "claimed_refund_total_inr",
     "credit_captured_payment",
     "credit_refund",
     "event_name",
@@ -1509,11 +1875,14 @@ __all__ = [
     "issue_refund",
     "online_payments_available",
     "paise_to_inr",
+    "payment_attempt_ids",
     "payment_capability",
     "payments_not_configured",
     "razorpay_api_secret",
     "razorpay_orders",
     "refund_idempotency_key",
+    "refunded_total_inr",
+    "release_refund_claim",
     "topup_receipt",
     "verify_checkout_signature",
     "verify_signature",

@@ -518,13 +518,35 @@ async def test_the_role_table_itself_is_untouched() -> None:
 
     assert not role_has("staff", "kb:write")
     assert not role_has("staff", "org:manage")
-    # `copilot:use` IS in this set and is the only thing this change added — the founder's
+    # `copilot:use` IS in this set and was the only thing THAT change added — the founder's
     # separate decision that staff may use the assistant. Spelling the whole set out is what
-    # makes that visible: a future permission quietly added to `staff` fails here rather
-    # than being discovered from behaviour.
+    # makes each addition visible: a permission quietly added to `staff` fails here rather
+    # than being discovered from behaviour, which is exactly what happened next.
+    #
+    # `wallet:read` (2 Sep 2026) is the second, and it is here for the same shape of reason
+    # and by the same instrument — a founder decision, narrowly drawn. Everyone on a client's
+    # team may SEE the calling-credit balance and its ledger "so an operator understands why
+    # dialling stopped"; only the owner may BUY (`org:manage`, asserted absent above). It is
+    # a new permission rather than a widening of `billing:read`, which would have carried the
+    # spend breakdown, the caps and the monthly statement with it — SEC-COMP §5 scopes those
+    # to the owner and the founder decided nothing about them.
     assert ROLE_PERMISSIONS["staff"] == frozenset(
-        {"agents:read", "calls:read", "copilot:use", "leads:read", "leads:write", "org:read"}
+        {
+            "agents:read",
+            "calls:read",
+            "copilot:use",
+            "leads:read",
+            "leads:write",
+            "org:read",
+            "wallet:read",
+        }
     )
+    # And the wallet grant is a READ: it is not in `MUTATING_PERMISSIONS`, so a D-22 view-as
+    # operator keeps it on a support call — while the purchase, which is, they do not.
+    from apps.api.core.rbac import MUTATING_PERMISSIONS
+
+    assert "wallet:read" not in MUTATING_PERMISSIONS
+    assert "org:manage" in MUTATING_PERMISSIONS
 
 
 @pytest.mark.asyncio

@@ -182,8 +182,14 @@ async def test_the_vendor_handle_is_not_a_capability_another_tenant_can_use() ->
     `attach_kb` returns the ENGINE's handle for the attached copy, and that handle is
     the only thing that can delete it. Bolna files every tenant's knowledge bases in one
     account, so possession of a handle is possession of another client's knowledge — the
-    isolation has to come from OUR side refusing to look it up, which it does by keeping
-    the handle in `kb_documents.meta`, a tenant-scoped row.
+    isolation has to come from OUR side refusing to look it up.
+
+    **THE MECHANISM CHANGED AND THE PROPERTY DID NOT (D-519).** The handle used to live in
+    `kb_documents.meta`, a tenant-scoped row, and now lives in `engine_kb_routes`, which is
+    GLOBALLY READABLE — it has to be, or the orphan sweep cannot ask which objects on the
+    shared account no tenant claims. So the per-source reads join `kb_sources` (FORCE-RLS)
+    and a foreign session sees no source row and therefore no handle. This test is what
+    says the exemption bought a cross-tenant QUESTION and not a cross-tenant ANSWER.
     """
     tenant_a, agent_a = await _tenant_with_published_agent()
     tenant_b, _ = await _tenant_with_published_agent()
@@ -326,3 +332,99 @@ async def test_a_tenant_cannot_point_its_agent_at_another_tenants_retrieval_name
             )
         ).scalar()
     assert uuid.UUID(str(owner)) == tenant_a
+
+
+# --------------------------------------------------------------------------------
+# The claim table itself (D-519): a globally readable row must not be a globally
+# writable one, and one vendor object must not have two owners
+# --------------------------------------------------------------------------------
+
+
+async def _claim(source_id: uuid.UUID) -> str | None:
+    async with untenanted_session() as session:
+        return (
+            await session.execute(
+                text("SELECT engine_kb_ref FROM engine_kb_routes WHERE source_id = :s"),
+                {"s": source_id},
+            )
+        ).scalar()
+
+
+async def _published_source(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: str) -> uuid.UUID:
+    submitted = await _submit(tenant_id, agent_id, name)
+    source_id = uuid.UUID(str(submitted["id"]))
+    async with tenant_session(tenant_id) as session:
+        await service.approve_source(session, source_id=source_id, approved_by=None)
+        await service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
+    return source_id
+
+
+async def test_a_tenant_cannot_reclaim_another_tenants_vendor_knowledge_base() -> None:
+    """`engine_kb_routes` is read-exempt, and the exemption stops at reading.
+
+    The row is the ONLY thing that says whose a vendor knowledge base is: the account is
+    shared, the vendor object has no owner field, and possession of the handle is
+    possession of the document. So a session that could re-tenant this row could take
+    another client's knowledge base — hand it to its own agent, or delete it — with every
+    policy on `kb_sources` and `kb_documents` still perfectly enforced.
+
+    The refusal is the FORCEd `tenant_isolation` write policy migration `f1c9e0a73b46`
+    installs beside the global read, which is `engine_agent_routes`' shape after
+    `c4b70e928a1f` and is here for the same reason: a read-shaped exemption has twice been
+    read as covering every verb.
+    """
+    tenant_a, agent_a = await _tenant_with_published_agent()
+    tenant_b, agent_b = await _tenant_with_published_agent()
+    source_a = await _published_source(tenant_a, agent_a, "Fees")
+    assert await _claim(source_a), "premise: publishing recorded a claim"
+
+    for statement, params in (
+        (
+            "UPDATE engine_kb_routes SET tenant_id = :b, agent_id = :ab WHERE source_id = :s",
+            {"b": tenant_b, "ab": agent_b, "s": source_a},
+        ),
+        ("DELETE FROM engine_kb_routes WHERE source_id = :s", {"s": source_a}),
+    ):
+        async with tenant_session(tenant_b) as session:
+            result = await session.execute(text(statement), params)
+            assert result.rowcount == 0, (
+                "tenant B rewrote or destroyed tenant A's claim on a vendor knowledge base"
+            )
+
+    async with untenanted_session() as session:
+        claimant = (
+            await session.execute(
+                text("SELECT tenant_id FROM engine_kb_routes WHERE source_id = :s"),
+                {"s": source_a},
+            )
+        ).scalar()
+    assert uuid.UUID(str(claimant)) == tenant_a
+
+
+async def test_two_sources_cannot_claim_one_vendor_knowledge_base() -> None:
+    """The uniqueness a JSONB key could not have.
+
+    Every read of a handle is a read of "which vendor object is MINE", and a detach
+    DELETES that object. If two sources — two tenants' sources — could record one handle,
+    the first detach would delete a document the second still points at, and the second
+    client's agent would go on answering from nothing while every screen of ours reported
+    the version live. Nothing in the old home could refuse it; the primary key does.
+    """
+    tenant_a, agent_a = await _tenant_with_published_agent()
+    tenant_b, agent_b = await _tenant_with_published_agent()
+    source_a = await _published_source(tenant_a, agent_a, "Fees")
+    handle_a = await _claim(source_a)
+    assert handle_a
+
+    submitted_b = await _submit(tenant_b, agent_b, "Fees")
+    source_b = uuid.UUID(str(submitted_b["id"]))
+    with pytest.raises(Exception) as collided:
+        async with tenant_session(tenant_b) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, "
+                    "agent_id, source_id) VALUES ('fake', :ref, :t, :a, :s)"
+                ),
+                {"ref": handle_a, "t": tenant_b, "a": agent_b, "s": source_b},
+            )
+    assert "pk_engine_kb_routes" in str(collided.value), collided.value

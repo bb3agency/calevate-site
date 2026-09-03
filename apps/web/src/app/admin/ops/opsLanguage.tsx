@@ -50,6 +50,7 @@ import {
   TermGloss,
   type NoticeTone,
 } from "@/components/ui";
+import { FieldMessage, type TrackedProps } from "@/components/formValidation";
 
 // `MonoValue` and `TermGloss` now live in the shared primitives (components/ui) so the
 // client realm and the marketing site gloss terms and render codes the same way this
@@ -398,6 +399,9 @@ export function KeyField({
   placeholder,
   autoFocus,
   disabled,
+  required,
+  control,
+  error,
 }: {
   id: string;
   label: string;
@@ -407,9 +411,21 @@ export function KeyField({
   placeholder?: string;
   autoFocus?: boolean;
   disabled?: boolean;
+  /** Passed through to the control so the rule lives where the rule belongs. */
+  required?: boolean;
+  /**
+   * `useFormValidation().track(...)` for this control, when the form is validated by us
+   * rather than by the browser. This component renders its own label, hint and error, so
+   * it takes `track` rather than `field` — the same split `Credentials.tsx` makes in the
+   * client realm.
+   */
+  control?: TrackedProps;
+  /** The refusal for this control, from `useFormValidation().message(...)`. */
+  error?: string;
 }) {
   const [revealed, setRevealed] = useState(false);
   const hintId = hint ? `${id}-hint` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
   return (
     <div>
       <label htmlFor={id} className={FIELD_LABEL}>
@@ -418,16 +434,22 @@ export function KeyField({
       <div className="relative mt-1">
         <input
           id={id}
+          {...control}
           // The form opens on the operator's click specifically to paste a key, so focus
           // belongs in this field the moment it appears.
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={autoFocus}
           type={revealed ? "text" : "password"}
+          required={required}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           disabled={disabled}
-          aria-describedby={hintId}
+          aria-invalid={error ? true : undefined}
+          // BOTH ids, in this order: `aria-describedby` takes a list, and dropping the
+          // hint while a refusal is showing would take away the sentence that says what
+          // a good answer looks like at the moment it is most needed.
+          aria-describedby={[hintId, errorId].filter(Boolean).join(" ") || undefined}
           autoComplete="off"
           autoCapitalize="off"
           autoCorrect="off"
@@ -452,6 +474,7 @@ export function KeyField({
           {hint}
         </span>
       ) : null}
+      {error ? <FieldMessage id={errorId as string}>{error}</FieldMessage> : null}
     </div>
   );
 }

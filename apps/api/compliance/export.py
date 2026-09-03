@@ -71,6 +71,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.caller_ref import caller_refs
 from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -363,6 +364,74 @@ async def build_subject_export(
         "added_at": _iso(dnc_row[2]) if dnc_row is not None else None,
     }
 
+    # THE UPLOADED LIST, which this document omitted — and the omission was worst for the
+    # people least likely to know we hold anything.
+    #
+    # §12 ERASES `campaign_contacts` (`retention._CAMPAIGN_CONTACT_ERASE_SQL`) and §11
+    # reported it nowhere, so somebody whose number a client uploaded and who NEVER CALLED
+    # was told "we hold no data about you". That sentence was false, and it was false in
+    # the one direction that matters: a person on an outbound list has had no contact with
+    # us through which to learn otherwise. The DNC entry was added to this document on
+    # exactly this argument.
+    #
+    # `custom` IS NOT DISCLOSED, and that is not an omission. It holds whatever columns the
+    # client uploaded — merge variables for the script — so it is the client's own data
+    # about the person, in shapes we do not model and cannot promise to render safely
+    # (hard rule 6: this is a disclosure, not a dump). `has_custom_fields` tells the subject
+    # such data exists so they can ask for it specifically, which is the honest halfway
+    # house and the same shape as `recording_available` and `evidence_recorded` above.
+    contact_rows = (
+        await session.execute(
+            text(
+                "SELECT c.id, ca.name, c.status, c.attempts, c.last_attempt_at, "
+                "(c.custom IS NOT NULL AND c.custom <> '{}'::jsonb), c.created_at "
+                "FROM campaign_contacts c JOIN campaigns ca ON ca.id = c.campaign_id "
+                "WHERE c.phone_e164 = :phone ORDER BY c.created_at ASC, c.id ASC"
+            ),
+            {"phone": phone_e164},
+        )
+    ).all()
+    campaign_contacts: list[dict[str, Any]] = [
+        {
+            "campaign_name": str(row[1]),
+            "status": str(row[2]),
+            "attempts": int(row[3]),
+            "last_attempt_at": _iso(row[4]),
+            "has_custom_fields": bool(row[5]),
+            "added_at": _iso(row[6]),
+        }
+        for row in contact_rows
+    ]
+
+    # WHAT AN AGENT REMEMBERS ABOUT THIS PERSON BETWEEN CALLS (D-506/D-507).
+    #
+    # Keyed on `caller_refs`, which returns EVERY KEK generation newest-first, so a key
+    # rotation cannot hide a row from a §11 request any more than it can from a §12 one —
+    # the reason that function returns a tuple at all.
+    #
+    # The FACT ITSELF is disclosed, unlike the client's `custom` above, because it is not
+    # the client's data about the person: it is OUR distilled sentence about them, written
+    # by us, and a subject access request is precisely the instrument for seeing what a
+    # company has written down about you. Scrubbed rows are excluded — an erased memory is
+    # gone, and listing an empty string would imply we still hold something.
+    #
+    # NOTHING WRITES THESE YET: the producer is unbuilt and the per-agent switch defaults
+    # false. Included anyway, because the export must be complete on the day it does, and
+    # a disclosure that silently lags a new store is the defect this whole section is.
+    memory_rows = (
+        await session.execute(
+            text(
+                "SELECT fact, occurred_at FROM caller_memories "
+                "WHERE subject_ref = ANY(:refs) AND scrubbed_at IS NULL "
+                "ORDER BY occurred_at ASC"
+            ),
+            {"refs": list(caller_refs(tenant_id, phone_e164))},
+        )
+    ).all()
+    remembered: list[dict[str, Any]] = [
+        {"fact": str(row[0]), "occurred_at": _iso(row[1])} for row in memory_rows
+    ]
+
     document: dict[str, Any] = {
         "phone_e164": phone_e164,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -372,25 +441,36 @@ async def build_subject_export(
         "transcripts": transcripts,
         "consent": consent,
         "do_not_call": do_not_call,
+        "campaign_contacts": campaign_contacts,
+        "remembered": remembered,
         "counts": {
             "leads": len(lead_rows),
             "calls": len(calls),
             "transcript_turns": turn_total,
             "consent_records": len(consent),
             "recordings_available": sum(1 for call in calls if call["recording_available"]),
+            "campaign_contacts": len(campaign_contacts),
+            "remembered_facts": len(remembered),
         },
     }
 
-    # Ids and counts only (hard rule 6) — the number itself never reaches a log line,
-    # which is precisely why `subject_ref` exists.
+    # Ids and counts only (hard rule 6) — AND NOT THE `subject_ref` EITHER, which this
+    # line used to carry on the argument that a hash is not a number.
+    #
+    # `subject_ref`'s own docstring withdrew that argument: the construction is unsalted
+    # and Indian mobile E.164 is a ~10^9 space anyone can enumerate in seconds, so the ref
+    # is PSEUDONYMOUS — it confirms a number to a reader who already has one in mind, which
+    # is exactly what a log stream forwarded to a third-party sink must not do.
+    # `deletion.list_requests` states the rule ("behind `org:read` and out of every log
+    # line"); this was one of the three lines contradicting it.
+    #
+    # NOTHING IS LOST THAT MATTERS. The disclosure's subject correlation lives in the
+    # `audit_log` row `export_routes.subject_export` writes in the same transaction —
+    # access-controlled, durable, and the record a regulator would actually be shown. This
+    # line's job is "an export ran, and it was this big", which needs no subject at all.
     log.info(
         "subject_export_built",
-        extra={
-            "tenant_id": str(tenant_id),
-            "subject_ref": subject_ref(phone_e164),
-            "calls": len(calls),
-            "turns": turn_total,
-        },
+        extra={"tenant_id": str(tenant_id), "calls": len(calls), "turns": turn_total},
     )
     return document
 

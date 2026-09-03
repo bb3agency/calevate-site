@@ -157,14 +157,34 @@ async def sweep() -> AsyncIterator[Sweep]:
     # rots. Worse, the ONLY reason the pre-derivation form of that test passed was that
     # nothing here uploaded a document; it would have gone red on CORRECT behaviour the
     # first time a fixture did. Seeding it makes what was luck into a property.
+    # AND ONE ENGINE KB CLAIM EACH (D-519), for the mirror-image reason. `engine_kb_routes`
+    # is RLS-EXEMPT, so it is not in `tables` and no count of it is taken — but
+    # `test_an_rls_exempt_table_still_refuses_a_cross_tenant_mutation` needs a row belonging
+    # to a tenant OTHER than the attacker, and asserts loudly rather than passing on empty.
+    # `create_organization` writes none, so without this the test passes only when some
+    # earlier test in the same database happened to publish knowledge — a guarantee about
+    # one client's ability to mutate another's vendor claim, resting on test order.
     for org, agent in ((a["id"], a["agent_id"]), (b["id"], b["agent_id"])):
+        source_id = uuid.uuid4()
         async with tenant_session(org) as s:
             await s.execute(
                 text(
                     "INSERT INTO kb_sources (id, tenant_id, agent_id, kind, name) "
                     "VALUES (:id, :tid, :aid, 'text', 'sweep fixture source')"
                 ),
-                {"id": uuid.uuid4(), "tid": org, "aid": agent},
+                {"id": source_id, "tid": org, "aid": agent},
+            )
+            await s.execute(
+                text(
+                    "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, "
+                    "agent_id, source_id) VALUES ('fake', :ref, :tid, :aid, :sid)"
+                ),
+                {
+                    "ref": f"vec-sweep-{uuid.uuid4().hex[:12]}",
+                    "tid": org,
+                    "aid": agent,
+                    "sid": source_id,
+                },
             )
 
     owner_url = Settings().alembic_database_url

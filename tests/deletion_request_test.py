@@ -36,6 +36,7 @@ from apps.api.compliance.deletion_routes import router as deletion_router
 from apps.api.compliance.export import subject_ref
 from apps.api.core.errors import install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.ingest.service import normalize_phone
 from apps.workers.retention import REDACTED_MARK, execute_deletion_request
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -690,12 +691,30 @@ async def test_an_unknown_request_id_is_a_404_not_a_500() -> None:
 
 async def test_a_malformed_number_is_refused_before_anything_is_queued() -> None:
     """Same E.164 gate as the subject-access export: a number we cannot dial is a number
-    we cannot match, and an erasure that silently matches nothing is worse than a 422."""
+    we cannot match, and an erasure that silently matches nothing is worse than a 422.
+
+    **THE EXAMPLE MOVED, BECAUSE THE ONE IT USED STOPPED BEING MALFORMED.** It read
+    `"98765 43210"`, which was refused when this route did its own inline check —
+    `SubjectPhone` now routes it through `ingest.normalize_phone`, the one door, and that
+    strips formatting before it judges anything. Ten digits opening 6-9 IS an Indian
+    mobile however the person spaced it, and accepting it is the whole point of having one
+    normalizer: a data principal typing their own number with a space in it must not be
+    told we cannot read it. So the case here is now a string the normalizer genuinely
+    refuses — eleven digits with a 0 trunk prefix and no country — asserted against
+    `normalize_phone` so the example cannot go stale the same way twice.
+    """
     tenant_id, _agent_id, slug, token = await _tenant()
+    spaced = "98765 43210"
+    assert normalize_phone(spaced) == "+919876543210", "a spaced mobile is still a mobile"
+    unreadable = "0 98765 4321"
+    assert normalize_phone(unreadable) is None
+
     async with _client(_app()) as http:
-        response = await http.post(
-            BASE, json={"phone": "98765 43210"}, headers=_headers(token, slug)
-        )
+        accepted = await http.post(BASE, json={"phone": spaced}, headers=_headers(token, slug))
+        response = await http.post(BASE, json={"phone": unreadable}, headers=_headers(token, slug))
+    assert accepted.status_code == 201
     assert response.status_code == 422
-    assert await _rows(tenant_id) == []
-    assert await _jobs(tenant_id) == []
+    # The refusal queued nothing — the accepted one above did, so this asserts on the
+    # SECOND request rather than on an empty account.
+    assert len(await _rows(tenant_id)) == 1
+    assert len(await _jobs(tenant_id)) == 1

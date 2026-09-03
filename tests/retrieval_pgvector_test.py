@@ -291,3 +291,82 @@ async def test_the_composite_answers_t0_from_the_block_and_t3_from_the_store(
     # The composite reports ITS OWN name on both, so the one observability field that says
     # where an answer came from names the thing the caller actually holds.
     assert t0.provider == t3.provider == "knowledge"
+
+
+async def test_a_superseded_version_stops_answering_the_moment_its_successor_is_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE STALE-PRICE TEST, and it is the reason `_DEACTIVATE_SQL` exists at all.
+
+    Correcting a price is the commonest reason a client edits knowledge, and the content of
+    a chunk is immutable here — an edit is a NEW VERSION, approved and published, which
+    archives its predecessor. The projection has to follow that flip in the same
+    transaction, because a `kb_chunks` row left `is_active` is a withdrawn price list still
+    answering questions on the dashboard while the agent quotes the new one.
+
+    The sparse arm alone is enough to prove it and is the honest instrument: no vector is
+    bought here, so what is being tested is the SCOPE of the query rather than a ranking.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    await _published(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
+    await _published(tenant_id, agent_id, "Fees", "A consultation costs 800 rupees.")
+
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: None)
+    async with tenant_session(tenant_id) as session:
+        result = await PgVectorRetriever(session).retrieve(
+            RetrievalRequest(
+                tenant_id=tenant_id, question="what does a consultation cost", tier="t3", k=20
+            )
+        )
+    texts = [passage.text for passage in result.passages]
+    assert any("800" in body for body in texts), "the live version did not answer"
+    assert not any("500" in body for body in texts), (
+        "a superseded version is still retrievable — the client corrected their price and "
+        "the old one is still on file as an answer"
+    )
+
+
+async def test_the_machine_written_gloss_is_a_key_and_never_an_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gloss rides the approval gate by being unquotable, and this is where that is true
+    or not for the T3 arm.
+
+    `kb_documents.gloss` is written by `workers/kb_gloss.py` — a MODEL's English rendering of
+    a client's Telugu, landing on the sweep's clock, AFTER the human approved the source. It
+    is deliberately part of the sparse key (`_TSV_SQL`), which is the whole reason a Tenglish
+    question reaches a Telugu chunk. What it must never be is the TEXT that comes back: a
+    passage is quoted to a person as the client's own published words, and a machine
+    translation quoted in that position is text no human ever approved.
+
+    `tests/kb_gloss_retrieval_test.py` pins the same property on the T0 ranker. This is its
+    twin on the store, and it is a different mechanism — there the gloss is scored and
+    discarded, here it is indexed into `tsv` — so one test cannot cover both.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    source_id = await _published(
+        tenant_id, agent_id, "Hours", "సన్‌రైజ్ క్లినిక్ ఆదివారం ఉదయం 9 గంటలకు తెరుస్తుంది."
+    )
+    gloss = "Sunrise clinic opens at 9 in the morning on Sunday."
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_documents SET gloss = :g, gloss_state = 'ready' WHERE source_id = :s"),
+            {"g": gloss, "s": source_id},
+        )
+        # The projection is refreshed the way a real republish refreshes it — `tsv` is
+        # recomputed `ON CONFLICT`, which is what carries a late-arriving gloss into the
+        # sparse key at all.
+        await kb_service.project_chunks(
+            session, tenant_id=tenant_id, agent_id=agent_id, source_id=source_id
+        )
+
+    monkeypatch.setattr(embedding_module, "embedding_leg", lambda: None)
+    async with tenant_session(tenant_id) as session:
+        result = await PgVectorRetriever(session).retrieve(
+            RetrievalRequest(tenant_id=tenant_id, question="when does the clinic open", tier="t3")
+        )
+    assert result.passages, "the English gloss did not make the Telugu chunk findable"
+    assert "సన్‌రైజ్" in result.passages[0].text
+    assert gloss not in result.passages[0].text, (
+        "the machine's English was quoted back as the client's approved knowledge"
+    )

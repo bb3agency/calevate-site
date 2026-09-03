@@ -1,7 +1,8 @@
 "use client";
 
+import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { deliveryRowKeys } from "@/lib/leadSourceRows";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
   Copy,
@@ -418,6 +419,7 @@ export default function LeadSourcesPage() {
         </p>
         <form
           className="mt-3 space-y-3"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             runTest();
@@ -529,6 +531,7 @@ export default function LeadSourcesPage() {
 
         <form
           className="mt-3 flex flex-wrap items-end gap-2"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             metaSetup.mutate(metaSourceId.trim());
@@ -785,6 +788,9 @@ function LeadSourcesCard({
   const [consentField, setConsentField] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [issued, setIssued] = useState<IssuedSecret | null>(null);
+  const valid = useFormValidation();
+  const appSecretTrack = valid.track("appSecret", "Paste your Meta App Secret.");
+  const appSecretErrorId = `${useId()}-app-secret-error`;
 
   const items = sources.data?.items;
   const isMeta = source === "meta_lead_ads";
@@ -908,10 +914,8 @@ function LeadSourcesCard({
 
       <form
         className="mt-4 space-y-3 border-t border-line pt-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
+        noValidate
+        onSubmit={valid.onSubmit(submit)}
       >
         <p className="text-sm font-medium text-ink">Add a lead source</p>
         {/* A `fieldset`, not `disabled` on each control, and this form is why the
@@ -1028,15 +1032,25 @@ function LeadSourcesCard({
                   competes with for the click. The accessible name is unchanged — it was
                   already `aria-label`, which overrode this text before and still does. */}
               <span className="block">Your Meta app&apos;s App Secret</span>
+              {/* `track` rather than `field`: `PasswordInput` owns the id and this
+                  control is named by its own `aria-label`, so only the watching and the
+                  message are wired here. */}
               <PasswordInput
+                inputRef={appSecretTrack.ref}
+                onInput={appSecretTrack.onInput}
                 required
                 aria-label="Meta App Secret"
+                aria-invalid={valid.message("appSecret") ? true : undefined}
+                aria-describedby={valid.message("appSecret") ? appSecretErrorId : undefined}
                 reveals="app secret"
                 value={appSecret}
                 onChange={(e) => setAppSecret(e.target.value)}
                 wrapperClassName="block w-full max-w-md"
                 className={`${FIELD} font-mono`}
               />
+              {valid.message("appSecret") ? (
+                <FieldMessage id={appSecretErrorId}>{valid.message("appSecret")}</FieldMessage>
+              ) : null}
               <span className="mt-1 block text-ink-faint">
                 Meta signs every notification with this, so we cannot generate it. Find it
                 under App settings → Basic in the Meta App Dashboard.
@@ -1049,9 +1063,10 @@ function LeadSourcesCard({
               exactly the silent never-dialling source that sentence promises to prevent. */}
           <button
             type="submit"
-            disabled={
-              !canWrite || create.isPending || (isMeta && !appSecret.trim()) || agents.error != null
-            }
+            /* The secret's emptiness is answered at the field now; an unreadable agent
+               list still holds the button, because that is not an answer this person can
+               correct on this form. */
+            disabled={!canWrite || create.isPending || agents.error != null}
             className={PRIMARY_BUTTON_SM}
           >
             <Plus className="h-4 w-4" />
@@ -1145,6 +1160,9 @@ function LeadSourceRow({
   const [rotating, setRotating] = useState(false);
   const [grace, setGrace] = useState("60");
   const [appSecret, setAppSecret] = useState("");
+  const valid = useFormValidation();
+  const appSecretTrack = valid.track("appSecret", "Paste the new Meta App Secret.");
+  const appSecretErrorId = `${useId()}-new-app-secret-error`;
   const isMeta = item.source === "meta_lead_ads";
 
   return (
@@ -1189,25 +1207,32 @@ function LeadSourceRow({
       {rotating && (
         <form
           className="mt-2 flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             onRotate(Number(grace), isMeta ? appSecret.trim() || undefined : undefined);
             setRotating(false);
             setAppSecret("");
-          }}
+          })}
         >
           {isMeta && (
             <div className="text-xs text-ink-muted">
               <span className="block">Your new Meta App Secret</span>
               <PasswordInput
+                inputRef={appSecretTrack.ref}
+                onInput={appSecretTrack.onInput}
                 required
                 aria-label="New Meta App Secret"
+                aria-invalid={valid.message("appSecret") ? true : undefined}
+                aria-describedby={valid.message("appSecret") ? appSecretErrorId : undefined}
                 reveals="new app secret"
                 value={appSecret}
                 onChange={(e) => setAppSecret(e.target.value)}
                 wrapperClassName="block w-56"
                 className={`${FIELD} font-mono`}
               />
+              {valid.message("appSecret") ? (
+                <FieldMessage id={appSecretErrorId}>{valid.message("appSecret")}</FieldMessage>
+              ) : null}
             </div>
           )}
           <label className="text-xs text-ink-muted">

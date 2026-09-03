@@ -123,6 +123,8 @@ from typing import Any, Final
 import httpx
 from calevate_shared.engine import (
     E164,
+    AccountKBListing,
+    AccountKBObject,
     AgentConfig,
     AgentSnapshot,
     CallContext,
@@ -964,6 +966,44 @@ class CartesiaEngine:
                 if handle:
                     handles.append(handle)
         return handles
+
+    async def list_account_kb(self) -> AccountKBListing:
+        """The account's documents, assembled by walking its agents.
+
+        THIS VENDOR HAS NO ACCOUNT-LEVEL KNOWLEDGE POOL, and that is a genuine difference
+        rather than a gap: a document here is created UNDER an agent
+        (`POST /agents/{id}/documents`), so "the account's documents" is the union over
+        agents and there is no route that asks it directly. One request per agent, which
+        is the same shape and price as `list_executions`' fan-out.
+
+        `claimed_source_id` is None on every row, deliberately and always. The Bolna
+        adapter can recover ours because it CHOOSES the file name it uploads under; there
+        is no field here we own in the same way, and inventing an attribution from a title
+        a client wrote would be worse than admitting we have none — the caller's primary
+        check is the handle against our own claim rows, and the claim is only the fallback
+        for an object we never recorded.
+
+        A failure to read ONE agent's documents does not fail the listing: it makes it
+        INCOMPLETE, which is the honest verdict and the one the caller must not read as
+        "nothing to report".
+        """
+        require_capability("knowledge_base", engine=self)
+        objects: list[AccountKBObject] = []
+        reason: ListingIncompleteReason | None = None
+        refs = await self._agent_refs()
+        for ref in refs:
+            try:
+                handles = await self.list_kb(ref)
+            except Exception:
+                reason = "partial_fan_out"
+                continue
+            objects.extend(AccountKBObject(handle=handle, state="ready") for handle in handles)
+        return AccountKBListing(
+            objects=objects,
+            complete=reason is None,
+            incomplete_reason=reason,
+            pages_fetched=max(1, len(refs)),
+        )
 
     # --- reading the truth ---------------------------------------------------
 

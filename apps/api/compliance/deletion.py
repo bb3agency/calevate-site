@@ -767,13 +767,18 @@ async def request_erasure(
         )
     ).first()
     if existing is not None:
+        # IDS ONLY, AND NO `subject_ref` (hard rule 6). This line used to carry the ref,
+        # and `list_requests` below already states why it must not: the value is
+        # PSEUDONYMOUS, not anonymous — Indian mobile E.164 is a ~10^9 space anyone can
+        # enumerate against an unsalted digest in seconds — so a log stream carrying it is
+        # a log stream carrying the number to anyone with a candidate in mind. That
+        # docstring says the ref stays "behind `org:read` and out of every log line"; this
+        # module was the thing contradicting it. The request id answers every operational
+        # question this line exists for, and `audit_log` keeps the subject correlation
+        # where it belongs — access-controlled and durable.
         log.info(
             "deletion_request_deduped",
-            extra={
-                "tenant_id": str(tenant_id),
-                "request_id": str(existing[0]),
-                "subject_ref": subject_ref(phone_e164),
-            },
+            extra={"tenant_id": str(tenant_id), "request_id": str(existing[0])},
         )
         return _record(existing, already_open=True)
 
@@ -809,13 +814,10 @@ async def request_erasure(
         payload={"tenant_id": str(tenant_id), "request_id": str(request_id)},
     )
 
+    # Ids only — see the dedupe branch above for why the `subject_ref` is not here.
     log.info(
         "deletion_requested",
-        extra={
-            "tenant_id": str(tenant_id),
-            "request_id": str(request_id),
-            "subject_ref": subject_ref(phone_e164),
-        },
+        extra={"tenant_id": str(tenant_id), "request_id": str(request_id)},
     )
     return _record(inserted, already_open=False)
 

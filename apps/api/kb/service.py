@@ -73,6 +73,87 @@ MIN_CHUNK_CHARS = 80
 SUPPORTED_SUBMISSION_KINDS: frozenset[str] = frozenset({"text"})
 
 
+#: Characters a reviewer cannot see and a downstream reader still acts on.
+#:
+#: **THE APPROVAL GATE IS A HUMAN READING A PREVIEW, so a character that makes the preview
+#: and the published text say different things is a bypass of it — not a formatting
+#: nuisance.** The named attack is Trojan Source (Boucher & Anderson, 2021, CVE-2021-42574):
+#: `U+202E RIGHT-TO-LEFT OVERRIDE` and its relatives reorder a run VISUALLY while leaving
+#: the stored order untouched, so "Refunds are ‮never‬ given" is read one way by the admin
+#: who approves it and spoken the other way by the agent. Every other consumer of this text
+#: — the [T0 FACTS] block the agent actually speaks from, the engine document, the dashboard
+#: copilot's quotation — takes the logical order.
+#:
+#: THE THREE GROUPS, AND WHY EACH IS IN:
+#:
+#: * **Bidi formatting, overrides and isolates** (U+202A-U+202E, U+2066-U+2069, U+200E,
+#:   U+200F, U+061C) — the attack above. Our market writes Telugu, English and Hindi, none
+#:   of which needs an explicit direction mark in a knowledge sentence.
+#: * **C0 and C1 controls except tab, LF and CR** — a vertical tab or a form feed is
+#:   invisible in a text box, and `\x00` is not merely invisible: a Postgres text column
+#:   REFUSES it, so a submission carrying one used to die on the INSERT as a
+#:   `psycopg.DataError`, reach the generic handler, and answer a client 500 with a crash
+#:   alert behind it. A named 422 is the honest answer to text we will not store.
+#: * **Zero-width and invisible spacing** — U+200B, U+2060, U+FEFF. They split a word for
+#:   the tokeniser (and therefore for the sparse arm) while looking like nothing at all.
+#:
+#: AND THE TWO THAT ARE DELIBERATELY NOT HERE. `U+200C ZERO WIDTH NON-JOINER` and
+#: `U+200D ZERO WIDTH JOINER` are ORTHOGRAPHY in Telugu and every other Indic script — they
+#: decide whether a conjunct forms — so refusing them would refuse correctly spelled Telugu,
+#: which is the language this product is built for. `U+00AD SOFT HYPHEN` stays allowed too:
+#: it arrives in honest pastes out of word processors and cannot reorder anything.
+_FORBIDDEN_CODEPOINTS: frozenset[int] = frozenset(
+    {0x061C, 0x200B, 0x200E, 0x200F, 0x2060, 0xFEFF}
+    | set(range(0x00, 0x20))
+    | set(range(0x7F, 0xA0))
+    | set(range(0x202A, 0x202F))
+    | set(range(0x2066, 0x206A))
+) - {0x09, 0x0A, 0x0D}
+
+
+def _reject_invisible_characters(value: str, *, field: str) -> None:
+    """Refuse text carrying a character the reviewer cannot see. See `_FORBIDDEN_CODEPOINTS`.
+
+    REFUSED RATHER THAN STRIPPED, which is this repository's doctrine for a guard on
+    something that matters (`sanitize.assert_redacted`: a guard that silently repairs its
+    input teaches the caller nothing). Stripping would be worse than usual here — the client
+    would have approved wording they never see us change, and a bidi run that survives one
+    stripping pass and not another is exactly the ambiguity the gate exists to remove.
+
+    THE CODEPOINTS ARE NAMED AND THE TEXT IS NOT (hard rule 6, and it is also the only
+    actionable half): "there is an invisible character at U+202E" is something a person can
+    search for in their own document; an echo of their prose is not.
+
+    It is checked at `submit_source` — the ONE door into `kb_sources` — so the property
+    holds for the form, the copilot's propose-knowledge tool, the knowledge-gap teaching
+    path and the intake seeder without any of them knowing about it. `kb/pdf_render.py`
+    refuses most of these a second time as a side effect of the font's cmap, which is a
+    real backstop and a WRONG diagnosis ("the font cannot render this") for a reviewer who
+    was shown one sentence and asked to approve another.
+    """
+    found = sorted({ord(ch) for ch in value} & _FORBIDDEN_CODEPOINTS)
+    if not found:
+        return
+    named = ", ".join(f"U+{cp:04X}" for cp in found[:8])
+    log.warning("kb_invisible_characters", extra={"field": field, "codepoints": named})
+    raise ProblemError(
+        kind="validation",
+        code="kb_invisible_characters",
+        title="That wording contains characters we cannot show a reviewer",
+        detail=(
+            f"The {field} carries {len(found)} invisible or direction-changing character "
+            f"type(s) ({named}). Knowledge is read by a person before it goes live and "
+            "spoken to callers afterwards, so it may only contain characters both of them "
+            "can see."
+        ),
+        remediation=(
+            "Retype the wording in a plain text box, or paste it into a plain-text editor "
+            "first — these characters usually arrive invisibly from a formatted document."
+        ),
+        status=422,
+    )
+
+
 def chunk_text(body: str) -> list[str]:
     """Split on paragraph boundaries, packing up to the cap; only split a paragraph
     that exceeds the cap on its own, and then on sentence ends.
@@ -206,6 +287,11 @@ async def submit_source(
             ),
             status=422,
         )
+
+    # BEFORE anything is written and before the lock, because it is a property of the
+    # SUBMISSION rather than of a version: nothing here needs a database to decide it.
+    _reject_invisible_characters(name, field="source name")
+    _reject_invisible_characters(body, field="wording")
 
     chunks = chunk_text(body)
     if not chunks:
@@ -403,15 +489,46 @@ async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:
     return [str(chunk) for chunk in rows]
 
 
+def _engine_name() -> str:
+    """WHICH vendor account holds the object this claim names — recorded, never keyed on.
+
+    The PROCESS-WIDE selection (`get_engine()`), not `agents.engine`: `get_engine` does
+    not consult that column, so the adapter that actually performed an attach is this one.
+    `engine_agent_routes` is written from the same value (`agents/service.py`).
+
+    IT IS DELIBERATELY NOT PART OF ANY LOOKUP, and that is a decision rather than an
+    omission. The reads below ask "what is this source filed as", never "what is it filed
+    as on engine X" — one source holds at most one vendor object, which is what
+    `uq_engine_kb_routes_source` states — and a lookup keyed on this string would strand
+    every existing claim the day an adapter is renamed or the setting moves, silently, in
+    the direction that loses a client's knowledge. What the column is FOR is the orphan
+    sweep, which must know which account's listing to compare a claim against.
+    """
+    return get_engine().name
+
+
+#: Every per-source read of the claim table JOINs `kb_sources`, and that join is the
+#: TENANCY, not decoration.
+#:
+#: `engine_kb_routes` is globally readable on purpose — the orphan question ("which
+#: objects on this account does no tenant of ours claim?") cannot be asked any other way
+#: (migration `f1c9e0a73b46`). But possession of a handle IS possession of another
+#: client's knowledge: the vendor's namespace is flat, one account holds every tenant's
+#: documents, and the handle is what deletes one. So the reads that answer "what is MY
+#: source filed as" go through `kb_sources`, which is FORCE-RLS'd — a session scoped to
+#: another tenant, or to none, sees no source row and therefore no handle, which is
+#: exactly the visibility the JSONB key had. `tests/kb_isolation_test.py` and
+#: `tests/kb_drift_reconciliation_test.py` pin both halves; the drift sweep DEPENDS on
+#: the untenanted read answering empty rather than the platform's whole handle set.
+_ROUTE_JOIN = "FROM engine_kb_routes r JOIN kb_sources s ON s.id = r.source_id WHERE "
+
+
 async def _engine_kb_ref(session: AsyncSession, source_id: UUID) -> str | None:
     """The engine's handle for this source's attached copy, or None if nothing of ours
     is attached. See `_remember_engine_kb_ref` for why it lives where it lives."""
     value = (
         await session.execute(
-            text(
-                "SELECT meta ->> 'engine_kb_ref' FROM kb_documents "
-                "WHERE source_id = :sid AND idx = 0"
-            ),
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} r.source_id = :sid"),
             {"sid": source_id},
         )
     ).scalar()
@@ -436,10 +553,7 @@ async def _engine_kb_digest(session: AsyncSession, source_id: UUID) -> str | Non
     """
     value = (
         await session.execute(
-            text(
-                "SELECT meta ->> 'engine_kb_digest' FROM kb_documents "
-                "WHERE source_id = :sid AND idx = 0"
-            ),
+            text(f"SELECT r.digest {_ROUTE_JOIN} r.source_id = :sid"),
             {"sid": source_id},
         )
     ).scalar()
@@ -455,39 +569,60 @@ async def _remember_engine_kb_ref(
 ) -> None:
     """Record (or clear) the engine's handle for a source.
 
-    It lives in `kb_documents.meta` because that is where the migration that created
-    these tables put it: "Provider-side document and namespace ids land in
-    `kb_documents.meta`, which is also what lets a DPDP erasure prove it removed both
-    copies." A source is pushed to the engine as ONE document, so the handle hangs off
-    its first chunk. No column is added for it — a new column is a migration, and this
-    fix is not worth coupling to one when the designed home already exists.
+    **IT USED TO LIVE IN `kb_documents.meta ->> 'engine_kb_ref'` AND NOW HAS A TABLE
+    (D-519, migration `f1c9e0a73b46`).** The old home was the one the KB migration
+    designated for provider-side ids and it cost no migration, which is why it was
+    chosen; three properties it cannot have are what moved it, and the third is the one
+    that matters:
+
+    * it was UNINDEXED — every read walked `kb_documents`, one row per chunk per version,
+      for at most one string;
+    * nothing enforced UNIQUENESS, so two sources could record one handle and a detach
+      would delete a vendor object another source still pointed at;
+    * `kb_documents` is FORCE-RLS'd, so "which objects on this account does no tenant of
+      ours claim" — the question that decides whether a client's document is reachable by
+      any erasure path at all — could not be asked of it from anywhere. We run ONE engine
+      account for every tenant and the vendor's knowledge base is an ACCOUNT-level object
+      with no owner field, so that question is the whole safety story, and it needed a
+      globally readable claim. `engine_agent_routes` is the same shape for the same
+      reason.
+
+    The digest travels with the handle rather than staying behind: it is a fact about the
+    VENDOR's copy — the bytes that handle was minted from — not about our chunks.
 
     Clearing on detach is not tidiness: a handle left behind after the engine copy is
     gone is a handle a later publish would try to delete, and that publish would then
-    refuse for a reason that is no longer true.
+    refuse for a reason that is no longer true. The whole row goes, because a claim on a
+    vendor object we no longer believe exists is exactly what the orphan sweep must not
+    see (`kb/orphans.py`).
+
+    `tenant_id` and `agent_id` are SELECTed from `kb_sources` rather than passed in, so
+    the claim can only ever name the tenant that owns the source — under RLS a session
+    scoped elsewhere selects no row and writes nothing, rather than writing a row
+    attributing a vendor object to the wrong client.
     """
     if engine_kb_ref is None:
-        # THE DIGEST GOES WITH IT, and that is not tidiness either: a digest left behind
-        # after the handle is cleared is a claim that the engine holds this exact document
-        # under a handle we no longer have, which is precisely the state the re-upload
-        # guard reads as "nothing to do".
         await session.execute(
-            text(
-                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) "
-                "- 'engine_kb_ref' - 'engine_kb_digest', "
-                "updated_at = now() WHERE source_id = :sid AND idx = 0"
-            ),
+            text("DELETE FROM engine_kb_routes WHERE source_id = :sid"),
             {"sid": source_id},
         )
         return
     await session.execute(
         text(
-            "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) || "
-            "jsonb_build_object('engine_kb_ref', to_jsonb(cast(:ref as text)), "
-            "'engine_kb_digest', to_jsonb(cast(:digest as text))), "
-            "updated_at = now() WHERE source_id = :sid AND idx = 0"
+            "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, agent_id, "
+            "source_id, digest, created_at, updated_at) "
+            "SELECT :engine, :ref, s.tenant_id, s.agent_id, s.id, :digest, now(), now() "
+            "FROM kb_sources s WHERE s.id = :sid "
+            # The source keeps its claim and re-points it: a republish of the same source
+            # mints a new vendor object, and the row that named the old one is the row
+            # that must now name the new one. A DIFFERENT source claiming a handle this
+            # one already holds is NOT reconciled here — it violates the primary key and
+            # raises, which is the point of the constraint.
+            "ON CONFLICT (source_id) DO UPDATE SET engine = EXCLUDED.engine, "
+            "engine_kb_ref = EXCLUDED.engine_kb_ref, digest = EXCLUDED.digest, "
+            "updated_at = now()"
         ),
-        {"sid": source_id, "ref": engine_kb_ref, "digest": digest},
+        {"sid": source_id, "ref": engine_kb_ref, "digest": digest, "engine": _engine_name()},
     )
 
 
@@ -757,15 +892,16 @@ async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> se
     CLEARED on detach (`_detach_superseded`), so a handle still recorded against an
     archived source means a detach that never completed — a divergence, not noise, and
     exactly the residue `_undo_attach` documents itself as leaving.
+
+    Since D-519 the handle lives in `engine_kb_routes` and this reads it THROUGH
+    `kb_sources` (see `_ROUTE_JOIN`), which is what keeps the answer tenant-scoped: the
+    claim table is globally readable so the orphan sweep can ask an account-wide question,
+    and this is not that question. The sweep's caller depends on it — an untenanted read
+    must answer the empty set, not the platform's every handle.
     """
     rows = (
         await session.execute(
-            text(
-                "SELECT d.meta ->> 'engine_kb_ref' FROM kb_documents d "
-                "JOIN kb_sources s ON s.id = d.source_id "
-                "WHERE s.agent_id = :aid AND d.idx = 0 "
-                "AND d.meta ->> 'engine_kb_ref' IS NOT NULL"
-            ),
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} s.agent_id = :aid"),
             {"aid": agent_id},
         )
     ).scalars()

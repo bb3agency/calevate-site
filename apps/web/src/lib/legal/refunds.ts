@@ -253,7 +253,8 @@ export const REFUND_POLICY: LegalDocument = {
             {
               term: "Who you are dealing with",
               detail:
-                "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, principal place of business " +
+                "{{LEGAL_ENTITY_NAME}}, Udyam registration number " +
+                "{{ENTITY_REGISTRATION_NUMBER}}, principal place of business " +
                 "{{REGISTERED_ADDRESS}}. That address identifies the supplier; refund " +
                 "requests are made by email, and we do not operate a postal channel.",
             },

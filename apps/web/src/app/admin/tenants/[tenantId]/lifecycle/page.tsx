@@ -215,6 +215,11 @@ function MoveForm({
     <Card title={`Move ${tenantName}`}>
       <form
         className="space-y-4"
+        // These forms carry no rule the browser can refuse — only `maxLength`, which
+        // it enforces by not accepting the keystroke — and their own refusals are
+        // already written in our words beside each control. `noValidate` so a rule
+        // added here later cannot quietly be answered in the browser's language.
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           move.mutate({ status, reason: reason.trim() === "" ? null : reason.trim() });
@@ -442,6 +447,7 @@ function ErasurePanel({
     <Card title="Erase this client's data">
       <form
         className="space-y-4"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           erase.mutate({ reason: reason.trim() });

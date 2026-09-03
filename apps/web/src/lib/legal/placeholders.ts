@@ -45,14 +45,28 @@ export interface Placeholder {
 export const PLACEHOLDER_PATTERN = /\{\{([A-Z0-9_ ]+)\}\}/g;
 
 /**
- * The banner every document carries until a human deliberately deletes it.
+ * Whether the set is still a draft. FALSE since 2 September 2026: the documents are
+ * published and in force.
  *
- * Not a boolean flag with a default, and not a build-time environment read: publishing an
- * unreviewed legal document is a one-way action, so the thing that stops it is a constant
- * whose removal shows up in a diff with a name on it. `tests/legal.test.tsx` asserts the
- * banner renders on every document while this is `true`.
+ * Not a boolean flag with a default, and not a build-time environment read: publishing a
+ * legal document is a one-way action, so the thing that gated it was a constant whose
+ * flip shows up in a diff with a name on it. It was flipped on the founder's explicit
+ * instruction, given after a lawyer's review of the set, and only once every fact in
+ * `PLACEHOLDERS` below carried a value — `assertLegalSetPublishable` refuses the render
+ * otherwise, so a blank cannot survive the flip even by accident.
+ *
+ * While it stood, every document carried the draft banner and every version string ended
+ * `+pre-review`. Turning it off changed both: the banner component returns null, the
+ * version label drops its qualifier, and every acceptance recorded against a
+ * `+pre-review` version stopped being current, so the server asks every client to accept
+ * again. Nothing special-cases that; it falls out of the version string.
+ *
+ * `apps/api/legal/catalogue.py` declares the same constant — there is no import from
+ * TypeScript — and `scripts/check_docs_drift.py` fails CI if the two ever disagree.
+ * `tests/legal.test.tsx` asserts the published state: no banner on any document, and no
+ * unresolved token anywhere.
  */
-export const PENDING_LEGAL_REVIEW = true;
+export const PENDING_LEGAL_REVIEW = false;
 
 /** The literal marker, so the banner text and the source grep for it agree. */
 export const PENDING_LEGAL_REVIEW_MARKER = "{{PENDING LEGAL REVIEW}}";
@@ -72,33 +86,36 @@ export const CHROME_TOKENS: readonly string[] = ["{{EFFECTIVE_DATE}}"];
 export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
   LEGAL_ENTITY_NAME: {
     describes:
-      "The name the supplier contracts under. THERE IS NO COMPANY AND NO PARENT " +
-      "ENTITY: `docs/legal/LEGAL-OPS-PLAYBOOK.md:16` and `:80-96` settle the shape — " +
-      "Calevate is a product operated by a sole proprietor, and a sole proprietorship " +
-      "has no legal identity separate from the individual who runs it. The founder's " +
-      "decision (26 Aug 2026) is to contract under the TRADE NAME, which the playbook " +
-      "permits at `:94` (\"[Your legal name / trade name]\").",
-    source: "The founder's decision. Playbook §3.",
+      "The name the supplier contracts under, and the name every document identifies " +
+      "it by. It is the enterprise name on the Udyam registration certificate, so the " +
+      "documents and the register agree — which is the whole point of publishing a " +
+      "name at all. The documents state the name, the registration number and the " +
+      "principal place of business and stop there: they make no statement about the " +
+      "supplier's legal form, and none is required of them (see " +
+      "`ENTITY_REGISTRATION_NUMBER` for the display obligation that is real).",
+    source:
+      "PRIMARY SOURCE — the Udyam Registration Certificate, printed from " +
+      "udyamregistration.gov.in on 25 Aug 2026 and read by the founder, which carries " +
+      "the enterprise name CALEVATE. Rendered here in the case the prose uses.",
     value: "Calevate",
-  },
-  ENTITY_FORM: {
-    describes:
-      "What kind of legal person the supplier is, in one noun phrase, so no document " +
-      "has to guess. It exists because every one of these documents used to imply an " +
-      "incorporated company — a certificate of incorporation, a CIN, a Director — and " +
-      "none of that is true. A sole proprietorship is the individual: `docs/legal/" +
-      "LEGAL-OPS-PLAYBOOK.md:82` — \"You and the business are the same legal person\".",
-    source: "Playbook §3, and the founder's decision not to incorporate at launch.",
-    value: "a sole proprietorship established in India",
   },
   ENTITY_REGISTRATION_NUMBER: {
     describes:
-      "The Udyam (MSME) registration number. NOT a CIN and not an LLPIN — there is no " +
-      "company to have one. `docs/legal/LEGAL-OPS-PLAYBOOK.md:23` and §8 (`:227`) make " +
-      "Udyam the first entity proof for this shape, and `:204` records why it matters " +
-      "beyond the documents: RBI KYC for a proprietorship current account wants two " +
-      "proofs in the trade name, and Udyam is usually the first of them.",
-    source: "The Udyam registration certificate (udyamregistration.gov.in).",
+      "The registration number the documents publish as an identifier — the Udyam " +
+      "(MSME) number. It is one of the three neutral identification items the " +
+      "documents carry (name, registration number, principal place of business), and " +
+      "the display obligation behind it is rule 4 of the Consumer Protection " +
+      "(E-Commerce) Rules 2020, which requires the legal name, the principal place of " +
+      "business and contact details — and does NOT require the entity's legal form to " +
+      "be stated. `docs/legal/LEGAL-OPS-PLAYBOOK.md:23` and §8 (`:227`) make Udyam the " +
+      "first entity proof to obtain, and `:204` records why it matters beyond the " +
+      "documents: RBI KYC for a current account in the trade name wants two proofs, " +
+      "and Udyam is usually the first of them.",
+    source:
+      "PRIMARY SOURCE — the Udyam Registration Certificate, printed from " +
+      "udyamregistration.gov.in on 25 Aug 2026 and read by the founder " +
+      "(registration date 25/08/2026; enterprise type Micro; NIC 62013).",
+    value: "UDYAM-AP-04-0146106",
   },
   GST_STATUS: {
     describes:
@@ -122,8 +139,7 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
   },
   REGISTERED_ADDRESS: {
     describes:
-      "The principal place of business, with state and PIN code. NOT a \"registered " +
-      "office\" — a proprietorship has none to register. IT IS PUBLISHED AS AN " +
+      "The principal place of business, with state and PIN code. IT IS PUBLISHED AS AN " +
       "IDENTIFICATION ITEM AND NOT AS A CONTACT CHANNEL, and that distinction is the " +
       "whole entry: it is the address a legal notice is served at, one of the items " +
       "the Consumer Protection (E-Commerce) Rules 2020 require to be displayed, and " +
@@ -134,43 +150,85 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "email address and a termination notice is an email too (26 Aug 2026). Do not " +
       "re-add a \"By post\" line anywhere — a channel nobody services is worse than no " +
       "channel — and do not answer that by deleting the token, because the display " +
-      "obligation is unchanged.",
-    source: "The founder's decision, and whatever address the Udyam registration carries.",
+      "obligation is unchanged. The value is the address alone: every use site already " +
+      "writes \"principal place of business\" around it, so repeating those words here " +
+      "would print them twice.",
+    source:
+      "PRIMARY SOURCE — the Udyam Registration Certificate, printed from " +
+      "udyamregistration.gov.in on 25 Aug 2026 and read by the founder. The " +
+      "certificate's address fields, with capitalisation normalised for prose.",
+    value:
+      "Flat 2B, Sri Vishnu Nilayam, Vishnunagar 2nd Lane, Kommineni Nagar, Guntur, " +
+      "Andhra Pradesh 522007, India",
   },
   CONTACT_PHONE: {
     describes:
       "A working telephone number that a customer can reach a human on. Indian payment " +
       "aggregators check for this during merchant onboarding, and it is a display item " +
-      "under the Consumer Protection (E-Commerce) Rules 2020.",
-    source: "A business line that is actually answered — not a personal mobile if avoidable.",
+      "under the Consumer Protection (E-Commerce) Rules 2020. Written the way a reader " +
+      "dials it; E.164 (+918019857559) is what a machine field would take.",
+    source:
+      "PRIMARY SOURCE — the mobile number on the Udyam Registration Certificate, " +
+      "printed from udyamregistration.gov.in on 25 Aug 2026 and read by the founder.",
+    value: "+91 80198 57559",
   },
   SUPPORT_EMAIL: {
     describes: "The general support mailbox for client accounts and billing questions.",
     source:
-      "A monitored mailbox on the calevate.tech domain. The platform already defaults " +
-      "its outbound sender to support@calevate.tech (`notifications_from`).",
+      "PUBLISHED ADDRESS: currently a Gmail mailbox, by the founder's decision of " +
+      "2 Sep 2026 — it is the mailbox that is actually read, and a published channel " +
+      "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
+      "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
+      "here and nothing else, which is what this registry is for — four values in one " +
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
+    value: "calevate.voice@gmail.com",
   },
   GRIEVANCE_OFFICER_NAME: {
     describes:
       "The named individual designated as Grievance Officer. A role title alone is not " +
       "enough: rule 5(9) of the SPDI Rules 2011 and rule 4(6) of the Consumer " +
-      "Protection (E-Commerce) Rules 2020 both require the NAME to be published.",
-    source: "A founder or employee appointment, recorded in writing.",
+      "Protection (E-Commerce) Rules 2020 both require the NAME to be published. ⚠ The " +
+      "value is a first name only, which is what the founder gave. A full name is a " +
+      "materially stronger compliance artefact than a first name, and this entry is " +
+      "where the surname goes when it is supplied.",
+    source: "The founder's decision (2 Sep 2026), and the appointment record.",
+    value: "Umesh J",
   },
   GRIEVANCE_OFFICER_DESIGNATION: {
     describes:
-      "That person's designation. \"Director\" is not available — there is no company " +
-      "and there are no directors; for this shape it is normally \"Proprietor\". The " +
-      "designation does not discharge the duty on its own: rule 5(9) of the SPDI Rules " +
-      "2011 and rule 4(6) of the Consumer Protection (E-Commerce) Rules 2020 both " +
-      "require the NAME, which is why `GRIEVANCE_OFFICER_NAME` is a separate blank and " +
-      "stays one. `docs/legal/LEGAL-OPS-PLAYBOOK.md:463` says the same in one line: " +
+      "That person's designation, which is the office they hold rather than a rank in " +
+      "an organisation: \"Grievance Officer\". It is a separate entry from the name " +
+      "because the designation does not discharge the duty on its own — rule 5(9) of " +
+      "the SPDI Rules 2011 and rule 4(6) of the Consumer Protection (E-Commerce) Rules " +
+      "2020 both require the NAME to be published, which is why " +
+      "`GRIEVANCE_OFFICER_NAME` is a blank and stays one. " +
+      "`docs/legal/LEGAL-OPS-PLAYBOOK.md:463` says the same in one line: " +
       "\"Grievance Redressal (named human = you)\".",
-    source: "The appointment record.",
+    source: "The founder's decision, and the appointment record.",
+    value: "Grievance Officer",
   },
   GRIEVANCE_OFFICER_EMAIL: {
     describes: "A monitored mailbox that reaches the Grievance Officer directly.",
-    source: "A mailbox on the calevate.tech domain, distinct from general support.",
+    source:
+      "PUBLISHED ADDRESS: currently a Gmail mailbox, by the founder's decision of " +
+      "2 Sep 2026 — it is the mailbox that is actually read, and a published channel " +
+      "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
+      "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
+      "here and nothing else, which is what this registry is for — four values in one " +
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
+    value: "calevate.voice@gmail.com",
   },
   DATA_PROTECTION_CONTACT_NAME: {
     describes:
@@ -180,42 +238,72 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "be the same person as the Grievance Officer; it is a separate entry because the " +
       "two duties come from different instruments and may later sit with two people.",
     source:
-      "A founder or employee appointment. A statutory Data Protection Officer is only " +
-      "required if the company is notified as a Significant Data Fiduciary.",
+      "The founder's decision (2 Sep 2026), and the appointment record. A statutory " +
+      "Data Protection Officer is only required of a Significant Data Fiduciary, which " +
+      "nobody has been notified as.",
+    value: "Umesh J",
   },
   DATA_PROTECTION_CONTACT_EMAIL: {
     describes: "A monitored mailbox that reaches the data protection contact.",
-    source: "A mailbox on the calevate.tech domain.",
+    source:
+      "PUBLISHED ADDRESS: currently a Gmail mailbox, by the founder's decision of " +
+      "2 Sep 2026 — it is the mailbox that is actually read, and a published channel " +
+      "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
+      "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
+      "here and nothing else, which is what this registry is for — four values in one " +
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
+    value: "calevate.voice@gmail.com",
   },
   SECURITY_CONTACT_EMAIL: {
     describes:
       "Where a security researcher or a client reports a suspected vulnerability or " +
       "breach. Separate from support so a breach report is not queued behind billing " +
       "questions.",
-    source: "A monitored mailbox on the calevate.tech domain.",
+    source:
+      "PUBLISHED ADDRESS: currently a Gmail mailbox, by the founder's decision of " +
+      "2 Sep 2026 — it is the mailbox that is actually read, and a published channel " +
+      "nobody reads is worse than a plainer one that is. The intended upgrade is a " +
+      "mailbox on the calevate.tech domain; when it exists the change is the `value` " +
+      "here and nothing else, which is what this registry is for — four values in one " +
+      "file rather than a hunt through eight documents. A REPLY REACHES IT (D-518): the " +
+      "platform still SENDS from `notifications_from` (support@calevate.tech) because " +
+      "the delivery provider refuses a send outright when the sender's domain is " +
+      "unverified and no one can verify a public webmail domain — so pointing the " +
+      "sender here would stop the mail, not redirect it. `notifications_reply_to` " +
+      "carries this address instead, and a client pressing Reply lands in the mailbox " +
+      "that is read. Change both together or a reply goes nowhere again.",
+    value: "calevate.voice@gmail.com",
   },
   JURISDICTION_CITY: {
     describes:
       "The city that is the seat of arbitration and whose courts have exclusive " +
-      "jurisdiction. Normally the city of the principal place of business.",
-    source: "A commercial decision, taken with counsel.",
+      "jurisdiction. Normally the city of the principal place of business, which is " +
+      "what it is here — so the arbitration clause and the courts clause in the Terms " +
+      "both point at Guntur, Andhra Pradesh.",
+    source:
+      "The founder's decision, confirmed explicitly on 2 Sep 2026, taking the default " +
+      "this entry names: the city in the principal place of business on the Udyam " +
+      "Registration Certificate (PRIMARY SOURCE, printed 25 Aug 2026 and read by the " +
+      "founder).",
+    value: "Guntur",
   },
   EFFECTIVE_DATE: {
     describes:
-      "The date these documents are published and start binding. Fill it in the same " +
-      "change that removes the pending-review banner, not before.",
-    source: "The publication decision.",
-  },
-  DLT_TELEMARKETER_ID: {
-    describes:
-      "Calevate's registered Telemarketer (TM) identifier on an access provider's DLT " +
-      "platform. Until it exists no outbound campaign can lawfully be dialled, and the " +
-      "compliance gate already refuses every campaign with the blocker " +
-      "`tm_registration_missing`.",
+      "The date these documents are published and start binding. It renders under " +
+      "\"In force from\" in the header of all eight pages, so it is written the way a " +
+      "date is read rather than in the ISO spelling — `versions.ts` and " +
+      "`apps/api/legal/catalogue.py` carry the machine form of the same day, and the " +
+      "docs-drift guard holds those two equal.",
     source:
-      "DLT registration with an access provider under the proprietor's PAN " +
-      "(`docs/legal/LEGAL-OPS-PLAYBOOK.md:87`, §10). The entity is no longer the " +
-      "blocker — the registration is.",
+      "The publication decision: the founder's instruction of 2 Sep 2026, given after a " +
+      "lawyer's review of the set, to take the documents out of draft.",
+    value: "2 September 2026",
   },
   PRIMARY_HOSTING_LOCATION: {
     describes:
@@ -235,19 +323,31 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "instrument. Indian payment aggregators require a stated timeline on the " +
       "published refund policy.",
     source:
-      "The payment gateway's own settlement timeline plus internal approval time. Ask " +
-      "the gateway for their figure and add your own approval window.",
+      "The founder's decision: the published commitment is 7 business days, which is " +
+      "OUR undertaking rather than a figure any gateway has quoted us. It is the outer " +
+      "edge of the window, so a settlement that lands sooner keeps the promise. If a " +
+      "gateway's own timeline is later found to be longer, this number moves before " +
+      "the promise is made to anyone.",
+    value: "7",
   },
   TERMINATION_NOTICE_DAYS: {
-    describes: "Notice period either party must give to end a managed engagement.",
-    source: "A commercial decision, and it must match what the signed order form says.",
+    describes:
+      "Notice period either party must give to end a managed engagement, in days, so " +
+      "the prose can write \"{{TERMINATION_NOTICE_DAYS}} days' written notice\".",
+    source:
+      "The founder's decision. It must match what a signed order form says — an order " +
+      "form with a different period wins for that client, and the Terms say so.",
+    value: "30",
   },
   DATA_RETURN_WINDOW_DAYS: {
     describes:
       "How long after termination a client may still export their data before it is " +
       "erased. The erasure mechanism exists (`tenant_erasure_requests`); the window is " +
-      "a commercial and legal commitment nobody has taken.",
-    source: "A decision taken with counsel, recorded in the decision log (ROADMAP §6).",
+      "the commercial and legal commitment around it.",
+    source:
+      "The founder's decision, to be confirmed with counsel at review and recorded in " +
+      "the decision log (ROADMAP §6).",
+    value: "30",
   },
 };
 
@@ -289,7 +389,7 @@ export function unresolvedPlaceholders(): string[] {
  * are the POINT — they render as visible marks under a banner that tells the reader not
  * to rely on the page, and that is how the founder and their advocate see what is still
  * missing. The moment somebody deletes that banner they are publishing, and a published
- * legal document containing `{{REGISTERED_ADDRESS}}` is not a cosmetic defect: it is a document that
+ * legal document containing `{{GRIEVANCE_OFFICER_NAME}}` is not a cosmetic defect: it is a document that
  * announces its own drafting state to a regulator or a buyer's counsel.
  *
  * So the two constants are wired together rather than left as two independent decisions

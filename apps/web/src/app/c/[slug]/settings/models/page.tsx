@@ -285,6 +285,7 @@ function OrganizationDefault({
       <Card title="The model your agents use">
         <form
           className="space-y-5"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             if (!changed) return;

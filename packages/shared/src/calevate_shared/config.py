@@ -360,6 +360,21 @@ class Settings(BaseSettings):
     bolna_webhook_source_ips: str = Field(
         default=",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS)), max_length=1024
     )
+    #: The Bearer token the engine presents when it asks us who is ringing (D-513).
+    #:
+    #: On an INBOUND call the engine holds the number and we hold the memory, so it fetches
+    #: caller details from `GET /v1/engine/caller-data/{engine}` at call setup and injects
+    #: the answer into the agent's prompt. Their console takes a Bearer token for that
+    #: endpoint and stores it (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
+    #: agent-setup/inbound-tab.md:38-42,63,78`, read 2 Sep 2026) — so the value is one WE
+    #: choose and paste into their agent, not one they issue.
+    #:
+    #: ABSENT ⇒ THE ENDPOINT ANSWERS NOBODY, which is the safe reading of an unconfigured
+    #: credential rather than an outage: a deployment that has not been wired to the engine
+    #: simply greets every inbound caller generically, exactly as it does today. It is NOT
+    #: `bolna_api_key` reused — that key authenticates US to THEM and would be travelling in
+    #: the opposite direction, so a leak of one would be a leak of the other.
+    bolna_caller_data_token: str | None = Field(default=None, max_length=256)
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
     # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     #
@@ -936,6 +951,24 @@ class Settings(BaseSettings):
     #
     # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
     notifications_from: str | None = Field(default="support@calevate.tech", max_length=320)
+
+    # WHERE A REPLY GOES, WHICH IS NOT WHERE THE MAIL CAME FROM (D-518).
+    #
+    # The published contact address in the legal documents is a mailbox a human actually
+    # reads; `notifications_from` is a mailbox a PROVIDER will accept as a sender. Those
+    # are different requirements and it was a mistake to assume one address could satisfy
+    # both. Resend refuses a send outright (403) when the sender's DOMAIN is unverified,
+    # and no one can verify a public webmail domain — so pointing `notifications_from` at
+    # the published mailbox would not redirect the mail, it would STOP IT, silently, for
+    # hot leads, low-balance warnings and operator alerts alike.
+    #
+    # Reply-To is the header that exists for exactly this split: the message is sent from
+    # the verified domain, and a client pressing Reply reaches the mailbox we read. Unset
+    # means no header is added and a reply goes to the From address, which is the correct
+    # behaviour for a deployment whose sender IS its read mailbox.
+    #
+    # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
+    notifications_reply_to: str | None = Field(default="calevate.voice@gmail.com", max_length=320)
 
     # WHERE OPERATOR ALERTS GO (OPERATIONS §4; §8's pre-launch gate "alerts firing to
     # Sri's phone"). `apps/api/core/alerting.py` delivers through the SAME transport as
