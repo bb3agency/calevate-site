@@ -73,7 +73,7 @@ from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_ti
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -181,6 +181,10 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     # refuses an organisation that has not accepted them, and a fixture without them makes
     # this file report `agreements_not_accepted` in place of the refusal it is about.
     await accept_agreements(uuid.UUID(str(tenant_id)))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(tenant_id)))
     _TENANTS.append(tenant_id)
     return tenant_id, agent_id
 

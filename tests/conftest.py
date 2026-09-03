@@ -14,6 +14,7 @@ import tempfile
 import uuid
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -127,6 +128,42 @@ async def accept_agreements(tenant_id: uuid.UUID, user_id: uuid.UUID | None = No
                 statement_version=statements.statement_version(),
                 user_id=user_id,
             )
+
+
+async def fund_wallet(tenant_id: uuid.UUID, amount_inr: str = "10000.00") -> None:
+    """Put credit in a tenant's wallet, so a test about something else is not refused
+    `no_credits`.
+
+    **WHY SO MANY FIXTURES SUDDENLY NEED THIS (D-521).** Every account used to be created
+    `managed` — invoiced against a retainer, with `credits_exhausted` returning False for
+    it — so a fixture that never mentioned money dialled happily on a wallet it did not
+    have. `prepaid` is the default now, so an unfunded tenant is a tenant whose OUTBOUND
+    dialling is correctly refused, and a dispatch test that never speaks of credit gets
+    `no_credits` in place of the answer it is about.
+
+    Exactly the shape and exactly the argument of `accept_agreements` above: it does NOT
+    soften the gate, it supplies the missing fact. And it is the reason the fixtures were
+    funded rather than pinned back to `plan_tier="managed"` — a suite that exercises
+    dispatch only on the invoiced motion is a suite that stops testing the motion the
+    product actually sells, which is how the credits screen came to be verified by nobody.
+    A test whose SUBJECT is the invoiced motion still names `managed` explicitly, and
+    should.
+
+    `reason="topup"` because that is what this is: money arriving before any call. Append
+    only, like every entry on this ledger, so calling it twice adds credit twice rather
+    than resetting a balance.
+    """
+    from apps.api.billing.service import record_entry
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal(amount_inr),
+            reason="topup",
+            ref=f"fixture-{uuid.uuid4().hex}",
+        )
 
 
 async def purge_platform_list_rates() -> None:
