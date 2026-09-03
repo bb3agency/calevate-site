@@ -11,21 +11,26 @@ with nothing on the screen to say why. Nothing errors. No alarm has anything to 
 * `destination_not_india` — found in the voice round, 2 Sep 2026. `add_contacts` had
   closed the INGRESS and its own comment predicted this exact livelock for the dispatcher;
   closing the door did not settle who was already inside.
-* `consent_expired` — found in the campaign round, 2 Sep 2026, and it was the FIRST ONE
-  THIS FILE WAS SUPPOSED TO CATCH. It was classified, deliberately, as transient, on the
-  argument that "a re-grant makes the number dialable again" — an argument that is true
-  word for word of `no_consent`'s `withdrawn` arm, which is settled. An `expires_at` in
-  the past only recedes further, so nothing the dispatcher waits for lifts it.
+* `consent_expired` — found TWICE on 2 Sep 2026, independently, by the campaign round and
+  by the callbacks build (D-514), which is itself the point: it was sitting in this file's
+  TRANSIENT list wearing a considered-looking reason, and it was the first rule this file
+  was supposed to catch. The reason ("the person grants consent again") is true, and was
+  still the wrong side: it is true word for word of `no_consent`, whose `withdrawn` arm the
+  same re-grant lifts and which has always settled. An `expires_at` in the past only ever
+  recedes further. The test that decides is NOT "can the fact ever change" — every fact can
+  — it is **"can WAITING change it"**, and only an affirmative act by the PERSON lifts this
+  one. `calling_hours` is the contrast that keeps the line honest: it is about the clock and
+  becomes false by waiting alone.
 
-Three times is not a coincidence, and the third one says what the guard below has to be:
-the classification is only as good as the INVENTORY it is checked against, and this file's
-inventory saw about half the rules the gate can emit until it was taught to follow a
-`(rule, reason)` pair out of a local variable (see `_emitted_rules`). This file does not
-decide which side a rule belongs on — that is `PERSON_LEVEL_REFUSALS`' docstring, and the
-test it applies is stated there: a person-level refusal is a fact about the PERSON or the
-DESTINATION, not about the account, the paperwork, or a clock that can run the other way.
-What this file refuses to allow is a rule that nobody DECIDED about, which is how all three
-of the above got in.
+Three times is a class with a pattern, and the third one says what the guard below has to
+be: **a classification is only as good as the INVENTORY it is checked against.** This
+file's inventory saw about half the rules the gate can emit until it was taught to follow a
+`(rule, reason)` pair out of a local variable (see `_emitted_rules`) — so the guard against
+this defect was itself wearing the disguise its own third test warns about. This file does
+not decide which side a rule belongs on — that is `PERSON_LEVEL_REFUSALS`' docstring, and
+the test it applies is stated there: a person-level refusal is a fact about the PERSON or
+the DESTINATION, not about the account, the clock, or the paperwork. What this file refuses
+to allow is a rule that nobody DECIDED about, which is how every one of the above got in.
 
 Run: uv run pytest tests/dispatch_refusal_settlement_test.py -q
 """
@@ -337,7 +342,7 @@ def test_no_rule_is_classified_that_the_gate_cannot_actually_give() -> None:
 
 
 def test_the_livelocks_that_shipped_stay_settled() -> None:
-    """The regression, named. All three were transient and all three ran for ever."""
+    """The regression, named. Each was transient-by-default and each ran for ever."""
     assert "no_consent" in PERSON_LEVEL_REFUSALS, "D-117's livelock is back"
     assert "consent_expired" in PERSON_LEVEL_REFUSALS, (
         "an expired consent is lifted by exactly the act that lifts `no_consent` — the "
@@ -349,6 +354,11 @@ def test_the_livelocks_that_shipped_stay_settled() -> None:
         "a foreign number is refused identically for ever — `phone_e164` is written once "
         "and rewritten only by the erasure sweep, which settles the row in the same "
         "statement"
+    )
+    assert "consent_expired" in PERSON_LEVEL_REFUSALS, (
+        "a lapsed permission is not undone by waiting: `expires_at` in the past only "
+        "recedes, and only the person re-granting lifts it — the same act that lifts "
+        "`no_consent`, which is settled"
     )
 
 

@@ -1,4 +1,4 @@
-"""What an agent remembers about a REPEAT CALLER — the one door in, and the two doors out.
+"""What an agent remembers about a REPEAT CALLER — the one door in, and the doors out.
 
 "A caller rings back and the agent knows they asked about IVF pricing last month." This
 module owns the `caller_memories` source table: what may be written to it, what may be read
@@ -37,8 +37,10 @@ D-507 answered it in three parts, and this module carries one of them:
 * **It forgets on its own 180-day clock**, not the transcript's
   (`retrieval.caller_erasure.MEMORY_RETENTION_CATEGORY`).
 
-What is still not answered is whether anyone may be OFFERED the switch, and that is an
-engineering gap rather than a legal one — see the GAP note below.
+D-506 left one more question open — whether anyone may be OFFERED the switch — and it was
+an engineering gap rather than a legal one. D-513 closed it: `agents/publishing.
+set_caller_memory` is the route, and a per-tenant ATTESTATION is what a client gives to
+switch it on. See §2 below.
 
 ═══ 2. A DISTILLED FACT, NEVER A QUOTE ═══
 
@@ -61,33 +63,38 @@ for six years". Three reasons, in the order they bind:
   replaced by the next distillation; a misheard sentence attributed to a caller is a
   record of something they did not say.
 
-**GAP (1 Sep 2026): NOTHING WRITES A CALLER MEMORY TODAY, AND THE FEATURE IS STILL NOT
-OFFERABLE.** The store, both erasure arms, the 180-day clock, the spoken sentence and the
-guard (`tests/caller_memory_erasure_guard_test.py`) are built and tested. Two things are
-not, and neither is a legal question any more:
+**THE GAP THIS HEADER USED TO NAME IS CLOSED (D-513), AND THE NOTE IS KEPT AS A MAP RATHER
+THAN DELETED.** It read "NOTHING WRITES A CALLER MEMORY TODAY, AND THE FEATURE IS STILL NOT
+OFFERABLE", and listed two missing pieces plus one that had to land with the first. All
+three are built, and each is worth knowing where to find:
 
-1. **The PRODUCER.** No distillation pass over a finished call exists, so `remember()` has
-   no caller and `caller_memories` is empty on every deployment. It belongs in the shape of
-   `workers/copilot_memory.py` — bounded facts per call, `redact()` on the way in, metered
-   through `record_ai_assist_usage` (hard rule 7), and running ONLY for agents whose switch
-   is on, so the default costs nothing.
-2. **THE ROUTE THAT FLIPS THE SWITCH.** `agents.caller_memory_enabled` is settable by no
-   API, so today it moves only by hand in SQL. That path is also where the per-tenant
-   attestation belongs that `SPDI_REFUSED_VERTICALS` below is a weak proxy for.
+1. **The PRODUCER** is `workers/caller_memory_distil.py` — an hourly cron in the shape this
+   note asked for: bounded facts per call, `clean_fact` on the way in, metered through
+   `record_ai_assist_usage` (hard rule 7, so it reaches the client's bill and their spend
+   cap can stop it), and a fan-out that STARTS from `agents.caller_memory_enabled`, so a
+   deployment where nobody switched it on makes no model call at all.
+2. **THE ROUTE THAT FLIPS THE SWITCH** is `agents/publishing.set_caller_memory`, behind
+   `PATCH /v1/agents/{id}/caller-memory` (`org:manage`). It is also where the per-tenant
+   ATTESTATION landed that `SPDI_REFUSED_VERTICALS` below describes itself as a weak proxy
+   for — `organizations.caller_memory_attested_at`, required to switch ON and not to switch
+   off. The proxy stays ABOVE it and cannot be attested past: a vertical is a record and an
+   attestation is a claim.
+3. **THE IDEMPOTENCY MARKER** is `calls.caller_memory_state` and `CALLER_MEMORY_STATES`
+   below, four values, because a retry must not re-buy the same facts and `source_call_id`
+   alone cannot say "looked at, nothing owed" — `kb_documents.gloss_state` is the worked
+   example of why that third state has to exist.
 
-A third piece lands with (1): a per-call idempotency marker, because a retry must not
-re-buy the same facts and `source_call_id` alone cannot say "looked at, nothing owed" —
-`kb_documents.gloss_state` is the worked example of why that third state has to exist.
-
-**WHAT IS NO LONGER A BLOCKER: the caller notice.** D-506 named it as the thing the founder
-had to answer before the switch could be offered to anyone, and D-507 answered it (§1
-above). The remaining two items are ours, not a decision's.
+**AND A THIRD DOOR OUT NOW EXISTS**, which matters for anything added to this module:
+`compliance/caller_data_routes.py` answers the ENGINE at inbound call setup. It reads
+through `recall()` like every other reader, which is the property that makes the gate below
+worth having in one place.
 
 **WHAT IS NOT DECIDED HERE.** How a fact is produced from a call is the distillation
-worker's business (`workers/copilot_memory.py` is the shape: a cron, bounded spend,
-`distilled_at` as the idempotency key), and this module takes finished sentences. That
-separation is deliberate — the durable-data seam has to be reviewable without reading a
-prompt.
+worker's business (`workers/caller_memory_distil.py`, built to `workers/copilot_memory.py`'s
+shape: a cron, bounded spend, a durable per-call marker as the idempotency key), and this
+module takes finished sentences. That separation is deliberate — the durable-data seam has
+to be reviewable without reading a prompt, and it is why the SCOPE decision (no money, no
+health detail) is enforced there, at `within_scope`, rather than smuggled into this file.
 
 ═══ 3. THE ERASURE IS NOT HERE, AND THAT IS THE DESIGN ═══
 
@@ -122,6 +129,7 @@ version of that test that can fail when the real path breaks.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Final
@@ -154,6 +162,55 @@ RECALL_LIMIT: Final = 5
 #: of ROWS a compliant answer creates, and rows are what retention and erasure pay for.
 MAX_FACTS_PER_CALL: Final = 3
 
+#: HAS THE DISTILLER LOOKED AT A CALL, AND WHAT DID IT DECIDE? `calls.caller_memory_state`,
+#: and the CHECK in migration `a1f6c30d92be` is a frozen copy of this tuple.
+#:
+#: THE THIRD AND FOURTH VALUES ARE WHY THE COLUMN EXISTS. `source_call_id` can only ever
+#: say "this call produced a fact"; it cannot say "this call was read and owed nothing",
+#: which is what most calls owe. Without a durable negative every retry, overlapping tick
+#: and redeploy re-sends the same transcript to the same model and pays for the same
+#: answer — `kb_documents.gloss_state`, the same shape for the same reason.
+#:
+#: `nothing` and `skipped` are two values and not one because they cost different money:
+#: `nothing` bought a model call and `skipped` bought none, and an operator asking whether
+#: this feature is doing anything for a client cannot tell them apart from one value.
+CALLER_MEMORY_PENDING: Final = "pending"
+CALLER_MEMORY_REMEMBERED: Final = "remembered"
+CALLER_MEMORY_NOTHING: Final = "nothing"
+CALLER_MEMORY_SKIPPED: Final = "skipped"
+CALLER_MEMORY_STATES: Final[tuple[str, ...]] = (
+    CALLER_MEMORY_PENDING,
+    CALLER_MEMORY_REMEMBERED,
+    CALLER_MEMORY_NOTHING,
+    CALLER_MEMORY_SKIPPED,
+)
+
+
+#: A run of three or more hyphens, collapsed to one on the way in.
+#:
+#: THIS IS THE ANTI-INJECTION CONTROL AND IT IS APPLIED AT THE WRITE, WHICH IS THE POINT.
+#: Every section marker on the in-call prompt is a hyphen run — `PLATFORM_RULES_PREAMBLE`,
+#: `CLIENT_SCRIPT_OPEN`, `CALLER_MEMORY_GUIDANCE`, `TRUTHFUL_ANSWER_DIRECTIVE` — so a fact
+#: containing one could close the memory section early and open a forged rules block on a
+#: LATER call, with somebody else on the line. That is indirect prompt injection (OWASP
+#: LLM01), and this feature is the path that creates it: a caller's own words become part
+#: of a prompt the model reads next week.
+#:
+#: `copilot/prompt._RULE_RUN` is the same regex against the same class of attack on the
+#: dashboard leg, and this is deliberately NOT a second reader of it. It is applied at a
+#: different SEAM for a reason that only holds here: `remember()` is the ONE door into this
+#: store and there are three doors out (the dial, the inbound caller-data endpoint, the
+#: copilot), one of which runs in a service that may not import `apps.api.copilot` at all
+#: (hard rule 3). Neutering at the read would put the control in three places and the
+#: exploit is whichever one forgets. Neutering at the write puts it in one, and every
+#: reader inherits it for free — including readers not yet written.
+#:
+#: A RUN RATHER THAN AN ENUMERATION OF THE MARKERS, for `_RULE_RUN`'s own reason: an
+#: enumeration goes stale the moment a fifth section is added and nothing fails when it
+#: does. The cost is that a distilled fact containing a horizontal rule is stored with one
+#: hyphen, which no reader can tell from the original and no caller can perceive.
+_FENCE_RUN: Final = re.compile(r"-{3,}")
+
 
 def clean_fact(raw: str) -> str:
     """One distilled sentence, redacted and capped — the ONE way text becomes a fact row.
@@ -174,7 +231,7 @@ def clean_fact(raw: str) -> str:
     body = raw.strip()
     if not body:
         return ""
-    result = redact(body)
+    result = redact(_FENCE_RUN.sub("-", body))
     if result.changed:
         # KINDS, never the text and never the value (hard rule 6). This is how an operator
         # learns the distiller is emitting identifiers, which is the one direction no
@@ -395,6 +452,11 @@ def _active_handle(tenant_id: UUID, phone_e164: str) -> tuple[str, int]:
 
 
 __all__ = [
+    "CALLER_MEMORY_NOTHING",
+    "CALLER_MEMORY_PENDING",
+    "CALLER_MEMORY_REMEMBERED",
+    "CALLER_MEMORY_SKIPPED",
+    "CALLER_MEMORY_STATES",
     "MAX_FACTS_PER_CALL",
     "MAX_FACT_CHARS",
     "RECALL_LIMIT",

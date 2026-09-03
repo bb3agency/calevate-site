@@ -422,6 +422,40 @@ caller_memories(id, tenant_id, agent_id, subject_ref TEXT, subject_ref_kek_id IN
 -- and NOT created_at, or a backfill would restart every caller's retention clock. Gated by
 -- `agents.caller_memory_enabled`, DEFAULT FALSE — the opposite of the disclosure toggles,
 -- because the posture a silence must not produce here is "remembers".
+-- ITS PRODUCER AND ITS SWITCH LANDED IN D-513: `calls.caller_memory_state`
+-- (pending|remembered|nothing|skipped, migration a1f6c30d92be) is the distiller's
+-- idempotency marker, and the THIRD value is why it exists — `source_call_id` can record
+-- that a call produced a fact and can never record that a call was read and owed nothing,
+-- which is what most calls owe, so without it a retry re-buys the same answer.
+-- `organizations.caller_memory_attested_at`/`_attested_by` is the per-tenant permission
+-- the enable route requires: on the ORGANISATION because the attested fact is about the
+-- business, so a client with four agents answers once.
+
+scheduled_callbacks(id, tenant_id, agent_id, source_call_id UUID NULL,
+  source_execution_id TEXT, lead_id UUID NULL, phone_e164 TEXT,
+  requested_at TIMESTAMPTZ, booked_at TIMESTAMPTZ,
+  status ENUM[scheduled,dialing,completed,cancelled,refused,missed,failed],
+  attempts INT, next_attempt_at TIMESTAMPTZ NULL,
+  last_refusal_rule TEXT NULL, last_refusal_reason TEXT NULL,
+  last_call_id UUID NULL, settled_at TIMESTAMPTZ NULL,
+  note TEXT NULL, language TEXT NULL)  -- BUILT (D-514, migration d8f31a7c2409)
+-- "Ring me back Tuesday at four", booked by the in-call tool and dialled by the campaign
+-- tick through `dispatch_call` — the one outbound entry point, which is what makes a
+-- call-back inherit the DLT header, the A/B arm and cross-call memory without knowing they
+-- exist. FORCEd RLS.
+-- THE IDENTITY IS `(tenant_id, source_execution_id)`, not the call: the `calls` row is
+-- written by the status webhook and may not exist when the promise is made, so
+-- `source_call_id` is a nullable POINTER. The upsert is guarded by `booked_at` rather than
+-- DO NOTHING, because "make it five, not four" is an ordinary sentence and two jobs racing
+-- must land on the caller's LATER word.
+-- `requested_at` IS WHAT THE CALLER WAS TOLD AND NEVER MOVES. A transient refusal defers
+-- `next_attempt_at`; the first draft moved `requested_at` and the two-hour staleness cutoff
+-- then receded by five minutes every five minutes, which is the livelock class
+-- `tests/dispatch_refusal_settlement_test.py` exists for.
+-- FIVE OF THE SEVEN STATUSES ARE ENDINGS, and `last_refusal_reason` carries the compliance
+-- gate's OWN client-facing sentence for the two that are refusals — so the client's screen
+-- says why a call they were promised did not happen, in the words the dial button would
+-- have shown them.
 kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
   top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
   -- `top_ids UUID[]` was specified here and is NOT in the shipped table. Its stated

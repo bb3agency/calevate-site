@@ -13,6 +13,7 @@ from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     String,
     Text,
@@ -64,6 +65,22 @@ class Organization(PKMixin, TimestampMixin, Base):
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="prospect")
     vertical_template: Mapped[str | None] = mapped_column(Text)
+    #: WHEN THIS BUSINESS ATTESTED THAT ITS CALLS ARE SAFE TO REMEMBER, and who clicked
+    #: (D-513). NULL means they have not, which is every tenant until they do, and
+    #: `agents.publishing.set_caller_memory` refuses to switch cross-call memory on
+    #: without it.
+    #:
+    #: ON `organizations` AND NOT ON `agents` because the attested fact is about the
+    #: BUSINESS — "these calls do not take health, financial or other sensitive personal
+    #: data, and our callers are told we keep notes" — not about one agent. A client with
+    #: four agents answers once; four columns would ask four times and let three answers
+    #: rot. It is the per-tenant instrument `compliance.caller_memory.
+    #: SPDI_REFUSED_VERTICALS` describes itself as a weak proxy for; the proxy stays, as
+    #: the belt, because an attestation is a claim and a vertical is a record.
+    caller_memory_attested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    caller_memory_attested_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
     # Which motion this org belongs to (D-34/D-39). NOT a feature flag: it decides
     # whether credits gate dispatch and whether the self-serve screens render.
     plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default="managed")

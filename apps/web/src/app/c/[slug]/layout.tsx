@@ -24,6 +24,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PhoneCall,
+  PhoneForwarded,
   PhoneOff,
   ReceiptIndianRupee,
   ScrollText,
@@ -105,6 +106,10 @@ function navigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
+        // Beside Leads rather than under "Compliance & data": a promised call-back is
+        // work waiting to happen, checked daily by whoever watches the leads, not a
+        // record consulted when something goes wrong.
+        { href: `/c/${slug}/callbacks`, label: "Call-backs", icon: PhoneForwarded },
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
       ],

@@ -87,7 +87,14 @@ from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
+from apps.workers.callbacks import book_requested_callback, cancel_requested_callback
 from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
+from apps.workers.caller_memory_distil import (
+    DISTIL_MINUTE as CALLER_MEMORY_DISTIL_MINUTE,
+)
+from apps.workers.caller_memory_distil import (
+    distil_caller_memories,
+)
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.dial_recall import recall_queued_dials
@@ -195,6 +202,14 @@ FUNCTIONS: list[Any] = [
         # tick while the dials already queued at the vendor ring anyway, with every screen
         # reporting the number suppressed.
         recall_dials_for_dnc,
+        # D-514. The in-call call-back pair. voice-runtime acks the caller in
+        # milliseconds and queues one of these; unregistered, the agent has told somebody
+        # on the phone "I have booked that for Tuesday at four", arq drops the name, the
+        # row walks into the DLQ and NOTHING ELSE recovers it — there is no post-call pass
+        # behind a call-back the way there is behind an opt-out. That is the sharpest
+        # version of the `check_job_wiring` shape in this list: a promise made to a person.
+        book_requested_callback,
+        cancel_requested_callback,
     )
 ]
 
@@ -244,6 +259,26 @@ CRON_JOBS = [
     cron(
         traced_job(distil_copilot_memories),
         minute={DISTILL_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # CROSS-CALL MEMORY: what a finished call taught us about the PERSON who rang (D-513).
+    # Hourly at :50, clear of every other O(tenants) fan-out in this list, and the ceiling
+    # (`caller_memory_distil.MAX_CALLS_PER_TICK`) is per tick — so the cadence IS the spend
+    # rate, exactly as for its sibling above.
+    #
+    # IT COSTS NOTHING ON A DEPLOYMENT WHERE NOBODY HAS SWITCHED THE FEATURE ON, which is
+    # every deployment by default: discovery starts from `agents.caller_memory_enabled`, so
+    # a fleet with the switch everywhere off makes zero model calls and the tick is one
+    # indexed read per tenant.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason. Retrying is safe: the job is
+    # idempotent on `calls.caller_memory_state`, stamped in the same transaction as the
+    # memory rows it produced, so a re-run finds nothing rather than paying twice for the
+    # same conversation — and the state carries the "read it, owed nothing" answer that a
+    # `source_call_id` alone could not express.
+    cron(
+        traced_job(distil_caller_memories),
+        minute={CALLER_MEMORY_DISTIL_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE OTHER HALF OF THE GUARANTEE (D-242). `reconcile_executions` above can only see

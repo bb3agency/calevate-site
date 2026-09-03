@@ -55,10 +55,12 @@ of its scope.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, time
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
+from calevate_shared.calling_window import IST as _IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,8 +86,17 @@ log = get_logger(__name__)
 
 # IST. The DB stores UTC (conventions); the RULE is expressed in the caller's time,
 # so the conversion happens here and nowhere else.
-IST = timedelta(hours=5, minutes=30)
-DEFAULT_WINDOW = (time(9, 0), time(21, 0))
+# IMPORTED, NOT DEFINED. Both constants used to live here, and both are needed by
+# `apps/voice-runtime`'s in-call callback tool — which may not import this module at all
+# (hard rule 3; `tests/voice_runtime_import_surface_test.py` boots the service and reads
+# `sys.modules`). The choice was one definition in a place both deployables can reach, or
+# two spellings of a legal boundary, on the one constant in this repo where a disagreement
+# means ringing a household at 04:00. They live in `calevate_shared.calling_window`, which
+# imports nothing but the standard library; every reader of `compliance.service.IST` and
+# `.DEFAULT_WINDOW` keeps working unchanged, and this module remains the name they are
+# imported BY.
+IST = _IST
+DEFAULT_WINDOW = _DEFAULT_WINDOW
 
 # The client-facing wording of the two tenant-level refusals, shared with the campaign
 # launch gate so the same condition never gets explained two different ways.

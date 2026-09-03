@@ -98,8 +98,10 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.billing.spend_routes import client_router as billing_spend_router
     from apps.api.billing.spend_routes import router as spend_admin_router
+    from apps.api.callbacks.routes import router as callbacks_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.caller_data_routes import router as caller_data_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.consent_routes import call_router as call_consent_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
@@ -212,6 +214,18 @@ def _mount_routers(application: FastAPI) -> None:
     # in the campaigns package because that module owns `phone_numbers`.
     application.include_router(numbers_router)
     application.include_router(crm_router)
+    # The call-backs an agent promised on a call (D-514). Its own literal `/v1/callbacks`
+    # prefix, which collides with nothing above, so mount order is not load-bearing here.
+    # There is no route on it that CREATES one: a call-back exists because a caller asked
+    # for it mid-call, through the in-call tool in `apps/voice-runtime`.
+    application.include_router(callbacks_router)
+    # The engine-called inbound caller-details fetch (D-513). Its own literal
+    # `/v1/engine/caller-data` prefix — declared in `core.rbac.PUBLIC_PREFIXES` and in
+    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`, which is the reviewed line
+    # that says why the world may call it. It lives in `apps/api` rather than in
+    # voice-runtime because it derives a keyed caller reference and reads a tenant's
+    # store, which that service's import surface forbids it to hold.
+    application.include_router(caller_data_router)
     # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
     # which collides with nothing above, so mount order is not load-bearing here — unlike
     # `voice_router`, whose literal segment lives under `/v1/agents/`.

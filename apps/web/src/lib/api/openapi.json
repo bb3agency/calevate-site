@@ -2363,6 +2363,84 @@
         "title": "CallbackOut",
         "type": "object"
       },
+      "CallerMemoryIn": {
+        "additionalProperties": false,
+        "description": "Switch caller continuity on or off for one agent.\n\nONE BOOLEAN AND NOT A PAIR, unlike `DisclosureIn` above, and the difference is the\ndecision rather than the shape of the screen: remembering a caller and rescheduling a\ncall-back are \"two linked abilities, always on or off together\" (D-513), so there is\none column and there is nothing here for a second field to name. A client who could\nswitch one off and keep the other would keep the ability that REUSES what was\nremembered while withdrawing the one their callers were told about.\n\n`accept` is the client saying yes to the sentence the refusal handed them. It is only\nread the FIRST time an account switches this on: the attestation is about the\nbusiness, so it is asked once and then stands\n(`organizations.caller_memory_attested_at`).",
+        "properties": {
+          "accept": {
+            "default": false,
+            "title": "Accept",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "CallerMemoryIn",
+        "type": "object"
+      },
+      "CallerMemoryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "attestation": {
+            "default": "I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so at the start of every call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.",
+            "title": "Attestation",
+            "type": "string"
+          },
+          "attested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "attested_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested By Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "opening_line": {
+            "title": "Opening Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "enabled",
+          "opening_line",
+          "engine_synced"
+        ],
+        "title": "CallerMemoryOut",
+        "type": "object"
+      },
       "CallerNoticeOut": {
         "additionalProperties": false,
         "description": "The draft, structured and rendered.\n\nBoth halves ship on purpose: a screen renders the structure into its own layout, and\n`notice_markdown` is what a client actually pastes into their website. Rebuilding the prose on\nthe client side would put the wording \u2014 the part counsel reviews \u2014 outside the thing\nthat was reviewed.",
@@ -14854,6 +14932,105 @@
         "title": "ScheduleOut",
         "type": "object"
       },
+      "ScheduledCallbackOut": {
+        "additionalProperties": false,
+        "description": "One promise. Instants are UTC on the wire and rendered in IST by the browser \u2014\nthe repo convention, and the reason this model carries no formatted string: a time\nformatted on the server is a time formatted in the server's idea of the day.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Id"
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "lead_id",
+          "phone_e164",
+          "requested_at",
+          "status",
+          "attempts",
+          "explanation",
+          "last_call_id",
+          "settled_at",
+          "note"
+        ],
+        "title": "ScheduledCallbackOut",
+        "type": "object"
+      },
       "ScriptOut": {
         "additionalProperties": false,
         "description": "The draft script the builder edits, plus where it stands and the free merge fields.",
@@ -23766,6 +23943,57 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/caller-memory": {
+      "patch": {
+        "description": "Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.\n\nOff unless you switch it on. Switched on, the agent says at the start of every call that a short note is kept \u2014 that sentence cannot be switched off separately.\n\nWhat is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.\n\nThe first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.\n\nApplies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.",
+        "operationId": "set_caller_memory_route_v1_agents__agent_id__caller_memory_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallerMemoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerMemoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Let an agent remember returning callers, and book call-backs",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/deactivate": {
       "post": {
         "description": "Stops it placing calls from the next dispatch tick, and tells the voice platform to stop answering the numbers bound to it \u2014 so an inactive agent really does go quiet on both legs. Everything is kept: the script, the numbers, the call history. Activate it again to put it back.",
@@ -25652,6 +25880,142 @@
         "x-calevate-permission": "billing:read"
       }
     },
+    "/v1/callbacks": {
+      "get": {
+        "description": "Every time a caller asked to be rung back at a particular time, and what happened to that promise. Most recent first.\n\nSet `open_only` to see just the ones still to come.",
+        "operationId": "list_callbacks_v1_callbacks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "open_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Open Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScheduledCallbackOut"
+                  },
+                  "title": "Response List Callbacks V1 Callbacks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The call-backs your agents promised",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/callbacks/{callback_id}": {
+      "delete": {
+        "description": "Stops a call-back that has not gone out yet. A call-back that is already being placed cannot be stopped here \u2014 the phone may already be ringing \u2014 and one that has already ended stays as it ended.",
+        "operationId": "cancel_callback_v1_callbacks__callback_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "callback_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Callback Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Call off a promised call-back",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      },
+      "get": {
+        "operationId": "get_callback_v1_callbacks__callback_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "callback_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Callback Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One promised call-back",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/calls": {
       "get": {
         "operationId": "get_calls_v1_calls_get",
@@ -27287,6 +27651,96 @@
           "compliance"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/engine/caller-data/{engine}": {
+      "get": {
+        "description": "The voice platform calls this when an inbound call arrives and puts the answer into the agent's instructions for that one call. It answers with nothing at all for a caller the agent has not spoken to, for an agent whose account has not switched caller continuity on, and whenever the lookup cannot be completed in time \u2014 a returning caller is then greeted normally, which is the right way for this to fail.",
+        "operationId": "caller_data_v1_engine_caller_data__engine__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "title": "Engine",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "contact_number",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "title": "Contact Number",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "execution_id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 128,
+              "title": "Execution Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Caller Data V1 Engine Caller Data  Engine  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Engine-called: what this agent remembers about the caller now ringing",
+        "tags": [
+          "in-call-tools"
+        ]
       }
     },
     "/v1/integrations/credentials": {

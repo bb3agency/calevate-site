@@ -65,7 +65,12 @@ from apps.api.agents.models import (
     AgentDirection,
     AgentStatus,
 )
-from apps.api.agents.publishing import audit_action_for, set_disclosure_posture
+from apps.api.agents.publishing import (
+    CALLER_MEMORY_ATTESTATION,
+    audit_action_for,
+    set_caller_memory,
+    set_disclosure_posture,
+)
 from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
 
@@ -851,6 +856,130 @@ async def set_disclosure(
         recording_notice_enabled=result.recording_notice_enabled,
         opening_line=result.opening_line,
         engine_synced=result.engine_synced,
+    )
+
+
+class CallerMemoryIn(BaseModel):
+    """Switch caller continuity on or off for one agent.
+
+    ONE BOOLEAN AND NOT A PAIR, unlike `DisclosureIn` above, and the difference is the
+    decision rather than the shape of the screen: remembering a caller and rescheduling a
+    call-back are "two linked abilities, always on or off together" (D-513), so there is
+    one column and there is nothing here for a second field to name. A client who could
+    switch one off and keep the other would keep the ability that REUSES what was
+    remembered while withdrawing the one their callers were told about.
+
+    `accept` is the client saying yes to the sentence the refusal handed them. It is only
+    read the FIRST time an account switches this on: the attestation is about the
+    business, so it is asked once and then stands
+    (`organizations.caller_memory_attested_at`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    #: True = "I confirm the statement you showed me." Ignored when switching OFF, and
+    #: ignored on an account that has already confirmed it — a permission is asked for
+    #: when the risk is taken, not every time it is exercised.
+    accept: bool = False
+
+
+class CallerMemoryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    enabled: bool
+    #: What callers now hear first. When this is on it GAINS the sentence telling them a
+    #: short note is kept; when it goes off it loses it. Shown rather than described, so
+    #: the screen and the phone line cannot say different things.
+    opening_line: str
+    #: Did the voice platform get the change? False on an agent that is not live yet.
+    engine_synced: bool
+    #: When this business confirmed what its calls collect. Null until they have.
+    attested_at: datetime | None = None
+    #: Who confirmed it, by name — so a second agent being switched on without being
+    #: asked again is explicable on the screen rather than surprising. Null when nobody
+    #: has confirmed, and when the person who did has since left the account.
+    attested_by_name: str | None = None
+    #: The statement a client confirms to switch this on, so the screen renders the same
+    #: words the refusal does.
+    attestation: str = CALLER_MEMORY_ATTESTATION
+
+
+@router.patch(
+    "/v1/agents/{agent_id}/caller-memory",
+    response_model=CallerMemoryOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Let an agent remember returning callers, and book call-backs",
+    description=(
+        "Two abilities, always on or off together. Your agents remember the people they "
+        "have spoken to and can greet a returning caller with what they asked about last "
+        "time; and when someone asks to be called back at a particular time, that "
+        "follow-up is booked for exactly then and dials with everything already "
+        "learned.\n\n"
+        "Off unless you switch it on. Switched on, the agent says at the start of every "
+        "call that a short note is kept — that sentence cannot be switched off "
+        "separately.\n\n"
+        "What is kept is a short note of what the caller wanted, what happened, and any "
+        "preference they stated, such as the language they like or when they prefer to "
+        "be called. It is used only for that person's own future calls with you, is "
+        "never shared, and is deleted after 180 days or sooner if they ask.\n\n"
+        "The first time anyone in your account switches this on you are asked to confirm "
+        "what these calls collect. Some kinds of business cannot use it at all.\n\n"
+        "Applies immediately: a live agent is updated on the voice platform in the same "
+        "transaction, so the screen never claims something the phone line is not doing."
+    ),
+)
+async def set_caller_memory_route(
+    agent_id: UUID,
+    payload: CallerMemoryIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> CallerMemoryOut:
+    """`org:manage`, for `set_disclosure` above's reason and one more of its own.
+
+    The disclosure switches are the client's legal exposure to carry as Principal Entity.
+    This one is that AND a durable-data decision: switching it on starts writing a record
+    about their callers that a DPDP request will one day be answered about, and the
+    account attests to what those calls collect in the same act. `agents:write` is
+    admin-only, so it would have meant us deciding to keep notes on a client's callers on
+    their behalf — which is the one shape of this feature nobody could defend.
+
+    THE AUDIT ROW NAMES THE DIRECTION IN ITS `action`, for `audit_action_for`'s reason:
+    `write_audit` does not persist summaries, so "who switched caller memory on, and
+    when" has to be in a column to survive in the hash-chained ledger. One row per flip
+    that actually moved — a re-assertion of the state the agent is already in writes none.
+    """
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    result = await set_caller_memory(
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        enabled=payload.enabled,
+        # THE ACTOR, ONLY WHEN THEY ACCEPTED. Passing the principal unconditionally would
+        # record an attestation for a client who never saw the sentence — the request
+        # that switches memory on WITHOUT `accept` is exactly the one that must be
+        # refused so the screen can show it to them.
+        attested_by=principal.user_id if payload.accept else None,
+    )
+    if not result.unchanged:
+        await write_audit(
+            session,
+            action=f"agent.caller_memory_{'enabled' if result.enabled else 'disabled'}",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            summary={"engine_synced": result.engine_synced},
+        )
+    return CallerMemoryOut(
+        agent_id=result.agent_id,
+        enabled=result.enabled,
+        opening_line=result.opening_line,
+        engine_synced=result.engine_synced,
+        attested_at=result.attested_at,
+        attested_by_name=result.attested_by_name,
     )
 
 
