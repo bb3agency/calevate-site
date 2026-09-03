@@ -536,8 +536,12 @@ async def _due_tenants() -> list[UUID]:
 #                           (D-158) to resolve, and this arm leaves them alone.
 _KB_EXPIRABLE = (
     "s.is_active = false AND s.status IN ('archived', 'rejected') "
-    "AND NOT EXISTS (SELECT 1 FROM kb_documents d "
-    "WHERE d.source_id = s.id AND d.meta ->> 'engine_kb_ref' IS NOT NULL)"
+    # D-519 moved the handle out of `kb_documents.meta` and into `engine_kb_routes`; the
+    # condition is the same one and it is now a primary-key lookup rather than a walk of
+    # every chunk of every version. Deliberately NOT scoped to one `engine`: the question
+    # here is "does ANY engine still hold a copy of this", and expiring a row while a
+    # retired adapter's account still serves it is the same destroyed-record failure.
+    "AND NOT EXISTS (SELECT 1 FROM engine_kb_routes r WHERE r.source_id = s.id)"
 )
 
 

@@ -403,15 +403,46 @@ async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:
     return [str(chunk) for chunk in rows]
 
 
+def _engine_name() -> str:
+    """WHICH vendor account holds the object this claim names — recorded, never keyed on.
+
+    The PROCESS-WIDE selection (`get_engine()`), not `agents.engine`: `get_engine` does
+    not consult that column, so the adapter that actually performed an attach is this one.
+    `engine_agent_routes` is written from the same value (`agents/service.py`).
+
+    IT IS DELIBERATELY NOT PART OF ANY LOOKUP, and that is a decision rather than an
+    omission. The reads below ask "what is this source filed as", never "what is it filed
+    as on engine X" — one source holds at most one vendor object, which is what
+    `uq_engine_kb_routes_source` states — and a lookup keyed on this string would strand
+    every existing claim the day an adapter is renamed or the setting moves, silently, in
+    the direction that loses a client's knowledge. What the column is FOR is the orphan
+    sweep, which must know which account's listing to compare a claim against.
+    """
+    return get_engine().name
+
+
+#: Every per-source read of the claim table JOINs `kb_sources`, and that join is the
+#: TENANCY, not decoration.
+#:
+#: `engine_kb_routes` is globally readable on purpose — the orphan question ("which
+#: objects on this account does no tenant of ours claim?") cannot be asked any other way
+#: (migration `f1c9e0a73b46`). But possession of a handle IS possession of another
+#: client's knowledge: the vendor's namespace is flat, one account holds every tenant's
+#: documents, and the handle is what deletes one. So the reads that answer "what is MY
+#: source filed as" go through `kb_sources`, which is FORCE-RLS'd — a session scoped to
+#: another tenant, or to none, sees no source row and therefore no handle, which is
+#: exactly the visibility the JSONB key had. `tests/kb_isolation_test.py` and
+#: `tests/kb_drift_reconciliation_test.py` pin both halves; the drift sweep DEPENDS on
+#: the untenanted read answering empty rather than the platform's whole handle set.
+_ROUTE_JOIN = "FROM engine_kb_routes r JOIN kb_sources s ON s.id = r.source_id WHERE "
+
+
 async def _engine_kb_ref(session: AsyncSession, source_id: UUID) -> str | None:
     """The engine's handle for this source's attached copy, or None if nothing of ours
     is attached. See `_remember_engine_kb_ref` for why it lives where it lives."""
     value = (
         await session.execute(
-            text(
-                "SELECT meta ->> 'engine_kb_ref' FROM kb_documents "
-                "WHERE source_id = :sid AND idx = 0"
-            ),
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} r.source_id = :sid"),
             {"sid": source_id},
         )
     ).scalar()
@@ -436,10 +467,7 @@ async def _engine_kb_digest(session: AsyncSession, source_id: UUID) -> str | Non
     """
     value = (
         await session.execute(
-            text(
-                "SELECT meta ->> 'engine_kb_digest' FROM kb_documents "
-                "WHERE source_id = :sid AND idx = 0"
-            ),
+            text(f"SELECT r.digest {_ROUTE_JOIN} r.source_id = :sid"),
             {"sid": source_id},
         )
     ).scalar()
@@ -455,39 +483,60 @@ async def _remember_engine_kb_ref(
 ) -> None:
     """Record (or clear) the engine's handle for a source.
 
-    It lives in `kb_documents.meta` because that is where the migration that created
-    these tables put it: "Provider-side document and namespace ids land in
-    `kb_documents.meta`, which is also what lets a DPDP erasure prove it removed both
-    copies." A source is pushed to the engine as ONE document, so the handle hangs off
-    its first chunk. No column is added for it — a new column is a migration, and this
-    fix is not worth coupling to one when the designed home already exists.
+    **IT USED TO LIVE IN `kb_documents.meta ->> 'engine_kb_ref'` AND NOW HAS A TABLE
+    (D-519, migration `f1c9e0a73b46`).** The old home was the one the KB migration
+    designated for provider-side ids and it cost no migration, which is why it was
+    chosen; three properties it cannot have are what moved it, and the third is the one
+    that matters:
+
+    * it was UNINDEXED — every read walked `kb_documents`, one row per chunk per version,
+      for at most one string;
+    * nothing enforced UNIQUENESS, so two sources could record one handle and a detach
+      would delete a vendor object another source still pointed at;
+    * `kb_documents` is FORCE-RLS'd, so "which objects on this account does no tenant of
+      ours claim" — the question that decides whether a client's document is reachable by
+      any erasure path at all — could not be asked of it from anywhere. We run ONE engine
+      account for every tenant and the vendor's knowledge base is an ACCOUNT-level object
+      with no owner field, so that question is the whole safety story, and it needed a
+      globally readable claim. `engine_agent_routes` is the same shape for the same
+      reason.
+
+    The digest travels with the handle rather than staying behind: it is a fact about the
+    VENDOR's copy — the bytes that handle was minted from — not about our chunks.
 
     Clearing on detach is not tidiness: a handle left behind after the engine copy is
     gone is a handle a later publish would try to delete, and that publish would then
-    refuse for a reason that is no longer true.
+    refuse for a reason that is no longer true. The whole row goes, because a claim on a
+    vendor object we no longer believe exists is exactly what the orphan sweep must not
+    see (`kb/orphans.py`).
+
+    `tenant_id` and `agent_id` are SELECTed from `kb_sources` rather than passed in, so
+    the claim can only ever name the tenant that owns the source — under RLS a session
+    scoped elsewhere selects no row and writes nothing, rather than writing a row
+    attributing a vendor object to the wrong client.
     """
     if engine_kb_ref is None:
-        # THE DIGEST GOES WITH IT, and that is not tidiness either: a digest left behind
-        # after the handle is cleared is a claim that the engine holds this exact document
-        # under a handle we no longer have, which is precisely the state the re-upload
-        # guard reads as "nothing to do".
         await session.execute(
-            text(
-                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) "
-                "- 'engine_kb_ref' - 'engine_kb_digest', "
-                "updated_at = now() WHERE source_id = :sid AND idx = 0"
-            ),
+            text("DELETE FROM engine_kb_routes WHERE source_id = :sid"),
             {"sid": source_id},
         )
         return
     await session.execute(
         text(
-            "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) || "
-            "jsonb_build_object('engine_kb_ref', to_jsonb(cast(:ref as text)), "
-            "'engine_kb_digest', to_jsonb(cast(:digest as text))), "
-            "updated_at = now() WHERE source_id = :sid AND idx = 0"
+            "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, agent_id, "
+            "source_id, digest, created_at, updated_at) "
+            "SELECT :engine, :ref, s.tenant_id, s.agent_id, s.id, :digest, now(), now() "
+            "FROM kb_sources s WHERE s.id = :sid "
+            # The source keeps its claim and re-points it: a republish of the same source
+            # mints a new vendor object, and the row that named the old one is the row
+            # that must now name the new one. A DIFFERENT source claiming a handle this
+            # one already holds is NOT reconciled here — it violates the primary key and
+            # raises, which is the point of the constraint.
+            "ON CONFLICT (source_id) DO UPDATE SET engine = EXCLUDED.engine, "
+            "engine_kb_ref = EXCLUDED.engine_kb_ref, digest = EXCLUDED.digest, "
+            "updated_at = now()"
         ),
-        {"sid": source_id, "ref": engine_kb_ref, "digest": digest},
+        {"sid": source_id, "ref": engine_kb_ref, "digest": digest, "engine": _engine_name()},
     )
 
 
@@ -757,15 +806,16 @@ async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> se
     CLEARED on detach (`_detach_superseded`), so a handle still recorded against an
     archived source means a detach that never completed — a divergence, not noise, and
     exactly the residue `_undo_attach` documents itself as leaving.
+
+    Since D-519 the handle lives in `engine_kb_routes` and this reads it THROUGH
+    `kb_sources` (see `_ROUTE_JOIN`), which is what keeps the answer tenant-scoped: the
+    claim table is globally readable so the orphan sweep can ask an account-wide question,
+    and this is not that question. The sweep's caller depends on it — an untenanted read
+    must answer the empty set, not the platform's every handle.
     """
     rows = (
         await session.execute(
-            text(
-                "SELECT d.meta ->> 'engine_kb_ref' FROM kb_documents d "
-                "JOIN kb_sources s ON s.id = d.source_id "
-                "WHERE s.agent_id = :aid AND d.idx = 0 "
-                "AND d.meta ->> 'engine_kb_ref' IS NOT NULL"
-            ),
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} s.agent_id = :aid"),
             {"aid": agent_id},
         )
     ).scalars()

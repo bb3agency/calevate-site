@@ -262,6 +262,22 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "verdict from a fixed six-value vocabulary and two timestamps: no source name, no "
         "chunk, and no engine handle."
     ),
+    "engine_kb_routes": (
+        "the claim that ties ONE vendor knowledge base to one tenant (migration "
+        "f1c9e0a73b46, D-519), and the exemption is for READS ONLY on exactly "
+        "`engine_agent_routes`'s pattern — `engine_kb_routes_global_read` "
+        "(FOR SELECT USING (true)) beside a FORCEd `tenant_isolation` policy covering "
+        "INSERT/UPDATE/DELETE, so one client's session can neither delete nor re-tenant "
+        "another's claim. The read genuinely is global: we run ONE engine account for "
+        "every tenant, the vendor's knowledge base is an ACCOUNT-level object with no "
+        "owner field, and the question the orphan sweep asks — which objects on this "
+        "account does no tenant of ours claim — cannot be asked from a tenant session at "
+        "all. Keeping it here is what lets `kb_sources` and `kb_documents`, which hold "
+        "the client's actual content, stay FORCE-RLS'd with no exemption. Carries four "
+        "opaque ids, a content digest and two timestamps: no source name, no chunk, no "
+        "PII. NOT append-only — the handle is recorded on attach and the row is deleted "
+        "on detach, which is the same lifecycle the JSONB key it replaces had."
+    ),
     "fx_rate_observations": (
         "platform-scoped. The published USD/INR rate this deployment pulls every five "
         "minutes (migration b6f21d9c4e07). There is ONE exchange rate for the whole "

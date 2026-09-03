@@ -350,12 +350,27 @@ kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, 
   -- still cannot reach an agent.
 kb_documents(id, tenant_id, source_id, idx INT, title, content TEXT, meta JSONB,
   UNIQUE(source_id, idx))          -- idx = chunk order; the chunks ARE the document
-  -- meta is where provider-side ids live (see the D-28 note above). Specifically
-  -- `meta->>'engine_kb_ref'` on idx = 0 holds the ENGINE's handle for this source's
-  -- attached copy — a source is pushed to the engine as one document, so the handle
-  -- hangs off its first chunk. Without it a published version cannot be withdrawn
-  -- (D-41); it is cleared on detach, because a handle left behind after the engine copy
-  -- is gone would make the NEXT publish refuse for a reason that is no longer true.
+  -- meta held the provider-side ids until D-519 and NO LONGER DOES: `engine_kb_ref` and
+  -- `engine_kb_digest` moved to `engine_kb_routes` (migration f1c9e0a73b46), which
+  -- migrates the values across and clears the keys. Do not write them here again.
+engine_kb_routes(engine, engine_kb_ref, tenant_id, agent_id, source_id, digest,
+  created_at, updated_at,
+  PRIMARY KEY (engine, engine_kb_ref), UNIQUE (source_id, engine))
+  -- THE CLAIM THAT TIES ONE VENDOR KNOWLEDGE BASE TO ONE TENANT. We run one engine
+  -- account for every tenant and the vendor's knowledge base is an ACCOUNT-level object
+  -- with no owner field, so this row is the only thing that says whose it is. Without it
+  -- a published version cannot be withdrawn (D-41) and no erasure path can find it.
+  -- `engine_kb_ref` is the handle the AGENT references (Bolna: the vector id), never the
+  -- id the vendor's DELETE route takes — that one is recovered inside the adapter.
+  -- The PK is the uniqueness that matters: two sources may not claim one vendor object.
+  -- Globally readable + FORCEd tenant_isolation for writes, exactly like
+  -- engine_agent_routes and for the same reason (the orphan question is cross-tenant);
+  -- registered in RLS_EXEMPT_TENANT_COLUMNS with that reason.
+  -- NO foreign key to kb_sources ON PURPOSE: the claim must OUTLIVE our own rows, or a
+  -- retention expiry or a tenant erasure would delete the only record that can address
+  -- the vendor's copy at the moment we promise a client it is gone.
+  -- The row is deleted on detach, because a claim on an object we no longer believe
+  -- exists is exactly what the orphan sweep must not see.
 kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
   embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,
   chunk_meta JSONB, version INT, is_active BOOL)   -- BUILT (D-502, migration dc1aaeeeff02)

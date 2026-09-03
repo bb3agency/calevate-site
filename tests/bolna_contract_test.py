@@ -483,7 +483,7 @@ async def test_a_detach_reaches_a_knowledge_base_past_the_first_listing_page() -
 
 
 async def test_a_listing_the_walk_could_not_finish_is_not_read_as_absence() -> None:
-    """"We could not finish looking" is not "the account does not hold it".
+    """ "We could not finish looking" is not "the account does not hold it".
 
     The vendor's listing carries no `has_more` and no `total`
     (`.../knowledgebase/get_knowledgebases.md:29-51`), so a page that yields nothing new
