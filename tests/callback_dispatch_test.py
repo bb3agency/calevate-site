@@ -345,3 +345,70 @@ async def test_a_dialled_callback_is_settled_by_the_call_it_became() -> None:
     settled = await _row(tenant_id, callback_id)
     assert settled["status"] == "completed"
     assert settled["settled_at"] is not None
+
+
+async def test_a_refusal_that_waiting_can_lift_is_deferred_and_not_settled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE OTHER HALF OF THE GATE'S TABLE, and the one that is wrong in the expensive
+    direction. `PERSON_LEVEL_REFUSALS` is the gate's own classification of facts waiting
+    cannot lift; everything NOT in it — here the calling window — becomes true again by
+    itself, so settling it would end a promise for a reason that had already expired by
+    the time the client read it. The promise stays `scheduled`, carrying the gate's own
+    sentence, and `GRACE` is what stops "back on the ladder" meaning for ever.
+    """
+    tenant_id, agent_id = await _dialable_tenant()
+    callback_id = await _book(tenant_id, agent_id)
+    # 22:00 IST. Outside the calling window (TCCCPR), and the refusal a promise made at
+    # four in the afternoon for eight in the evening would really meet.
+    after_hours = datetime(2026, 8, 11, 16, 30, tzinfo=UTC) + timedelta(hours=5, minutes=30)
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: after_hours)
+
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert outcome == {"dialled": 0, "blocked": 1, "settled": 0}
+
+    row = await _row(tenant_id, callback_id)
+    assert row["status"] == "scheduled", "a refusal the clock lifts ended the promise"
+    assert row["last_refusal_rule"] == "calling_hours"
+    assert row["last_refusal_reason"], "a refusal with no sentence is a blank cell"
+    assert row["settled_at"] is None
+
+
+async def test_a_memory_store_that_raises_does_not_stop_the_promised_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_recall_for_dial` FAILS OPEN, and this is the test that says so out loud.
+
+    A returning caller greeted generically is a missed nicety. A call-back that never
+    happened because a KEK ring could not derive, or a read was slow, is a broken promise
+    to a person who is sitting by a phone — and it would land on the one path a client
+    watches. So every failure of the recall becomes an empty tuple and a log line, never
+    an exception through the dial, and `CALLER_MEMORY_GUIDANCE` tells the model that an
+    empty block means a caller it does not know. Asserted at the ENGINE, on the context
+    the call was really placed with, because a helper returning `()` proves nothing about
+    whether the dial survived.
+    """
+    tenant_id, agent_id = await _dialable_tenant()
+    owner = await _owner_of(tenant_id)
+    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner)
+    callback_id = await _book(tenant_id, agent_id)
+
+    async def _broken(*_args: object, **_kwargs: object) -> tuple[str, ...]:
+        raise RuntimeError("the caller-memory key ring could not derive")
+
+    monkeypatch.setattr("apps.api.agents.service.recall", _broken)
+
+    seen: list[CallContext] = []
+    engine = get_engine()
+    original = engine.start_outbound_call
+
+    async def _spy(ref: str, to: str, ctx: CallContext):  # type: ignore[no-untyped-def]
+        seen.append(ctx)
+        return await original(ref, to, ctx)
+
+    monkeypatch.setattr(engine, "start_outbound_call", _spy)
+
+    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
+    assert outcome["dialled"] == 1, "a nicety that failed stopped a promised call"
+    assert seen and seen[0].caller_memory == ()
+    assert (await _row(tenant_id, callback_id))["status"] == "dialing"

@@ -130,9 +130,7 @@ def _stage(monkeypatch: pytest.MonkeyPatch, snapshot: ExecutionSnapshot) -> None
 
 def _catch_alerts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     fired: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        worker, "alert", lambda stage, code, **kw: fired.append((stage, code))
-    )
+    monkeypatch.setattr(worker, "alert", lambda stage, code, **kw: fired.append((stage, code)))
     return fired
 
 
@@ -349,8 +347,14 @@ async def test_the_promise_is_pointed_at_the_call_and_lead_it_was_made_on(
                 "from_e164, status, lead_id, created_at, updated_at) VALUES (:i, :t, :a, :e, "
                 "'inbound', :p, 'in_progress', :l, now(), now())"
             ),
-            {"i": call_id, "t": tenant_id, "a": agent_id, "e": execution_id, "p": CALLER,
-             "l": lead_id},
+            {
+                "i": call_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "e": execution_id,
+                "p": CALLER,
+                "l": lead_id,
+            },
         )
         await session.commit()
 
@@ -380,7 +384,7 @@ async def test_a_promise_made_before_the_call_row_arrived_is_still_a_promise(
 async def test_an_earlier_booking_arriving_late_does_not_drag_the_promise_backwards(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """"Make it five, actually." Two bookings from one conversation, and the jobs may run
+    """ "Make it five, actually." Two bookings from one conversation, and the jobs may run
     in either order: the LATER WORD wins whichever commits first, and the loser reports
     `superseded` rather than an error. Without the outcome string, "the tool fired and
     nothing happened" is only answerable from a transcript."""
