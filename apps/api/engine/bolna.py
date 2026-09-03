@@ -2656,15 +2656,47 @@ _EXTRACTION_LEAF_KEYS: Final = ("subjective", "objective")
 #: model has nothing to work from, so rather than let it invent an answer the platform
 #: substitutes this literal.
 #:
-#: **EVIDENCE CLASS: VENDOR-PUBLISHED, AND NOT FROM A PAGE ANYONE HERE HAS READ.** It comes
-#: from Bolna's deprecation email of 3 Sep 2026, relayed by the founder. It is NOT in
-#: `bolna-findings/mirror/` — that mirror predates the announcement — and `www.bolna.ai` is
-#: egress-blocked from this container, so the migration guide behind that email has not
-#: been opened here. OPERATIONS §2 gate 43h is the re-verification.
+#: **EVIDENCE CLASS: VENDOR-PUBLISHED.** The literal and its casing are confirmed against
+#: the vendor's migration guide (`/docs/prompting/migrating-to-extractions/overview`),
+#: relayed VERBATIM by the founder on 3 Sep 2026 after the deprecation email. `www.bolna.ai`
+#: is egress-blocked from this container and the page is NOT in `bolna-findings/mirror/`
+#: (that mirror predates the announcement), so it was read through the founder rather than
+#: fetched here — which is why the guide's own worked example is quoted below rather than
+#: summarised.
 #:
-#: THE MATCH IS CASE- AND SPACE-INSENSITIVE FOR EXACTLY THAT REASON. The casing in an email
-#: is not a wire contract, and a sentinel we fail to recognise is worse than one we
-#: over-match: an unrecognised one becomes a client's data.
+#: The guide's example, and the four places it lands:
+#:
+#:     "Interest Level": {
+#:       "subjective": "No User Turn Detected",
+#:       "objective": "No User Turn Detected",
+#:       "confidence": 1.0,
+#:       "confidence_label": "High",
+#:       "reasoning_subjective": "No User Turn Detected",
+#:       "reasoning_objective": "No User Turn Detected",
+#:       "validation": null
+#:     }
+#:
+#: — *"in every extraction across every category"*. `reasoning_*` never reaches us (they are
+#: dropped as the vendor's account of itself, hard rule 6), so the two that matter are the
+#: two this module reads.
+#:
+#: THREE OF THE GUIDE'S WARNINGS ARE LOAD-BEARING HERE, and each closes an escape route a
+#: reasonable reader might have reached for instead:
+#:
+#: * *"`objective` will return the sentinel even though it is not one of your configured
+#:   options. Exact-match comparisons will not hit any branch, so handle the sentinel
+#:   before comparing."* — which is why it is dropped HERE, at the boundary, and not in a
+#:   consumer that compares values.
+#: * *"`confidence` will be `1.0` and `confidence_label` `"High"`. The score reflects
+#:   certainty that no user spoke, not certainty about an answer. Filtering on confidence
+#:   alone will not exclude these calls."* — so a confidence threshold is not a substitute
+#:   for this check, and must never be written as one.
+#: * *"Typed extractions will return the sentinel as a string. A numeric extraction returns
+#:   `"No User Turn Detected"`."* — so no type check upstream will catch it either.
+#:
+#: THE MATCH STAYS CASE- AND SPACE-INSENSITIVE even though the casing is now confirmed. It
+#: costs nothing, and a sentinel we fail to recognise becomes a client's data while one we
+#: over-match costs an empty map that already means "no extraction ran".
 NO_USER_TURN_SENTINEL: Final = "no user turn detected"
 
 
@@ -2707,9 +2739,12 @@ def flatten_extracted_data(raw: Any) -> dict[str, Any]:
     the parent key is a category is this file's knowledge leaking into a caller that must
     keep working when the engine is not Bolna.
 
-    BOTH SHAPES, because the vendor says there are two: Extractions is "the NEW ...
-    feature ... powered by the Dispositions API", so an account may still hold agents
-    whose payload is flat. A top-level entry is a CATEGORY only when its value is a
+    BOTH SHAPES, PERMANENTLY, AND THAT IS NOT A TRANSITIONAL ALLOWANCE. The vendor's
+    migration guide is explicit that flat keys stop appearing on NEW calls after
+    18 Sep 2026 but that *"Completed calls keep the results and shape they were stored
+    with, readable indefinitely ... Code that reads historical calls must keep handling
+    the old shape permanently, not just until the cutoff."* So the flat arm below has no
+    removal date and must not acquire one. A top-level entry is a CATEGORY only when its value is a
     mapping whose own values carry `subjective` or `objective`; anything else is a field
     and passes through untouched. Matching on the leaf keys rather than on depth means a
     flat field whose value happens to be a dict is not mistaken for a category.
