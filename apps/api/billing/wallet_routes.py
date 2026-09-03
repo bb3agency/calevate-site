@@ -513,20 +513,32 @@ async def read_payment_receipt(payment_ref: str, principal: WalletRead) -> Recei
     tenant_id = principal.tenant_id
 
     async with tenant_session(tenant_id) as session:
-        found = await recorded_payments(
-            session, tenant_id=tenant_id, payment_refs=[payment_ref.strip()]
-        )
-        payment = found.get(payment_ref.strip())
-        if payment is None:
-            raise ProblemError.not_found("Payment")
+        # THE ORGANISATION IS READ FIRST, AND THE ORDER IS THE POINT. Read after the
+        # payment, this branch is unreachable and untestable rather than safe:
+        # `credit_ledger.tenant_id` carries `FOREIGN KEY ... REFERENCES organizations(id)
+        # ON DELETE RESTRICT`, so a payment row PROVES its organisation exists, and a
+        # `None` here could only mean the database had broken its own constraint. A guard
+        # that can never fire is not protection, it is an untested line pretending to be
+        # one — and the ratchet counts it as exactly that.
+        #
+        # Asked first, it guards something real: a principal naming an organisation this
+        # deployment does not have. It also stops us looking up a payment for an
+        # organisation that is not there, which is a round trip and an answer in the
+        # wrong order ("no such payment" when the truth is "no such account").
         org = (
             await session.execute(
                 text("SELECT name, billing_email FROM organizations WHERE id = :tid"),
                 {"tid": tenant_id},
             )
         ).first()
-    if org is None:
-        raise ProblemError.not_found("Organization")
+        if org is None:
+            raise ProblemError.not_found("Organization")
+        found = await recorded_payments(
+            session, tenant_id=tenant_id, payment_refs=[payment_ref.strip()]
+        )
+        payment = found.get(payment_ref.strip())
+        if payment is None:
+            raise ProblemError.not_found("Payment")
 
     supplier = supplier_identity(get_settings())
     return ReceiptOut(
