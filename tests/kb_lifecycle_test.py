@@ -393,7 +393,7 @@ async def test_a_live_version_we_cannot_address_blocks_the_publish() -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) - 'engine_kb_ref' "
+                "DELETE FROM engine_kb_routes "
                 "WHERE source_id IN (SELECT id FROM kb_sources WHERE agent_id = :a "
                 "AND name = 'Fees' AND is_active = true)"
             ),

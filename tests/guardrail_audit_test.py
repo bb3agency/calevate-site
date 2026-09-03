@@ -409,6 +409,15 @@ class TestRlsCoverage:
             # and read only behind `platform:config` in the admin realm.
             "fx_rate_observations",
             "engine_agent_routes",
+            # D-519: which tenant owns one vendor KNOWLEDGE BASE. Same shape and same
+            # argument as `engine_agent_routes` one line up — a globally readable claim
+            # of opaque ids beside a FORCEd write policy — because the vendor's knowledge
+            # base is an account-level object with no owner field and one account holds
+            # every tenant's documents, so "which of these does nobody claim?" is a
+            # cross-tenant question that decides whether an erasure can reach a client's
+            # document at all. Keeping it here is what lets `kb_sources`/`kb_documents`
+            # stay FORCE-RLS'd with no exemption of their own.
+            "engine_kb_routes",
             "platform_settings",
             "platform_config_version",
             "platform_secrets",

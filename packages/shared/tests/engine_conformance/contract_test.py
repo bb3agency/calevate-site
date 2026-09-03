@@ -1062,6 +1062,68 @@ async def test_detach_kb_actually_removes_exactly_the_source_it_names(
     assert kept in remaining, "detach removed a source it was not asked to remove"
 
 
+async def test_the_account_listing_sees_what_no_agent_references(
+    engine: VoiceEngine,
+) -> None:
+    """`list_account_kb` must see an object `list_kb` cannot — that is its whole job.
+
+    D-519. Every failure this feature can suffer leaves the same residue: an object the
+    ACCOUNT holds that no agent references — a create whose response was lost, a crash
+    between the upload and the agent write, a COMMIT that failed after a successful
+    attach, a cleanup that itself failed, an agent deleted while it still referenced
+    knowledge. `list_kb` reads the AGENT, so every one of those is invisible to it, and
+    an adapter that answered this method from the agent's own references would pass every
+    other clause in this file while making the orphan report structurally incapable of
+    finding anything.
+
+    Staged with the one such state a conformance test can produce without breaking the
+    transport: an agent is deleted while it still holds an attached document. WHAT
+    HAPPENS TO THE VENDOR'S OBJECT THEN IS UNKNOWN on the primary engine and is
+    OPERATIONS §2 gate 43f, so this clause asserts NEITHER branch — it asserts the
+    property that is true under both: whatever the account still holds, this method
+    reports, and it never reports an object as attached to an agent that is gone.
+    """
+    if not engine.capabilities.knowledge_base:
+        return  # covered instead by the refusal clause for KB-less engines
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    handle = await engine.attach_kb(
+        ref, _kb_source("kb_account", "Fees", "A consultation costs 500."), agent=cfg
+    )
+
+    listing = await engine.list_account_kb()
+    assert listing.complete, "the account listing was truncated on an account with one object"
+    assert handle in {obj.handle for obj in listing.objects}, (
+        "an attached document is not in the account listing, so the orphan report can "
+        "never see one that stops being attached"
+    )
+
+    await engine.delete_agent(ref)
+
+    assert handle not in set(await _kb_of_deleted_agent(engine, ref)), (
+        "a deleted agent still references the knowledge it held"
+    )
+    # THE ACCOUNT LISTING MUST STILL ANSWER, and that is the assertion. Whether the object
+    # survived its agent is the vendor's business and neither branch is asserted; what is
+    # refused is an adapter that answers this method FROM the agent — such an adapter
+    # raises here (the agent is a phantom) or reports an empty account, and either way the
+    # orphan report can never see the residue it exists for.
+    final = await engine.list_account_kb()
+    assert final.complete, "the account listing stopped being answerable once an agent went"
+
+
+async def _kb_of_deleted_agent(engine: VoiceEngine, ref: str) -> list[str]:
+    """What `list_kb` says about an agent that no longer exists: nothing, or a refusal.
+
+    Both are correct — the Protocol lets `get_agent` raise on a phantom — and the caller
+    above needs the distinction flattened, because its subject is the ACCOUNT listing.
+    """
+    try:
+        return await engine.list_kb(ref)
+    except Exception:
+        return []
+
+
 async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
     engine: VoiceEngine,
 ) -> None:
@@ -1412,6 +1474,7 @@ async def test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods(
         ("attach_kb", lambda: engine.attach_kb(ref, source, agent=cfg)),
         ("detach_kb", lambda: engine.detach_kb(ref, "kb_anything", agent=cfg)),
         ("list_kb", lambda: engine.list_kb(ref)),
+        ("list_account_kb", engine.list_account_kb),
     ):
         refusal: Exception | None = None
         try:

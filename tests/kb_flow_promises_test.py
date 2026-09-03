@@ -204,13 +204,14 @@ async def _forget_the_handle(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: st
 
     This is the state a version published before `_remember_engine_kb_ref` existed is in:
     live in our tables, attached on the engine, and unaddressable. Reproduced by removing
-    the key rather than by patching the reader, because the refusal under test is a
-    statement about the ROW.
+    the CLAIM ROW (`engine_kb_routes`, D-519 — it was a JSONB key on `kb_documents` before
+    that) rather than by patching the reader, because the refusal under test is a
+    statement about the row.
     """
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) - 'engine_kb_ref' "
+                "DELETE FROM engine_kb_routes "
                 "WHERE source_id IN (SELECT id FROM kb_sources WHERE agent_id = :a "
                 "AND name = :n AND is_active = true)"
             ),

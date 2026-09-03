@@ -117,6 +117,7 @@ from apps.workers.kb_aggregation import (
 )
 from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
+from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
@@ -500,6 +501,31 @@ CRON_JOBS = [
     cron(
         traced_job(sweep_kb_drift),
         minute=set(KB_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE ACCOUNT-LEVEL KNOWLEDGE SWEEP (D-519), and it is the sweep above's blind spot
+    # rather than a duplicate of it. That one reads what an AGENT references and therefore
+    # cannot see an object no agent references — which is what every failure in this
+    # feature leaves behind, on an account shared by every tenant, holding a client's
+    # uploaded document with nothing at the vendor saying whose it is.
+    #
+    # DAILY rather than hourly, and one vendor call per tick. `list_account_kb` walks an
+    # account-wide listing that grows with every source every client has ever published —
+    # the dearest read in the adapter, and the one the drift sweep's batch size exists to
+    # avoid making per agent. The residue it finds is made by crashes and by hand; none of
+    # its verdicts becomes more actionable for being eight hours fresher.
+    #
+    # 04:40 because the hours around it are taken (03:17 expiry, 03:40 retention, 04:05
+    # the TLS probe, :23 of every hour the KB drift sweep), and `hour`/`minute` come FROM
+    # the module for its neighbours' reason.
+    #
+    # `max_tries` EXPLICIT: `cron()` defaults it to 1, and the failure this job is most
+    # likely to suffer is a slow vendor listing — precisely the one that must not be
+    # allowed to mean "nothing to report until tomorrow".
+    cron(
+        traced_job(sweep_kb_orphans),
+        hour=set(ORPHAN_SWEEP_HOUR),
+        minute=set(ORPHAN_SWEEP_MINUTE),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that

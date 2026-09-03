@@ -432,6 +432,128 @@ async def test_a_detach_of_a_handle_the_account_does_not_hold_raises() -> None:
     assert raised.value.code == "engine_rejected"
 
 
+def _kb_page(request: httpx.Request, total: int) -> httpx.Response:
+    """One page of a `total`-object account, honouring `page_number`/`page_size`.
+
+    Offset-based, which is the vendor's own description of what these parameters do
+    (`bolna-findings/mirror/pages/api-reference/pagination.md:19-27`, the worked table)."""
+    page_number = int(request.url.params.get("page_number", "1"))
+    page_size = int(request.url.params.get("page_size", "20"))
+    start = (page_number - 1) * page_size
+    rows = [
+        {"rag_id": f"rag_{index}", "vector_id": f"vec_{index}", "status": "processed"}
+        for index in range(start, min(start + page_size, total))
+    ]
+    return httpx.Response(200, json=rows)
+
+
+async def test_a_detach_reaches_a_knowledge_base_past_the_first_listing_page() -> None:
+    """D-519. `_rag_id_of` READ ONE PAGE and answered `None` for everything after it.
+
+    One Bolna account holds every tenant's knowledge bases and every published version of
+    every named source is its own object — there is no update route
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/overview.md:11-16`) — so the
+    ceiling is a handful of documents, not a distant one. Past it the adapter said "the
+    voice platform does not hold that knowledge base" about an object it does hold, and
+    `kb/service` turned that into `kb_detach_failed` with the remediation "try publishing
+    again", which could never work: the client's knowledge froze with a message saying
+    the opposite.
+
+    120 objects with the handle on the third page. `page_size` is the vendor's stated
+    maximum of 50 (`.../pagination.md:14`), so a one-page read sees `vec_0`..`vec_49`."""
+    deleted: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/knowledgebase/all":
+            return _kb_page(request, total=120)
+        if path == "/v2/agent/agent_1" and request.method == "GET":
+            return httpx.Response(200, json={"agent_id": "agent_1", "data": {}})
+        if path.startswith("/knowledgebase/") and request.method == "DELETE":
+            deleted.append(path.rsplit("/", 1)[1])
+            return httpx.Response(200, json={"message": "success", "state": "deleted"})
+        return httpx.Response(200, json={"status": "ok"})
+
+    await _engine(handler).detach_kb("agent_1", "vec_101", agent=_config())
+
+    assert deleted == ["rag_101"], (
+        "the walk must reach page three: a knowledge base the account holds must not be "
+        "reported as absent because the listing was read one page deep"
+    )
+
+
+async def test_the_account_listing_attributes_objects_by_the_file_name_we_chose() -> None:
+    """D-519. The one attribution an UNRECORDED vendor object has.
+
+    Their `Knowledgebase` row carries no agent, no tenant and no owner
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md
+    :63-121`) and one account holds every tenant's documents, so an object whose handle
+    our tables never recorded — a create whose response was lost, a publish whose COMMIT
+    failed — would be anonymous for ever. It is not, because the file name is OURS:
+    `calevate-kb-<source id>.pdf` (`_kb_filename`), echoed back on every listing row.
+
+    Also pinned: a row still `processing` has NO `vector_id` on this vendor, and reporting
+    a handle for it would tell the orphan report an unattachable object is attachable.
+    """
+    rows = [
+        {
+            "rag_id": "rag_1",
+            "vector_id": "vec_1",
+            "file_name": "calevate-kb-0199a0b0-0000-7000-8000-000000000009.pdf",
+            "status": "processed",
+            "created_at": "2026-09-01T10:00:00Z",
+        },
+        {"rag_id": "rag_2", "file_name": "calevate-kb-nope.pdf", "status": "processing"},
+        {"rag_id": "rag_3", "vector_id": "vec_3", "file_name": "somebody.pdf", "status": "error"},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/knowledgebase/all"
+        return httpx.Response(200, json=rows)
+
+    listing = await _engine(handler).list_account_kb()
+
+    assert listing.complete
+    claimed, pending, stranger = listing.objects
+    assert str(claimed.claimed_source_id) == "0199a0b0-0000-7000-8000-000000000009"
+    assert claimed.state == "ready" and claimed.handle == "vec_1"
+    assert pending.handle is None, (
+        "a `processing` row carries no vector id and one must not be invented for it"
+    )
+    assert pending.claimed_source_id is None, "`calevate-kb-nope.pdf` is not one of ours"
+    assert pending.state == "pending"
+    assert stranger.claimed_source_id is None, (
+        "an upload made outside this code was attributed to one of our sources"
+    )
+    assert stranger.state == "failed", (
+        "`error` is absent from their LISTING enum and is still a state their platform "
+        "has a name for; dropping it hides a failed upload on the one surface that "
+        "explains what is lying around"
+    )
+
+
+async def test_a_listing_the_walk_could_not_finish_is_not_read_as_absence() -> None:
+    """ "We could not finish looking" is not "the account does not hold it".
+
+    The vendor's listing carries no `has_more` and no `total`
+    (`.../knowledgebase/get_knowledgebases.md:29-51`), so a page that yields nothing new
+    is the only truncation signal there is. Answering `None` on it would make `detach_kb`
+    raise `engine_rejected` — a positive claim about the vendor's state — on a read that
+    did not happen, and the publisher would then be told the old copy is gone when it is
+    not. The handler below returns a full page of the SAME rows forever."""
+    page = [{"rag_id": "rag_x", "vector_id": "vec_x"} for _ in range(50)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/knowledgebase/all":
+            return httpx.Response(200, json=page)
+        return httpx.Response(200, json={"status": "ok"})
+
+    with pytest.raises(ProblemError) as raised:
+        await _engine(handler).detach_kb("agent_1", "vec_missing", agent=_config())
+
+    assert raised.value.code == "engine_kb_listing_incomplete"
+
+
 async def test_an_agent_republish_preserves_the_knowledge_it_already_holds() -> None:
     """WITHOUT THIS, EVERY T0 RECOMPILE WOULD DELETE A CLIENT'S KNOWLEDGE.
 

@@ -109,6 +109,7 @@ from time import monotonic
 from types import MappingProxyType
 from typing import Any, Final, NamedTuple
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 from calevate_shared.config import bolna_source_ips
@@ -117,6 +118,9 @@ from calevate_shared.engine import (
     DECLARED_POSTURE,
     E164,
     LLM_TTFT_BUDGET_MS,
+    AccountKBListing,
+    AccountKBObject,
+    AccountKBState,
     ActionToolSpec,
     AgentConfig,
     AgentSnapshot,
@@ -1825,6 +1829,45 @@ def _kb_filename(source: KBSourceRef) -> str:
     ("Ravi's clinic timings") and there is no reason a vendor console needs it.
     """
     return f"calevate-kb-{source.kb_id}.pdf"
+
+
+#: Their status vocabulary -> ours. See `list_account_kb` on why `error` is mapped from a
+#: listing whose own enum does not declare it.
+_KB_STATES: dict[str, AccountKBState] = {
+    KB_STATUS_PROCESSED: "ready",
+    KB_STATUS_PROCESSING: "pending",
+    KB_STATUS_ERROR: "failed",
+}
+
+#: The file name `_kb_filename` writes, read back. Anchored at both ends: a name that
+#: merely CONTAINS a uuid is not one this code wrote, and treating it as ours would
+#: attribute a stranger's upload to one of our sources.
+_KB_FILENAME_RE = re.compile(r"^calevate-kb-([0-9a-fA-F-]{32,36})\.pdf$")
+
+
+def _source_id_from_kb_filename(file_name: Any) -> UUID | None:
+    """Our source id out of the vendor's `file_name`, or None if it is not ours.
+
+    THE ONLY ATTRIBUTION AN UNRECORDED OBJECT HAS. Every other field on their listing row
+    belongs to them; this one we chose, and it is what makes a knowledge base created by a
+    publish whose transaction rolled back attributable rather than anonymous for ever.
+
+    None is returned for anything that does not match EXACTLY: an upload made by hand in
+    the vendor console, a name from a build older than this convention, or a value that
+    looks close. `kb/orphans.py` treats those as unclaimed and asks a human, which is the
+    only safe verdict — an object we cannot attribute may still be a client's document.
+    """
+    if not isinstance(file_name, str):
+        return None
+    matched = _KB_FILENAME_RE.match(file_name)
+    if matched is None:
+        return None
+    try:
+        return UUID(matched.group(1))
+    except ValueError:
+        # A 32-36 character hex-and-dash string that is not a uuid. Their store would
+        # happily hold one; our sources are uuid7 and nothing else, so this is not ours.
+        return None
 
 
 def _agent_object(payload: dict[str, Any]) -> dict[str, Any]:
@@ -4051,6 +4094,76 @@ class BolnaEngine:
                 )
             await asyncio.sleep(KB_READY_POLL_INTERVAL_S)
 
+    async def _kb_account_rows(self) -> tuple[list[dict[str, Any]], ListingIncompleteReason | None]:
+        """Every knowledge base on the ACCOUNT, walked to the end of its pages.
+
+        **THIS LISTING IS PAGINATED AND `_rag_id_of` ASKED FOR ONE PAGE (D-519), WHICH IS
+        D-421'S DEFECT ON A SECOND ROUTE.** The same two first-party pages govern it:
+
+            `bolna-findings/mirror/pages/api-reference/pagination.md:9,13-14` — "The
+            endpoints also support pagination using the `page_number` and `page_size`
+            query parameters ... `page_number` ... Defaults to `1` ... `page_size` ...
+            Defaults to `20`. You can request up to `50` results per page."
+
+        and the route's own OpenAPI block, which declares NO parameters and answers a
+        bare `KnowledgebaseList` array with no `has_more` and no `total`
+        (`.../knowledgebase/get_knowledgebases.md:29-51,63-121`).
+
+        WHY IT WAS WORSE HERE THAN ON THE AGENT ROSTER. One Bolna account holds every
+        tenant's knowledge bases and each PUBLISHED VERSION of each named source is its
+        own object (there is no update route — `.../knowledgebase/overview.md:11-16`), so
+        the 21st object is a handful of documents rather than a handful of clients. Past
+        it, `_rag_id_of` answered `None` for a knowledge base the account really holds,
+        `detach_kb` raised "the voice platform does not hold that knowledge base" — a
+        false statement about a live object — and `kb/service._detach_superseded` turned
+        it into `kb_detach_failed`, whose remediation is "try publishing again". Every
+        retry would fail the same way, and the account's oldest documents are the ones
+        that stop being addressable first. That is a client's knowledge frozen with a
+        message that says otherwise.
+
+        SAFE UNDER BOTH READINGS, exactly as `_agent_refs` is: if the platform honours
+        `page_number` this walks to the end; if it IGNORES it, page two repeats page one,
+        the de-duplication sees no new `rag_id` and the walk stops. De-duplication is on
+        `rag_id` because that is the object's own id and the one field their listing
+        schema declares as the ID (`get_knowledgebases.md:63-70`); `vector_id` is absent
+        from a row that is still `processing`.
+
+        The verdict is returned rather than swallowed: a caller that must not mistake
+        "we could not finish looking" for "the account does not hold it" needs the
+        difference, and `_rag_id_of` is exactly that caller.
+        """
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        reason: ListingIncompleteReason | None = None
+        page_number = 1
+        while True:
+            payload = await self._request(
+                "GET",
+                "/knowledgebase/all",
+                params={"page_number": page_number, "page_size": _LISTING_PAGE_SIZE},
+            )
+            page = _listing_rows(payload)
+            new_rows = 0
+            for row in page:
+                rag_id = row.get("rag_id")
+                if not isinstance(rag_id, str) or not rag_id or rag_id in seen:
+                    continue
+                seen.add(rag_id)
+                rows.append(row)
+                new_rows += 1
+            # A short page ends the account and cannot be hiding anything — the vendor
+            # returned fewer rows than we asked for. The only exit that claims completeness.
+            if len(page) < _LISTING_PAGE_SIZE:
+                break
+            if new_rows == 0:
+                reason = "next_link_no_progress"
+                break
+            if page_number >= _LISTING_MAX_PAGES:
+                reason = "page_cap_reached"
+                break
+            page_number += 1
+        return rows, reason
+
     async def _rag_id_of(self, vector_id: EngineKBRef) -> str | None:
         """Our handle -> the id the DELETE route takes, or None if the account holds no
         such knowledge base.
@@ -4061,97 +4174,36 @@ class BolnaEngine:
         BY vector id, which is the whole reason a listing is fetched here rather than a
         row.
 
-        **IT IS A PAGE, NOT AN ACCOUNT, AND THIS READ ONE PAGE AND CALLED IT THE ACCOUNT
-        (D-516).** Exactly `_agent_refs`' defect (D-430/F-1) on the one other bare-array
-        listing this adapter reads: the route's own OpenAPI block declares no parameters
-        and answers a bare `KnowledgebaseList` array with no `has_more` and no `total`
-        (`.../knowledgebase/get_knowledgebases.md:29-44,47-51`), while the vendor's pagination
-        page says *"The endpoints also support pagination using the `page_number` and
-        `page_size` query parameters"* and defaults `page_size` to **20**
-        (`.../api-reference/pagination.md:9,13-14`). One Bolna account holds every
-        tenant's knowledge bases, every publish is a fresh CREATE (there is no update
-        route), and orphans linger (gate 43e) -- so 20 rows is a handful of clients, not
-        a distant ceiling.
+        None is a real answer and the caller must treat it as one: it means the engine
+        does not hold that knowledge base, which for `detach_kb` is the 404 the Protocol
+        says must RAISE rather than pass quietly.
 
-        WHAT THE UNPAGED READ DID past that boundary was worse than truncation: the
-        21st knowledge base is simply absent from the answer, `detach_kb` reads the
-        absence as the vendor's 404, and a client is told *"The voice platform does not
-        hold that knowledge base"* about a document it is holding, retrieving from, and
-        billing for -- with no retry that could ever succeed.
-
-        SAFE UNDER BOTH READINGS OF THE VENDOR, the same intersection `_agent_refs`
-        takes: if the platform honours `page_number` this walks the account to its end;
-        if it ignores it -- the shape a FastAPI handler with no declared query model has,
-        and their OSS server is FastAPI -- page one already carried every row, page two
-        repeats it, no new vector id appears and the walk stops.
-
-        THREE ANSWERS, NOT TWO, because the third one is the one the caller must not
-        mistake for the second:
-
-        * the rag id -- found;
-        * `None` -- the walk ENDED (a short page: the vendor returned fewer rows than we
-          asked for, so nothing can be hiding behind it) and the handle was not in it.
-          That is the 404 by another name and `detach_kb` raises on it;
-        * `engine_kb_listing_incomplete` -- the walk could not be finished, so "not
-          found" would be a claim about rows we never saw. An unlocatable reference may
-          not look like a cleared one (D-41), and that is the whole asymmetry this
-          module's read helpers are written to keep.
+        **AND THAT IS PRECISELY WHY AN UNFINISHED WALK MAY NOT ANSWER `None` (D-519).**
+        A listing we could not finish is not evidence of absence, and turning it into one
+        deletes a client's ability to republish (see `_kb_account_rows`). So a miss on a
+        walk that stopped early RAISES a dependency error naming the cause, which
+        `_detach_superseded` reports as a refusal to publish — the client keeps the
+        version a human approved and loses only the update.
         """
-        page_number = 1
-        seen: set[str] = set()
-        while True:
-            payload = await self._request(
-                "GET",
-                "/knowledgebase/all",
-                params={"page_number": page_number, "page_size": _LISTING_PAGE_SIZE},
-            )
-            rows = _listing_rows(payload)
-            fresh = 0
-            for row in rows:
-                candidate = row.get("vector_id")
-                if isinstance(candidate, str) and candidate not in seen:
-                    seen.add(candidate)
-                    fresh += 1
-                if candidate != vector_id:
-                    continue
+        rows, reason = await self._kb_account_rows()
+        for row in rows:
+            if row.get("vector_id") == vector_id:
                 rag_id = row.get("rag_id")
-                if isinstance(rag_id, str) and rag_id:
-                    return rag_id
-                # FOUND AND UNADDRESSABLE, which is not "the account does not hold it".
-                # Their own schema declares `rag_id` on this row
-                # (`.../knowledgebase/get_knowledgebases.md:65-70`), so a row carrying a
-                # matching `vector_id` and no usable `rag_id` is a response we cannot
-                # use. Returning None here would have reported the document as already
-                # gone and deleted nothing.
-                raise ProblemError(
-                    kind="dependency",
-                    code="engine_bad_response",
-                    title="Voice engine returned an unusable response",
-                    detail=(
-                        "The voice platform listed that knowledge base without an id we "
-                        "can address it by."
-                    ),
-                    failure_stage="CORE_LOGIC",
-                )
-            if len(rows) < _LISTING_PAGE_SIZE:
-                return None
-            if fresh == 0 or page_number >= _LISTING_MAX_PAGES:
-                raise ProblemError(
-                    kind="dependency",
-                    code="engine_kb_listing_incomplete",
-                    title="The voice platform would not list its knowledge bases",
-                    detail=(
-                        "The voice platform's knowledge base listing could not be read to "
-                        "the end, so whether it still holds this document is unknown."
-                    ),
-                    remediation=(
-                        "Nothing was deleted. Try publishing again; if it repeats, the "
-                        "account holds more knowledge bases than the platform will list "
-                        "and support must remove the unreferenced ones."
-                    ),
-                    failure_stage="CORE_LOGIC",
-                )
-            page_number += 1
+                return rag_id if isinstance(rag_id, str) and rag_id else None
+        if reason is not None:
+            log.error("kb_account_listing_incomplete", extra={"reason": reason})
+            raise ProblemError(
+                kind="dependency",
+                code="engine_kb_listing_incomplete",
+                title="The voice platform's knowledge list could not be read to the end",
+                detail=(
+                    "The platform did not finish listing the knowledge bases on this "
+                    "account, so we cannot tell whether it still holds this one."
+                ),
+                remediation="Try again in a few minutes.",
+                failure_stage="CORE_LOGIC",
+            )
+        return None
 
     async def _current_vector_ids(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         """What the AGENT references right now. The engine's answer, not our records."""
@@ -4378,6 +4430,48 @@ class BolnaEngine:
         # already gone, so a knowledge base that vanished between the listing above and
         # this call has reached this method's postcondition by another route.
         await self._request("DELETE", f"/knowledgebase/{rag_id}", absent_is_success=True)
+
+    async def list_account_kb(self) -> AccountKBListing:
+        """Every knowledge base on the account, with our own source id where we can read it.
+
+        `GET /knowledgebase/all`, walked (`_kb_account_rows`). The account is shared by
+        every tenant and the row carries no owner of any kind — `Knowledgebase` declares
+        `rag_id`, `file_name`, `humanized_created_at`, `created_at`, `updated_at`,
+        `vector_id`, `status`, `chunk_size`, `similarity_top_k` and `language_support`
+        (`.../knowledgebase/get_knowledgebases.md:63-121`) — so the attribution has to
+        come from something WE put on the object.
+
+        **THAT SOMETHING IS THE FILE NAME, AND IT IS OURS RATHER THAN THE CLIENT'S.**
+        `_kb_filename` sends `calevate-kb-<our source id>.pdf` and the vendor echoes it
+        back on every listing row, which turns their flat pool into something attributable
+        even when the transaction that should have recorded the handle rolled back. It is
+        a claim and not proof, which is why it crosses as `claimed_source_id` and why
+        `kb/orphans.py` still checks it against our own rows: a name is not a record.
+
+        `vector_id` is absent from a row that is still `processing`, so `handle` is None
+        there rather than invented — an object with no reference-able id is exactly what a
+        publish in flight looks like, and reporting it as attachable would be a lie the
+        orphan report acts on.
+
+        THE STATUS ENUM ON THIS ROUTE IS `processing | processed` AND `error` IS NOT IN IT
+        (`get_knowledgebases.md:95-101`), while the single-row read and the create both
+        declare `error` as well. Both are mapped: a state their listing schema does not
+        promise is still a state their platform has a name for, and dropping it here would
+        turn a failed upload into `unknown` on the one surface that has to explain what is
+        lying around.
+        """
+        require_capability("knowledge_base", engine=self)
+        rows, reason = await self._kb_account_rows()
+        objects = [
+            AccountKBObject(
+                handle=row["vector_id"] if isinstance(row.get("vector_id"), str) else None,
+                claimed_source_id=_source_id_from_kb_filename(row.get("file_name")),
+                state=_KB_STATES.get(str(row.get("status") or "").lower(), "unknown"),
+                created_at=_parse_dt(row.get("created_at")),
+            )
+            for row in rows
+        ]
+        return AccountKBListing(objects=objects, complete=reason is None, incomplete_reason=reason)
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         """The vector ids this AGENT references -- one `GET /v2/agent/{id}`.
