@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
   Download,
@@ -1330,6 +1330,32 @@ export default function LeadsPage() {
  * A refusal is amber, not rose: the gate working is not a fault, and painting it like an
  * error is what teaches a client to report their own compliance rules as bugs.
  */
+/**
+ * The one thing a refused dial's rule NAME was ever worth to a client: where the refusal
+ * is cleared.
+ *
+ * Only the two money gates have a destination on this screen's side of the product, and
+ * they are the two a prepaid account meets — which is now nearly every account. Every
+ * other rule (consent, do-not-call, calling hours, the DLT registrations) already carries
+ * its own remedy inside the server's sentence, and a second link would be a worse version
+ * of it. An unknown rule adds nothing rather than printing itself.
+ */
+function blockedRemedy(rule: string | null | undefined): ReactNode {
+  if (rule === "no_credits") {
+    return (
+      <>
+        {" "}
+        People ringing you still get through. Top up on the Calling credit screen and
+        outgoing calls start again.
+      </>
+    );
+  }
+  if (rule === "spend_cap") {
+    return <> People ringing you still get through. Your monthly limit is on Usage.</>;
+  }
+  return null;
+}
+
 function CallControl({
   result,
   pending,
@@ -1353,7 +1379,16 @@ function CallControl({
         <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
           {result.blocked_reason ?? "This call was not allowed."}
-          {result.blocked_rule ? ` (${result.blocked_rule})` : ""}
+          {/* THE RULE NAME USED TO BE PRINTED HERE, in brackets, to the client: a refused
+              dial read "This account has no calling credit left. (no_credits)". That is
+              the platform's own vocabulary handed to the person it refused, and it tells
+              them nothing they can act on — the founder's standard for client-facing copy
+              bans it, and `tests/plainLanguageGuard.test.ts` now enforces the literal
+              half of that rule (this one was a variable, which is why it survived).
+              What replaces it is the thing the name was standing in for: WHERE the two
+              money refusals are fixed. Everything else keeps the server's sentence
+              alone, which already names its own remedy. */}
+          {blockedRemedy(result.blocked_rule)}
         </span>
       </span>
     );
