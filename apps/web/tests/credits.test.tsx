@@ -142,8 +142,11 @@ describe("the hero: how much, and how long it lasts", () => {
   it("puts the balance and the runway together, and shows the working behind the days", async () => {
     const { container } = await renderClientPage(page, routes());
 
-    // The digits the server sent, grouped the Indian way — never a parsed number.
-    await screen.findByText("₹3,400.00");
+    // The digits the server sent, grouped the Indian way — never a parsed number. Scoped
+    // to the balance tile: the same figure is the "balance after" of a ledger row, and
+    // the history now loads alongside the hero rather than behind it.
+    const tile = (await screen.findByText("Calling credit")).closest("div") as HTMLElement;
+    within(tile).getByText("₹3,400.00");
     await screen.findByText(/About 10 days of calling left/);
     // THE WORKING, not only the conclusion: an owner who disagrees with "10 days" can see
     // the ₹340 a day it came from.
@@ -261,6 +264,52 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     await expectNoA11yViolations(container, "c/[slug]/credits — empty wallet");
   });
 
+  it("does not tell a brand-new account that its credit ran out", async () => {
+    // DAY ONE ON A PREPAID ACCOUNT — which, now that prepaid is what an account gets
+    // unless an operator says otherwise, is what nearly every client meets first. The
+    // server says `outbound_stopped` for this wallet and for a spent one identically, so
+    // the only thing that tells them apart is that nothing has ever moved on the ledger.
+    await renderClientPage(
+      page,
+      routes({
+        [WALLET]: wallet({
+          balance_inr: "0.00",
+          is_low: true,
+          outbound_stopped: true,
+          minutes_left: 0,
+          runway: {
+            basis: "empty",
+            days: null,
+            daily_burn_inr: null,
+            history_days: 0,
+            beyond_horizon: false,
+            window_days: 30,
+            min_history_days: 7,
+            max_days: 365,
+          },
+          drawdown: {
+            calls_inr: "0.00",
+            ai_assist_inr: "0.00",
+            adjustments_inr: "0.00",
+            spent_inr: "0.00",
+            added_inr: "0.00",
+            refunded_inr: "0.00",
+          },
+        }),
+        [LEDGER]: { entries: [], payments: [] },
+      }),
+    );
+
+    const notice = (await screen.findByText(/cannot make outgoing calls until there is credit/))
+      .closest("[role=status]");
+    // The reassurance still leads, because it is the sentence that stops the panic.
+    expect(notice?.textContent).toContain("already get through");
+    // And the thing that did not happen is not reported as though it had: nothing "ran
+    // out" on an account that has never had anything on it.
+    await waitFor(() => expect(screen.queryByText(/has run out/)).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("warns at the low band without claiming anything has stopped yet", async () => {
     await renderClientPage(
       page,
@@ -279,10 +328,15 @@ describe("where the money went", () => {
   it("names the three things that draw the wallet down and never invents a fourth", async () => {
     const { container } = await renderClientPage(page, routes());
 
-    await screen.findByText(/Where your credit went in the last 30 days/);
-    await screen.findByText("Calls");
-    await screen.findByText("Extra AI help");
-    await screen.findByText("₹8,700.00");
+    // SCOPED TO THE CARD. "Calls" is also a ledger row's label now that this realm words
+    // an entry for the person whose money it is rather than for an operator, and an
+    // unscoped query for it would match whichever rendered first.
+    const card = (
+      await screen.findByText(/Where your credit went in the last 30 days/)
+    ).closest("section") as HTMLElement;
+    within(card).getByText("Calls");
+    within(card).getByText("Extra AI help");
+    within(card).getByText("₹8,700.00");
     // MESSAGING IS NOT A BUCKET. Nothing on this platform debits the wallet for a message,
     // so a "Messaging ₹0.00" row would be a category invented to look complete — and a
     // client reading it would reasonably conclude they are being charged for messages.
@@ -325,15 +379,70 @@ describe("the ledger and its receipts", () => {
 
     const table = await screen.findByRole("table", { name: /credit history/i });
     const rows = within(table).getAllByRole("row");
-    // Header, then the usage row, then the payment — newest first.
-    expect(within(rows[1]).getByText("Call usage")).toBeTruthy();
-    expect(within(rows[2]).getByText("Payment recorded")).toBeTruthy();
+    // Header, then the usage row, then the payment — newest first, and both in the words
+    // a client uses. The admin console calls these "Call usage" and "Payment recorded",
+    // which is the right register for an operator reconciling a bank statement and the
+    // wrong one for the person whose money it is (`walletReasonLabel`).
+    expect(within(rows[1]).getByText("Calls")).toBeTruthy();
+    expect(within(rows[2]).getByText("Credit added")).toBeTruthy();
     // A receipt exists for the payment and NOT for the call charge: there is no document
     // to issue for money we took a fraction of a rupee at a time.
     expect(within(rows[1]).queryByRole("button", { name: /receipt/i })).toBeNull();
     expect(within(rows[2]).getByRole("button", { name: /receipt for the payment/i })).toBeTruthy();
     // The sign is in the DIGITS, not only in a colour (WCAG 1.4.1).
     expect(within(rows[1]).getByText("-₹42.50")).toBeTruthy();
+  });
+
+  it("names a refund and a correction in words a client uses, not in ours", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        [WALLET]: wallet({
+          drawdown: {
+            calls_inr: "8400.00",
+            ai_assist_inr: "0.00",
+            adjustments_inr: "0.00",
+            spent_inr: "8400.00",
+            added_inr: "12100.00",
+            refunded_inr: "500.00",
+          },
+        }),
+        [LEDGER]: {
+          entries: [
+            {
+              id: "55555555-5555-4555-8555-555555555555",
+              delta_inr: "-500.00",
+              reason: "refund",
+              ref: "pay_a1b2c3",
+              balance_after_inr: "2900.00",
+              occurred_at: "2026-08-31T09:00:00Z",
+              payment_ref: null,
+            },
+            {
+              id: "66666666-6666-4666-8666-666666666666",
+              delta_inr: "-25.00",
+              reason: "adjustment",
+              ref: "adj:1",
+              balance_after_inr: "3400.00",
+              occurred_at: "2026-08-30T09:00:00Z",
+              payment_ref: null,
+            },
+          ],
+          payments: [],
+        },
+      }),
+    );
+
+    const table = await screen.findByRole("table", { name: /credit history/i });
+    const rows = within(table).getAllByRole("row");
+    // "Compensating adjustment" is what the admin console calls this row. Nobody outside
+    // this building has ever said it, and client-facing copy does not.
+    expect(within(rows[1]).getByText("Refunded to you")).toBeTruthy();
+    expect(within(rows[2]).getByText("Correction we made")).toBeTruthy();
+    expect(table.textContent).not.toContain("Compensating");
+    // Money that went back to the client is named for its direction below the total,
+    // rather than being buried in the spend it is not part of.
+    await screen.findByText("Refunded to you", { selector: "dt" });
   });
 
   it("opens a receipt that calls itself a receipt and never a tax invoice", async () => {
@@ -457,15 +566,26 @@ describe("the states that are not a balance", () => {
     expect(screen.queryByText(/Outgoing calls have stopped/)).toBeNull();
   });
 
-  it("tells an invoiced account there is nothing to top up, rather than showing ₹0.00", async () => {
-    await renderClientPage(
+  it("gives an invoiced account a screen of its own rather than a dead end", async () => {
+    const { container } = await renderClientPage(
       page,
       routes({ [WALLET]: wallet({ prepaid: false, balance_inr: "0.00", minutes_left: null }) }),
     );
-    await screen.findByText("This account is invoiced, not prepaid");
-    await screen.findByText(/your calls never stop for want of credit/);
+    await screen.findByText("This account is billed on a monthly invoice");
+    await screen.findByText(/never stop for want of credit/);
+    // THE DEAD END IS THE DEFECT. This branch used to name two other screens in prose and
+    // offer nothing; now the three money questions each have a link, because an invoiced
+    // client who lands here has usually been sent by somebody who assumed they had a
+    // balance and needs to be told where theirs actually is.
+    expect(screen.getByRole("link", { name: /Usage/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Spend/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Invoice/ })).toBeTruthy();
+    // Prepaid is what an account gets unless an operator says otherwise, so this screen
+    // says so — a client reading it who expected a wallet is reading OUR misconfiguration.
+    await screen.findByText(/Most accounts pay as they go/);
     // No balance about nothing, and no control the intent route is bound to refuse.
     expect(screen.queryByText(/Add credit/)).toBeNull();
+    await expectNoA11yViolations(container, "c/[slug]/credits — invoiced account");
   });
 
   it("gives a session without the permission a sentence, not a red 403", async () => {

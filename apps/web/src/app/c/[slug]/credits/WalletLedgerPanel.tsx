@@ -13,8 +13,13 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
-import { creditReasonLabel, takesCreditAway } from "@/lib/api/credits";
-import { WALLET_LEDGER_LIMIT, useWalletLedger, type WalletEntry } from "@/lib/api/wallet";
+import { takesCreditAway } from "@/lib/api/credits";
+import {
+  WALLET_LEDGER_LIMIT,
+  useWalletLedger,
+  walletReasonLabel,
+  type WalletEntry,
+} from "@/lib/api/wallet";
 import type { Session } from "@/lib/api/client";
 
 import { ReceiptSheet } from "./ReceiptSheet";
@@ -22,13 +27,15 @@ import { ReceiptSheet } from "./ReceiptSheet";
 /**
  * Every movement on the wallet, newest first, with a receipt beside each payment.
  *
- * **THE REASON LABELS AND THE DIRECTION TEST COME FROM `lib/api/credits.ts`, NOT FROM A
- * COPY.** That module is the admin console's, and these two pieces of it are realm-neutral
- * money vocabulary: `creditReasonLabel` fails VISIBLE (a reason this build has no word for
- * prints as the server sent it, rather than blanking the row — which on a money ledger is
- * exactly the row worth reading), and `takesCreditAway` decides direction from the DIGITS
- * rather than through `Number()`. Two copies of either is where the two screens start
- * telling one client two stories about one entry.
+ * **THE DIRECTION TEST COMES FROM `lib/api/credits.ts`, NOT FROM A COPY; THE WORDS DO
+ * NOT.** `takesCreditAway` is the admin console's and is realm-neutral — it decides which
+ * way an entry moved the balance from the DIGITS rather than through `Number()`, and two
+ * copies of it is where the two screens start pointing one entry in opposite directions.
+ * The LABELS are `walletReasonLabel`, this realm's own: the admin map reads "Payment
+ * recorded" and "Compensating adjustment", which is the right register for an operator
+ * reconciling a bank statement and the wrong one for the person whose money it is. Both
+ * maps fail VISIBLE — a reason this build has no word for prints as the server sent it,
+ * because an unrecognised row on a money ledger is exactly the row worth reading.
  *
  * **DIRECTION IS NEVER ONLY A COLOUR.** Every debit carries a literal minus in its
  * formatted amount (`formatINR` keeps the leading sign) and the row's label says what the
@@ -128,7 +135,7 @@ function LedgerRow({ entry, onReceipt }: { entry: WalletEntry; onReceipt: () => 
       <td className="py-3 pr-3 whitespace-nowrap text-ink-muted">
         {formatIST(entry.occurred_at)}
       </td>
-      <td className="py-3 pr-3 text-ink">{creditReasonLabel(entry.reason)}</td>
+      <td className="py-3 pr-3 text-ink">{walletReasonLabel(entry.reason)}</td>
       <td
         className={`py-3 pr-3 text-right font-medium tabular-nums ${
           isCredit ? "text-brand-strong" : "text-ink"
