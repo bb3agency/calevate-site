@@ -626,6 +626,13 @@ function describeVerification(record: KycRecord): string {
  * self-serve and trial plans" to a managed client costs them a moment; telling a
  * managed client their outbound calling has stopped when it has not costs them a day.
  *
+ * WHICH WAY ROUND THE SENTENCE GOES CHANGED WITH THE MOTION, though the fact behind it
+ * did not. The claim read "stopped on self-serve and trial accounts" — our own tier names,
+ * and phrased as though the gate were the exception. Every account is now prepaid unless
+ * an operator deliberately puts it on a retainer, so the gate is what almost every reader
+ * is under: it is stated as the rule, with the managed account as the carve-out, and in
+ * words rather than in plan tiers. The API's scoping is unchanged.
+ *
  * The icons carry the direction of the call, which is the whole distinction the list is
  * making and the one a worried client skims for.
  */
@@ -640,7 +647,7 @@ function WhatItAffects() {
         </Affected>
         <Affected
           icon={PhoneOutgoing}
-          claim="Outgoing calls: stopped on self-serve and trial accounts."
+          claim="Outgoing calls: stopped, unless yours is an account we run for you."
         >
           Campaigns will not launch and one-off outbound calls are refused, naming this
           verification as the reason. Accounts we set up and manage for you are not gated

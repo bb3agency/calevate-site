@@ -241,6 +241,43 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
   },
   no_contacts: { text: "Upload the contact list." },
 
+  /*
+   * THE TWO MONEY GATES, and the only two blockers on this list that stop calls the
+   * client has ALREADY launched as well as this one.
+   *
+   * Both had no entry here at all, so both rendered the server's own sentence — "This
+   * account has no calling credit left." — which is true, terse, and missing the two
+   * things that decide what the reader does next: that people ringing them still get
+   * through, and where the fix is. That was survivable while almost every account was
+   * invoiced against a retainer and neither gate could fire; prepaid is now what an
+   * account gets unless an operator deliberately says otherwise, so `no_credits` goes
+   * from a rule most clients could never meet to the single most likely reason a
+   * campaign of theirs will not start.
+   *
+   * INBOUND FIRST, in both. A business owner who reads "outgoing calls have stopped"
+   * about their phone system concludes the phone has stopped — the most expensive wrong
+   * belief this product can create, and the same reason `WalletHero` orders its two
+   * sentences that way.
+   *
+   * Both are `client`: the balance is topped up on `/credits` and the monthly limit is
+   * the client's own, set on `/usage` (D-34 R-11). Neither waits on us, so neither may
+   * carry the "we handle this" badge that tells a client to sit and wait.
+   */
+  no_credits: {
+    text:
+      "Your calling credit has run out, so outgoing calls have stopped. People ringing " +
+      "you still get through — answering calls never uses credit. Add credit and this " +
+      "campaign can go straight out.",
+    owner: "client",
+  },
+  spend_cap: {
+    text:
+      "This account has spent up to the monthly limit set on it, so outgoing calls have " +
+      "stopped until the limit is raised or the month turns over. People ringing you " +
+      "still get through.",
+    owner: "client",
+  },
+
   // The DLT entity registrations (SEC-COMP §3). Three separate registrations, none
   // implying another, and all three are OUR paperwork — an operator records them in
   // the admin console. The copy says the same thing the badge does, because a badge
@@ -780,6 +817,13 @@ export default function CampaignsPage() {
   const blockedOnFirstCampaign = clientBlockers.some((b) =>
     FIRST_CAMPAIGN_BLOCKERS.includes(b.rule),
   );
+  /* THE TWO MONEY GATES, each with a screen behind it — the same shape as the KYC and
+     first-campaign links below: the bullet says WHY, the link says WHERE. They are
+     separate booleans and separate links because they end differently: an empty wallet is
+     fixed in two minutes with a card, and a monthly limit is a number the account owner
+     chose and may not want to move. */
+  const blockedOnCredits = clientBlockers.some((b) => b.rule === "no_credits");
+  const blockedOnSpendCap = clientBlockers.some((b) => b.rule === "spend_cap");
   /**
    * Which agent dials decides the script, the voice and the disclosure line, so the
    * choice is ALWAYS on screen — not only when there is more than one. A campaign that
@@ -1901,6 +1945,41 @@ export default function CampaignsPage() {
                       view-as marker like every other in-realm link, so an operator
                       following it from a "view as client" session does not drop back
                       to a client token two pages in (lib/api/session.tsx). */}
+                  {/* THE WALLET, one click away. The bullet above says what stopped and
+                      that people ringing them still get through; this is the two-minute
+                      fix, and without it a client whose campaigns have stopped is left
+                      hunting for "Calling credit" at the bottom of a settings menu. */}
+                  {blockedOnCredits && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/credits`)}
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                      >
+                        Add calling credit
+                      </Link>{" "}
+                      <span className="text-ink-muted">
+                        — it takes a minute, and your campaigns start again as soon as it
+                        lands.
+                      </span>
+                    </p>
+                  )}
+
+                  {/* The monthly limit is the client's OWN and lives on Usage (D-34 R-11),
+                      so this is a destination and not an account-manager queue. */}
+                  {blockedOnSpendCap && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/usage`)}
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                      >
+                        See your monthly spending limit
+                      </Link>{" "}
+                      <span className="text-ink-muted">
+                        — it is your own setting, and you can raise it there.
+                      </span>
+                    </p>
+                  )}
+
                   {blockedOnKyc && (
                     <p className="text-sm">
                       <Link

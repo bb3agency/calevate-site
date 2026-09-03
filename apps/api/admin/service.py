@@ -23,7 +23,7 @@ import secrets
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from hashlib import sha256
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from scripts.seed import DEFAULT_RETENTION_POLICIES, VERTICAL_TEMPLATES
@@ -44,6 +44,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.tenancy.lifecycle import assert_account_open
+from apps.api.tenancy.models import DEFAULT_PLAN_TIER as _DEFAULT_PLAN_TIER
 
 log = get_logger(__name__)
 
@@ -186,7 +187,11 @@ async def assert_slug_available(session: AsyncSession, slug: str) -> None:
         raise ProblemError.conflict("slug_taken", "That slug is already in use.")
 
 
-DEFAULT_PLAN_TIER = "managed"
+#: RE-EXPORTED, NOT RESTATED (D-521). The value moved to `tenancy/models.py` beside
+#: `PLAN_TIERS`, because `billing.service.plan_tier_of` needs the same answer for a row it
+#: cannot see and the money layer may not import an admin module. Every caller that says
+#: `admin.service.DEFAULT_PLAN_TIER` still resolves; there is one definition.
+DEFAULT_PLAN_TIER = _DEFAULT_PLAN_TIER
 
 # Extra writes a caller needs INSIDE the tenant's birth transaction. Called with the
 # open session and the new tenant id, after every row above has been written.
@@ -225,8 +230,11 @@ async def create_organization(
     RI machinery, which is not subject to row security. So the membership genuinely
     belongs in this transaction; it was never blocked from being here.
 
-    Defaults keep the admin wizard exactly as it was: `managed` tier, and no
-    membership — an operator invites the owner afterwards (FLOWS §2), so there is no
+    The default tier is `DEFAULT_PLAN_TIER` — `prepaid` since D-521, `managed` before
+    it. A client an operator creates is now credit-gated like every other account, and
+    `managed` is set afterwards, deliberately, for a client genuinely invoiced on a
+    retainer (`POST /v1/admin/tenants/{tenant_id}/plan-tier`). The default membership is
+    still none — an operator invites the owner afterwards (FLOWS §2), so there is no
     user to point at yet.
 
     `on_created` is the escape hatch for the caller's OWN last write (signup's audit
@@ -698,23 +706,86 @@ async def tenant_overview(
                 "slug": org[2],
                 "status": org[3],
                 "vertical_template": org[4],
+                # WHICH BILLING MOTION, on the roster (D-521). It was selected here for
+                # the hold pre-filter and thrown away, so the console could not show it —
+                # survivable while `managed` was the silent default and every account was
+                # the same, and not survivable now that `prepaid` is the default and
+                # `managed` is a deliberate exception: an operator has to be able to SEE
+                # which clients are invoiced before deciding anything about one.
+                "plan_tier": org[5],
                 "live_agents": int(counts[0] or 0) if counts else 0,
                 "calls_7d": int(counts[1] or 0) if counts else 0,
                 "leads": int(counts[2] or 0) if counts else 0,
                 "last_call_at": counts[3] if counts else None,
                 "capped": capped,
                 # Which human-action gates hold this client, in the gates' own rule
-                # names. Empty for every managed client, always.
+                # names. Empty, always, for every client an operator created — both
+                # controls are about unattended signups (D-521 split that question from
+                # the billing one, so `prepaid` is outside them too).
                 "holds": list(holds.rules),
             }
         )
     return overview
 
 
+#: The tiers an OPERATOR may put an account on, and the two the route below refuses.
+#:
+#: `managed` and `prepaid` are the two BILLING motions, and moving between them is exactly
+#: what an operator decides: this client is invoiced on a retainer, or this client pays
+#: from a wallet (D-521). `self_serve` and `trial` are not a billing choice — they record
+#: that a STRANGER opened the account unattended, which is what the subscriber-KYC dial
+#: gate (D-47) and the first-campaign hold (D-51) key on. Writing one of them onto a client
+#: an operator created would refuse that client's next dial with `kyc_missing` for a fact
+#: that is not true of them, so those two stay writable only by `tenancy/signup.py`, which
+#: is the path where the fact is actually established.
+OPERATOR_SETTABLE_PLAN_TIERS: Final = ("managed", "prepaid")
+
+#: The previous tier and the new one in ONE statement, rather than SELECT-then-UPDATE.
+#:
+#: The audit row has to name what the account WAS, and a separate read would be a guess
+#: about a value another operator may have changed between the two statements — the CAS
+#: doctrine in `docs/BACKEND-PATTERNS.md` applied to a one-column write. `FROM
+#: organizations old` sees the pre-UPDATE snapshot of the same row, so `RETURNING` hands
+#: back the value this statement actually replaced. `plan_tier <> :tier` makes it
+#: idempotent: setting the tier an account is already on matches zero rows and returns
+#: nothing, which the caller reports as `changed: false` rather than writing an audit row
+#: about a click that changed nothing.
+_SET_PLAN_TIER = (
+    "UPDATE organizations o SET plan_tier = :tier, updated_at = now() "
+    "FROM organizations old "
+    "WHERE o.id = old.id AND o.id = :tid AND o.plan_tier <> :tier "
+    "RETURNING old.plan_tier"
+)
+
+
+async def set_plan_tier(session: AsyncSession, *, tenant_id: UUID, plan_tier: str) -> str | None:
+    """Move one client between billing motions. Returns the tier REPLACED, or None if the
+    account was already on this one.
+
+    The caller owns the 404 (`tenant_exists`) and the audit row, for the reason
+    `set_tenant_status` owns both: this function is the write, and a service that also
+    decided what a missing row means would be a second answer to a question
+    `tenant_exists` already answers once for every surface.
+
+    The session must be tenant-scoped — `organizations` is FORCE-RLS, so an unscoped one
+    matches zero rows and this returns None, which would read as "already on that tier".
+    """
+    if plan_tier not in OPERATOR_SETTABLE_PLAN_TIERS:
+        # Defence in depth behind the route's own `Literal`. A caller reaching this with a
+        # tier from somewhere else is a programming error, not a client input, so it raises
+        # rather than rendering a message: the route's schema is what a person sees.
+        raise ValueError(f"{plan_tier!r} is not an operator-settable plan tier")
+    previous = (
+        await session.execute(text(_SET_PLAN_TIER), {"tid": tenant_id, "tier": plan_tier})
+    ).scalar()
+    return str(previous) if previous is not None else None
+
+
 __all__ = [
     "DEFAULT_PLAN_TIER",
     "DISCLOSURE_TEMPLATES",
     "INVITE_TTL",
+    "OPERATOR_SETTABLE_PLAN_TIERS",
     "TenantRootHook",
     "accept_invitation",
     "assert_account_open",
@@ -722,6 +793,7 @@ __all__ = [
     "create_invitation",
     "create_organization",
     "derive_slug",
+    "set_plan_tier",
     "slugify",
     "tenant_overview",
 ]

@@ -70,8 +70,12 @@ export const MAX_TOPUP_INR = 100_000;
  * from a null balance: a managed (invoiced) tenant is not "a prepaid tenant with no
  * credit", it is a tenant with nothing to top up, and offering it a top-up form earns
  * a `topup_not_available` refusal after the click instead of before it.
+ *
+ * MIRRORS `apps/api/billing/rates.py::PREPAID_TIERS` and must move with it — `prepaid`
+ * joined both with D-521, which made it the default tier, so the invoiced screen this
+ * list selects is now the rare case rather than the common one.
  */
-export const PREPAID_TIERS = ["self_serve", "trial"] as const;
+export const PREPAID_TIERS = ["prepaid", "self_serve", "trial"] as const;
 
 export function isPrepaid(planTier: string | undefined): boolean {
   return PREPAID_TIERS.includes(planTier as (typeof PREPAID_TIERS)[number]);

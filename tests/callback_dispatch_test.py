@@ -41,7 +41,7 @@ from apps.api.engine.vendor_http import EngineRejectedError
 from apps.workers.callbacks import UNCONFIRMED_REASON, dispatch_due_callbacks
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
-from tests.conftest import _owner_of, accept_agreements, arm_agent_for_outbound
+from tests.conftest import _owner_of, accept_agreements, arm_agent_for_outbound, fund_wallet
 
 pytestmark = pytest.mark.anyio
 
@@ -93,6 +93,10 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
     # publish-time refusal — an agent with nothing written for it to say cannot go live,
     # and would answer a call-back with a greeting that knows nothing about the business.
     await accept_agreements(tenant_id)
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(tenant_id)
     async with tenant_session(tenant_id) as session:
         await prompts.write_prompt_version(
             session,

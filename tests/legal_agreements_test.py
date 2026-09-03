@@ -68,7 +68,7 @@ from apps.api.tenancy.models import MEMBER_ROLES
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, arm_agent_for_outbound
+from tests.conftest import accept_agreements, arm_agent_for_outbound, fund_wallet
 from tests.impersonation_grant_test import view_as_headers
 
 READINESS = "/v1/legal/readiness"
@@ -1015,6 +1015,33 @@ async def test_the_spend_cap_and_an_empty_wallet_each_reach_the_screen() -> None
     by_rule = {row.rule: row for row in rows}
     assert by_rule["spend_cap"].reason == readiness.SPEND_CAP_REASON
     assert by_rule["no_credits"].reason == readiness.NO_CREDITS_REASON
+
+
+@pytest.mark.asyncio
+async def test_an_account_with_credit_is_not_told_it_has_none() -> None:
+    """The OTHER arm of the wallet gate, which D-521 made the common one.
+
+    Both boolean gates above are stubbed True, so until now nothing drove the case where
+    a client's wallet is fine. That was harmless while every account was `managed` and
+    `credits_exhausted` returned False on the tier alone. It is not harmless now: prepaid
+    is the default, this gate fires for nearly everyone, and the arm that decides a
+    FUNDED account is left alone had no test at all.
+
+    What it would cost to be wrong is a readiness screen telling a client with money on
+    the account that their calling credit has run out — on the screen they open to find
+    out why calls stopped. They would top up again, against a balance they already had.
+
+    Driven against a real funded wallet rather than a stub, because the stub is what was
+    already there and it is the thing that left the arm dark.
+    """
+    org = await _org("funded")
+    await fund_wallet(org["tenant_id"])
+    async with tenant_session(org["tenant_id"]) as session:
+        rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+
+    assert "no_credits" not in {row.rule for row in rows}, (
+        "a funded account was told its calling credit had run out"
+    )
 
 
 @pytest.mark.asyncio

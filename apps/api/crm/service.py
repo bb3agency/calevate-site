@@ -29,7 +29,7 @@ from apps.api.billing.caps import read_spend_counters
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
-from apps.api.crm.attention import BLOCK_REMEDIES
+from apps.api.crm.attention import block_remedy
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     MAX_BULK_LEADS,
@@ -1814,7 +1814,7 @@ def _project_event(
     `_timeline_uuid`. Nothing is passed through, and an event this build does not
     recognise gets an honest, contentless line rather than being dropped: a client
     reading their own history must not silently lose a row because we shipped a
-    producer before we shipped its copy (`attention.BLOCK_REMEDIES` makes the same
+    producer before we shipped its copy (`attention.block_remedy` makes the same
     choice for a rule whose remedy has not been written yet).
     """
     if event_type == "status_change":
@@ -1844,16 +1844,13 @@ def _project_event(
 
     if event_type == "note":
         if _code(payload, "kind") == "blocked":
-            # The SAME copy deck the needs-attention queue renders, so a client reading
-            # "why was this not called?" in two places is told one thing. Imported at
-            # module scope again: this was a function-local import only because
-            # `crm.attention` imported `mask_phone` from here, and that function is gone.
+            # The SAME FUNCTION the needs-attention queue renders through, so a client
+            # reading "why was this not called?" in two places is told one thing — and
+            # so the un-copied case is handled once. Both sites used to inline
+            # `BLOCK_REMEDIES.get(rule, f"Blocked by the {rule} rule.")`, which is two
+            # spellings of one decision AND put a wire name on a client's screen.
             rule = _code(payload, "rule") or "unknown"
-            return (
-                "Call blocked",
-                BLOCK_REMEDIES.get(rule, f"Blocked by the {rule} rule."),
-                None,
-            )
+            return ("Call blocked", block_remedy(rule), None)
         return ("Note", None, None)
 
     if event_type == "notification":

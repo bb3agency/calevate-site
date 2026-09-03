@@ -319,8 +319,14 @@ describe("the wire-fixture guard: a type assertion onto a generated schema type"
     const found = findViolations(program, fixture!);
     // Each offending expression sits a fixed distance below its marker. Spelled per
     // marker rather than assumed, because the multi-line literals are the realistic shape.
+    //
+    // The offsets move when the WIRE TYPE grows a field, because these specimens are real
+    // `TenantSummary`/`Me` literals and must keep satisfying it — that is the whole reason
+    // the file is in the tsconfig program. `bannedSingleAssertion` went 13 -> 14 when
+    // `plan_tier` joined `TenantSummary` (D-521). Only the marker whose own literal grew
+    // moves; the rest are relative to their own marker and do not.
     expect(found.map((violation) => `${violation.line} ${violation.type}`)).toEqual([
-      `${fixtureLine("bannedSingleAssertion") + 13} TenantSummary`,
+      `${fixtureLine("bannedSingleAssertion") + 14} TenantSummary`,
       `${fixtureLine("bannedDoubleAssertion") + 8} Me`,
       `${fixtureLine("bannedArrayAssertion") + 1} CallSummary[]`,
       `${fixtureLine("bannedIndexedAccessAssertion") + 1} CallSummary["status"]`,

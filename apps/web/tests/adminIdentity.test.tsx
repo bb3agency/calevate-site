@@ -112,6 +112,7 @@ function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
     name: "Sri Traders",
     slug: "sri-traders",
     status: "active",
+    plan_tier: "prepaid",
     vertical_template: "clinic",
     live_agents: 1,
     calls_7d: 12,

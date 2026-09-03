@@ -108,6 +108,12 @@ async def _tenant(
         billing_email=None,
         language="te-IN",
         created_by=None,
+        # `managed` NAMED, and this file used to inherit it from the default (D-521 moved
+        # that default to `prepaid`). It is the subject rather than a workaround: every
+        # case below builds a PLAN — monthly fee, included minutes, overage rate — and
+        # asserts how a managed month's charge is divided across its calls. The cases that
+        # are about the prepaid arm say so, by moving the tier to `self_serve` themselves.
+        plan_tier="managed",
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     assert isinstance(tenant_id, UUID) and isinstance(agent_id, UUID)

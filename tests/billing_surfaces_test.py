@@ -39,6 +39,13 @@ async def _tenant_with_usage(
         billing_email=None,
         language="te-IN",
         created_by=None,
+        # `managed` NAMED, where this file used to inherit it from the default (D-521
+        # moved that default to `prepaid`). Every fixture here quotes a `monthly_fee`,
+        # `included_min` and an `overage_rate` and asserts the revenue, runway and margin
+        # that fall out of them — which is the invoiced motion's arithmetic. A prepaid
+        # month prices the same minutes at the published list rate instead, so leaving it
+        # on the default would have measured a different surface from the one named.
+        plan_tier="managed",
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     call_id = uuid7()

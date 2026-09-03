@@ -388,11 +388,48 @@ describe("the D-21 dispatch verdict, per lead", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
 
     expect(await screen.findByText(/do-not-call list/)).toBeTruthy();
-    // The rule is named beside the reason: "dnc_tenant" is what an operator needs to
-    // find the row, and the client needs to know which check refused.
-    expect(container.textContent).toContain("dnc_tenant");
+    /*
+     * THE RULE NAME IS NOT SHOWN, AND THIS ASSERTION USED TO BE ITS OPPOSITE.
+     *
+     * It read "the rule is named beside the reason: `dnc_tenant` is what an operator
+     * needs to find the row, and the client needs to know which check refused" — and the
+     * screen printed "… (dnc_tenant)" to the person it had just refused. The operator
+     * half of that argument is true and is served elsewhere: the admin realm renders
+     * these names deliberately (`lib/api/clientHealth.ts`), and the refusal is on the
+     * audit trail either way. The client half is not: `dnc_tenant` tells a clinic owner
+     * nothing they can do, and the founder's standard for client-facing copy bans a code
+     * identifier outright. The server's own sentence already says what happened.
+     */
+    expect(container.textContent).not.toContain("dnc_tenant");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
+  });
+
+  it("sends a lead refused for credit to the screen that fixes it", async () => {
+    // The money gate a prepaid account meets, on the screen where a receptionist works
+    // the queue one lead at a time. The server's sentence says the credit ran out; what
+    // it cannot say from here is that the phone is still being answered, or where the
+    // top-up is.
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "POST /v1/leads/search": leadList([lead()]),
+        "/v1/leads/lead-a/call": {
+          status: "blocked",
+          blocked_reason: "This account has no calling credit left.",
+          blocked_rule: "no_credits",
+          call_handle: null,
+        },
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
+
+    await screen.findByText(/no calling credit left/);
+    expect(container.textContent).toContain("People ringing you still get through");
+    expect(container.textContent).toContain("Top up on the Calling credit screen");
+    // The gate's own name is not what the person who was refused reads.
+    expect(container.textContent).not.toContain("no_credits");
   });
 });
 

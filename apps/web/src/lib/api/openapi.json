@@ -12891,6 +12891,68 @@
         "title": "PlanRowOut",
         "type": "object"
       },
+      "PlanTierIn": {
+        "additionalProperties": false,
+        "properties": {
+          "plan_tier": {
+            "enum": [
+              "managed",
+              "prepaid"
+            ],
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_tier",
+          "reason"
+        ],
+        "title": "PlanTierIn",
+        "type": "object"
+      },
+      "PlanTierOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "previous_plan_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Plan Tier"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "plan_tier",
+          "previous_plan_tier",
+          "changed"
+        ],
+        "title": "PlanTierOut",
+        "type": "object"
+      },
       "PlatformStateIn": {
         "additionalProperties": false,
         "properties": {
@@ -17729,6 +17791,10 @@
             "title": "Name",
             "type": "string"
           },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -17760,6 +17826,7 @@
           "leads",
           "last_call_at",
           "capped",
+          "plan_tier",
           "holds"
         ],
         "title": "TenantSummary",
@@ -23342,6 +23409,57 @@
           }
         },
         "summary": "Record what the DLT registrar decided about this number",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/plan-tier": {
+      "post": {
+        "description": "Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer \u2014 it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**; inbound answering is unaffected either way. Idempotent: setting the tier an account is already on returns 200, `changed: false`, and writes no audit row. 404 means no such client.",
+        "operationId": "set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanTierIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanTierOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Move a client between billing motions \u2014 prepaid credit or invoiced retainer",
         "tags": [
           "admin"
         ],

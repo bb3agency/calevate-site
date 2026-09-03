@@ -94,12 +94,34 @@ async def _tenant() -> UUID:
         billing_email=None,
         language="te-IN",
         created_by=None,
+        # `managed`, named rather than inherited (D-521 moved the default to `prepaid`).
+        # Every fixture below writes a PLAN with `included_min`, an `overage_rate` and an
+        # `llm_model_surcharge`, and the assertions are that the live counter and the
+        # statement agree about those rupees. On a prepaid month the minutes are priced
+        # at the published list rate instead, so the counter and the statement would be
+        # about two different arithmetics — which is what the failure looked like.
+        plan_tier="managed",
     )
     return UUID(str(created["id"]))
 
 
 async def _plan(tenant_id: UUID, *, included: int, surcharge: Decimal | None) -> None:
+    """The plan row, and the motion that reads it.
+
+    THE TIER IS SET HERE rather than at each fixture because a `plans` row with an
+    included allowance, an overage rate and an `llm_model_surcharge` IS the invoiced
+    motion — the two facts belong together, and the tests below assert that the live
+    counter and the statement agree about those rupees. D-521 moved the platform default
+    to `prepaid`, which prices minutes at the published list rate and ignores the
+    allowance, so a fixture that took the default would have the counter and the
+    statement doing two different arithmetics. Some callers reach here already on
+    `managed`; the write is idempotent.
+    """
     async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'managed' WHERE id = :t"),
+            {"t": tenant_id},
+        )
         await session.execute(
             text(
                 "INSERT INTO plans (id, tenant_id, monthly_fee, included_min, overage_rate, "

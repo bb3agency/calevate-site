@@ -200,7 +200,14 @@ ROW_COPY: dict[str, _Copy] = {
     "no_credits": _Copy(
         title="No calling credit left",
         actor="client",
-        next_step="Top up on the Usage screen. Calls resume as soon as the payment clears.",
+        # NAMES THE SCREEN THAT HAS THE BUTTON, and it used to name the wrong one: the
+        # top-up form lives on "Calling credit" (`/c/{slug}/credits`), while Usage is the
+        # month's charges and cannot take a payment. And "Calls resume" said more than it
+        # meant — only OUTGOING calls ever stopped (D-521).
+        next_step=(
+            "Top up on the Calling credit screen. Outgoing calls resume as soon as the "
+            "payment clears; incoming calls are answered throughout."
+        ),
     ),
     "national_dnd_scrub_missing": _Copy(
         title="Campaigns waiting on a DND scrub",

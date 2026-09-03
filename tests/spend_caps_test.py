@@ -111,6 +111,18 @@ async def _tenant(label: str) -> tuple[UUID, UUID, str]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(tenant_id)
+    # `managed` EXPLICITLY, and this file used to get it from the default (D-521 moved
+    # that default to `prepaid`). It is not a workaround for the credit gate — it is what
+    # these tests are about: the cap is compared against `spend_state.billed_inr`, and on
+    # a managed month that number comes from the PLAN's `overage_rate` (which every case
+    # here sets and asserts), while a prepaid minute is priced at the published list rate
+    # instead. Funding a prepaid wallet would have made the file pass while quietly
+    # measuring a different pricing path from the one its assertions name.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'managed' WHERE id = :i"),
+            {"i": tenant_id},
+        )
     return tenant_id, outbound_agent_id, agent_ref
 
 

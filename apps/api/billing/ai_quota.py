@@ -216,6 +216,19 @@ log = get_logger(__name__)
 #: clears 50, which is what makes the screen and the gate agree on both models.
 AI_QUOTA_INR: Final[dict[str, Decimal]] = {
     "managed": Decimal("250.00"),
+    # ⚠ **THE SAME FIGURE AS `managed`, AND THAT IS THE DECISION RATHER THAN AN OVERSIGHT
+    # (D-521).** `prepaid` is the tier every existing account was MIGRATED to
+    # (`a8d3f61c04e7`) and the one every new account is born on, so anything smaller here
+    # would have been a migration that quietly cut a live client's included AI allowance
+    # — from ₹250 to whatever the new number was — on a change they were told was about
+    # billing motion. A silent reduction is the one thing a data migration may not do.
+    # The lookup below falls back to the TRIAL allowance for an unknown tier, so omitting
+    # the key would have cut it to ₹40 without an error anywhere.
+    #
+    # It is a product term and the founder's to move (see the note above this dict); if
+    # prepaid is meant to buy less dashboard AI than a retainer does, that is a priced
+    # decision made deliberately, not one inherited from a default.
+    "prepaid": Decimal("250.00"),
     "self_serve": Decimal("100.00"),
     "trial": Decimal("40.00"),
 }

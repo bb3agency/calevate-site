@@ -1292,6 +1292,9 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/dashboard": DASHBOARD,
       "/v1/usage": USAGE,
+      // The calling-credit tile, in the state worth sweeping: STOPPED, which is the one
+      // that carries a sentence and a link rather than a figure alone.
+      "/v1/billing/wallet": WALLET_STOPPED,
       "/v1/calls?limit=6": [CALL],
       // The dashboard-home `KnowledgeGaps` card (all agents). One OPEN gap so the sweep
       // covers its populated markup — the count badge, the quote, the agent name and the

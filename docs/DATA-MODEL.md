@@ -22,9 +22,18 @@ CREATE POLICY tenant_isolation ON t
 ```
 organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE-by-trigger,
   status ENUM[prospect,onboarding,active,suspended,churned], vertical_template TEXT,
-  plan_tier ENUM[managed,self_serve,trial] NOT NULL DEFAULT 'managed',   -- D-34/D-39
+  plan_tier ENUM[managed,prepaid,self_serve,trial] NOT NULL DEFAULT 'prepaid',
+                                                          -- D-34/D-39, D-521 (default)
     -- which MOTION this org belongs to, not a feature flag: it decides whether credits
-    -- gate dispatch (compliance gate) and whether the self-serve screens render
+    -- gate dispatch (compliance gate) and whether the self-serve screens render.
+    -- The four names answer TWO questions and the pairs are NOT the same set:
+    --   pays from a wallet   -> prepaid, self_serve, trial  (billing/rates.PREPAID_TIERS)
+    --   opened by a stranger -> self_serve, trial           (compliance.SELF_SERVE_TIERS,
+    --                                                        the KYC dial gate D-47 and
+    --                                                        the first-campaign hold D-51)
+    -- `prepaid` (D-521) is what every new account gets and what every existing account
+    -- was migrated to (a8d3f61c04e7); `managed` is invoiced on a retainer and is set
+    -- deliberately by an operator (POST /v1/admin/tenants/{id}/plan-tier).
   billing_email, created_by, deleted_at)
   -- NOBODY HARD-DELETES THIS ROW, and since migration d1b8f30c94a7 the table says so.
   -- `tenant_isolation` is FOR ALL and `WITH CHECK` is not consulted on DELETE, so `USING`
