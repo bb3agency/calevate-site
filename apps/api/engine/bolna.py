@@ -2651,6 +2651,36 @@ def _check_llm_ttft(latency: CallLatency | None, *, engine_call_id: str) -> None
 #: shapes without a version flag we would have to keep current.
 _EXTRACTION_LEAF_KEYS: Final = ("subjective", "objective")
 
+#: What the vendor returns for EVERY extraction on a call in which the caller never spoke,
+#: from 18 September 2026. Voicemail, an immediate hangup, a ring nobody answered — the
+#: model has nothing to work from, so rather than let it invent an answer the platform
+#: substitutes this literal.
+#:
+#: **EVIDENCE CLASS: VENDOR-PUBLISHED, AND NOT FROM A PAGE ANYONE HERE HAS READ.** It comes
+#: from Bolna's deprecation email of 3 Sep 2026, relayed by the founder. It is NOT in
+#: `bolna-findings/mirror/` — that mirror predates the announcement — and `www.bolna.ai` is
+#: egress-blocked from this container, so the migration guide behind that email has not
+#: been opened here. OPERATIONS §2 gate 43h is the re-verification.
+#:
+#: THE MATCH IS CASE- AND SPACE-INSENSITIVE FOR EXACTLY THAT REASON. The casing in an email
+#: is not a wire contract, and a sentinel we fail to recognise is worse than one we
+#: over-match: an unrecognised one becomes a client's data.
+NO_USER_TURN_SENTINEL: Final = "no user turn detected"
+
+
+def _is_no_user_turn(value: Any) -> bool:
+    """Is this the vendor's "nobody spoke" marker rather than something a caller said?
+
+    **IT MUST NEVER BE TREATED AS AN EXTRACTED VALUE.** On a silent call every field comes
+    back carrying it, so a passthrough writes the sentence into every CRM column the
+    client configured — a lead whose name is "No User Turn Detected", a callback number
+    that is a sentence, an outcome tag that is an apology. It would also make pilot gate 7
+    PASS a call in which nothing was said, because that gate compares field NAMES and the
+    names would all be present. A false pass on a fidelity gate is worse than a false
+    fail: it is read as the vendor working.
+    """
+    return isinstance(value, str) and value.strip().lower() == NO_USER_TURN_SENTINEL
+
 
 def flatten_extracted_data(raw: Any) -> dict[str, Any]:
     """The vendor's `extracted_data` -> OUR flat `{field_name: value}`.
@@ -2690,6 +2720,13 @@ def flatten_extracted_data(raw: Any) -> dict[str, Any]:
     they are the vendor's account of ITSELF, not the extracted value, and the reasoning
     fields are free text the model wrote about what the caller said (hard rule 6).
 
+    A CALL IN WHICH NOBODY SPOKE YIELDS NO FIELDS AT ALL. From 18 Sep 2026 the vendor
+    answers every extraction on such a call with a fixed sentence rather than letting the
+    model invent one (`NO_USER_TURN_SENTINEL`); passing it through would write that
+    sentence into every CRM column a client configured. It is dropped here, at the
+    boundary, so the vendor's vocabulary for "nothing happened" never becomes our
+    vocabulary for a value (hard rule 2).
+
     A DUPLICATE FIELD NAME ACROSS TWO CATEGORIES KEEPS ITS CATEGORY. Bolna scopes
     uniqueness to the category, so two categories may both carry "Notes"; a bare
     last-wins would silently drop one extracted value. The second and later spellings
@@ -2706,7 +2743,15 @@ def flatten_extracted_data(raw: Any) -> dict[str, Any]:
         name = str(key)
         if _is_extraction_category(value):
             for leaf_name, leaf in value.items():
-                _place(flat, category=name, name=str(leaf_name), value=_extraction_value(leaf))
+                extracted = _extraction_value(leaf)
+                # DROPPED, NOT RECORDED AS None. `{}` is what "no extraction ran" already
+                # means to every consumer of this map, and a present key with no value
+                # would tell pilot gate 7 the field came back when it did not.
+                if _is_no_user_turn(extracted):
+                    continue
+                _place(flat, category=name, name=str(leaf_name), value=extracted)
+            continue
+        if _is_no_user_turn(value):
             continue
         flat[name] = value
     return flat
