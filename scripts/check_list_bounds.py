@@ -87,6 +87,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/admin/me": BoundedByConstruction(
         by="`permissions` is the role's permission set — at most `len(get_args(Permission))`."
     ),
+    "GET /v1/billing/wallet/topups": BoundedByConstruction(
+        by=(
+            "`billing/wallet.ATTEMPT_LIMIT`, applied inside `read_attempts`. It takes no "
+            "`limit` DELIBERATELY: this is the 'what happened just now' list, not a "
+            "history — an older attempt is answered by the ledger if it became money and "
+            "by nothing if it did not — and offering a page size would invite a screen to "
+            "ask for a year of failed cards."
+        )
+    ),
     "GET /v1/agents/voices": BoundedByConstruction(
         by="the voice catalogue, a constant in `agents/voices.py` — not a table."
     ),

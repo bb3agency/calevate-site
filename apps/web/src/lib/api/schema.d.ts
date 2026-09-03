@@ -299,10 +299,10 @@ export interface paths {
          *     the impersonated account, which is proven by the grant rather than claimed in a body.
          *
          *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
-         *     `text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this
-         *     realm today, will not be offered: the write tools need an account-scoped identity that an
-         *     admin session does not carry, and inside a view-as session they are refused outright
-         *     because impersonation is read-only.
+         *     `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+         *     change and, in this realm today, neither a `proposal` nor an `action` will be offered: the
+         *     write tools need an account-scoped identity that an admin session does not carry, and
+         *     inside a view-as session they are refused outright because impersonation is read-only.
          *
          *     **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
          *     platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
@@ -2826,6 +2826,86 @@ export interface paths {
          * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: paid + bonus credits, the effective per-minute rate, and the talk time the credits buy. Selecting a pack starts a top-up intent with its `pack_id`.
          */
         get: operations["read_credit_packs_v1_billing_topups_packs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Balance, how long it lasts, and where the money went
+         * @description The prepaid wallet as its owner reads it. `outbound_stopped` is the dial gate's own verdict, asked rather than re-derived — inbound calls are never stopped by a balance. `runway.days` is null whenever a projection may not honestly be asserted, and `runway.basis` says which reason.
+         */
+        get: operations["read_wallet_summary_v1_billing_wallet_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The wallet's entries, newest first, with the payments behind them
+         * @description Every movement on the wallet — payments, call usage, pack bonuses, operator corrections and refunds — newest first. `payments` carries one line per payment on the page, which is what a receipt is issued against.
+         */
+        get: operations["read_wallet_ledger_v1_billing_wallet_ledger_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet/receipts/{payment_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A receipt for one payment — NOT a tax invoice
+         * @description An acknowledgement that money was received against this reference. The business is not registered for GST, so no tax is charged and no tax invoice can be issued; `document_type` says what this document is and the console renders its heading from that field.
+         */
+        get: operations["read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet/topups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Payments that were started — including the ones that failed or never landed
+         * @description A declined card moves no money, so it has no ledger entry. This is the list that shows it happened, so a client whose payment failed does not come back to a screen indistinguishable from one they never touched.
+         */
+        get: operations["read_topup_attempts_v1_billing_wallet_topups_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7635,6 +7715,33 @@ export interface components {
             /** Source */
             source: string | null;
         };
+        /**
+         * DrawdownOut
+         * @description WHERE THE MONEY WENT, over the same window the runway was measured on.
+         *
+         *     Every figure is POSITIVE and its direction is in the field name, never in a sign — a
+         *     screen that had to decide whether `-340.00` was a debit or a correction of one is a
+         *     screen that will eventually decide wrong.
+         *
+         *     THERE IS NO MESSAGING BUCKET, and that is deliberate rather than missing: nothing on
+         *     this platform debits the wallet for a WhatsApp message or an SMS, so a "Messaging"
+         *     row reading ₹0.00 would be a category invented to look complete, and a client reading
+         *     it would reasonably conclude they are being charged for messages.
+         */
+        DrawdownOut: {
+            /** Added Inr */
+            added_inr: string;
+            /** Adjustments Inr */
+            adjustments_inr: string;
+            /** Ai Assist Inr */
+            ai_assist_inr: string;
+            /** Calls Inr */
+            calls_inr: string;
+            /** Refunded Inr */
+            refunded_inr: string;
+            /** Spent Inr */
+            spent_inr: string;
+        };
         /** EnableIn */
         EnableIn: {
             /** Enabled */
@@ -9800,6 +9907,13 @@ export interface components {
             /** Reversible Inr */
             reversible_inr: string;
         };
+        /** LedgerOut */
+        LedgerOut: {
+            /** Entries */
+            entries: components["schemas"]["WalletEntryOut"][];
+            /** Payments */
+            payments: components["schemas"]["WalletPaymentOut"][];
+        };
         /**
          * LegSummary
          * @description One leg's distribution for one (engine, region) group, and its own verdict.
@@ -11031,6 +11145,43 @@ export interface components {
             title: string;
         };
         /**
+         * ReceiptOut
+         * @description A RECEIPT for one payment. It is NOT a tax invoice and never says it is.
+         *
+         *     The business is not registered for GST and is not required to be at present turnover
+         *     (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §4), so `gst.supplier_identity().is_registered` is
+         *     false on every deployment: there is no GSTIN to print, no tax is charged, and CGST
+         *     s.32 forbids an unregistered person collecting any. `document_type` is therefore
+         *     `receipt` — an acknowledgement that money was received — and the console renders its
+         *     heading from THIS field, never from a literal, exactly as the monthly statement does.
+         *     Nothing here carries a tax head, a rate, or an estimate of one.
+         */
+        ReceiptOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Document Type */
+            document_type: string;
+            /** Entries */
+            entries: number;
+            /** Note */
+            note: string;
+            /** Organization Billing Email */
+            organization_billing_email: string | null;
+            /** Organization Name */
+            organization_name: string;
+            /** Payment Ref */
+            payment_ref: string;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Supplier Address */
+            supplier_address: string | null;
+            /** Supplier Legal Name */
+            supplier_legal_name: string | null;
+        };
+        /**
          * RecordAlertOptInIn
          * @description No phone field, deliberately — see the module docstring. The number is read from
          *     the principal's own profile so the consent key and the delivery key are the same
@@ -11404,6 +11555,38 @@ export interface components {
             secret: string | null;
             /** Secret Header */
             secret_header: string;
+        };
+        /**
+         * RunwayOut
+         * @description How long the balance lasts — and, when it may not be said, WHY not.
+         *
+         *     `days` is null on every basis but `projected`, and `basis` carries which reason.
+         *     "We have not been watching you long enough to tell" and "you are not spending
+         *     anything" are different sentences to an owner deciding whether to top up, and a
+         *     screen that collapsed them into a blank would answer neither.
+         *
+         *     NO DEFAULTS on any field, for `TopUpIntentOut.provider_order_id`'s reason: a Pydantic
+         *     default generates an OPTIONAL property in the TypeScript client, and `days: null`
+         *     (we will not put a number on it) must stay distinguishable from `undefined` (the
+         *     server did not say).
+         */
+        RunwayOut: {
+            /** Basis */
+            basis: string;
+            /** Beyond Horizon */
+            beyond_horizon: boolean;
+            /** Daily Burn Inr */
+            daily_burn_inr: string | null;
+            /** Days */
+            days: number | null;
+            /** History Days */
+            history_days: number;
+            /** Max Days */
+            max_days: number;
+            /** Min History Days */
+            min_history_days: number;
+            /** Window Days */
+            window_days: number;
         };
         /** SaveScriptIn */
         SaveScriptIn: {
@@ -12738,6 +12921,34 @@ export interface components {
             trigger: string;
         };
         /**
+         * TopUpAttemptOut
+         * @description A payment that was STARTED — including the ones that went nowhere.
+         *
+         *     THE POINT OF THIS LIST is the rows a ledger cannot hold. A declined card moves no
+         *     money, so it has no `credit_ledger` entry, so before it existed a client whose payment
+         *     failed came back to a screen indistinguishable from one they had never touched.
+         */
+        TopUpAttemptOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Outcome */
+            outcome: string;
+            /** Pack Id */
+            pack_id: string | null;
+            /** Receipt */
+            receipt: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /**
          * TopUpCapabilityOut
          * @description What this deployment can do about money, asked before the click (D-75's shape).
          *
@@ -13165,6 +13376,82 @@ export interface components {
             live: components["schemas"]["AgentVoiceOut"] | null;
             /** Republish Required */
             republish_required: boolean;
+        };
+        /**
+         * WalletEntryOut
+         * @description One line of the wallet, as its owner reads it.
+         *
+         *     Deliberately NOT `credit_routes.LedgerEntryOut` — and named apart from it for a
+         *     second, mechanical reason: two different schemas under one name make FastAPI emit
+         *     fully-qualified component names for BOTH, which would rename the admin console's
+         *     generated type out from under `lib/api/credits.ts`. That one carries `reversible_inr`,
+         *     which exists so an OPERATOR can be offered a correction with a ceiling on it. It is
+         *     meaningless to a client, and publishing it here would invite a screen to render a
+         *     control this realm does not have.
+         */
+        WalletEntryOut: {
+            /** Balance After Inr */
+            balance_after_inr: string;
+            /** Delta Inr */
+            delta_inr: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Payment Ref */
+            payment_ref: string | null;
+            /** Reason */
+            reason: string;
+            /** Ref */
+            ref: string | null;
+        };
+        /**
+         * WalletOut
+         * @description Everything the credits screen needs about the money, in one read.
+         */
+        WalletOut: {
+            /** Balance Inr */
+            balance_inr: string;
+            drawdown: components["schemas"]["DrawdownOut"];
+            /** Is Low */
+            is_low: boolean;
+            /** Low Balance Threshold Inr */
+            low_balance_threshold_inr: string;
+            /** Minutes Left */
+            minutes_left: number | null;
+            /** Outbound Stopped */
+            outbound_stopped: boolean;
+            /** Prepaid */
+            prepaid: boolean;
+            runway: components["schemas"]["RunwayOut"];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
+         * WalletPaymentOut
+         * @description One payment, as the wallet holds it — the line a receipt is issued against.
+         */
+        WalletPaymentOut: {
+            /** Credited Inr */
+            credited_inr: string;
+            /** Entries */
+            entries: number;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /** Payment Ref */
+            payment_ref: string;
         };
         /** WebhookAck */
         WebhookAck: {
@@ -17963,6 +18250,126 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreditPacksOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_wallet_summary_v1_billing_wallet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_wallet_ledger_v1_billing_wallet_ledger_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                payment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_topup_attempts_v1_billing_wallet_topups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopUpAttemptOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

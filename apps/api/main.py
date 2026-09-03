@@ -98,6 +98,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.billing.spend_routes import client_router as billing_spend_router
     from apps.api.billing.spend_routes import router as spend_admin_router
+    from apps.api.billing.wallet_routes import router as wallet_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
@@ -313,6 +314,13 @@ def _mount_routers(application: FastAPI) -> None:
     # reason they give.
     application.include_router(billing_spend_router)
     application.include_router(spend_admin_router)
+    # THE CLIENT'S OWN WALLET (2 Sep 2026): balance, how long it lasts, where it went,
+    # the ledger with a receipt per payment, and the payments that failed. Literal
+    # `/v1/billing/wallet`, declared with the other `/v1/billing/*` routers for the
+    # ordering reason they give. Its permission is `wallet:read`, which — uniquely on
+    # this prefix — `staff` holds: the thing that stops a staff member dialling is an
+    # empty wallet, and a refusal only the owner can read is a refusal with no words.
+    application.include_router(wallet_router)
     # The client's monthly QA report (SURFACES §2 trust surfaces) and OUR weekly 5%
     # spot-check queue (SURFACES §1). Two realms, one control: the report is the claim
     # we make to the client, the queue is the evidence we collect for it.

@@ -66,6 +66,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+from apps.api.reliability.service import enqueue_outbox
 
 log = get_logger(__name__)
 
@@ -74,6 +75,40 @@ CreditReason = Literal["topup", "usage", "adjustment", "refund", "bonus"]
 # Below this the wallet is "low" — surfaced in the UI, not enforced. Enforcement is
 # `balance > 0`; a warning band exists so a client is told before calls start failing.
 LOW_BALANCE_INR = Decimal("200.00")
+
+#: The job the ledger publishes when a debit takes a wallet ACROSS a warning line
+#: (`apps/workers/wallet_alerts.py`). Registered in `apps/workers/settings.FUNCTIONS`;
+#: `scripts/check_job_wiring.py` is the gate that the name here, the function there and
+#: the registration agree.
+LOW_BALANCE_JOB = "notify_low_balance"
+
+#: The two lines a falling balance can cross, most severe first. `empty` is the one the
+#: dial gate acts on (`compliance.service.credits_exhausted` — `balance <= 0`); `low` is
+#: the warning band above it, which enforces nothing.
+WALLET_LEVEL_EMPTY = "empty"
+WALLET_LEVEL_LOW = "low"
+
+
+def crossed_downwards(before: Decimal, after: Decimal) -> str | None:
+    """Which warning line, if any, this movement took the wallet ACROSS, going down.
+
+    A CROSSING and not a state, and that is the whole design of the low-balance alert:
+    the entry that takes a wallet from ₹250 to ₹150 is the only entry that will ever
+    report `low` for that episode, so "warn once per episode" needs no stored flag, no
+    cron sweep and no clock. Top up and fall again and it is a new crossing, which is
+    also a new thing to be told about.
+
+    `>` on the way in and `<=` on the way out for `empty`, because `<= 0` is the dial
+    gate's own condition (`Balance.is_exhausted`) and the sentence this sends is "your
+    outgoing calls have stopped". Reporting `empty` for a wallet that was already at
+    zero would mail a client every time a call metered them further into the red.
+    """
+    if before > 0 >= after:
+        return WALLET_LEVEL_EMPTY
+    if before >= LOW_BALANCE_INR > after >= 0:
+        return WALLET_LEVEL_LOW
+    return None
+
 
 # --- rounding (hard rule 7) ----------------------------------------------------
 #
@@ -232,6 +267,32 @@ async def get_balance(session: AsyncSession, *, tenant_id: UUID) -> Balance:
     return Balance(amount_inr=balance, is_low=balance < LOW_BALANCE_INR)
 
 
+def prepaid_minutes_left(*, balance: Balance, rate: Decimal) -> int | None:
+    """A prepaid wallet, priced into WHOLE MINUTES OF CALLING at the live list rate.
+
+    THE ONE PLACE that division is done, because two screens now show its answer — the
+    usage panel's "about N minutes left this month" and the credits screen's runway — and
+    a client comparing them must not be able to find them disagreeing about the same
+    wallet. It takes the rate as an argument rather than reading settings, so the caller
+    stays the one deciding WHICH rate (live vs a closed month's) and this function stays
+    a pure calculation a test can pin.
+
+    Floored, never rounded: `int()` truncates, and quoting a minute the balance does not
+    cover is the direction of error a client discovers mid-call.
+
+    `None` means "no answer", NOT "none left" — an unpriced deployment (`rate <= 0`)
+    knows nothing about runway, and printing a zero there would tell a client with money
+    in their wallet that they cannot call. Zero is reserved for the wallet that really is
+    empty, which is `<= 0` because that is `Balance.is_exhausted` and the dial gate's own
+    condition.
+    """
+    if balance.amount_inr <= 0:
+        return 0
+    if rate <= 0:
+        return None
+    return int(balance.amount_inr / rate)
+
+
 async def record_entry(
     session: AsyncSession,
     *,
@@ -291,6 +352,33 @@ async def record_entry(
             "meta": json.dumps(meta) if meta else None,
         },
     )
+    # THE WARNING, PUBLISHED IN THE SAME TRANSACTION AS THE ENTRY THAT EARNED IT.
+    #
+    # It sits here rather than in `charge_for_call` because a call is not the only thing
+    # that empties a wallet: a compensating adjustment and a refund both take credit off
+    # through this function, and a client whose calling stops because an operator
+    # corrected an over-credit has exactly as much right to be told. One writer, one
+    # place — the alternative is three callers each remembering.
+    #
+    # Through the OUTBOX and not a direct enqueue, so the promise to warn cannot outlive
+    # a rolled-back ledger row (BACKEND-PATTERNS §4). Whether this tenant HAS a wallet
+    # worth warning about, and whether anyone has agreed to be emailed, is the worker's
+    # question — deciding it here would put a tier read on the hottest money write in the
+    # product to answer a question that is still true a minute later.
+    level = crossed_downwards(current, new_balance)
+    if level is not None:
+        await enqueue_outbox(
+            session,
+            job=LOW_BALANCE_JOB,
+            payload={
+                "tenant_id": str(tenant_id),
+                "level": level,
+                # DIGITS, never a float (hard rule 7): this crosses JSONB and comes back
+                # through `json.loads`, where a JSON number would be a binary double by
+                # the time the email renders it.
+                "balance_inr": str(new_balance),
+            },
+        )
     log.info(
         "credit_entry",
         extra={"tenant_id": str(tenant_id), "reason": reason, "balance_after": str(new_balance)},
@@ -1727,12 +1815,9 @@ async def usage_summary(
         # month-scoped figure, so pricing it at a closed month's rate would quote a runway
         # nobody can spend. The top-up flow (`billing/payment_routes.py`) prices from the
         # same live setting for the same reason, which is the property that has to hold.
-        rate = get_settings().self_serve_inr_per_min
-        if rate > 0 and balance.amount_inr > 0:
-            minutes_left = int(balance.amount_inr / rate)
-        elif balance.amount_inr <= 0:
-            # `Balance.is_exhausted` is `<= 0`, which is the gate's own condition.
-            minutes_left = 0
+        minutes_left = prepaid_minutes_left(
+            balance=balance, rate=get_settings().self_serve_inr_per_min
+        )
     elif plan and plan[3] is not None:
         minutes_left = max(0, int(Decimal(str(plan[3])) - minutes))
 
@@ -2208,12 +2293,15 @@ __all__ = [
     "ADJUSTMENT_REF_PREFIX",
     "BASE_OVERAGE_RUNG",
     "LOW_BALANCE_INR",
+    "LOW_BALANCE_JOB",
     "PAISE",
     "PAYMENT_REF_SQL",
     "RESTATEMENT_META_KIND",
     "RESTATEMENT_REF_PREFIX",
     "ROUNDING",
     "UNSURCHARGED_MODEL",
+    "WALLET_LEVEL_EMPTY",
+    "WALLET_LEVEL_LOW",
     "Balance",
     "CorrectableEntry",
     "CreditReason",
@@ -2227,6 +2315,7 @@ __all__ = [
     "allocate_paise",
     "calling_revenue_inr",
     "charge_for_call",
+    "crossed_downwards",
     "current_billing_month",
     "find_entry_by_ref",
     "find_topup",
@@ -2238,6 +2327,7 @@ __all__ = [
     "month_charges_inr",
     "overage_rungs",
     "plan_tier_of",
+    "prepaid_minutes_left",
     "priced_llm_surcharge",
     "rate_to_display",
     "read_correctable_entry",

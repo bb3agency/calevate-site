@@ -5637,6 +5637,52 @@
         "title": "DncEntryOut",
         "type": "object"
       },
+      "DrawdownOut": {
+        "additionalProperties": false,
+        "description": "WHERE THE MONEY WENT, over the same window the runway was measured on.\n\nEvery figure is POSITIVE and its direction is in the field name, never in a sign \u2014 a\nscreen that had to decide whether `-340.00` was a debit or a correction of one is a\nscreen that will eventually decide wrong.\n\nTHERE IS NO MESSAGING BUCKET, and that is deliberate rather than missing: nothing on\nthis platform debits the wallet for a WhatsApp message or an SMS, so a \"Messaging\"\nrow reading \u20b90.00 would be a category invented to look complete, and a client reading\nit would reasonably conclude they are being charged for messages.",
+        "properties": {
+          "added_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Added Inr",
+            "type": "string"
+          },
+          "adjustments_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Adjustments Inr",
+            "type": "string"
+          },
+          "ai_assist_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Ai Assist Inr",
+            "type": "string"
+          },
+          "calls_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Calls Inr",
+            "type": "string"
+          },
+          "refunded_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Refunded Inr",
+            "type": "string"
+          },
+          "spent_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Spent Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls_inr",
+          "ai_assist_inr",
+          "adjustments_inr",
+          "spent_inr",
+          "added_inr",
+          "refunded_inr"
+        ],
+        "title": "DrawdownOut",
+        "type": "object"
+      },
       "EnableIn": {
         "additionalProperties": false,
         "properties": {
@@ -10432,6 +10478,31 @@
         "title": "LedgerEntryOut",
         "type": "object"
       },
+      "LedgerOut": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/WalletEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "payments": {
+            "items": {
+              "$ref": "#/components/schemas/WalletPaymentOut"
+            },
+            "title": "Payments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries",
+          "payments"
+        ],
+        "title": "LedgerOut",
+        "type": "object"
+      },
       "LegSummary": {
         "description": "One leg's distribution for one (engine, region) group, and its own verdict.\n\n**EVERY LEG CARRIES ITS OWN BUDGET, ITS OWN SAMPLE SIZE AND ITS OWN BASIS**, because it\nhas all three. A turn whose payload carried an LLM timing and no transcriber block is a\nsample for one leg and for neither the other nor the composed sum, so a single `turns`\ncount on the group would be wrong for at least one column of any real report.",
         "properties": {
@@ -13540,6 +13611,89 @@
         "title": "ReadinessRowOut",
         "type": "object"
       },
+      "ReceiptOut": {
+        "additionalProperties": false,
+        "description": "A RECEIPT for one payment. It is NOT a tax invoice and never says it is.\n\nThe business is not registered for GST and is not required to be at present turnover\n(`docs/legal/LEGAL-OPS-PLAYBOOK.md` \u00a74), so `gst.supplier_identity().is_registered` is\nfalse on every deployment: there is no GSTIN to print, no tax is charged, and CGST\ns.32 forbids an unregistered person collecting any. `document_type` is therefore\n`receipt` \u2014 an acknowledgement that money was received \u2014 and the console renders its\nheading from THIS field, never from a literal, exactly as the monthly statement does.\nNothing here carries a tax head, a rate, or an estimate of one.",
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "document_type": {
+            "title": "Document Type",
+            "type": "string"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "organization_billing_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Billing Email"
+          },
+          "organization_name": {
+            "title": "Organization Name",
+            "type": "string"
+          },
+          "payment_ref": {
+            "title": "Payment Ref",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "supplier_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Address"
+          },
+          "supplier_legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Legal Name"
+          }
+        },
+        "required": [
+          "document_type",
+          "payment_ref",
+          "amount_inr",
+          "received_at",
+          "entries",
+          "supplier_legal_name",
+          "supplier_address",
+          "organization_name",
+          "organization_billing_email",
+          "note"
+        ],
+        "title": "ReceiptOut",
+        "type": "object"
+      },
       "RecordAlertOptInIn": {
         "additionalProperties": false,
         "description": "No phone field, deliberately \u2014 see the module docstring. The number is read from\nthe principal's own profile so the consent key and the delivery key are the same\nread.",
@@ -14480,6 +14634,71 @@
           "previous_secret_expires_at"
         ],
         "title": "RotateSecretOut",
+        "type": "object"
+      },
+      "RunwayOut": {
+        "additionalProperties": false,
+        "description": "How long the balance lasts \u2014 and, when it may not be said, WHY not.\n\n`days` is null on every basis but `projected`, and `basis` carries which reason.\n\"We have not been watching you long enough to tell\" and \"you are not spending\nanything\" are different sentences to an owner deciding whether to top up, and a\nscreen that collapsed them into a blank would answer neither.\n\nNO DEFAULTS on any field, for `TopUpIntentOut.provider_order_id`'s reason: a Pydantic\ndefault generates an OPTIONAL property in the TypeScript client, and `days: null`\n(we will not put a number on it) must stay distinguishable from `undefined` (the\nserver did not say).",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "beyond_horizon": {
+            "title": "Beyond Horizon",
+            "type": "boolean"
+          },
+          "daily_burn_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Burn Inr"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "history_days": {
+            "title": "History Days",
+            "type": "integer"
+          },
+          "max_days": {
+            "title": "Max Days",
+            "type": "integer"
+          },
+          "min_history_days": {
+            "title": "Min History Days",
+            "type": "integer"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "basis",
+          "days",
+          "daily_burn_inr",
+          "history_days",
+          "beyond_horizon",
+          "window_days",
+          "min_history_days",
+          "max_days"
+        ],
+        "title": "RunwayOut",
         "type": "object"
       },
       "SaveScriptIn": {
@@ -17638,6 +17857,56 @@
         "title": "ToolOut",
         "type": "object"
       },
+      "TopUpAttemptOut": {
+        "additionalProperties": false,
+        "description": "A payment that was STARTED \u2014 including the ones that went nowhere.\n\nTHE POINT OF THIS LIST is the rows a ledger cannot hold. A declined card moves no\nmoney, so it has no `credit_ledger` entry, so before it existed a client whose payment\nfailed came back to a screen indistinguishable from one they had never touched.",
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Id"
+          },
+          "receipt": {
+            "title": "Receipt",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "receipt",
+          "amount_inr",
+          "pack_id",
+          "outcome",
+          "started_at"
+        ],
+        "title": "TopUpAttemptOut",
+        "type": "object"
+      },
       "TopUpCapabilityOut": {
         "additionalProperties": false,
         "description": "What this deployment can do about money, asked before the click (D-75's shape).\n\nTwo booleans because they are two facts and a screen needs both:\n`online_payments_available` decides whether the top-up form is offered at all, and\n`provider_orders_available` decides what the screen may promise once it is submitted.\n\nNeither carries a default, for the reason on `TopUpIntentOut.provider_order_id`: a\nmissing key must not read as `false`, which would render \"online payment is switched\noff for your account\" out of our own ignorance rather than out of the server's answer.\n\nNO reason code is published. `reason` names OUR configuration state and a client\ncannot act on \"no_webhook_secret\"; telling them which of our secrets is missing is an\ninternals leak. It is logged where an operator can reach it (`payments_unavailable`).",
@@ -18628,6 +18897,164 @@
         "title": "VoiceStateOut",
         "type": "object"
       },
+      "WalletEntryOut": {
+        "additionalProperties": false,
+        "description": "One line of the wallet, as its owner reads it.\n\nDeliberately NOT `credit_routes.LedgerEntryOut` \u2014 and named apart from it for a\nsecond, mechanical reason: two different schemas under one name make FastAPI emit\nfully-qualified component names for BOTH, which would rename the admin console's\ngenerated type out from under `lib/api/credits.ts`. That one carries `reversible_inr`,\nwhich exists so an OPERATOR can be offered a correction with a ceiling on it. It is\nmeaningless to a client, and publishing it here would invite a screen to render a\ncontrol this realm does not have.",
+        "properties": {
+          "balance_after_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance After Inr",
+            "type": "string"
+          },
+          "delta_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Delta Inr",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "payment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Ref"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          }
+        },
+        "required": [
+          "id",
+          "delta_inr",
+          "reason",
+          "ref",
+          "balance_after_inr",
+          "occurred_at",
+          "payment_ref"
+        ],
+        "title": "WalletEntryOut",
+        "type": "object"
+      },
+      "WalletOut": {
+        "additionalProperties": false,
+        "description": "Everything the credits screen needs about the money, in one read.",
+        "properties": {
+          "balance_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance Inr",
+            "type": "string"
+          },
+          "drawdown": {
+            "$ref": "#/components/schemas/DrawdownOut"
+          },
+          "is_low": {
+            "title": "Is Low",
+            "type": "boolean"
+          },
+          "low_balance_threshold_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Low Balance Threshold Inr",
+            "type": "string"
+          },
+          "minutes_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes Left"
+          },
+          "outbound_stopped": {
+            "title": "Outbound Stopped",
+            "type": "boolean"
+          },
+          "prepaid": {
+            "title": "Prepaid",
+            "type": "boolean"
+          },
+          "runway": {
+            "$ref": "#/components/schemas/RunwayOut"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "prepaid",
+          "balance_inr",
+          "is_low",
+          "low_balance_threshold_inr",
+          "outbound_stopped",
+          "runway",
+          "minutes_left",
+          "drawdown"
+        ],
+        "title": "WalletOut",
+        "type": "object"
+      },
+      "WalletPaymentOut": {
+        "additionalProperties": false,
+        "description": "One payment, as the wallet holds it \u2014 the line a receipt is issued against.",
+        "properties": {
+          "credited_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credited Inr",
+            "type": "string"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "first_at": {
+            "format": "date-time",
+            "title": "First At",
+            "type": "string"
+          },
+          "payment_ref": {
+            "title": "Payment Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_ref",
+          "credited_inr",
+          "entries",
+          "first_at"
+        ],
+        "title": "WalletPaymentOut",
+        "type": "object"
+      },
       "WebhookAck": {
         "additionalProperties": false,
         "properties": {
@@ -19435,7 +19862,7 @@
     },
     "/v1/admin/copilot/ask": {
       "post": {
-        "description": "The admin console's own assistant. Answers about the screen the operator is on, about\nPLATFORM state (the client roster, the triage board, whether outbound dialling is halted,\nwhether our telemarketer registration is live, how much of this month's AI budget is\nspent), about the ONE account named in `tenant_id` when one is open, and about Calevate's\nown runbooks \u2014 every one of those by calling a read tool, never from memory.\n\n`tenant_id` is the account whose admin page is open, or null. It scopes the account tools,\nthe live-state block and memory recall. Inside a view-as session it is ignored in favour of\nthe impersonated account, which is proven by the grant rather than claimed in a body.\n\nStreams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents \u2014\n`text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this\nrealm today, will not be offered: the write tools need an account-scoped identity that an\nadmin session does not carry, and inside a view-as session they are refused outright\nbecause impersonation is read-only.\n\n**BILLING: this never touches a client's AI allowance.** Operator spend is metered to the\nplatform's own ledger under the cost name `admin_copilot`. It is still bounded by the\nplatform-wide AI brake, which pauses this console's assistant exactly as it pauses every\nclient's.\n\nRequires `copilot:admin` \u2014 held by operators and superadmins.",
+        "description": "The admin console's own assistant. Answers about the screen the operator is on, about\nPLATFORM state (the client roster, the triage board, whether outbound dialling is halted,\nwhether our telemarketer registration is live, how much of this month's AI budget is\nspent), about the ONE account named in `tenant_id` when one is open, and about Calevate's\nown runbooks \u2014 every one of those by calling a read tool, never from memory.\n\n`tenant_id` is the account whose admin page is open, or null. It scopes the account tools,\nthe live-state block and memory recall. Inside a view-as session it is ignored in favour of\nthe impersonated account, which is proven by the grant rather than claimed in a body.\n\nStreams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents \u2014\n`text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a\nchange and, in this realm today, neither a `proposal` nor an `action` will be offered: the\nwrite tools need an account-scoped identity that an admin session does not carry, and\ninside a view-as session they are refused outright because impersonation is read-only.\n\n**BILLING: this never touches a client's AI allowance.** Operator spend is metered to the\nplatform's own ledger under the cost name `admin_copilot`. It is still bounded by the\nplatform-wide AI brake, which pauses this console's assistant exactly as it pauses every\nclient's.\n\nRequires `copilot:admin` \u2014 held by operators and superadmins.",
         "operationId": "ask_admin_copilot_v1_admin_copilot_ask_post",
         "requestBody": {
           "content": {
@@ -25527,6 +25954,151 @@
           "billing"
         ],
         "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/billing/wallet": {
+      "get": {
+        "description": "The prepaid wallet as its owner reads it. `outbound_stopped` is the dial gate's own verdict, asked rather than re-derived \u2014 inbound calls are never stopped by a balance. `runway.days` is null whenever a projection may not honestly be asserted, and `runway.basis` says which reason.",
+        "operationId": "read_wallet_summary_v1_billing_wallet_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Balance, how long it lasts, and where the money went",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/billing/wallet/ledger": {
+      "get": {
+        "description": "Every movement on the wallet \u2014 payments, call usage, pack bonuses, operator corrections and refunds \u2014 newest first. `payments` carries one line per payment on the page, which is what a receipt is issued against.",
+        "operationId": "read_wallet_ledger_v1_billing_wallet_ledger_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The wallet's entries, newest first, with the payments behind them",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/billing/wallet/receipts/{payment_ref}": {
+      "get": {
+        "description": "An acknowledgement that money was received against this reference. The business is not registered for GST, so no tax is charged and no tax invoice can be issued; `document_type` says what this document is and the console renders its heading from that field.",
+        "operationId": "read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "payment_ref",
+            "required": true,
+            "schema": {
+              "title": "Payment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A receipt for one payment \u2014 NOT a tax invoice",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/billing/wallet/topups": {
+      "get": {
+        "description": "A declined card moves no money, so it has no ledger entry. This is the list that shows it happened, so a client whose payment failed does not come back to a screen indistinguishable from one they never touched.",
+        "operationId": "read_topup_attempts_v1_billing_wallet_topups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopUpAttemptOut"
+                  },
+                  "title": "Response Read Topup Attempts V1 Billing Wallet Topups Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Payments that were started \u2014 including the ones that failed or never landed",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
       }
     },
     "/v1/calls": {

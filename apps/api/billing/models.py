@@ -685,4 +685,88 @@ class PlatformListRate(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+#: The three states a self-serve top-up attempt can be in, and the CHECK the database
+#: renders from them (`ck_topup_attempts_status_enum`, migration e9b24c73f105).
+#:
+#: There is deliberately no `pending` and no `cancelled`. "Pending" is `created` plus the
+#: passage of time, and a clock stored in a status column is a row that goes wrong
+#: whenever nothing has run recently — the screen decides how old is old. "Cancelled"
+#: would be the browser's word for closing a window, and the browser is not a source of
+#: truth about a payment (`billing/payment_routes.py`).
+TOPUP_ATTEMPT_STATUSES: tuple[str, ...] = ("created", "captured", "failed")
+
+
+class TopUpAttempt(PKMixin, TimestampMixin, Base):
+    """A self-serve top-up that was STARTED — whatever became of it.
+
+    **WHY THIS IS NOT `credit_ledger` AND MUST NEVER BECOME IT.** The wallet is the
+    ledger; nothing on this row is money and nothing here is ever summed into a balance.
+    What this records is the state of an ATTEMPT at the provider, which is exactly the
+    thing a ledger of completed movements cannot hold: a declined card moves no money, so
+    it has no entry, so a client came back to a screen that looked as though they had
+    never tried. That silence is what this closes.
+
+    So it is UPDATEd in place and is deliberately absent from
+    `db/registry.APPEND_ONLY_TABLES`. Hard rule 4 protects the assertions that add up to a
+    balance; an attempt's status is not one of them, and the asymmetry is the whole reason
+    for a separate table — a lost UPDATE here costs a stale word on a screen and can never
+    cost or double a rupee. The append-only record of a captured payment already exists,
+    one table over, keyed on the provider's payment id.
+
+    **`idempotency_records` was considered first and cannot do this.** Its `scope_key` is
+    an HMAC fingerprint with no `tenant_id`, so it carries no RLS policy and cannot be read
+    back per tenant, and it expires in about 24 hours — shorter than some payments take to
+    settle, and far shorter than a client's memory of having paid.
+
+    **ONCE-NESS IS THE RECEIPT.** `payments.topup_receipt` derives it server-side from
+    (tenant, amount, a 15-minute window), which is the same key the intent route claims its
+    idempotency under — so the double click that produces one order also produces one row
+    here, held by `ux_topup_attempts_tenant_receipt` rather than by both writers
+    remembering to look first.
+    """
+
+    __tablename__ = "topup_attempts"
+    __table_args__ = (
+        CheckConstraint("amount_inr > 0", name="amount_positive"),
+        CheckConstraint(f"status IN {TOPUP_ATTEMPT_STATUSES!r}", name="status_enum"),
+        Index("ux_topup_attempts_tenant_receipt", "tenant_id", "receipt", unique=True),
+        # The webhook's read: a captured or failed event names an order id. NOT unique —
+        # a deployment that cannot create orders writes NULL here, and many NULLs are not
+        # a conflict in Postgres, but the uniqueness that matters is on the receipt above
+        # rather than on a subtlety a reader would have to know.
+        Index("ix_topup_attempts_tenant_order", "tenant_id", "provider_order_id"),
+        # The screen's read — newest first for one tenant. `text()` because the DESC is
+        # the point and autogenerate cannot diff expression indexes; migration
+        # e9b24c73f105 is the source of truth for its existence, exactly as
+        # `ix_credit_ledger_tenant_recent` records above.
+        Index(
+            "ix_topup_attempts_tenant_recent",
+            "tenant_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+    )
+
+    # No `index=True`: all three composites above lead with this column, so a
+    # single-column index on it is a strict prefix that no query can use.
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: OUR reference (`payments.topup_receipt`). The client sees this one, and it is what a
+    #: bank transfer quotes on a deployment that cannot take a card.
+    receipt: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The provider's order id, NULL when this deployment holds no API secret and nothing
+    #: was created (`payment_capability().creates_orders`).
+    provider_order_id: Mapped[str | None] = mapped_column(Text)
+    #: The provider's payment id once one exists — the same string the `credit_ledger`
+    #: top-up carries as its `ref`, which is what lets one screen show an attempt beside
+    #: the credit it became without either table knowing about the other.
+    provider_payment_id: Mapped[str | None] = mapped_column(Text)
+    #: INR, NUMERIC never float (hard rule 7), at the ledger's own storage scale.
+    amount_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: The catalogue pack this attempt priced, or NULL for a free-form amount.
+    pack_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="created")
+
+
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

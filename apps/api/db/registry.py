@@ -91,6 +91,14 @@ TENANT_TABLES = [
     # what this client was billed once, read by the invoice.
     "one_time_charges",
     "spend_state",
+    # Self-serve top-ups that were STARTED, and what became of them (migration
+    # e9b24c73f105). Tenant money-adjacent: which of this client's payment attempts
+    # failed, which is still settling, and which became a credit. NOT append-only, and
+    # deliberately: it is a CLAIM rather than an assertion of money — the row is UPDATEd
+    # from `created` to `captured`/`failed`, it is never summed into a balance, and the
+    # append-only record of the money itself is the `credit_ledger` entry the same webhook
+    # writes. A lost UPDATE here costs a stale word on a screen; it cannot cost a rupee.
+    "topup_attempts",
     "consent_ledger",
     # The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7): our own customer's owner
     # agreeing to receive hot-lead alerts from the Calevate WABA. Tenant data — it names

@@ -128,6 +128,7 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.tls_expiry import check_tls_expiry
+from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -195,6 +196,14 @@ FUNCTIONS: list[Any] = [
         # tick while the dials already queued at the vendor ring anyway, with every screen
         # reporting the number suppressed.
         recall_dials_for_dnc,
+        # THE EMPTY-WALLET WARNING (2 Sep 2026). Published by `billing.service.record_entry`
+        # in the same transaction as the ledger entry that crossed the line, so an
+        # unregistered name here is not a dormant feature: the outbox marks the row
+        # `published`, arq drops the job with a warning nothing reads, and a client's
+        # outgoing calls stop with no notice at all — which is precisely the founder's
+        # stated failure ("a client whose phone stops being answered because a top-up
+        # lapsed is a client who leaves"). `check_job_wiring` shape 3.
+        notify_low_balance,
     )
 ]
 
