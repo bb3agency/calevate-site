@@ -111,9 +111,7 @@ class Organization(PKMixin, TimestampMixin, Base):
     # whether credits gate dispatch and whether the self-serve screens render. The
     # server default moved `managed` -> `prepaid` with D-521 (migration `a8d3f61c04e7`);
     # it is spelled from the constant so the column and the wizard cannot disagree.
-    plan_tier: Mapped[str] = mapped_column(
-        String, nullable=False, server_default=DEFAULT_PLAN_TIER
-    )
+    plan_tier: Mapped[str] = mapped_column(String, nullable=False, server_default=DEFAULT_PLAN_TIER)
     billing_email: Mapped[str | None] = mapped_column(Text)
     # The wizard's intake answer sheet (FLOWS §1 step 3), raw and resumable: the fields
     # an operator typed, not the [T0 FACTS] block compiled out of them. Lives here

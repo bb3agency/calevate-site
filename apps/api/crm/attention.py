@@ -185,6 +185,7 @@ def block_remedy(rule: str) -> str:
         "there is nothing for you to do."
     )
 
+
 # What a failed SHEETS delivery means, in the words of the person who has to fix it.
 # Keyed by the authored reason codes in `apps/workers/sheets_sync.py` and
 # `apps/workers/google_sheets.py` — never by vendor prose, which is untrusted text that
