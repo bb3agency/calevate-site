@@ -111,8 +111,11 @@ LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 #: once; see `downgrade` for the same asymmetry stated from the other side).
 _FLIP = f"UPDATE organizations SET plan_tier = '{NEW_DEFAULT}' WHERE plan_tier = '{OLD_DEFAULT}'"
 
-#: How many of the accounts this migration just moved cannot dial outbound until they are
-#: topped up: prepaid, and with no positive balance on the newest `credit_ledger` row.
+#: How many accounts cannot dial outbound until they are topped up, counted AFTER the flip:
+#: every live tenant that is `prepaid` and has no positive balance on the newest
+#: `credit_ledger` row. On this revision that set IS the set just moved — `prepaid` did not
+#: exist a statement ago — which is why the count is taken here rather than from the
+#: UPDATE's own row count, whose rows say nothing about whose wallet is empty.
 #: This is the number the operator needs, and it is the reason `credit_ledger` is inside
 #: the bracket as well — it is FORCE-RLS too, and the READ side of a statement is filtered
 #: by the policy on the table being READ (`tests/migration_rls_bracket_test.READ_SIDE`).
