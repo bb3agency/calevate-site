@@ -19,6 +19,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
@@ -3549,6 +3550,14 @@ ListingIncompleteReason = Literal[
     # reason. Named for the link era and kept, because the CONDITION is the same whether
     # the next page is named by a cursor (Cartesia) or by a page number (Bolna).
     "next_link_no_progress",
+    # The listing was assembled from several sub-reads — one per agent, because the vendor
+    # publishes no account-wide route — and at least one of them failed. Added with
+    # `list_account_kb` (D-519), and it is a distinct CONDITION rather than a synonym for
+    # the four above: those are all statements about paging through ONE collection, and
+    # none of them is true of a fan-out that read nine agents and could not read the
+    # tenth. Reporting one of them would send an operator to the wrong runbook entry;
+    # reporting completeness would hide a client's stranded document behind a blip.
+    "partial_fan_out",
 ]
 # `next_link_loop` AND `empty_page_with_next` USED TO BE MEMBERS AND ARE GONE (D-365).
 #
@@ -3643,6 +3652,70 @@ class WebhookVerdict(BaseModel):
     ok: bool
     method: Literal["hmac", "source_ip", "none"]
     reason: str | None = None
+
+
+#: What we can say about one knowledge base the ENGINE ACCOUNT holds, in our vocabulary.
+#:
+#: `ready` is the only state that can be attached to an agent; `pending` is still being
+#: indexed; `failed` is a vendor verdict on a document we uploaded; `unknown` is an
+#: adapter that could not map what it read, which must never collapse into one of the
+#: other three.
+AccountKBState = Literal["ready", "pending", "failed", "unknown"]
+
+
+class AccountKBObject(BaseModel):
+    """One knowledge base on the engine ACCOUNT, and who — if anyone — it belongs to.
+
+    THIS TYPE EXISTS BECAUSE THE ACCOUNT IS SHARED AND THE OBJECT IS NOT OWNED. We run one
+    vendor account for every tenant, and on the primary engine a knowledge base is an
+    account-level object carrying no agent, no tenant and no owner of any kind. So the
+    only question that can find a client's document again is asked from OUR side, and this
+    is the row it is asked about.
+
+    `claimed_source_id` is the adapter's answer to "which of our sources does this object
+    look like it was uploaded for" — recovered from something the ADAPTER itself controls
+    (on Bolna, the `file_name` we send is `calevate-kb-<source id>.pdf`), never from
+    anything a client typed. It is a CLAIM, not proof: `None` means the object was created
+    by something other than this code — a hand-made upload in the vendor's console, or a
+    build of ours older than the convention — and a value means only that our own naming
+    is on it. The cross-check against what we actually recorded is `kb/orphans.py`'s, and
+    it is deliberately not done here: an adapter has no business reading our tables.
+
+    Hard rule 2 holds: nothing vendor-shaped crosses. `handle` is the same opaque
+    `EngineKBRef` every other KB method speaks, the state is our own four-value
+    vocabulary, and the vendor's file name — which is ours anyway — does not cross at all.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: The handle an agent would reference, or None when the vendor has not minted one
+    #: yet. A pending object HAS no reference-able id on the primary engine, and inventing
+    #: one would make an unattachable object look attached.
+    handle: EngineKBRef | None
+    #: Our own source id, if this object carries our naming. See the class docstring for
+    #: why this is a claim rather than a fact.
+    claimed_source_id: UUID | None = None
+    state: AccountKBState = "unknown"
+    #: When the vendor says it was created. Used to age an orphan — a two-minute-old
+    #: unclaimed object is a publish in flight, a two-week-old one is not.
+    created_at: datetime | None = None
+
+
+class AccountKBListing(BaseModel):
+    """`list_account_kb`'s answer: the account's knowledge bases AND whether they are all.
+
+    `ExecutionListing`'s argument, for a listing where the stakes are the other way round.
+    There, an incomplete page hides a call. Here, an incomplete page hides an object —
+    and the caller is asking "which of these does nobody claim", so a missing page reads
+    as "nothing to report" and a client's stranded document goes unseen for as long as
+    nobody looks properly. `complete` has no default for exactly the reason that field
+    has none there: an adapter must answer the question in writing.
+    """
+
+    objects: list[AccountKBObject] = Field(default_factory=list)
+    complete: bool
+    incomplete_reason: ListingIncompleteReason | None = None
+    pages_fetched: int = Field(default=1, ge=1)
 
 
 class LlmCredentialPlacement(BaseModel):
@@ -4102,6 +4175,31 @@ class VoiceEngine(Protocol):
         """
         ...
 
+    async def list_account_kb(self) -> AccountKBListing:
+        """Every knowledge base on the ENGINE ACCOUNT, whoever it belongs to.
+
+        **THE ONE QUESTION `list_kb` CANNOT ANSWER, AND THE ONLY ONE THAT CAN FIND A
+        STRANDED DOCUMENT.** `list_kb` reads what an AGENT references, so an object no
+        agent references is invisible to it — and that is precisely the residue every
+        failure in this feature leaves: a create whose response was lost, a crash between
+        the upload and the agent write, a COMMIT that failed after a successful attach, a
+        cleanup that itself failed, an agent deleted while it still referenced knowledge.
+        On an engine whose knowledge base is an account-level object with no owner field,
+        such an object is billed for as long as the account exists and holds a client's
+        document — plausibly with their customers' names and numbers in it — with nothing
+        anywhere saying whose it is.
+
+        So the account listing is not a nicety: it is the only instrument that can ask
+        "what is here that nobody claims?", which is the question a DPDP erasure has to be
+        able to answer. `kb/orphans.py` is the caller; it cross-checks against our own
+        claim rows and REPORTS. Nothing deletes on the strength of this listing.
+
+        An adapter with no knowledge base refuses (`require_capability`), for `list_kb`'s
+        reason: an empty listing is a positive claim about the account, and "that question
+        does not apply here" is a different answer that the caller must be made to notice.
+        """
+        ...
+
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         """The authenticated read. This — not the webhook — is what we persist.
 
@@ -4168,6 +4266,9 @@ __all__ = [
     "PLATFORM_RULES_PREAMBLE",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
+    "AccountKBListing",
+    "AccountKBObject",
+    "AccountKBState",
     "ActionParamFill",
     "ActionParamType",
     "ActionToolParam",

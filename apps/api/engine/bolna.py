@@ -109,6 +109,7 @@ from time import monotonic
 from types import MappingProxyType
 from typing import Any, Final, NamedTuple
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import httpx
 from calevate_shared.config import bolna_source_ips
@@ -116,6 +117,9 @@ from calevate_shared.engine import (
     DECLARED_POSTURE,
     E164,
     LLM_TTFT_BUDGET_MS,
+    AccountKBListing,
+    AccountKBObject,
+    AccountKBState,
     ActionToolSpec,
     AgentConfig,
     AgentSnapshot,
@@ -1823,6 +1827,45 @@ def _kb_filename(source: KBSourceRef) -> str:
     ("Ravi's clinic timings") and there is no reason a vendor console needs it.
     """
     return f"calevate-kb-{source.kb_id}.pdf"
+
+
+#: Their status vocabulary -> ours. See `list_account_kb` on why `error` is mapped from a
+#: listing whose own enum does not declare it.
+_KB_STATES: dict[str, AccountKBState] = {
+    KB_STATUS_PROCESSED: "ready",
+    KB_STATUS_PROCESSING: "pending",
+    KB_STATUS_ERROR: "failed",
+}
+
+#: The file name `_kb_filename` writes, read back. Anchored at both ends: a name that
+#: merely CONTAINS a uuid is not one this code wrote, and treating it as ours would
+#: attribute a stranger's upload to one of our sources.
+_KB_FILENAME_RE = re.compile(r"^calevate-kb-([0-9a-fA-F-]{32,36})\.pdf$")
+
+
+def _source_id_from_kb_filename(file_name: Any) -> UUID | None:
+    """Our source id out of the vendor's `file_name`, or None if it is not ours.
+
+    THE ONLY ATTRIBUTION AN UNRECORDED OBJECT HAS. Every other field on their listing row
+    belongs to them; this one we chose, and it is what makes a knowledge base created by a
+    publish whose transaction rolled back attributable rather than anonymous for ever.
+
+    None is returned for anything that does not match EXACTLY: an upload made by hand in
+    the vendor console, a name from a build older than this convention, or a value that
+    looks close. `kb/orphans.py` treats those as unclaimed and asks a human, which is the
+    only safe verdict — an object we cannot attribute may still be a client's document.
+    """
+    if not isinstance(file_name, str):
+        return None
+    matched = _KB_FILENAME_RE.match(file_name)
+    if matched is None:
+        return None
+    try:
+        return UUID(matched.group(1))
+    except ValueError:
+        # A 32-36 character hex-and-dash string that is not a uuid. Their store would
+        # happily hold one; our sources are uuid7 and nothing else, so this is not ours.
+        return None
 
 
 def _agent_object(payload: dict[str, Any]) -> dict[str, Any]:
@@ -4363,6 +4406,48 @@ class BolnaEngine:
         # already gone, so a knowledge base that vanished between the listing above and
         # this call has reached this method's postcondition by another route.
         await self._request("DELETE", f"/knowledgebase/{rag_id}", absent_is_success=True)
+
+    async def list_account_kb(self) -> AccountKBListing:
+        """Every knowledge base on the account, with our own source id where we can read it.
+
+        `GET /knowledgebase/all`, walked (`_kb_account_rows`). The account is shared by
+        every tenant and the row carries no owner of any kind — `Knowledgebase` declares
+        `rag_id`, `file_name`, `humanized_created_at`, `created_at`, `updated_at`,
+        `vector_id`, `status`, `chunk_size`, `similarity_top_k` and `language_support`
+        (`.../knowledgebase/get_knowledgebases.md:63-121`) — so the attribution has to
+        come from something WE put on the object.
+
+        **THAT SOMETHING IS THE FILE NAME, AND IT IS OURS RATHER THAN THE CLIENT'S.**
+        `_kb_filename` sends `calevate-kb-<our source id>.pdf` and the vendor echoes it
+        back on every listing row, which turns their flat pool into something attributable
+        even when the transaction that should have recorded the handle rolled back. It is
+        a claim and not proof, which is why it crosses as `claimed_source_id` and why
+        `kb/orphans.py` still checks it against our own rows: a name is not a record.
+
+        `vector_id` is absent from a row that is still `processing`, so `handle` is None
+        there rather than invented — an object with no reference-able id is exactly what a
+        publish in flight looks like, and reporting it as attachable would be a lie the
+        orphan report acts on.
+
+        THE STATUS ENUM ON THIS ROUTE IS `processing | processed` AND `error` IS NOT IN IT
+        (`get_knowledgebases.md:95-101`), while the single-row read and the create both
+        declare `error` as well. Both are mapped: a state their listing schema does not
+        promise is still a state their platform has a name for, and dropping it here would
+        turn a failed upload into `unknown` on the one surface that has to explain what is
+        lying around.
+        """
+        require_capability("knowledge_base", engine=self)
+        rows, reason = await self._kb_account_rows()
+        objects = [
+            AccountKBObject(
+                handle=row["vector_id"] if isinstance(row.get("vector_id"), str) else None,
+                claimed_source_id=_source_id_from_kb_filename(row.get("file_name")),
+                state=_KB_STATES.get(str(row.get("status") or "").lower(), "unknown"),
+                created_at=_parse_dt(row.get("created_at")),
+            )
+            for row in rows
+        ]
+        return AccountKBListing(objects=objects, complete=reason is None, incomplete_reason=reason)
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         """The vector ids this AGENT references -- one `GET /v2/agent/{id}`.

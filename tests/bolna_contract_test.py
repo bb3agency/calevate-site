@@ -482,6 +482,56 @@ async def test_a_detach_reaches_a_knowledge_base_past_the_first_listing_page() -
     )
 
 
+async def test_the_account_listing_attributes_objects_by_the_file_name_we_chose() -> None:
+    """D-519. The one attribution an UNRECORDED vendor object has.
+
+    Their `Knowledgebase` row carries no agent, no tenant and no owner
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md
+    :63-121`) and one account holds every tenant's documents, so an object whose handle
+    our tables never recorded — a create whose response was lost, a publish whose COMMIT
+    failed — would be anonymous for ever. It is not, because the file name is OURS:
+    `calevate-kb-<source id>.pdf` (`_kb_filename`), echoed back on every listing row.
+
+    Also pinned: a row still `processing` has NO `vector_id` on this vendor, and reporting
+    a handle for it would tell the orphan report an unattachable object is attachable.
+    """
+    rows = [
+        {
+            "rag_id": "rag_1",
+            "vector_id": "vec_1",
+            "file_name": "calevate-kb-0199a0b0-0000-7000-8000-000000000009.pdf",
+            "status": "processed",
+            "created_at": "2026-09-01T10:00:00Z",
+        },
+        {"rag_id": "rag_2", "file_name": "calevate-kb-nope.pdf", "status": "processing"},
+        {"rag_id": "rag_3", "vector_id": "vec_3", "file_name": "somebody.pdf", "status": "error"},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/knowledgebase/all"
+        return httpx.Response(200, json=rows)
+
+    listing = await _engine(handler).list_account_kb()
+
+    assert listing.complete
+    claimed, pending, stranger = listing.objects
+    assert str(claimed.claimed_source_id) == "0199a0b0-0000-7000-8000-000000000009"
+    assert claimed.state == "ready" and claimed.handle == "vec_1"
+    assert pending.handle is None, (
+        "a `processing` row carries no vector id and one must not be invented for it"
+    )
+    assert pending.claimed_source_id is None, "`calevate-kb-nope.pdf` is not one of ours"
+    assert pending.state == "pending"
+    assert stranger.claimed_source_id is None, (
+        "an upload made outside this code was attributed to one of our sources"
+    )
+    assert stranger.state == "failed", (
+        "`error` is absent from their LISTING enum and is still a state their platform "
+        "has a name for; dropping it hides a failed upload on the one surface that "
+        "explains what is lying around"
+    )
+
+
 async def test_a_listing_the_walk_could_not_finish_is_not_read_as_absence() -> None:
     """ "We could not finish looking" is not "the account does not hold it".
 
