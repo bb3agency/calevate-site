@@ -113,6 +113,7 @@ from urllib.parse import urlsplit
 import httpx
 from calevate_shared.config import bolna_source_ips
 from calevate_shared.engine import (
+    CALLER_MEMORY_VARIABLE,
     DECLARED_POSTURE,
     E164,
     LLM_TTFT_BUDGET_MS,
@@ -140,6 +141,7 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
     openai_base_url,
+    render_caller_memory,
 )
 from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
 from pydantic import ValidationError
@@ -3564,6 +3566,27 @@ class BolnaEngine:
             user_data["lead_name"] = ctx.lead_name
         if ctx.context_note:
             user_data["context_note"] = ctx.context_note
+        # WHAT WE REMEMBER ABOUT THIS PERSON (D-509), under the ONE key the contract names.
+        #
+        # VERIFIED-VENDOR-DOCS, read 2 Sep 2026: *"Pass `user_data` to inject variables into
+        # your agent's prompt and welcome message (e.g. `{customer_name}` in the prompt
+        # becomes 'Asha')"* — `bolna-findings/mirror/pages/api-reference/calls/
+        # make.md:32`, with the worked example at `:34-44`.
+        # So `CALLER_MEMORY_SLOT` (`{caller_memory}`), which `compose_engine_prompt` put in
+        # the agent's prompt at publish, is filled by this entry at dial time.
+        #
+        # **SENT EVEN WHEN EMPTY, and that is not tidiness.** The token is IN the published
+        # prompt for every agent that remembers callers, and the vendor's substitution
+        # behaviour for a key their `user_data` does not carry is not documented anywhere in
+        # the pinned mirror (OPERATIONS §2 gate 8b). The failure it would produce is the
+        # worst-shaped one available: an agent reading the literal string "{caller_memory}"
+        # aloud to a first-time caller. An empty string substitutes to nothing on any
+        # plausible implementation, so it is what a caller we do not know is worth.
+        # ALWAYS PRESENT, empty when there is nothing to say. An agent that does not
+        # remember callers carries no token in its prompt, so the key is inert there and
+        # costs one short string on the wire; an agent that does carries the token on EVERY
+        # call, including the first one from a stranger.
+        user_data[CALLER_MEMORY_VARIABLE] = render_caller_memory(ctx.caller_memory)
         # THE CALLER ID, AND THE FIELD'S ABSENCE IS WHAT D-420 IS (symptom 1). Their own
         # outbound guide: *"Add your purchased phone number or your own connected phone
         # number in `from_phone_number` field"*, and omitting it dials from their

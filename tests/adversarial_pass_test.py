@@ -142,6 +142,14 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 {},
             ),
             (
+                "callback_id",
+                "scheduled_callbacks",
+                "(id, tenant_id, agent_id, source_execution_id, phone_e164, requested_at, "
+                " booked_at) VALUES (:i, :t, :a, :exec, '+919000000004', now() + "
+                " interval '1 hour', now())",
+                {"exec": f"exec-{uuid.uuid4().hex[:10]}"},
+            ),
+            (
                 "entry_id",
                 "dnc_list",
                 "(id, tenant_id, phone_e164, scope) VALUES (:i, :t, '+919000000002', 'tenant')",
@@ -257,6 +265,13 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/extraction-schema", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/extraction-schema", {"fields": []}, {}),
     ("GET", "/v1/agents/{agent_id}/pending", {}, {}),
+    # D-509/D-510. The switch is `org:manage` and the two reads are `leads:read`, so all
+    # three are reachable with an ordinary client credential — which is exactly the set
+    # this sweep exists over. The call-back pair matters more than it looks: the row names
+    # a person and the time we are going to telephone them.
+    ("PATCH", "/v1/agents/{agent_id}/caller-memory", {"enabled": False}, {}),
+    ("GET", "/v1/callbacks/{callback_id}", {}, {}),
+    ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
     ("GET", "/v1/calls/{call_id}", {}, {}),
     ("GET", "/v1/calls/{call_id}/callback", {}, {}),
     ("POST", "/v1/calls/{call_id}/callback", {}, {}),

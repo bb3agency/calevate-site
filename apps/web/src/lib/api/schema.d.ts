@@ -299,10 +299,10 @@ export interface paths {
          *     the impersonated account, which is proven by the grant rather than claimed in a body.
          *
          *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
-         *     `text`, `fill`, `proposal`, `done`, `error`. A `proposal` is NOT a change and, in this
-         *     realm today, will not be offered: the write tools need an account-scoped identity that an
-         *     admin session does not carry, and inside a view-as session they are refused outright
-         *     because impersonation is read-only.
+         *     `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+         *     change and, in this realm today, neither a `proposal` nor an `action` will be offered: the
+         *     write tools need an account-scoped identity that an admin session does not carry, and
+         *     inside a view-as session they are refused outright because impersonation is read-only.
          *
          *     **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
          *     platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
@@ -1805,6 +1805,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/caller-memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Let an agent remember returning callers, and book call-backs
+         * @description Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.
+         *
+         *     Off unless you switch it on. Switched on, the agent says at the start of every call that a short note is kept — that sentence cannot be switched off separately.
+         *
+         *     What is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.
+         *
+         *     The first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.
+         *
+         *     Applies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.
+         */
+        patch: operations["set_caller_memory_route_v1_agents__agent_id__caller_memory_patch"];
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/deactivate": {
         parameters: {
             query?: never;
@@ -2834,6 +2862,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/callbacks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The call-backs your agents promised
+         * @description Every time a caller asked to be rung back at a particular time, and what happened to that promise. Most recent first.
+         *
+         *     Set `open_only` to see just the ones still to come.
+         */
+        get: operations["list_callbacks_v1_callbacks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/callbacks/{callback_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One promised call-back */
+        get: operations["get_callback_v1_callbacks__callback_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Call off a promised call-back
+         * @description Stops a call-back that has not gone out yet. A call-back that is already being placed cannot be stopped here — the phone may already be ringing — and one that has already ended stays as it ended.
+         */
+        delete: operations["cancel_callback_v1_callbacks__callback_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls": {
         parameters: {
             query?: never;
@@ -3683,6 +3754,26 @@ export interface paths {
          *     which is the answer this repo already gives for a delete with nothing to report.
          */
         delete: operations["remove_v1_dnc__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/engine/caller-data/{engine}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Engine-called: what this agent remembers about the caller now ringing
+         * @description The voice platform calls this when an inbound call arrives and puts the answer into the agent's instructions for that one call. It answers with nothing at all for a caller the agent has not spoken to, for an agent whose account has not switched caller continuity on, and whenever the lookup cannot be completed in time — a returning caller is then greeted normally, which is the right way for this to fail.
+         */
+        get: operations["caller_data_v1_engine_caller_data__engine__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6218,6 +6309,54 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "blocked";
+        };
+        /**
+         * CallerMemoryIn
+         * @description Switch caller continuity on or off for one agent.
+         *
+         *     ONE BOOLEAN AND NOT A PAIR, unlike `DisclosureIn` above, and the difference is the
+         *     decision rather than the shape of the screen: remembering a caller and rescheduling a
+         *     call-back are "two linked abilities, always on or off together" (D-509), so there is
+         *     one column and there is nothing here for a second field to name. A client who could
+         *     switch one off and keep the other would keep the ability that REUSES what was
+         *     remembered while withdrawing the one their callers were told about.
+         *
+         *     `accept` is the client saying yes to the sentence the refusal handed them. It is only
+         *     read the FIRST time an account switches this on: the attestation is about the
+         *     business, so it is asked once and then stands
+         *     (`organizations.caller_memory_attested_at`).
+         */
+        CallerMemoryIn: {
+            /**
+             * Accept
+             * @default false
+             */
+            accept: boolean;
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** CallerMemoryOut */
+        CallerMemoryOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Attestation
+             * @default I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so at the start of every call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.
+             */
+            attestation: string;
+            /** Attested At */
+            attested_at?: string | null;
+            /** Attested By Name */
+            attested_by_name?: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /** Opening Line */
+            opening_line: string;
         };
         /**
          * CallerNoticeOut
@@ -11603,6 +11742,45 @@ export interface components {
             start_at: string;
         };
         /**
+         * ScheduledCallbackOut
+         * @description One promise. Instants are UTC on the wire and rendered in IST by the browser —
+         *     the repo convention, and the reason this model carries no formatted string: a time
+         *     formatted on the server is a time formatted in the server's idea of the day.
+         */
+        ScheduledCallbackOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Attempts */
+            attempts: number;
+            /** Explanation */
+            explanation: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Call Id */
+            last_call_id: string | null;
+            /** Lead Id */
+            lead_id: string | null;
+            /** Note */
+            note: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Settled At */
+            settled_at: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
          * ScriptOut
          * @description The draft script the builder edits, plus where it stands and the free merge fields.
          */
@@ -16351,6 +16529,41 @@ export interface operations {
             };
         };
     };
+    set_caller_memory_route_v1_agents__agent_id__caller_memory_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallerMemoryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerMemoryOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     deactivate_agent_route_v1_agents__agent_id__deactivate_post: {
         parameters: {
             query?: never;
@@ -17976,6 +18189,100 @@ export interface operations {
             };
         };
     };
+    list_callbacks_v1_callbacks_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                open_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledCallbackOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_callback_v1_callbacks__callback_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callback_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledCallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_callback_v1_callbacks__callback_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callback_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledCallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_calls_v1_calls_get: {
         parameters: {
             query?: {
@@ -19252,6 +19559,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    caller_data_v1_engine_caller_data__engine__get: {
+        parameters: {
+            query: {
+                contact_number: string;
+                agent_id: string;
+                execution_id?: string;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                engine: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

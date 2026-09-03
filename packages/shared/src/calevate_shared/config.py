@@ -360,6 +360,21 @@ class Settings(BaseSettings):
     bolna_webhook_source_ips: str = Field(
         default=",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS)), max_length=1024
     )
+    #: The Bearer token the engine presents when it asks us who is ringing (D-509).
+    #:
+    #: On an INBOUND call the engine holds the number and we hold the memory, so it fetches
+    #: caller details from `GET /v1/engine/caller-data/{engine}` at call setup and injects
+    #: the answer into the agent's prompt. Their console takes a Bearer token for that
+    #: endpoint and stores it (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
+    #: agent-setup/inbound-tab.md:38-42,63,78`, read 2 Sep 2026) — so the value is one WE
+    #: choose and paste into their agent, not one they issue.
+    #:
+    #: ABSENT ⇒ THE ENDPOINT ANSWERS NOBODY, which is the safe reading of an unconfigured
+    #: credential rather than an outage: a deployment that has not been wired to the engine
+    #: simply greets every inbound caller generically, exactly as it does today. It is NOT
+    #: `bolna_api_key` reused — that key authenticates US to THEM and would be travelling in
+    #: the opposite direction, so a leak of one would be a leak of the other.
+    bolna_caller_data_token: str | None = Field(default=None, max_length=256)
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
     # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     #

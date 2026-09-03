@@ -9,6 +9,7 @@ from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
+from apps.api.callbacks import models as callbacks_models
 from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
 from apps.api.copilot import models as copilot_models
@@ -33,6 +34,7 @@ __all__ = [
     "agents_models",
     "authn_models",
     "billing_models",
+    "callbacks_models",
     "campaigns_models",
     "compliance_models",
     "copilot_models",
@@ -183,6 +185,13 @@ TENANT_TABLES = [
     # excellent search result.
     "caller_chunks",
     "caller_memories",
+    # The call-back a caller asked for on a call (D-510, migration d8f31a7c2409). Tenant
+    # data of the plainest kind — a phone number, a time we promised, and the gate's own
+    # sentence for why we could not keep it — and FORCE-RLS'd like every other row that
+    # names one of a client's callers. NOT append-only: the row IS a state machine
+    # (`scheduled -> dialing -> one of five endings`), which is what lets one promise stay
+    # one row however many times a tick claims it.
+    "scheduled_callbacks",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
     # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the

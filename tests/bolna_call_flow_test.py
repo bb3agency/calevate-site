@@ -47,7 +47,12 @@ from typing import Any
 
 import httpx
 from apps.api.engine.bolna import BASE_URL, BolnaEngine
-from calevate_shared.engine import AgentConfig, CallContext, ModelConfig
+from calevate_shared.engine import (
+    CALLER_MEMORY_VARIABLE,
+    AgentConfig,
+    CallContext,
+    ModelConfig,
+)
 
 
 def _engine(handler: Any) -> BolnaEngine:
@@ -161,6 +166,50 @@ async def test_the_dial_body_is_exactly_what_we_meant_to_send() -> None:
     assert set(await _dial_body()) == {"agent_id", "recipient_phone_number", "user_data"}
 
 
+async def test_what_we_remember_rides_the_dial_under_the_contracts_one_key() -> None:
+    """Cross-call memory reaches the engine as a `user_data` VARIABLE and nothing else
+    (D-509).
+
+    VERIFIED-VENDOR-DOCS, read 2 Sep 2026: *"Pass `user_data` to inject variables into your
+    agent's prompt and welcome message (e.g. `{customer_name}` in the prompt becomes
+    'Asha')"* — `bolna-findings/mirror/pages/api-reference/calls/make.md:32`, worked example
+    at `:34-44`. `compose_engine_prompt` puts the matching token in the agent's prompt at
+    publish; this entry fills it at dial time.
+
+    **THE KEY IS READ OFF THE CONTRACT**, never spelled here: three producers fill this
+    variable — this dial, the inbound caller-data endpoint, and the prompt token that
+    expects it — and a fourth spelling would not error. It would be an agent reading the
+    literal string `{caller_memory}` aloud to a stranger.
+
+    **AND IT IS SENT EVEN WHEN EMPTY.** The token is in the published prompt for every
+    agent that remembers callers, and the vendor's substitution behaviour for a key their
+    `user_data` does not carry is undocumented in the pinned mirror (OPERATIONS §2 gate
+    8b). An empty string substitutes to nothing on any plausible implementation, and it is
+    exactly what a caller we do not know is worth.
+    """
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content or b"{}"))
+        return httpx.Response(200, json={"execution_id": "exec_1", "status": "queued"})
+
+    await _engine(handler).start_outbound_call(
+        "agent_1",
+        "+919876543210",
+        CallContext(caller_memory=("asked about weekend viewings",)),
+    )
+    assert seen["user_data"][CALLER_MEMORY_VARIABLE] == "- asked about weekend viewings"
+
+    stranger: dict[str, Any] = {}
+
+    def blank(request: httpx.Request) -> httpx.Response:
+        stranger.update(json.loads(request.content or b"{}"))
+        return httpx.Response(200, json={"execution_id": "exec_2", "status": "queued"})
+
+    await _engine(blank).start_outbound_call("agent_1", "+919876543210", CallContext())
+    assert stranger["user_data"][CALLER_MEMORY_VARIABLE] == ""
+
+
 # --- the agent body: two conversation flags stated at their safe value ---------
 
 
@@ -180,6 +229,14 @@ async def test_every_publish_refuses_the_in_call_callback_scheduler() -> None:
     PRESENT AND FALSE, not absent: an omitted key leaves the vendor's stored value alone,
     and this one has a Call Tab switch ("Auto Reschedule") that a console user can turn on
     for a live agent without our deploying.
+
+    **AND THE CAPABILITY IS NOT REFUSED, ONLY THEIR IMPLEMENTATION OF IT** (D-510). Callers
+    do ask to be rung back, and this platform books that request through its own in-call
+    tool into `scheduled_callbacks`, dials it from the campaign tick through
+    `dispatch_call`, and therefore puts it through `check_dispatch` — the DNC list, the
+    halt, the cap, the agent gate and the platform calling window, every time. That is
+    exactly what this flag being true would bypass, which is why the two belong in one
+    reader's view.
     """
     assert (await _agent_task_config())["auto_reschedule"] is False
 

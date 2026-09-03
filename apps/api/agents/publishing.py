@@ -115,6 +115,7 @@ from apps.api.agents.verification import EngineDrift, verify_publish
 from apps.api.agents.voices import Voice, get_voice
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.service import to_paise
+from apps.api.compliance.caller_memory import spdi_refuses_memory
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
@@ -418,6 +419,38 @@ class DisclosureResult:
     #: The fields this call actually changed, so a caller (and the audit writer above it)
     #: can tell a real flip from a re-assertion of the state that was already there.
     changed: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CallerMemoryResult:
+    """What one agent's caller-continuity switch is now, after a flip (D-509)."""
+
+    agent_id: UUID
+    enabled: bool
+    #: What callers actually hear first, recomposed. When memory goes ON this GAINS the
+    #: `caller_memory_notice_line` sentence and when it goes off it loses it — which is the
+    #: property D-507 made unconstructible to violate, surfaced here so the screen shows the
+    #: client the sentence their callers will now hear rather than describing it.
+    opening_line: str
+    #: Did the change reach the voice platform? False for an agent that is not live — there
+    #: is nothing to push to, and the next publish carries it.
+    engine_synced: bool
+    #: True when this call was a no-op because the switch was already where it was asked to
+    #: be. Lets the route write one audit row per DECISION rather than per double-click.
+    unchanged: bool
+    #: When this business attested that its calls are safe to remember. `None` only on the
+    #: OFF path, which needs no attestation.
+    attested_at: datetime | None
+    #: WHO confirmed it, by name. `None` when nobody has, and also when the person who did
+    #: has since left — the attestation is the organisation's, so the row survives them
+    #: (`caller_memory_attested_by` is `ON DELETE SET NULL`).
+    #:
+    #: IT IS HERE BECAUSE A CLIENT SWITCHING A SECOND AGENT ON IS NOT ASKED AGAIN, and a
+    #: permission that silently does not apply to you is one nobody can audit from their
+    #: own screen. "Confirmed by Asha on 2 September" is the sentence that makes "we did
+    #: not ask you this time" explicable. The audit ledger is the durable record of the
+    #: act; this is the one a client can read.
+    attested_by_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1134,6 +1167,178 @@ async def set_disclosure_posture(
         opening_line=compose_opening_line(posture),
         engine_synced=bool(changed) and is_live,
         changed=changed,
+    )
+
+
+#: The sentence a client accepts to switch cross-call memory on, stored nowhere and
+#: rendered by the API so the screen and the refusal cannot describe different promises.
+#:
+#: IT IS AN ATTESTATION AND NOT A CHECKBOX ON A FORM, which is why it is phrased as a
+#: statement in the first person about facts only the client knows.
+#: `compliance.caller_memory.SPDI_REFUSED_VERTICALS` says of itself that it is "a PROXY AND
+#: KNOWN TO BE ONE ... the enable path — when one is built — is where a per-tenant
+#: attestation belongs". This is that instrument, and the proxy stays above it as the belt:
+#: a clinic is refused whatever it attests, because the vertical is a RECORD and an
+#: attestation is a CLAIM.
+CALLER_MEMORY_ATTESTATION = (
+    "I confirm that these calls do not collect health, medical, financial, biometric or "
+    "other sensitive personal data about callers, that my business is the Data Fiduciary "
+    "for these callers, and that my own privacy notice tells them we keep a short note of "
+    "what they ask about. I understand that my agents will say so at the start of every "
+    "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
+    "erased."
+)
+
+
+async def set_caller_memory(
+    *, tenant_id: UUID, agent_id: UUID, enabled: bool, attested_by: UUID | None
+) -> CallerMemoryResult:
+    """Switch CALLER CONTINUITY on or off for one agent (D-509). Returns the new state.
+
+    **ONE SWITCH, TWO ABILITIES, AND THAT IS THE FOUNDER'S DECISION RATHER THAN A
+    SHORTCUT.** The client-facing copy calls cross-call memory and auto-reschedule callbacks
+    "two linked abilities, always on or off together", so `agents.caller_memory_enabled` is
+    the ONE column both read and `compliance.caller_memory.memory_enabled` is the ONE reader
+    (D-510's callback path uses it too). A second column would let a client switch off the
+    thing their callers were told about and keep the thing that reuses it.
+
+    **THE ATTESTATION IS REQUIRED TO TURN IT ON AND IS NOT REQUIRED TO TURN IT OFF.** It is
+    a permission, and a permission is asked for when the risk is taken, never when it is
+    given up. It is recorded on `organizations` because the attested fact is about the
+    BUSINESS, so a client with four agents answers once — and a client who has already
+    attested may switch a second agent on without being asked again, which is the whole
+    reason it is not an agent column.
+
+    **THE SPDI REFUSAL SITS ABOVE THE ATTESTATION AND CANNOT BE ATTESTED PAST** (D-507(b)).
+    A tenant on a refused vertical is told no here rather than being allowed to set a column
+    that `remember()` would then silently ignore — the state "the switch reads true and the
+    store stays empty" is an operator mystery, and it is one this route can simply not
+    create.
+
+    **FAST LANE, AND THE REPUBLISH IS INSIDE THE TRANSACTION**, exactly as
+    `set_disclosure_posture` and `set_call_cap`: a live agent whose column moved is
+    re-published before this returns, so the SPOKEN NOTICE and the prompt's memory section
+    land on the phone line at the same moment the screen changes. That ordering is the whole
+    compliance guarantee here — a column that said "remembers" while the engine still held a
+    greeting that did not mention it is precisely the state D-507 made unconstructible, and
+    an engine push after the commit would reintroduce it for the width of one vendor call.
+
+    IDEMPOTENT. Re-asserting the state an agent is already in changes nothing, publishes
+    nothing and reports `unchanged=True`.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT a.caller_memory_enabled, a.ai_disclosure_line, "
+                    "a.ai_disclosure_enabled, a.recording_notice_line, "
+                    "a.recording_notice_enabled, a.caller_memory_notice_line, a.status, "
+                    "a.engine_agent_ref, o.vertical_template, o.caller_memory_attested_at, "
+                    # LEFT JOIN, never inner: the attester is nullable twice over — nobody
+                    # has attested yet, or the person who did has left and the FK went to
+                    # NULL. An inner join would drop the whole agent row for either, which
+                    # is a 404 on a switch because somebody was offboarded.
+                    "u.name "
+                    "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
+                    "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
+                    "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        if row is None:
+            raise ProblemError.not_found("Agent")
+        current = bool(row[0])
+        vertical = None if row[8] is None else str(row[8])
+        attested_at: datetime | None = row[9]
+        attested_by_name: str | None = None if row[10] is None else str(row[10])
+
+        if enabled and spdi_refuses_memory(vertical):
+            raise ProblemError.business_rule(
+                "caller_memory_refused_for_vertical",
+                "Agents on this kind of business cannot remember callers between calls.",
+                remediation=(
+                    "A note about what a caller asked is information about their health "
+                    "when the business is a clinic, and Indian law requires written "
+                    "consent for that — which a phone call cannot give. Nothing needs to "
+                    "be changed here; the feature is not available for this account."
+                ),
+            )
+        if enabled and attested_at is None and attested_by is None:
+            raise ProblemError.business_rule(
+                "caller_memory_attestation_required",
+                "Confirm what these calls collect before agents can remember callers.",
+                remediation=CALLER_MEMORY_ATTESTATION,
+            )
+
+        if current != enabled:
+            if enabled and attested_at is None:
+                # In the SAME transaction as the switch it permits. An attestation that
+                # committed while the switch rolled back would be a recorded promise about
+                # a capability nobody turned on, and the client would never be asked again.
+                await session.execute(
+                    text(
+                        "UPDATE organizations SET caller_memory_attested_at = now(), "
+                        "caller_memory_attested_by = :by, updated_at = now() "
+                        "WHERE id = :tid AND caller_memory_attested_at IS NULL"
+                    ),
+                    {"by": attested_by, "tid": tenant_id},
+                )
+                # RE-READ RATHER THAN STAMPED FROM PYTHON: the UPDATE is guarded on
+                # `IS NULL`, so a concurrent request may have won it, and the value the
+                # client is shown must be the one on the row. The attester's name is read
+                # back with it for the same reason — after a race it is the WINNER's name.
+                attested = (
+                    await session.execute(
+                        text(
+                            "SELECT o.caller_memory_attested_at, u.name "
+                            "FROM organizations o "
+                            "LEFT JOIN users u ON u.id = o.caller_memory_attested_by "
+                            "WHERE o.id = :tid"
+                        ),
+                        {"tid": tenant_id},
+                    )
+                ).one()
+                attested_at = attested[0]
+                attested_by_name = None if attested[1] is None else str(attested[1])
+            await session.execute(
+                text(
+                    "UPDATE agents SET caller_memory_enabled = :on, updated_at = now() "
+                    "WHERE id = :aid AND deleted_at IS NULL"
+                ),
+                {"on": enabled, "aid": agent_id},
+            )
+        posture = DisclosurePosture(
+            ai_disclosure_line=str(row[1]),
+            ai_disclosure_enabled=bool(row[2]),
+            recording_notice_line=str(row[3]),
+            recording_notice_enabled=bool(row[4]),
+            caller_memory_notice_line=str(row[5]),
+            caller_memory_enabled=enabled,
+        )
+        is_live = str(row[6]) == "live" and bool(row[7])
+        if current != enabled and is_live:
+            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+
+    # Ids and booleans (hard rule 6). The sentence itself is the client's own copy and
+    # nothing is served by putting it in a log line.
+    log.info(
+        "agent_caller_memory_set",
+        extra={
+            "agent_id": str(agent_id),
+            "enabled": enabled,
+            "changed": current != enabled,
+            "engine_synced": (current != enabled) and is_live,
+        },
+    )
+    return CallerMemoryResult(
+        agent_id=agent_id,
+        enabled=enabled,
+        opening_line=compose_opening_line(posture),
+        engine_synced=(current != enabled) and is_live,
+        unchanged=current == enabled,
+        attested_at=attested_at,
+        attested_by_name=attested_by_name,
     )
 
 

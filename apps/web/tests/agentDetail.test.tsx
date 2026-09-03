@@ -481,6 +481,25 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).toContain("every agent must have all of them on file");
   });
 
+  /**
+   * The two OPENING-NOTICE switches, by name.
+   *
+   * NOT `getAllByRole("switch")`, which counts every switch on the WORKSPACE — and the
+   * workspace grew a third one when caller continuity landed (D-509/D-510), on a panel
+   * mounted directly under this one. A bare count read as "the notices panel has two
+   * switches" and actually asserted "this page has two switches", so it broke on a change
+   * that was correct. Naming them keeps the assertion on the property the test is about:
+   * these two are switchable and the memory SENTENCE is not.
+   */
+  const noticeSwitches = () =>
+    screen
+      .getAllByRole("switch")
+      .filter((el) =>
+        /Say it is an AI assistant|Say the call is being recorded/.test(
+          el.closest("label")?.textContent ?? "",
+        ),
+      );
+
   it("says the memory sentence is spoken, and gives it no switch of its own (D-507)", async () => {
     // An agent that remembers callers says so as a third sentence. It is bound to the
     // MEMORY setting, so the screen shows it as a fact and must not grow a third switch —
@@ -499,7 +518,12 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     );
 
     await screen.findByText(`“${MEMORY}”`);
-    expect(screen.getAllByRole("switch")).toHaveLength(2);
+    // TWO NOTICE SWITCHES AND NO THIRD ONE BESIDE THE SENTENCE. The workspace does carry a
+    // third switch — the caller-continuity setting this sentence FOLLOWS — and that is the
+    // point of the panel's copy: the sentence is bound to that setting rather than to one
+    // of its own, so a toggle HERE would advertise a state ("remembers, says nothing") the
+    // product cannot be configured into.
+    expect(noticeSwitches()).toHaveLength(2);
     expect(container.textContent).toContain("This one has no switch");
     // WHY it is being said, not just that it is: a client reading a three-sentence opening
     // has to be able to find the setting that produced the third one.
@@ -528,7 +552,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // screen renders what the server sent rather than wording of its own.
     const promise = await screen.findByText(RULE);
     expect(container.textContent).toContain(RULE);
-    const switches = screen.getAllByRole("switch");
+    const switches = noticeSwitches();
     expect(switches).toHaveLength(2);
     // Above, not below: two switches read "off" before the guarantee is read is exactly how
     // a client concludes the opposite of what the platform enforces.

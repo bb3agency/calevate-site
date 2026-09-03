@@ -1,4 +1,4 @@
-"""In-call tool endpoints. LATENCY-CRITICAL (hard rule 3), and today there is exactly one.
+"""In-call tool endpoints. LATENCY-CRITICAL (hard rule 3). Three of them.
 
 `POST /tools/v1/{engine}/opt-out` is the engine-side custom function an agent invokes the
 moment a caller says "don't call me again". SEC-COMP §2.3 asks for precisely this ("⇒ tool
@@ -47,6 +47,55 @@ The reply is `{"status": "accepted"}` and never "done": the write happens in a w
 few hundred milliseconds later. What the agent may safely tell the caller is that the
 request is registered — which is true the moment the job is queued, because the queue is
 durable and the post-call pass is behind it.
+
+THE CALLBACK PAIR (D-510) FOLLOWS THAT SHAPE EXACTLY, WITH ONE ADDITION
+--------------------------------------------------------------------------------------
+`POST /callback` books "ring me back Tuesday at four" and `POST /callback/cancel` calls it
+off. Same five obligations, same helpers, same deferral — but the booking endpoint
+ANSWERS A QUESTION as well as accepting work, and that is the whole reason it is allowed
+to compute anything at all before it queues.
+
+**The refusal has to reach the caller while they are still on the phone.** A time outside
+09:00-21:00 IST is not merely unbookable, it is unlawful to dial (TCCCPR; SEC-COMP §3), and
+a callback the gate will silently refuse two days later is worse than one that was never
+booked — somebody was told we would ring. So `calevate_shared.calling_window.resolve_slot`
+runs HERE, inline: two `strptime` calls and three comparisons over short strings, no IO, no
+database, no model call. It is the only work this service does that is not deferred, and it
+is deferred-work's opposite for a reason that is measurable rather than stylistic — the
+answer must be in the tool response the engine feeds back to the agent's LLM, which
+"continues the conversation naturally"
+(`bolna-findings/mirror/pages/tool-calling/custom-function-calls.md:42-44`).
+
+**CONFIRM-BEFORE-COMMIT IS A SERVER-SIDE CONTROL, NOT AN INSTRUCTION IN A PROMPT.** The
+model resolves "Tuesday at four" into a date and a 24-hour time by talking to the caller;
+we cannot see that conversation and must not assume it happened. So the tool takes a
+`confirmed` flag, refuses to book without it, and hands back the resolved time in the
+unambiguous spoken form the agent is to read out ("Tuesday 8 September at 4:00 PM"). Two
+turns, and the second one costs a caller three seconds; a wrong one costs them a phone call
+at four in the morning. The dangerous half of every am/pm ambiguity is closed structurally
+as well — every hour before 09:00 is outside the calling window and cannot be booked at all
+(see `resolve_slot`).
+
+WHAT IS ASSUMED HERE AND WHAT IS VERIFIED (D-31/D-32), for the callback pair:
+
+* VERIFIED, from the hash-pinned vendor mirror: a custom function is defined by an OpenAI
+  function schema plus a Bolna `value` block, `"key": "custom_task"` is mandatory
+  (`custom-function-calls.md:70,176`), parameters are collected from the conversation by
+  the LLM and typed `string`/`integer`/`number`/`boolean` (`:226-234`), only members of
+  `required` are insisted on (`:237-240`), the `param` map uses `%(name)s` specifiers whose
+  names must match `properties` exactly (`:274-284`), and `{call_sid}`, `{agent_id}`,
+  `{from_number}`, `{to_number}` are auto-injected context variables (`:581-586`). The
+  response is fed back to the LLM (`:42-44`), and a `pre_call_message` is what the agent
+  says while we answer (`:250`) — which is what covers our own round trip.
+* ASSUMED, and confined to this file exactly as for the opt-out: that the body can be made
+  to carry the id of the execution in progress. The documented auto-injected variable is
+  `{call_sid}`, which the vendor describes as the TELEPHONY call id "from Twilio, Plivo,
+  etc." — not necessarily the execution id `GET /executions/{id}` takes. So the payload is
+  read through `execution_key`, which accepts three spellings, and the WORKER re-derives
+  everything that matters from an authenticated fetch. OPERATIONS §2 gate 8 covers it.
+* CONSEQUENCE, stated plainly: until gate 8 is run and the two functions are configured on
+  the agent, these routes are mounted, tested and their jobs registered, and nothing calls
+  them. That is not the same as half-wired, and no reader should read it as either.
 """
 
 from __future__ import annotations
@@ -54,6 +103,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from apps.api.core.alerting import alert
@@ -61,6 +113,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.core.settings import get_settings
+from calevate_shared.calling_window import SlotRefusal, resolve_slot
 from calevate_shared.client_address import client_ip
 from engine_intake import engine_label, execution_key, scalar_hint, verify_source
 from fastapi import APIRouter, Request, Response
@@ -92,6 +145,12 @@ router = APIRouter(prefix="/tools/v1", tags=["in-call-tools"])
 # `ingest_engine_event` the same way for the same reason. The two are asserted equal in
 # `tests/call_optout_test.py`, so the duplication cannot drift.
 OPTOUT_JOB = "record_in_call_optout"
+
+# Must equal `apps.workers.callbacks.BOOK_JOB` / `CANCEL_JOB`. Literals for OPTOUT_JOB's
+# reason (`apps.workers` is forbidden in this process), asserted equal in
+# `tests/callback_tool_test.py` so the duplication cannot drift.
+BOOK_CALLBACK_JOB = "book_requested_callback"
+CANCEL_CALLBACK_JOB = "cancel_requested_callback"
 
 
 class ToolAckOut(BaseModel):
@@ -125,7 +184,277 @@ async def in_call_opt_out(engine: str, request: Request, response: Response) -> 
 async def _opt_out(
     engine: str, request: Request, response: Response, started: float
 ) -> dict[str, str]:
-    """The tool call proper. Split from the route only so `measured` can wrap every exit."""
+    """The tool call proper. Split from the route only so `measured` can wrap every exit.
+
+    Verification, the bounded read and the execution key are `_tool_payload`'s, and the
+    enqueue's deadline and refusal are `_durable`'s — both shared with the callback pair
+    below rather than copied into it, which is the same argument this module's docstring
+    makes for importing the ack accounting from the receiver instead of writing a second
+    one. The `enqueue` call itself stays here, naming its job as a literal, for the reason
+    `_durable` records.
+    """
+    payload, execution_id = await _tool_payload(engine, request)
+    job_id: str | None = None
+    async with _durable(
+        engine,
+        started,
+        "The request was not registered; please tell the caller it will be handled.",
+    ):
+        job_id = await enqueue(
+            OPTOUT_JOB,
+            {
+                "engine": engine,
+                "execution_id": execution_id,
+                # HINTS ONLY, both bounded and both re-derived downstream where it
+                # matters: the worker reads the number, the direction and the tenant from
+                # the authenticated fetch. These two only become evidence text.
+                #
+                # `scalar_hint`, NOT `str(...)`. `str()` renders a CONTAINER with Python's
+                # repr, so a caller sending `{"reason": {"a": 1}}` filed `"{'a': 1}"` as
+                # the words a caller used to withdraw consent — into `consent_ledger`,
+                # which is append-only (hard rule 4) and is the evidence this platform
+                # would show a regulator. A reason we cannot read is no reason at all, and
+                # an empty one is honest.
+                "reason": (scalar_hint(payload.get("reason")) or "")[:200],
+                "language": (scalar_hint(payload.get("language")) or "")[:8],
+            },
+            # One suppression per execution: the model invoking the function twice, or the
+            # engine retrying it, must not queue two jobs. Not a correctness requirement —
+            # `record_call_optout` is idempotent — but a queue that collapses the duplicate
+            # is cheaper than a database that does.
+            job_id=job_id_for(OPTOUT_JOB, engine, execution_id),
+        )
+    # Ids only (hard rule 6): no number is in this payload and none is in this line.
+    log.info("in_call_optout_queued", extra={"engine": engine, "job_id": job_id or "deduped"})
+    return _ack(
+        response,
+        started,
+        engine,
+        {"status": "accepted", "execution_id": execution_id, "job_id": job_id or "deduped"},
+        meter=TOOL_ACK,
+    )
+
+
+class CallbackToolOut(BaseModel):
+    """The callback tool's three answers, declared for the reason `ToolAckOut` is.
+
+    ONE MODEL, THREE STATUSES, because they are three outcomes of one conversational turn
+    rather than three endpoints: the agent asks "can I book this", and the answer is yes,
+    "read it back first", or "not that time, try this one". Every field is a string so the
+    shared ack helpers (`_ack`, `measured`) keep their one signature, and the optional ones
+    default to empty rather than being absent — a model reading a missing key and a model
+    reading an empty one behave differently, and the empty string is the one we can test.
+
+    `say` is guidance for the agent, in English, which its own LLM renders into the
+    caller's language; `booked_for` is the unambiguous spoken form it must read back.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["accepted", "needs_confirmation", "not_booked"]
+    execution_id: str
+    say: str
+    booked_for: str = ""
+    reason: str = ""
+    job_id: str = ""
+
+
+@router.post(
+    "/{engine}/callback",
+    status_code=202,
+    response_model=CallbackToolOut,
+    summary="Book the call-back a caller asked for (engine custom function)",
+)
+async def book_callback(engine: str, request: Request, response: Response) -> dict[str, str]:
+    started = time.perf_counter()
+    return await measured(
+        started, engine, _book_callback(engine, request, response, started), meter=TOOL_ACK
+    )
+
+
+async def _book_callback(
+    engine: str, request: Request, response: Response, started: float
+) -> dict[str, str]:
+    """Resolve the time, insist on a confirmation, then queue the booking."""
+    payload, execution_id = await _tool_payload(engine, request)
+
+    slot = resolve_slot(
+        scalar_hint(payload.get("callback_date")),
+        scalar_hint(payload.get("callback_time")),
+        now=datetime.now(UTC),
+    )
+    if isinstance(slot, SlotRefusal):
+        # 200 AND NOT A 4xx, deliberately. This is a normal turn of a conversation — the
+        # caller asked for ten at night and we may not ring them then — and the vendor's
+        # own troubleshooting reads a failing tool call as a misconfiguration
+        # (`custom-function-calls.md:810-813`). An error would tell the agent that OUR API
+        # is broken; what it needs to hear is what to offer the caller instead. The 4xx
+        # codes below are kept for the protocol failures they belong to (a stranger, an
+        # enormous body, a payload naming no call).
+        response.status_code = 200
+        return _ack(
+            response,
+            started,
+            engine,
+            {
+                "status": "not_booked",
+                "execution_id": execution_id,
+                "reason": slot.code,
+                "say": slot.say,
+                "booked_for": slot.alternative.spoken if slot.alternative else "",
+            },
+            meter=TOOL_ACK,
+        )
+
+    if not _truthy(payload.get("confirmed")):
+        # CONFIRM BEFORE COMMIT. The one thing this endpoint can enforce about a value a
+        # model interpreted is that somebody said it back out loud first — see the module
+        # docstring. The agent gets the resolved time in the form it must read; the caller
+        # gets the chance to say "no, four in the afternoon".
+        response.status_code = 200
+        return _ack(
+            response,
+            started,
+            engine,
+            {
+                "status": "needs_confirmation",
+                "execution_id": execution_id,
+                "booked_for": slot.spoken,
+                "say": (
+                    f"Read this back to the caller exactly: {slot.spoken}. If they agree, "
+                    "call this again with the confirmation set. If they want a different "
+                    "time, ask for it and start again."
+                ),
+            },
+            meter=TOOL_ACK,
+        )
+
+    job_id: str | None = None
+    async with _durable(
+        engine,
+        started,
+        "The call-back was not booked. Tell the caller we could not save it and ask them "
+        "to say it again.",
+    ):
+        job_id = await enqueue(
+            BOOK_CALLBACK_JOB,
+            {
+                "engine": engine,
+                "execution_id": execution_id,
+                # THE RESOLVED INSTANT, not the caller's words. The worker must never
+                # re-parse a time — one parser, in one place, with one set of refusals, is
+                # what stops the endpoint refusing 22:00 and the worker booking it.
+                "requested_at": slot.at_utc.isoformat(),
+                # WHEN THE CALLER ASKED, so two bookings in one conversation resolve to the
+                # LATER word whichever job commits first (`callbacks.service.book`).
+                "booked_at": datetime.now(UTC).isoformat(),
+                # HINTS ONLY, bounded, and `scalar_hint` rather than `str()` for the reason
+                # spelled out on the opt-out payload above: `str()` renders a container
+                # with Python's repr, and this one is read out to a person on the call-back.
+                "note": (scalar_hint(payload.get("note")) or "")[:200],
+                "language": (scalar_hint(payload.get("language")) or "")[:8],
+            },
+            # One promise per execution: the model invoking the function twice with the
+            # same answer, or the engine retrying it, must not queue two jobs. The
+            # BOOKED-FOR time is in the key, so a caller who genuinely changes their mind
+            # ("make it five") gets a second job that supersedes the first — which is
+            # exactly the case a job id keyed on the execution alone would have swallowed.
+            job_id=job_id_for(BOOK_CALLBACK_JOB, engine, execution_id, slot.at_utc.isoformat()),
+        )
+    log.info("in_call_callback_queued", extra={"engine": engine, "job_id": job_id or "deduped"})
+    return _ack(
+        response,
+        started,
+        engine,
+        {
+            "status": "accepted",
+            "execution_id": execution_id,
+            "booked_for": slot.spoken,
+            "job_id": job_id or "deduped",
+            "say": f"Tell the caller that is booked: {slot.spoken}.",
+        },
+        meter=TOOL_ACK,
+    )
+
+
+@router.post(
+    "/{engine}/callback/cancel",
+    status_code=202,
+    response_model=CallbackToolOut,
+    summary="Call off a call-back this caller had booked (engine custom function)",
+)
+async def cancel_callback(engine: str, request: Request, response: Response) -> dict[str, str]:
+    started = time.perf_counter()
+    return await measured(
+        started, engine, _cancel_callback(engine, request, response, started), meter=TOOL_ACK
+    )
+
+
+async def _cancel_callback(
+    engine: str, request: Request, response: Response, started: float
+) -> dict[str, str]:
+    """ "Actually, don't call me back." Its own function rather than a flag on the booking.
+
+    A flag would have meant the model choosing between two behaviours of one tool from one
+    description, and the vendor is explicit that the description is what makes triggering
+    reliable (`custom-function-calls.md:47-49, 804-807`). It is also a DIFFERENT promise: a
+    cancellation must not be able to fail because a date could not be parsed, so this path
+    has no time in it at all.
+
+    It is NOT the opt-out. "Do not ring me back on Tuesday" is not "never call me again",
+    and answering it with a DNC entry would suppress a number on a sentence its speaker did
+    not say. The opt-out tool beside it is the one that does that, and `record_call_optout`
+    is what it reaches.
+    """
+    _payload, execution_id = await _tool_payload(engine, request)
+    job_id: str | None = None
+    async with _durable(
+        engine,
+        started,
+        "The call-back was not called off. Tell the caller we could not do it just now.",
+    ):
+        job_id = await enqueue(
+            CANCEL_CALLBACK_JOB,
+            {"engine": engine, "execution_id": execution_id},
+            # Cancelling twice is cancelling once — collapsing on the execution is free.
+            job_id=job_id_for(CANCEL_CALLBACK_JOB, engine, execution_id),
+        )
+    log.info("in_call_callback_cancel", extra={"engine": engine, "job_id": job_id or "deduped"})
+    return _ack(
+        response,
+        started,
+        engine,
+        {
+            "status": "accepted",
+            "execution_id": execution_id,
+            "job_id": job_id or "deduped",
+            "say": "Tell the caller we will not ring them back.",
+        },
+        meter=TOOL_ACK,
+    )
+
+
+def _truthy(value: Any) -> bool:
+    """Did the model say yes? Booleans, and the two strings a JSON-ish model produces.
+
+    NARROW ON PURPOSE. This decides whether a caller heard their appointment read back, so
+    it says yes to `true`, `"true"` and `"yes"` and to nothing else — not to `1`, not to a
+    non-empty string, not to Python's truthiness. An unrecognised value is an unconfirmed
+    booking, which costs one conversational turn; the other direction costs a wrong time.
+    """
+    if isinstance(value, bool):
+        return value
+    return isinstance(value, str) and value.strip().lower() in {"true", "yes"}
+
+
+async def _tool_payload(engine: str, request: Request) -> tuple[dict[str, Any], str]:
+    """Verify the source, read the body, key it by execution. The three obligations every
+    tool call on this router shares, in one place rather than three.
+
+    Extracted when the callback pair arrived: `_opt_out` had done all three inline, and a
+    second and third copy of "verify, bound, decode, key" is exactly the drift this
+    module's docstring refuses to accept from the ack accounting one paragraph above it.
+    """
     source_ip = client_ip(
         request.client.host if request.client else None,
         request.headers,
@@ -164,13 +493,9 @@ async def _opt_out(
 
     execution_id = execution_key(payload)
     if execution_id is None:
-        # A 422, not an ack. This is the one place this service DIFFERS from the webhook
-        # receiver, and deliberately: an unkeyable status webhook is still recovered by
-        # the 10-minute poller, so acking it costs nothing — an unkeyable TOOL call has
-        # no poller behind it, and answering 202 would tell the agent the caller's
-        # request was registered when nothing was. The agent must hear a failure so it
-        # can fall back to promising a callback, and the post-call pass still catches
-        # the words in the transcript.
+        # A 422, not an ack — `_opt_out`'s comment carries the full argument, and it holds
+        # here twice over: a booking nobody can attribute to a call is a promise with no
+        # phone number behind it, and the agent must hear a failure so it can say so.
         alert("ROUTE_HANDLER", "tool_call_unkeyable", engine=engine)
         raise ProblemError(
             kind="validation",
@@ -179,52 +504,43 @@ async def _opt_out(
             detail="The tool call did not name the execution it belongs to.",
             status=422,
         )
+    return payload, execution_id
 
+
+@asynccontextmanager
+async def _durable(engine: str, started: float, failure_detail: str) -> AsyncIterator[None]:
+    """Hold the durable deadline over an enqueue, or refuse in words the agent can say.
+
+    **A WRAPPER RATHER THAN A `_queue(job, payload)` HELPER, AND THE REASON IS A GUARD
+    RATHER THAN TASTE.** The obvious shape — one function taking the job name and calling
+    `enqueue` — puts the name in a PARAMETER, and `scripts/check_job_wiring` reads enqueue
+    sites from the AST: a name it cannot resolve is a name it cannot compare against the
+    worker registry, which is exactly the hole that check exists to close. That shape cost
+    an entry in its `DYNAMIC_ENQUEUE_SITES`, on three of this platform's quietest failures
+    — an agent tells a caller their call-back is booked, arq does not recognise the name,
+    and unlike the opt-out there is no post-call pass behind it.
+
+    Wrapping keeps both: the deadline, the alert and the refusal wording live in ONE place,
+    and every `enqueue` stays a literal call naming a module-level constant the guard can
+    read. The exemption was withdrawn rather than argued for.
+    """
     try:
         async with asyncio.timeout(TOOL_ACK.durable_deadline_s):
-            job_id = await enqueue(
-                OPTOUT_JOB,
-                {
-                    "engine": engine,
-                    "execution_id": execution_id,
-                    # HINTS ONLY, both bounded and both re-derived downstream where it
-                    # matters: the worker reads the number, the direction and the tenant
-                    # from the authenticated fetch. These two only become evidence text.
-                    #
-                    # `scalar_hint`, NOT `str(...)`. `str()` renders a CONTAINER with
-                    # Python's repr, so a caller sending `{"reason": {"a": 1}}` filed
-                    # `"{'a': 1}"` as the words a caller used to withdraw consent — into
-                    # `consent_ledger`, which is append-only (hard rule 4) and is the
-                    # evidence this platform would show a regulator. A reason we cannot
-                    # read is no reason at all, and an empty one is honest.
-                    "reason": (scalar_hint(payload.get("reason")) or "")[:200],
-                    "language": (scalar_hint(payload.get("language")) or "")[:8],
-                },
-                # One suppression per execution: the model invoking the function twice,
-                # or the engine retrying it, must not queue two jobs. Not a correctness
-                # requirement — `record_call_optout` is idempotent — but a queue that
-                # collapses the duplicate is cheaper than a database that does.
-                job_id=job_id_for(OPTOUT_JOB, engine, execution_id),
-            )
+            yield
     except TimeoutError:
         elapsed = (time.perf_counter() - started) * 1000
         alert("ROUTE_HANDLER", "tool_enqueue_timeout", detail=f"{elapsed:.0f}ms", engine=engine)
         raise ProblemError(
             kind="transient",
             code="tool_queue_unavailable",
-            title="Opt-out could not be queued",
-            detail="The request was not registered; please tell the caller it will be handled.",
+            title="That could not be saved",
+            detail=failure_detail,
         ) from None
 
-    # Ids only (hard rule 6): no number is in this payload and none is in this line.
-    log.info("in_call_optout_queued", extra={"engine": engine, "job_id": job_id or "deduped"})
-    return _ack(
-        response,
-        started,
-        engine,
-        {"status": "accepted", "execution_id": execution_id, "job_id": job_id or "deduped"},
-        meter=TOOL_ACK,
-    )
 
-
-__all__ = ["OPTOUT_JOB", "router"]
+__all__ = [
+    "BOOK_CALLBACK_JOB",
+    "CANCEL_CALLBACK_JOB",
+    "OPTOUT_JOB",
+    "router",
+]

@@ -446,6 +446,13 @@ _OUTBOUND_MODULES = {
     "apps/api/crm/routes.py",
     "apps/api/ingest/service.py",
     "apps/workers/campaign_dispatch.py",
+    # The FOURTH (D-510): the call-back a caller asked for on a call, dialled at the time
+    # they were promised. It is the sharpest case this enumeration exists for — the dial is
+    # triggered by a CLOCK rather than by anybody pressing anything, so nobody is watching
+    # when it goes out, and a path that escaped the halt here would ring people through an
+    # incident with no operator in the loop. `dispatch_due_callbacks` calls `check_dispatch`
+    # per call-back, at the moment of dialling, which is what the loop below verifies.
+    "apps/workers/callbacks.py",
 }
 
 

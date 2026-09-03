@@ -348,6 +348,11 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # they get their own number.
     "caller_vectors": 0,
     "caller_memories": 0,
+    # Promised call-backs stopped and forgotten (D-510). Counted apart from
+    # `campaign_contacts` even though the statement is its twin, because the two answer
+    # different questions on a certificate: one is "you were taken off a list somebody
+    # uploaded", the other is "the call we promised you will not happen".
+    "scheduled_callbacks": 0,
     "deferred": 0,
 }
 
@@ -1637,6 +1642,80 @@ async def _erase_campaign_contacts(session: AsyncSession, *, phone: str | None =
     return int(rowcount_of(result) or 0)
 
 
+#: THE PROMISED CALL-BACK, WHICH IS `campaign_contacts`' GAP ONE TABLE ALONG (D-510).
+#:
+#: `scheduled_callbacks` holds `phone_e164 NOT NULL` and a model-written `note` about what
+#: the caller wanted, and the row deliberately OUTLIVES the call it was made on — so a DPDP
+#: erasure that scrubs `calls` and `leads` reaches none of it. Both consequences of P3.1
+#: apply here word for word, and the second is the sharp one: a `scheduled` row is claimed
+#: by the dispatch tick from its own instant onward, so **we would telephone a person whose
+#: certificate says they were removed.**
+#:
+#: `status = 'cancelled'` IS THE LOAD-BEARING PART, exactly as `dnc_blocked` is over there.
+#: Anonymizing the number alone leaves a claimable row behind, and the claim reads `status`
+#: and `requested_at`, never the number. `cancelled` is already what the client's own
+#: "call it off" button writes, so a settled promise reports identically and no reader needs
+#: a new state. It is applied ONLY to rows that have not settled — a `completed` call-back
+#: is a record of a call that happened and rewriting its ending would make the erasure lie
+#: about the past to protect the future.
+#:
+#: **`dialing` IS CANCELLED HERE AND IS NOT ELSEWHERE**, which is the one place this arm
+#: departs from `callbacks.service.cancel_for_phones`. That function leaves a `dialing` row
+#: alone because telling a CLIENT a call was called off while the phone rings would be a
+#: lie. An erasure is not a client's cancel button: the row must stop being claimable and
+#: must stop holding the number, and `settle_dialled` reads `last_call_id` rather than the
+#: status, so the in-flight dial still resolves.
+#:
+#: `note` is emptied rather than inspected. It is a model's summary of what a person said
+#: on a phone call, which is precisely the class of text an erasure exists to remove.
+_CALLBACK_ERASE_SQL = """
+UPDATE scheduled_callbacks
+SET phone_e164 = :anon || substr(id::text, 1, 8),
+    note = NULL,
+    status = CASE WHEN settled_at IS NULL THEN 'cancelled' ELSE status END,
+    settled_at = coalesce(settled_at, now()),
+    last_refusal_reason = coalesce(last_refusal_reason, :reason),
+    next_attempt_at = NULL,
+    updated_at = now()
+WHERE {predicate}
+  AND left(phone_e164, length(:anon)) <> :anon
+"""
+
+#: What a client reads on a call-back an erasure stopped. It says what happened without
+#: naming the person, because the row it sits on no longer names them either.
+CALLBACK_ERASED_REASON = (
+    "This person asked us to delete their information, so we did not ring them back."
+)
+
+
+async def _erase_scheduled_callbacks(session: AsyncSession, *, phone: str | None = None) -> int:
+    """Stop and forget this subject's promised call-backs — or every one in the tenant.
+
+    ONE STATEMENT, TWO CALLERS, for `_erase_campaign_contacts`' reason directly above: two
+    statements drift, and a certificate that is right about one erasure and wrong about the
+    other is worse than one that is wrong about both, because nobody re-reads it.
+
+    KEYED ON THE NUMBER and on nothing else. A call-back has no lead to be found by (the
+    extraction has not run when it is booked) and its `source_call_id` is nullable
+    provenance — that is the whole shape of the table, and it is why this arm exists rather
+    than falling out of the `calls` scrub.
+
+    THE ANONYMIZED PREFIX IS THE ALREADY-DONE GUARD, and the per-row `substr(id::text, 1, 8)`
+    is what keeps two erased promises in one tenant from colliding — there is no unique
+    index on the number here, but the two statements are read side by side and a constant in
+    one of them would invite a constant in the other.
+    """
+    predicate = "TRUE" if phone is None else "phone_e164 = :phone"
+    params: dict[str, Any] = {
+        "anon": ANONYMIZED_PHONE[:9],
+        "reason": CALLBACK_ERASED_REASON,
+    }
+    if phone is not None:
+        params["phone"] = phone
+    result = await session.execute(text(_CALLBACK_ERASE_SQL.format(predicate=predicate)), params)
+    return int(rowcount_of(result) or 0)
+
+
 # THE KNOWLEDGE-BASE SEARCH — what an erasure can honestly do about a client's own
 # uploaded content, and what it must not do (D-179, LEGAL-SURFACE F-3).
 #
@@ -1859,6 +1938,14 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # that would have been dialled AFTER the certificate was issued.
         contacts_erased = await _erase_campaign_contacts(session, phone=phone)
 
+        # AND THE SAME REACH FOR A PROMISE NOBODY HAS KEPT YET (D-510). Keyed on the number
+        # for the identical reason: a call-back has no lead (the extraction has not run when
+        # it is booked) and its `source_call_id` is nullable provenance, so neither of the
+        # two scrubs above can find it — and a `scheduled` row is claimed from its own
+        # instant onward, which is the row that would ring this person AFTER the certificate
+        # was issued.
+        callbacks_erased = await _erase_scheduled_callbacks(session, phone=phone)
+
         # THE VECTOR STORE (D-503), and it is a THIRD reach rather than a consequence of
         # the two above. Scrubbing `transcript_turns` and emptying `call_extractions.data`
         # does not touch `caller_chunks`: an embedding is a copy of the sentence in a form
@@ -1962,6 +2049,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     f"{contacts_erased} uploaded campaign contact row(s): phone "
                     "anonymized, name, pasted columns and dedupe hash cleared, and the "
                     "row set to dnc_blocked so no campaign can dial it"
+                ),
+                "scheduled_callbacks": (
+                    f"{callbacks_erased} promised call-back(s): phone anonymized, the "
+                    "note about what was wanted cleared, and any call still to be placed "
+                    "called off so nobody rings this person"
                 ),
                 "kb_sources": (
                     f"searched: {kb_matches} uploaded knowledge document(s) mention this "
@@ -2074,7 +2166,8 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
         f"bodies={bodies_erased} payloads={payloads_erased} "
         f"recordings={recordings_destroyed} floor_recordings={recordings_in_floor} "
-        f"campaign_contacts={contacts_erased} kb_matches={kb_matches} "
+        f"campaign_contacts={contacts_erased} callbacks={callbacks_erased} "
+        f"kb_matches={kb_matches} "
         f"caller_vectors={caller_vectors.vectors} caller_memories={caller_vectors.memories}"
     )
 
@@ -2380,6 +2473,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # each page issues object deletions; `_erase_tenant_leads` pages because each page
         # lists a prefix per lead. This touches neither.
         counts["campaign_contacts_erased"] = await _erase_campaign_contacts(session)
+        # Its twin, one table along (D-510). Unpaged for the same reason as the line above.
+        counts["scheduled_callbacks"] = await _erase_scheduled_callbacks(session)
         # WHAT THE COPILOT REMEMBERED (migration d4a9c17e6b02). UNPAGED and UNCONDITIONAL,
         # and both halves are the decision.
         #
@@ -2458,6 +2553,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     f"{counts['campaign_contacts_erased']} uploaded campaign contact "
                     "row(s): phone anonymized, name, pasted columns and dedupe hash "
                     "cleared, and the row set to dnc_blocked so no campaign can dial it"
+                ),
+                "scheduled_callbacks": (
+                    f"{counts['scheduled_callbacks']} promised call-back(s): phone "
+                    "anonymized, the note about what was wanted cleared, and any call "
+                    "still to be placed called off"
                 ),
                 "webhook_deliveries": (
                     f"{counts['webhook_bodies_erased']} delivered CRM payload(s) deleted "
@@ -2563,6 +2663,7 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         f"recordings={counts['recordings_destroyed']} "
         f"floor_recordings={counts['recordings_within_trai_floor']} "
         f"campaign_contacts={counts['campaign_contacts_erased']} "
+        f"callbacks={counts['scheduled_callbacks']} "
         f"caller_vectors={counts['caller_vectors_erased']} "
         f"caller_memories={counts['caller_memories_erased']}"
     )

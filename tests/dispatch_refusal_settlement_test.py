@@ -11,12 +11,22 @@ with nothing on the screen to say why. Nothing errors. No alarm has anything to 
 * `destination_not_india` — found in the voice round, 2 Sep 2026. `add_contacts` had
   closed the INGRESS and its own comment predicted this exact livelock for the dispatcher;
   closing the door did not settle who was already inside.
+* `consent_expired` — found while building auto-reschedule callbacks, 2 Sep 2026 (D-510),
+  and it was sitting in THIS FILE'S transient list wearing a considered-looking reason.
+  The reason ("the person grants consent again") is true and was still the wrong side: it
+  is true word for word of `no_consent`, whose `withdrawn` arm the same re-grant lifts and
+  which is settled. An `expires_at` in the past only ever recedes further, so nothing the
+  dispatcher does or waits for lifts it. The test that decides is not "can the fact ever
+  change" — every fact can — it is **"can WAITING change it"**, and only an affirmative act
+  by the PERSON lifts this one. `calling_hours` is the contrast that keeps the line honest:
+  it is about the clock and becomes false by waiting alone.
 
-Twice is a class, so the third one is caught here rather than in production. This file does
-not decide which side a rule belongs on — that is `PERSON_LEVEL_REFUSALS`' docstring, and
-the test it applies is stated there: a person-level refusal is a fact about the PERSON or
-the DESTINATION, not about the account, the clock, or the paperwork. What this file refuses
-to allow is a rule that nobody DECIDED about, which is how both of the above got in.
+Three times is a class with a pattern, so the fourth one is caught here rather than in
+production. This file does not decide which side a rule belongs on — that is
+`PERSON_LEVEL_REFUSALS`' docstring, and the test it applies is stated there: a
+person-level refusal is a fact about the PERSON or the DESTINATION, not about the
+account, the clock, or the paperwork. What this file refuses
+to allow is a rule that nobody DECIDED about, which is how each of the above got in.
 
 Run: uv run pytest tests/dispatch_refusal_settlement_test.py -q
 """
@@ -52,7 +62,6 @@ GATE = REPO_ROOT / "apps" / "api" / "compliance" / "service.py"
 TRANSIENT_REFUSALS: dict[str, str] = {
     BIG_RED_SWITCH_RULE: "an operator turns the platform halt off",
     "calling_hours": "the clock reaches the permitted window",
-    "consent_expired": "the person grants consent again",
     "no_credits": "the account is topped up",
     "spend_cap": "the cap is raised or the period rolls over",
     "agent_missing": "the agent is restored; `archive_agent` refuses to create this state",
@@ -153,13 +162,18 @@ def test_no_rule_is_classified_that_the_gate_cannot_actually_give() -> None:
     )
 
 
-def test_the_two_livelocks_that_shipped_stay_settled() -> None:
-    """The regression, named. Both were transient-by-default and both ran for ever."""
+def test_the_livelocks_that_shipped_stay_settled() -> None:
+    """The regression, named. Each was transient-by-default and each ran for ever."""
     assert "no_consent" in PERSON_LEVEL_REFUSALS, "D-117's livelock is back"
     assert "destination_not_india" in PERSON_LEVEL_REFUSALS, (
         "a foreign number is refused identically for ever — `phone_e164` is written once "
         "and rewritten only by the erasure sweep, which settles the row in the same "
         "statement"
+    )
+    assert "consent_expired" in PERSON_LEVEL_REFUSALS, (
+        "a lapsed permission is not undone by waiting: `expires_at` in the past only "
+        "recedes, and only the person re-granting lifts it — the same act that lifts "
+        "`no_consent`, which is settled"
     )
 
 

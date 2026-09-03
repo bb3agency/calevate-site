@@ -392,9 +392,15 @@ AREAS: tuple[Area, ...] = (
             # which is the argument for deriving it rather than writing it down.
             "apps/api/crm/routes.py",
             "apps/api/ingest/service.py",
+            # The FOURTH, found the same way (D-510): the call-back pass rings a person at
+            # a time they were promised, through the same chokepoint. Its gate branches are
+            # the ones this area exists for — every refusal is settled or retried by hand,
+            # and the settling arm is reached only when a caller has been suppressed since
+            # the promise was made, which is the branch nobody exercises by accident.
+            "apps/workers/callbacks.py",
         ),
         why=(
-            "the chokepoint `dispatch_call` and every surface that reaches it — the two "
+            "the chokepoint `dispatch_call` and every surface that reaches it — the three "
             "workers, the D-21 lead button and the instant-lead webhook. "
             "`check_compliance_invariants` proves the gate is ON this path and obeyed; "
             "what it cannot prove is that the obeying branch was ever executed"

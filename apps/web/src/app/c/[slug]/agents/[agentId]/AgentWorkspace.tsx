@@ -72,6 +72,7 @@ import { AgentIdentity } from "../AgentIdentity";
 import { AgentLifecycle } from "../AgentLifecycle";
 import { AgentModel } from "../AgentModel";
 import { ExtractionList } from "../panels/extraction";
+import { CallerContinuity } from "../panels/callerContinuity";
 import { OpeningNotices } from "../panels/openingNotices";
 import { PublishingPanel } from "../panels/publishing";
 import { TrainingPanel } from "../panels/training";
@@ -159,6 +160,14 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
           be readable without a click (doctrine §8). */}
       <Card title="What it says about itself">
         <OpeningNotices agent={agent} />
+      </Card>
+
+      {/* IMMEDIATELY UNDER the notices, because the notices panel renders the sentence
+          this switch controls and says it has no switch of its own. Read in that order,
+          the pair is complete: here is the sentence, and here is the setting it follows.
+          Reversed or separated, the sentence reads as an unexplained third announcement. */}
+      <Card title="Remembering callers">
+        <CallerContinuity agent={agent} />
       </Card>
 
       <Card title="What it captures">

@@ -120,6 +120,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voices import speech_for_voice_id, voice_id_of
+from apps.api.compliance.caller_memory import recall
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -899,6 +900,12 @@ def _to_config(tenant_id: UUID, agent: AgentRow, *, engine: VoiceEngine) -> Agen
         # and the answer to a caller who ASKS is `TRUTHFUL_ANSWER_DIRECTIVE`, which no
         # column on this row can reach.
         opening_line=compose_opening_line(posture_of(agent)),
+        # DOES THIS AGENT REMEMBER ITS CALLERS (D-507/D-509)? It reaches the engine as a
+        # PROMPT SECTION and nothing else — the facts are per-call and ride the dial or the
+        # inbound caller-data endpoint, because a fact about ONE person may not be written
+        # onto an agent object every caller shares. The same column also governs
+        # auto-reschedule callbacks (D-510): one switch, one reader.
+        caller_memory_enabled=bool(agent["caller_memory_enabled"]),
         models=ModelConfig(
             # The LLM leg is resolved, not read: see `in_call_llm` for why the endpoint
             # and the identifier it addresses cannot be configured apart (D-410).
@@ -1807,6 +1814,48 @@ async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | N
     return str(rows[0][0])
 
 
+async def _recall_for_dial(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    agent: AgentRow,
+    phone_e164: str,
+) -> tuple[str, ...]:
+    """What this agent remembers about the person about to be dialled. Empty is normal.
+
+    **IT FAILS OPEN, AND THAT IS THE DECISION.** A returning caller greeted generically is
+    a missed nicety; a dial that did not happen because a memory lookup raised is a broken
+    product, and the failure would land on the one path a client watches. So every failure
+    here — a number that is not canonical E.164 (`CallerRefError`), a KEK ring that cannot
+    derive, a slow read — becomes an empty tuple and a log line, never an exception through
+    the dial. `CALLER_MEMORY_GUIDANCE` tells the model that an empty block means a caller it
+    does not know, so the degraded state is a correct call rather than a confused one.
+
+    THE SWITCH IS READ OFF THE ROW WE ALREADY HAVE, so an agent that does not remember its
+    callers — every agent by default — costs this path nothing at all, not even a query.
+    `recall()` checks again for itself; that arm is the one that matters if the switch moves
+    between `_load_agent` and here, and a read-side check is not redundant with a write-side
+    one (`compliance/caller_memory.recall`'s own argument).
+
+    HARD RULE 6: ids and a count. Never the number, never a fact.
+    """
+    if not bool(agent["caller_memory_enabled"]):
+        return ()
+    try:
+        facts = await recall(session, tenant_id, agent_id=agent["id"], phone_e164=phone_e164)
+    except Exception:
+        log.warning(
+            "caller_memory_recall_failed_open",
+            extra={"agent_id": str(agent["id"])},
+        )
+        return ()
+    log.info(
+        "caller_memory_recalled_for_dial",
+        extra={"agent_id": str(agent["id"]), "facts": len(facts)},
+    )
+    return facts
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -1940,6 +1989,14 @@ async def dispatch_call(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name,
                 context_note=context_note,
+                # WHAT THIS AGENT ALREADY KNOWS ABOUT THE PERSON BEING DIALLED (D-509).
+                # Resolved HERE because this function is the platform's single outbound
+                # entry point — the property `scripts/check_compliance_invariants` asserts
+                # — so the campaign dispatcher, the D-21 "call this lead" button and the
+                # callback path all get it without any of them knowing the feature exists.
+                caller_memory=await _recall_for_dial(
+                    session, tenant_id, agent=agent, phone_e164=phone_e164
+                ),
                 # The per-call prompt with `{{ }}` merge fields resolved from THIS lead's
                 # data (structured builder, D-script). Only the values known at dial time
                 # are supplied; an unfilled field collapses to nothing rather than being

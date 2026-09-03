@@ -135,6 +135,13 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.integrations import service as integrations
 
+# The call-back pass this tick runs (D-510). NOT an arq job of its own, and the reason is
+# the shared outbound pool: a call-back and a campaign contact compete for the same ten
+# lines, and two schedulers with two opinions about that is how a receptionist stops being
+# able to answer the phone. It runs inside this tick's single-flight lease and out of this
+# tick's line budget.
+from apps.workers.callbacks import dispatch_due_callbacks
+
 log = get_logger(__name__)
 
 # Until engine verification item 8 produces the real numbers, the pool is a config
@@ -259,6 +266,13 @@ class TenantWork(NamedTuple):
     # same relationship `engine_agent_routes` has with the tick. Migration c7e4b19d3f52
     # argues why a superset here and a subset never.
     has_due_schedule: bool
+    # A call-back that is due, or one already being dialled (D-510, migration
+    # d8f31a7c2409). A superset like `has_due_schedule` above and for the same reason —
+    # `callbacks.service` is the authority on what "due" means — and it counts `dialing`
+    # rows too, because `settle_dialled` runs inside this visit: a tenant whose last
+    # call-back of the day has just been dialled must still be visited, or the row sits at
+    # "calling now" for ever with the call long since finished.
+    has_due_callback: bool
 
 
 async def _tenants_with_work() -> list[TenantWork]:
@@ -306,13 +320,16 @@ async def _tenants_with_work() -> list[TenantWork]:
             await session.execute(
                 text(
                     "SELECT scanned_tenant_id, active_outbound, has_running_campaign, "
-                    "  has_due_schedule "
+                    "  has_due_schedule, has_due_callback "
                     "FROM dispatch_scan(:statuses, :horizon)"
                 ),
                 {"statuses": list(ACTIVE_STATUSES), "horizon": ACTIVE_CALL_HORIZON},
             )
         ).all()
-    return [TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2]), bool(row[3])) for row in rows]
+    return [
+        TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2]), bool(row[3]), bool(row[4]))
+        for row in rows
+    ]
 
 
 @asynccontextmanager
@@ -572,12 +589,6 @@ async def _run_tick() -> str:
                 tenant_budget -= slots
                 running.append((work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {}))
 
-    if not running:
-        # `started` is always reported, even as 0: a ternary here would add a branch to
-        # the dial path whose only job is to make a log line shorter, and the ratchet
-        # would then be policing a cosmetic decision.
-        return f"no_running_campaigns started={started}"
-
     # Rule 1+2: what is left of the shared pool after everyone's active calls.
     #
     # **THIS IS A CALLING-HOURS CONTROL, NOT AN OPTIMISATION, AND NOBODY MAY READ IT AS A
@@ -597,8 +608,37 @@ async def _run_tick() -> str:
     # being HIGHER than the account's real ceiling a compliance defect rather than a
     # throughput one, which is why that constant's comment is as long as it is.
     global_budget = max(0, pool - total_active)
+
+    # CALL-BACKS FIRST, OUT OF THE SAME POOL (D-510). Two decisions in one placement:
+    #
+    # **BEFORE the campaigns**, because a call-back is a promise made to a named person at
+    # a stated time and a campaign contact is a cold call to somebody who is not waiting.
+    # If the pool cannot serve both this tick, the one with an appointment wins — and the
+    # cost of getting that backwards is not symmetric, since a campaign contact simply
+    # dials thirty seconds later while a call-back has a two-hour grace it is burning.
+    #
+    # **AND WITH A ZERO BUDGET STILL VISITED**, which is why this runs above the
+    # `pool_saturated` return rather than below it. `dispatch_due_callbacks` settles what
+    # has finished and expires what has gone stale before it claims anything, and both of
+    # those are how a saturated pool RECOVERS. Skipping the visit because there are no
+    # lines would leave every dialled call-back sitting at "calling now" for exactly as
+    # long as the saturation lasted, which is the state that most needs clearing.
+    callbacks_dialled = 0
+    for work in tenants:
+        if not work.has_due_callback:
+            continue
+        outcome = await dispatch_due_callbacks(work.tenant_id, max(0, global_budget))
+        callbacks_dialled += outcome["dialled"]
+        global_budget = max(0, global_budget - outcome["dialled"])
+
+    if not running:
+        # `started` is always reported, even as 0: a ternary here would add a branch to
+        # the dial path whose only job is to make a log line shorter, and the ratchet
+        # would then be policing a cosmetic decision.
+        return f"no_running_campaigns started={started} callbacks={callbacks_dialled}"
+
     if global_budget == 0:
-        return f"pool_saturated active={total_active}"
+        return f"pool_saturated active={total_active} callbacks={callbacks_dialled}"
 
     dialled, blocked, exhausted = 0, 0, 0
     served: set[UUID] = set()
@@ -665,7 +705,7 @@ async def _run_tick() -> str:
         record_campaign_dials(dialled=dialled, blocked=blocked)
     return (
         f"dialled={dialled} blocked={blocked} exhausted={exhausted} "
-        f"started={started} starved={len(starved)}"
+        f"started={started} starved={len(starved)} callbacks={callbacks_dialled}"
     )
 
 

@@ -46,6 +46,10 @@ export type Agent = AgentSummary;
 export type DisclosureIn = components["schemas"]["DisclosureIn"];
 export type DisclosureOut = components["schemas"]["DisclosureOut"];
 
+/** Switch caller continuity — remembering callers AND booking their call-backs. */
+export type CallerMemoryIn = components["schemas"]["CallerMemoryIn"];
+export type CallerMemoryOut = components["schemas"]["CallerMemoryOut"];
+
 /**
  * One field the agent is configured to capture. Derived from `AgentOut` rather
  * than aliased a second time — it is the same row the CRM already names
@@ -116,6 +120,42 @@ export function useSetDisclosure(
   return useMutation({
     mutationFn: (payload: DisclosureIn) =>
       apiRequest<DisclosureOut>(session, `/v1/agents/${agentId}/disclosure`, {
+        method: "PATCH",
+        body: payload,
+      }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
+        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
+      ]),
+  });
+}
+
+/**
+ * Switch caller continuity on or off for one agent (D-509/D-510).
+ *
+ * `useSetDisclosure`'s reasoning, plus one of its own: this is the client's DURABLE-DATA
+ * decision, not only their disclosure posture. Switching it on starts keeping a note about
+ * the people who ring them, so the same `org:manage` permission governs it and the same
+ * audit row records it.
+ *
+ * The refusals matter as much as the success and are surfaced verbatim by `ProblemNotice`:
+ * an account that has not yet confirmed what its calls collect is refused with the
+ * statement to confirm as the remediation, and a business whose kind cannot use this at all
+ * is refused permanently. Neither is a validation error the screen should paraphrase.
+ *
+ * Invalidates the same two agent keys, because the opening line callers hear changes with
+ * this switch — the sentence about keeping notes is added and removed with it, and the
+ * agent row is where that composed line lives.
+ */
+export function useSetCallerMemory(
+  session: Session,
+  agentId: string,
+): UseMutationResult<CallerMemoryOut, Error, CallerMemoryIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CallerMemoryIn) =>
+      apiRequest<CallerMemoryOut>(session, `/v1/agents/${agentId}/caller-memory`, {
         method: "PATCH",
         body: payload,
       }),

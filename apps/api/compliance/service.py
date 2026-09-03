@@ -55,13 +55,17 @@ of its scope.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, time
+from typing import Final
 from uuid import UUID
 
+from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
+from calevate_shared.calling_window import IST as _IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import agent_outbound_number_blocker
+from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.first_campaign import (
@@ -82,8 +86,17 @@ log = get_logger(__name__)
 
 # IST. The DB stores UTC (conventions); the RULE is expressed in the caller's time,
 # so the conversion happens here and nowhere else.
-IST = timedelta(hours=5, minutes=30)
-DEFAULT_WINDOW = (time(9, 0), time(21, 0))
+# IMPORTED, NOT DEFINED. Both constants used to live here, and both are needed by
+# `apps/voice-runtime`'s in-call callback tool — which may not import this module at all
+# (hard rule 3; `tests/voice_runtime_import_surface_test.py` boots the service and reads
+# `sys.modules`). The choice was one definition in a place both deployables can reach, or
+# two spellings of a legal boundary, on the one constant in this repo where a disagreement
+# means ringing a household at 04:00. They live in `calevate_shared.calling_window`, which
+# imports nothing but the standard library; every reader of `compliance.service.IST` and
+# `.DEFAULT_WINDOW` keeps working unchanged, and this module remains the name they are
+# imported BY.
+IST = _IST
+DEFAULT_WINDOW = _DEFAULT_WINDOW
 
 # The client-facing wording of the two tenant-level refusals, shared with the campaign
 # launch gate so the same condition never gets explained two different ways.
@@ -141,7 +154,22 @@ BIG_RED_SWITCH_REASON = "Outbound calling is halted platform-wide by the operati
 #: make a US number Indian. Lifting the freeze would leave these rows settled — but that
 #: is a scope decision (LEGAL-OPS-PLAYBOOK §14/§18) that has to move contacts by
 #: migration anyway, not something a retry ladder should be holding open in the meantime.
-PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset({"dnc", "no_consent", "destination_not_india"})
+#: `consent_expired` is the FOURTH, and it is here because keeping it out was the same
+#: defect a third time. The comment that excluded it argued "a re-grant makes the number
+#: dialable again, so a batch dialler keeps such a contact on the retry ladder" — which is
+#: true, and is ALSO true word for word of `no_consent`, whose `withdrawn` arm is lifted by
+#: exactly the same re-grant and which is settled. Two contradictory doctrines for one
+#: ledger, and the transient half produced the livelock this constant was written about:
+#: an `expires_at` in the past only ever recedes further, so nothing the dispatcher does
+#: or waits for lifts it, and the contact was re-claimed, re-gated and refunded every
+#: thirty minutes for the life of the campaign while the campaign never auto-completed.
+#: The membership test holds on the reading that decides settlements — "can waiting help?"
+#: — rather than on the surface word "clock": `calling_hours` is about the clock and
+#: becomes FALSE by waiting; a lapsed permission becomes more true. Only an affirmative
+#: act by the PERSON lifts it, which is the definition of a person-level fact.
+PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset(
+    {"dnc", "no_consent", "destination_not_india", "consent_expired"}
+)
 
 #: The India-only freeze, as a dial predicate. LEGAL-OPS-PLAYBOOK's scope is frozen to
 #: Andhra Pradesh + Telangana / India-only B2B: no foreign clients, and its stop-list is
@@ -280,22 +308,38 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
     return str(row[1]) == current_billing_month()
 
 
+# The tiers whose identity we have not verified out of band. `credits_exhausted` draws
+# the same line for the same shape of reason, and it is named ONCE so the two predicates
+# cannot drift into disagreeing about which motion a tenant is on.
+#
+# ⚠ **IT WAS NOT NAMED ONCE, AND THE PREDICATE THIS COMMENT NAMES WAS THE ONE SPELLING IT
+# OUT.** `credits_exhausted` carried the literal `("self_serve", "trial")` four lines
+# above this constant, which is the exact defect the sentence above claims to have closed
+# — the same shape `usage_summary` had when it spelled `PREPAID_TIERS` both ways four
+# lines apart. What it would have cost: a fourth prepaid tier added to this tuple and not
+# to that literal is a motion whose wallet the METER goes on draining while the DIAL GATE
+# stops refusing an empty one, so the balance runs negative and nothing stops it.
+#
+# **DERIVED FROM `billing.rates.PREPAID_TIERS`, NOT RESTATED.** There is one fact here —
+# which plan tiers pay up front — and it already had a home in the lowest money module,
+# where `usage_summary`, `charge_for_call` and the meter all read it. Two constants with
+# identical contents in two packages is the same defect one level up: the money side and
+# the gate side would go on agreeing right up until somebody edited one. The NAME stays,
+# because five modules import it and because "the tiers we have not verified out of band"
+# is the compliance-side reason for caring about the same set.
+SELF_SERVE_TIERS: Final[tuple[str, ...]] = PREPAID_TIERS
+
+
 async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
     """Self-serve/trial only (D-34). A managed client is invoiced against a retainer,
     so blocking them over a wallet they never bought would be an outage caused by a
     concept that does not apply to them. Shared with the launch gate for the same
     reason `spend_capped` is."""
     tier = await plan_tier_of(session, tenant_id)
-    if tier not in ("self_serve", "trial"):
+    if tier not in SELF_SERVE_TIERS:
         return False
     balance = await get_balance(session, tenant_id=tenant_id)
     return balance.is_exhausted
-
-
-# The tiers whose identity we have not verified out of band. `credits_exhausted` draws
-# the same line for the same shape of reason, and it is named ONCE so the two predicates
-# cannot drift into disagreeing about which motion a tenant is on.
-SELF_SERVE_TIERS = ("self_serve", "trial")
 
 
 async def kyc_blocker(session: AsyncSession, *, tenant_id: UUID) -> tuple[str, str] | None:
@@ -583,9 +627,10 @@ async def check_dispatch(
         # record itself set: a `granted` row whose `expires_at` has already passed no longer
         # authorises a dial, mirroring `consent.py`'s own expiry check. An ABSENT `expires_at`
         # is unchanged behaviour — allowed — with the per-tick DND/DLT re-scrub as the
-        # freshness control. Transient, not person-level: a re-grant makes the number
-        # dialable again, so `consent_expired` is intentionally NOT in `PERSON_LEVEL_REFUSALS`
-        # and a batch dialler keeps such a contact on the retry ladder rather than settling it.
+        # freshness control. PERSON-LEVEL: a lapsed permission is not undone by waiting, so
+        # a batch dialler SETTLES such a contact rather than re-claiming it every thirty
+        # minutes for ever — see `PERSON_LEVEL_REFUSALS`, which records why the opposite
+        # classification this line used to assert was the same livelock a third time.
         if expires_at is not None and expires_at <= datetime.now(UTC):
             return DispatchDecision(
                 allowed=False,

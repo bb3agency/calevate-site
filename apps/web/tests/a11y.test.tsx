@@ -50,6 +50,7 @@ import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import ClientInvoicePage from "@/app/c/[slug]/invoice/page";
 import ClientSpendPage from "@/app/c/[slug]/spend/page";
+import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
@@ -1793,6 +1794,47 @@ const CLIENT_SCREENS: Screen[] = [
           removable: true,
           scope: "tenant",
           source: "call_optout",
+        },
+      ],
+    },
+  },
+  {
+    file: "c/[slug]/callbacks/page.tsx",
+    realm: "client",
+    element: () => <CallbacksPage />,
+    routes: {
+      "/v1/me": ME,
+      // A BARE ARRAY, matching what `GET /v1/callbacks` returns
+      // (`ScheduledCallbackOut[]`) and what `useCallbacks` is typed for. Both a live row
+      // and a refused one, because the two render DIFFERENT controls — a waiting promise
+      // offers "Call it off" and a settled one does not — and a fixture with only one of
+      // them would sweep half the screen.
+      "/v1/callbacks?limit=200&open_only=false": [
+        {
+          id: "cb-1",
+          agent_id: "agent-1",
+          lead_id: null,
+          phone_e164: "+919876543210",
+          requested_at: "2026-09-08T10:30:00Z",
+          status: "scheduled",
+          attempts: 0,
+          explanation: "Waiting for the time they asked for.",
+          last_call_id: null,
+          settled_at: null,
+          note: "wants the Gachibowli listing",
+        },
+        {
+          id: "cb-2",
+          agent_id: "agent-1",
+          lead_id: null,
+          phone_e164: "+919876543211",
+          requested_at: "2026-09-01T10:30:00Z",
+          status: "refused",
+          attempts: 1,
+          explanation: "This number is on the do-not-call list.",
+          last_call_id: null,
+          settled_at: "2026-09-01T10:31:00Z",
+          note: null,
         },
       ],
     },

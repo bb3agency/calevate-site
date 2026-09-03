@@ -196,6 +196,30 @@ ASSIST_FEATURE_ADMIN_COPILOT: Final = "admin_copilot"
 #: (`ASSIST_FEATURE_CALL_SEARCH`, `ASSIST_FEATURE_LEAD_SEARCH`): a person clicked.
 ASSIST_FEATURE_CALLER_EMBED: Final = "caller_embed"
 
+#: `usage_events.meta.feature` for the CROSS-CALL MEMORY DISTILLER (D-509) — the cron that
+#: reads a finished call and writes down what the business should remember about the person
+#: who rang (`apps/workers/caller_memory_distil.py`).
+#:
+#: An EIGHTH name, and it lands on the CLIENT's ledger rather than the platform's — which is
+#: the opposite of `ASSIST_FEATURE_CALLER_EMBED` directly above, so the difference is worth
+#: stating rather than leaving to be inferred from which function it is passed to.
+#:
+#: The founder's decision, and the ground is the one `ASSIST_FEATURE_CALLER_EMBED` itself
+#: names: ingestion is a cost of OUR feature existing and every client pays it whether or
+#: not they use the search. Cross-call memory is the opposite on both counts. It is OFF by
+#: default, it is switched on by a deliberate act of the client's (`org:manage`, plus a
+#: per-tenant attestation), and it produces a capability their callers hear on the phone.
+#: A client who has not switched it on is charged nothing at all, because no model call is
+#: made for them — which is what makes charging the ones who did switch it on fair rather
+#: than a tax.
+#:
+#: THE CONSEQUENCES OF THE TENANT LEDGER ARE THE POINT, not a side effect: the spend appears
+#: on the client's bill, in the spend board beside every other assist, and — the one that
+#: matters operationally — **the spend cap can stop it**. A background job that could not be
+#: stopped by the client's own ceiling would be the one AI surface on this platform with no
+#: brake (`billing/ai_quota.record_ai_assist_usage` is that brake, and it is the one door).
+ASSIST_FEATURE_CALLER_MEMORY: Final = "caller_memory_distillation"
+
 
 class MeterableAssist(Protocol):
     """The two things `meter_assist` needs from a completed assist, whatever the surface.
@@ -593,6 +617,7 @@ async def meter_platform_assist(
 __all__ = [
     "ASSIST_FEATURE_ADMIN_COPILOT",
     "ASSIST_FEATURE_CALLER_EMBED",
+    "ASSIST_FEATURE_CALLER_MEMORY",
     "ASSIST_FEATURE_COPILOT",
     "ASSIST_FEATURE_COPILOT_MEMORY",
     "ASSIST_FEATURE_KB_GLOSS",

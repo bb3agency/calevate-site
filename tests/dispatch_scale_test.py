@@ -712,7 +712,7 @@ async def test_a_tenant_holding_a_line_is_counted_without_being_opened(
         result = await dispatch_campaign_tick({})
 
     assert idle_holder not in visits.tenants, "a tenant with no campaign costs no session"
-    assert result == f"pool_saturated active={ambient + held}", result
+    assert result == f"pool_saturated active={ambient + held} callbacks=0", result
     async with tenant_session(dialler) as session:
         dialing = (
             await session.execute(

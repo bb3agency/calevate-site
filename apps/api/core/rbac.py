@@ -446,6 +446,12 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # (`apps/api/actions/routes.invoke_action`). The trailing slash keeps this to the invoke
     # path; the client-realm `/v1/actions/calendar/**` routes declare `org:manage` normally.
     "/v1/actions/invoke/",
+    # The engine-called INBOUND caller-details fetch (D-509). Same class as the invoke
+    # path one line up and unauthenticated for the same reason — Bolna holds no Calevate
+    # session — but its credential is a Bearer token WE choose and paste into their agent
+    # (`compliance/caller_data_routes`), because that is the mechanism their inbound data
+    # -source feature offers. The trailing slash keeps this to the fetch itself.
+    "/v1/engine/caller-data/",
 )
 
 #: Path prefixes whose every route must enforce `realm="admin"`.
