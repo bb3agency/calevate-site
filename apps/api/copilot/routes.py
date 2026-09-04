@@ -50,7 +50,7 @@ from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
 from apps.api.copilot import memory, service, write_tools
 from apps.api.copilot import prompt as prompt_module
-from apps.api.copilot.context import live_state_block
+from apps.api.copilot.context import live_state_block, viewer_for
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     CopilotAskIn,
@@ -295,7 +295,16 @@ async def ask_copilot(
     #     client at their ceiling is refused without paying for a snapshot nobody reads —
     #     and deliberately NOT on the gate's session, for the transaction-poisoning reason
     #     `live_state_block` states.
-    live = await live_state_block(tenant_id)
+    #     WHO IS ASKING RIDES ALONG (D-522). The screen inventory is static and cached in
+    #     the prefix; the person's role, the screen they are on and the screens their role
+    #     cannot open are not, so they go in this block. All three are derived from the
+    #     VERIFIED principal and the route — never from what the browser says about who it
+    #     is — and none of them costs a query. `principal.role` is non-None for the same
+    #     reason `tenant_id` is: `requires("copilot:use")` resolved a role to check it.
+    assert principal.role is not None
+    live = await live_state_block(
+        tenant_id, viewer_for(role=principal.role, route=payload.screen.route)
+    )
     # MEMORY REACHES THE MODEL AS A `fact`, WHICH IS THE SEAM AND NOT A SHORTCUT.
     # `facts` is already defined as "read-only context the browser volunteers" and
     # `prompt.py` already fences it; a recalled memory is read-only context of exactly that

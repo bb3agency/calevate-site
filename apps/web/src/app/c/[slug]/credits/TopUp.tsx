@@ -150,14 +150,38 @@ export function TopUp({ session }: { session: Session }) {
     /* Not an empty state and not an error: a true statement about this deployment, with
        the path that works. The server's authored reason is deliberately NOT shown — a
        client cannot act on "no_webhook_secret" and naming our missing secret is an
-       internals leak. */
+       internals leak.
+
+       THE PRICES STILL RENDER, AND THAT IS THE POINT OF THIS BRANCH RATHER THAN AN
+       ADDITION TO IT. This used to `return` here, before the rate card — so on every
+       deployment that cannot take a card (which is all of them until a provider account
+       exists) a client opened "Add credit" and found one sentence: no packs, no prices,
+       no idea what any of it costs. They cannot decide what to transfer without knowing
+       what a pack buys, so the branch that removes the BUTTON must not also remove the
+       PRICE LIST. `read_credit_packs` reads no tenant state and no provider state — the
+       catalogue is the same for everyone and is as true on a bank-transfer deployment as
+       on a card one. */
     return (
-      <div className="mt-4 border-t border-line pt-4 text-sm text-ink-muted">
-        <p>
-          We cannot take card or UPI payment on this account. To add credit, transfer the
-          amount to us by bank — talk to your account manager for the details — and the
-          credit appears here once the payment lands.
+      <div className="mt-4 space-y-4 border-t border-line pt-4">
+        <p className="text-sm text-ink-muted">
+          We cannot take card or UPI payment on this account yet. To add credit, transfer
+          the amount to us by bank — talk to your account manager for the details — and
+          the credit appears here once the payment lands. The packs below are what each
+          amount buys.
         </p>
+        {packs.isLoading && <Skeleton rows={4} />}
+        {packs.error && (
+          <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />
+        )}
+        {packs.data && (
+          <PacksTable
+            packs={packs.data.packs}
+            payable={false}
+            disabled
+            pendingPackId={null}
+            onSelect={() => undefined}
+          />
+        )}
       </div>
     );
   }
