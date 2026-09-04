@@ -381,6 +381,45 @@ class CopilotActionEvent(BaseModel):
     where: str
 
 
+class CopilotNavigateEvent(BaseModel):
+    """`event: navigate` — OPEN A SCREEN OF THIS CONSOLE. D-524, closing D-523.
+
+    A **Tier 1** frame by `actions.py`'s own test — reversible (the back button), reaching
+    no caller, spending nothing — so it is rendered as a RECEIPT and carries no token and no
+    Confirm button. It is the ONE event on this stream that is not a description of
+    something already settled: the server has decided WHERE, and the browser decides WHEN,
+    because only the browser can tell whether the screen being left holds unsaved work.
+    `detail` therefore says "Opening…" and never "Opened…".
+
+    `route` IS A ROUTE TEMPLATE AND IS THE ONE FIELD ON THIS STREAM A BROWSER ACTS ON, so it
+    is the field whose provenance matters most: it is a CONSTANT read out of
+    `screens.CLIENT_SCREENS`, never assembled and never anything the model wrote (the tool
+    takes a screen NAME — see `copilot/navigation.py`). It carries the literal `{slug}`
+    exactly as a declaring screen sends it, because this server is never told the slug on
+    this path; the browser substitutes its own and checks the result against its own nav
+    list before moving, so neither half can navigate on the other's word alone.
+
+    `screen` and `where` are the console's own vocabulary for the destination ("Calling
+    credit", "Calling credit, under Settings & account in the left sidebar") and are what a
+    person and a screen reader are told. No route path and no identifier is ever spoken.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str
+    #: The destination's client-facing NAME, as the sidebar spells it.
+    screen: str
+    #: The route TEMPLATE, `{slug}` unsubstituted. Never rendered, never spoken.
+    route: str
+    #: Where it sits, as a person would say it out loud (`screens.where_is`).
+    where: str
+    #: The server's own sentence about what is happening — never the model's account of it.
+    detail: str
+    #: How to take it back. Never null, for `CopilotProposalEvent.reversal`'s reason: the
+    #: panel's Undo belongs to a field fill, so what applies here has to be said in words.
+    reversal: str
+
+
 class CopilotConfirmIn(BaseModel):
     """`POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.
 
@@ -447,6 +486,7 @@ __all__ = [
     "CopilotFieldType",
     "CopilotFillEvent",
     "CopilotFillItem",
+    "CopilotNavigateEvent",
     "CopilotOption",
     "CopilotProposalEvent",
     "CopilotScreen",

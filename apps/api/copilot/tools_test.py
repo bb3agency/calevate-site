@@ -996,9 +996,10 @@ def test_a_client_realm_caller_cannot_even_name_a_platform_tool() -> None:
 
 
 def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool() -> None:
-    """One composer, one order, all THREE families. `set_fields` stays first because it was
+    """One composer, one order, all FOUR families. `set_fields` stays first because it was
     first and moving it would change the cached prefix for nothing; the read tools follow in
-    `READ_TOOLS` order and the proposing write tools last.
+    `READ_TOOLS` order, the proposing write tools next, and `open_screen` last — appended
+    (D-524) rather than inserted, for that same reason.
 
     THE ORDER IS PINNED, NOT JUST THE MEMBERSHIP, because the array is the tail of the
     cacheable prefix — a reordering costs a cache miss on every request and no test that
@@ -1006,7 +1007,7 @@ def test_the_array_offers_set_fields_then_every_read_tool_then_every_write_tool(
     names = [schema["function"]["name"] for schema in copilot_service.tool_array("client")]
     read_names = [tool.name for tool in tools.READ_TOOLS]
     write_names = [schema["function"]["name"] for schema in write_tools.write_tool_schemas()]
-    assert names == ["set_fields", *read_names, *write_names]
+    assert names == ["set_fields", *read_names, *write_names, "open_screen"]
     assert set(read_names) == tools.READ_TOOL_NAMES
     # The three families are disjoint: a name in two registries would make dispatch in
     # `_run_tool_loop` depend on which check ran first.

@@ -7,7 +7,13 @@ import { ApiProblem, type Session } from "@/lib/api/client";
 import { clearFilled, markFilled } from "./highlight";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
-import type { CopilotAction, CopilotFillItem, CopilotProposal, CopilotStep } from "./types";
+import type {
+  CopilotAction,
+  CopilotFillItem,
+  CopilotNavigation,
+  CopilotProposal,
+  CopilotStep,
+} from "./types";
 import type { SurfaceHolder } from "./registry";
 
 /**
@@ -99,6 +105,26 @@ export interface CopilotConversation {
    */
   actions: CopilotAction[];
   /**
+   * THE SCREEN THIS ANSWER ASKED TO OPEN, or `null`. D-524.
+   *
+   * A single value like `proposal` and not a list like `actions`, because one answer opens
+   * at most one screen (the server caps it) and two destinations would be a flicker through
+   * a screen nobody read.
+   *
+   * **HOLDING IT IS NOT PERFORMING IT.** Nothing in this hook moves anybody: the panel
+   * decides, once the answer has finished arriving, whether the screen being left may hold
+   * unsaved work, asks if it may, and only then calls the router. Navigating from inside the
+   * stream handler would abort the answer mid-sentence — the dock closes the panel when the
+   * surface changes, which aborts the in-flight request — so the person would lose the
+   * sentence telling them where they were going.
+   */
+  navigation: CopilotNavigation | null;
+  /**
+   * Take the destination off the table without moving. The panel calls it after it has
+   * navigated (so a re-render cannot navigate twice) and when the person answers "stay".
+   */
+  clearNavigation: () => void;
+  /**
    * Every tool call this exchange has made, in the order they started, each carrying its
    * latest state. Live, and cleared by the next question.
    *
@@ -163,6 +189,7 @@ export function useCopilotConversation(
   const [batch, setBatch] = useState<CopilotBatch | null>(null);
   const [proposal, setProposal] = useState<CopilotProposal | null>(null);
   const [actions, setActions] = useState<CopilotAction[]>([]);
+  const [navigation, setNavigation] = useState<CopilotNavigation | null>(null);
   const [steps, setSteps] = useState<CopilotStep[]>([]);
 
   // The in-flight request, so a second question cancels the first rather than
@@ -188,11 +215,13 @@ export function useCopilotConversation(
     setBatch(null);
     setProposal(null);
     setActions([]);
+    setNavigation(null);
     setSteps([]);
     clearFilled();
   }, []);
 
   const dismissProposal = useCallback(() => setProposal(null), []);
+  const clearNavigation = useCallback(() => setNavigation(null), []);
 
   const undo = useCallback(() => {
     if (batch === null) return;
@@ -226,6 +255,10 @@ export function useCopilotConversation(
       // being greyed out: the record of it is in the audit log and on the object's own
       // screen, not in a chat panel.
       setActions([]);
+      // …and any destination the previous answer named. A move nobody made by the time the
+      // next question was typed is a move the person did not want; carrying it forward would
+      // navigate them out of the conversation they just started.
+      setNavigation(null);
       setSteps([]);
       clearFilled();
       setError(null);
@@ -325,6 +358,12 @@ export function useCopilotConversation(
             // placeholder to restore.
             setActions((previous) => [...previous, performed]);
           },
+          onNavigate: (destination) => {
+            // HELD, NOT PERFORMED. The panel moves once the answer has finished arriving —
+            // see `navigation` on the interface for why navigating from inside the stream
+            // would abort the sentence that explains the move.
+            setNavigation(destination);
+          },
           onStep: (step) => {
             // UPSERT BY `id`. The terminal frame REPLACES its own `running` one rather than
             // following it, so one call is one row that changes state — which is the whole
@@ -393,6 +432,8 @@ export function useCopilotConversation(
     batch,
     proposal,
     actions,
+    navigation,
+    clearNavigation,
     steps,
     atCeiling,
     ask,

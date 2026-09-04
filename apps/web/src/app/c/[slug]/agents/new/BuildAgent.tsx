@@ -138,6 +138,10 @@ export function BuildAgent({ slug }: { slug: string }) {
             },
           ],
           apply: noFill,
+          // Nothing on the success panel is unsaved — the agent EXISTS. Said explicitly so
+          // the assistant can open another screen from here without asking a question that
+          // has no subject (D-524, `lib/copilot/unsaved.ts`).
+          unsaved: false,
         }
       : {
           route: `/c/${slug}/agents/new`,
@@ -192,6 +196,23 @@ export function BuildAgent({ slug }: { slug: string }) {
               }
             }
           },
+          /*
+           * IS THERE WORK HERE THAT LEAVING WOULD THROW AWAY? D-524.
+           *
+           * The assistant can now open another screen, and this is the form D-523 named as
+           * the hazard: a half-composed agent, discarded by a move nobody warned about. The
+           * SERVER cannot answer it — it is told these four fields exist, never that anybody
+           * has touched one — so the screen answers, and the browser asks before it moves.
+           *
+           * DIRTY IS "DIFFERENT FROM WHAT IT MOUNTED WITH", compared against the same
+           * initialisers the `useState` calls above use rather than a second copy of the
+           * defaults: a person who opened this screen and typed nothing has nothing to lose,
+           * and asking them anyway would train them to click through the question that
+           * matters. Declaring it also turns OFF the conservative fallback, which would
+           * otherwise ask on this screen every time because it has writable fields.
+           */
+          unsaved:
+            name !== "" || capMinutes !== "" || direction !== "inbound" || language !== "te-IN",
         },
   );
 
