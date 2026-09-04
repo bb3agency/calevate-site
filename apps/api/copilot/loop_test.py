@@ -1083,35 +1083,41 @@ async def test_asking_to_be_taken_to_billing_opens_calling_credit(
         monkeypatch,
         [
             _tool_turn(("open_screen", '{"screen": "billing"}')),
-            _turn(content="Opening Calling credit for you."),
+            _turn(content="Opening Credits & billing for you."),
         ],
     )
     events = await _drain_with_tools()
 
     moved = [event.navigate for event in events if event.navigate is not None]
     assert len(moved) == 1
-    assert moved[0].screen == "Calling credit"
-    assert moved[0].route == "/c/{slug}/credits"
+    assert moved[0].screen == "Credits & billing"
+    assert moved[0].route == "/c/{slug}/billing"
     # THE LOOP WENT ROUND, and the server's own sentence is what it went round WITH.
     assert len(sent) == 2
     tool_messages = [message for message in sent[1] if message["role"] == "tool"]
-    assert "OPENING Calling credit" in str(tool_messages[-1]["content"])
+    assert "OPENING Credits & billing" in str(tool_messages[-1]["content"])
     assert "not that they have arrived" in str(tool_messages[-1]["content"])
-    assert [event.text for event in events if event.text] == ["Opening Calling credit for you."]
+    assert [event.text for event in events if event.text] == ["Opening Credits & billing for you."]
 
 
 async def test_a_screen_the_person_cannot_open_is_refused_and_the_model_is_told_why(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Navigating somebody into a refusal is worse than not navigating. The refusal goes
-    BACK to the model, which is what lets the answer be "Invoice is the account owner's"
-    rather than an interrupted stream."""
+    BACK to the model, which is what lets the answer be "AI help is the account owner's"
+    rather than an interrupted stream.
+
+    AI help and not Invoice, which this used to use: Invoice is a TAB of Credits & billing
+    now (D-525), a screen staff can open, so asking for it by that word correctly opens
+    the hub. AI help is the last client screen that refuses at the door, which is exactly
+    what this test needs one of.
+    """
     staff = tools_module.ToolContext(tenant_id=TOOL_CONTEXT.tenant_id, role="staff")
     sent = _scripted(
         monkeypatch,
         [
-            _tool_turn(("open_screen", '{"screen": "Invoice"}')),
-            _turn(content="Invoice is your owner's screen."),
+            _tool_turn(("open_screen", '{"screen": "AI help"}')),
+            _turn(content="AI help is your owner's screen."),
         ],
     )
     events = [event async for event in service.run_copilot(PAYLOAD, tool_context=staff)]

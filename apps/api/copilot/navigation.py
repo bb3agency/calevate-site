@@ -8,7 +8,7 @@ true before a route reaches a browser. D-524, closing D-523.
               page, which is about calling credit.
 
 D-522 gave the assistant the console's inventory (`screens.py`), so it can now answer
-*where* a screen is — "Calling credit, under Settings & account in the left sidebar". It
+*where* a screen is — "Credits & billing, under Settings & account in the left sidebar". It
 still could not answer *take me there*, and D-523 recorded exactly what closes that: an
 event on the ask stream, a browser that acts on it, and a decision about which tier a
 screen change stands behind.
@@ -32,7 +32,7 @@ receipt saying what happened, where the result is, and how to take it back.
 
 ═══ WHAT THE MODEL MAY SAY, AND WHY A PATH IS NOT IN IT ═══
 
-The tool takes a screen's **NAME** — "Calling credit" — and never a route. That is the whole
+The tool takes a screen's **NAME** — "Credits & billing" — and never a route. That is the whole
 open-redirect argument, and it is structural rather than filtered: no path-shaped value
 crosses the model boundary in either direction, so there is nothing a crafted `SCREEN STATE`
 block (untrusted, fenced, and full of a tenant's own text) could make the model emit that
@@ -40,7 +40,7 @@ would become a destination. The route the browser receives is a CONSTANT looked 
 `CLIENT_SCREENS`; the only string the model contributed is the key that was looked up. An
 unknown key is a refusal, never a redirect.
 
-The slug is not substituted here. A declaring screen sends the TEMPLATE (`/c/{slug}/credits`,
+The slug is not substituted here. A declaring screen sends the TEMPLATE (`/c/{slug}/billing`,
 `lib/copilot/registry.ts`) and the slug never reaches this server on this path at all, so the
 wire carries the template and the browser substitutes its own — and then checks the result
 against `lib/clientNav.ts` before it moves, so a route this server could not have emitted
@@ -121,7 +121,7 @@ def open_screen_tool() -> dict[str, Any]:
 
     THE ARGUMENT IS A NAME AND THE DESCRIPTION SAYS SO TWICE, because the one failure mode
     worth spending words on is a model that invents a plausible screen ("Billing") instead of
-    using ours ("Calling credit") — which is the exact defect D-522 was about, one layer on.
+    using ours ("Credits & billing") — which is the exact defect D-522 was about, one layer on.
     It is deliberately not a schema `enum` of the screen names: an enum is the strongest
     anti-invention lever available and it is not what keeps this safe — `resolve_destination`
     refuses an unknown name whether or not the model was constrained, exactly as
@@ -135,7 +135,7 @@ def open_screen_tool() -> dict[str, Any]:
             "they ask to be taken somewhere ('take me to billing', 'open my leads', 'show "
             "me the campaigns page').\n"
             "Pass the screen's NAME exactly as it appears in THE SCREENS OF THIS CONSOLE "
-            "above — 'Calling credit', not 'Billing', and never an address. If they used "
+            "above — 'Credits & billing', not 'Billing', and never an address. If they used "
             "their own word for it, translate it to our name first.\n"
             "This DOES it: the console opens the screen straight away, and asks them first "
             "only if they have unsaved work on the screen they are leaving. Say you are "
@@ -148,7 +148,7 @@ def open_screen_tool() -> dict[str, Any]:
                 "screen": {
                     "type": "string",
                     "description": (
-                        "The screen's name from the list, e.g. 'Calling credit', 'Leads', "
+                        "The screen's name from the list, e.g. 'Credits & billing', 'Leads', "
                         "'Do not call'."
                     ),
                 }

@@ -44,12 +44,12 @@ def _resolve(
 
 def test_the_client_word_reaches_the_screen_and_the_route_is_the_inventory_s_own() -> None:
     """THE TRANSCRIPT, AS A TEST. "take me to billing page" is what the client asked and
-    what the copilot refused; the screen is called Calling credit and its address is a
+    what the copilot refused; the screen is called Credits & billing and its address is a
     constant nobody typed into a tool call."""
     frame = _resolve("billing")
-    assert frame.screen == "Calling credit"
-    assert frame.route == "/c/{slug}/credits"
-    wallet = next(screen for screen in CLIENT_SCREENS if screen.name == "Calling credit")
+    assert frame.screen == "Credits & billing"
+    assert frame.route == "/c/{slug}/billing"
+    wallet = next(screen for screen in CLIENT_SCREENS if screen.name == "Credits & billing")
     # IDENTITY, not equality: the string on the wire IS the inventory's, so a route can
     # only ever be one this server already knew about.
     assert frame.route is wallet.route
@@ -58,12 +58,12 @@ def test_the_client_word_reaches_the_screen_and_the_route_is_the_inventory_s_own
 @pytest.mark.parametrize(
     "forged",
     [
-        "/c/{slug}/credits",
-        "https://evil.example/c/acme/credits",
+        "/c/{slug}/billing",
+        "https://evil.example/c/acme/billing",
         "//evil.example",
-        "/c/{slug}/credits/../../admin/ops",
+        "/c/{slug}/billing/../../admin/ops",
         "javascript:alert(1)",
-        "Calling credit; /admin/ops",
+        "Credits & billing; /admin/ops",
     ],
     ids=["our-own-path", "absolute-url", "protocol-relative", "traversal", "scheme", "smuggled"],
 )
@@ -88,8 +88,8 @@ def test_every_screen_in_the_console_can_be_reached_by_its_own_name() -> None:
 def test_the_name_is_matched_however_it_is_capitalised_or_spaced() -> None:
     """Refusing on capitalisation would be this module inventing a rule nobody agreed to,
     and would spend a turn of the cap correcting a model that was already right."""
-    for spelling in ("calling credit", "  Calling   Credit ", "CALLING CREDIT"):
-        assert navigation.find_screen(spelling) is navigation.find_screen("Calling credit")
+    for spelling in ("credits & billing", "  Credits   &   Billing ", "CREDITS & BILLING"):
+        assert navigation.find_screen(spelling) is navigation.find_screen("Credits & billing")
 
 
 def test_a_name_beats_another_screen_s_alias() -> None:
@@ -126,11 +126,11 @@ def test_nobody_is_sent_to_a_screen_their_role_would_be_refused_from() -> None:
 
 
 def test_a_screen_staff_can_open_is_opened_for_staff() -> None:
-    """THE OTHER DIRECTION, ON THE SCREEN THE WHOLE FEATURE IS ABOUT. Calling credit
+    """THE OTHER DIRECTION, ON THE SCREEN THE WHOLE FEATURE IS ABOUT. Credits & billing
     declares `wallet:read` and staff HOLD it — a guard keyed on "declares a permission"
     would refuse the one screen a staff member most needs to reach when dialling stops."""
     assert "wallet:read" in ROLE_PERMISSIONS["staff"]
-    assert _resolve("billing", role="staff").screen == "Calling credit"
+    assert _resolve("billing", role="staff").screen == "Credits & billing"
 
 
 def test_a_run_with_no_role_moves_nobody() -> None:
@@ -147,7 +147,7 @@ def test_a_run_with_no_role_moves_nobody() -> None:
 
 @pytest.mark.parametrize(
     "route",
-    ["/c/{slug}/credits", "/c/acme/credits", "/c/:hidden/credits", "/c/acme/credits/history"],
+    ["/c/{slug}/billing", "/c/acme/billing", "/c/:hidden/billing", "/c/acme/billing/history"],
     ids=["declared", "address-bar", "masked-slug", "deeper"],
 )
 def test_the_person_standing_on_the_screen_is_not_moved_to_it(route: str) -> None:
@@ -156,7 +156,7 @@ def test_the_person_standing_on_the_screen_is_not_moved_to_it(route: str) -> Non
     flicker and a wasted back-button entry."""
     with pytest.raises(navigation.NavigationRefusedError) as refusal:
         _resolve("billing", current_route=route)
-    assert "already on Calling credit" in refusal.value.reason
+    assert "already on Credits & billing" in refusal.value.reason
 
 
 # --- what the person and the model are told -----------------------------------------------
@@ -167,8 +167,10 @@ def test_the_receipt_says_where_it_is_and_how_to_come_back() -> None:
     reverse it. Navigation's reversal is the back button and the server says so in its own
     words, because the panel's Undo belongs to a field fill and does not reach a route."""
     frame = _resolve("billing")
-    assert frame.where == "Calling credit, under Settings & account in the left sidebar"
-    assert frame.detail == "Opening Calling credit, under Settings & account in the left sidebar."
+    assert frame.where == "Credits & billing, under Settings & account in the left sidebar"
+    assert (
+        frame.detail == "Opening Credits & billing, under Settings & account in the left sidebar."
+    )
     assert "back button" in frame.reversal
 
 

@@ -108,7 +108,7 @@ form fields, and can open another screen of the console. Streams `text/event-str
   nothing, so there is no token and no Confirm button — render it as a RECEIPT beside the
   answer, exactly like `action`. It is the one frame on this stream the browser must ACT
   on, and the only one where the server has decided WHERE but not WHEN.
-  * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/credits`) and is a
+  * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/billing`) and is a
     constant read out of the server's own screen inventory — never assembled, and never
     anything the model wrote (the tool it comes from takes a screen NAME). Substitute your
     own slug, CHECK the result against your own navigation list, and refuse anything that

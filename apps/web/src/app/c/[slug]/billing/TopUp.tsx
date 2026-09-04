@@ -250,17 +250,30 @@ export function TopUp({ session }: { session: Session }) {
       {packs.isLoading && <Skeleton rows={4} />}
       {packs.error && <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />}
       {packs.data && (
-        <PacksTable
-          packs={packs.data.packs}
-          payable={payable}
-          disabled={!write.allowed || busy}
-          pendingPackId={intent.isPending ? pending : null}
-          onSelect={(packId) => {
-            setPending(packId);
-            setStage({ at: "idle" });
-            intent.mutate({ packId }, { onSuccess: onIntent });
-          }}
-        />
+        <>
+          <PacksTable
+            packs={packs.data.packs}
+            payable={payable}
+            disabled={!write.allowed || busy}
+            pendingPackId={intent.isPending ? pending : null}
+            onSelect={(packId) => {
+              setPending(packId);
+              setStage({ at: "idle" });
+              intent.mutate({ packId }, { onSuccess: onIntent });
+            }}
+          />
+          {/* ONE LINE UNDER THE PRICES, because this is the table a client compares against
+              somebody else's, and the thing that makes ours comparable is the one thing a
+              price table cannot show: every rate in it buys the SAME voice. A table of
+              rates with no quality attached invites the reader to assume the cheapest row
+              is the worst one. `WhatCallsCost` argues this properly a tab away; this is the
+              sentence that has to survive being read on its own, next to the number. */}
+          <p className="text-sm text-ink-muted">
+            Every pack buys the same calling — the best voice our speech provider makes, on
+            every call. There is no premium tier to pay extra for; a bigger pack only makes
+            each minute cheaper.
+          </p>
+        </>
       )}
 
       {/* An "other amount" for a client who wants a figure that is not a pack. Same route,

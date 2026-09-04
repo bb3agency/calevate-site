@@ -30,6 +30,18 @@ import { Card, formatRupeeRate } from "@/components/ui";
  *    left unreachable. There is therefore no cheaper tier that sounds worse, and no
  *    choice for a client to get wrong.
  *
+ *    AND IT IS THE VENDOR'S TOP MODEL, which is the half that makes this a selling point
+ *    rather than a shrug, and it is FIRST in the list for that reason. `agents/voices.py`
+ *    :30-35 carries the evidence, class VERIFIED-VENDOR-SDK: the Sarvam SDK's TTS enum is
+ *    `Literal["bulbul:v2", "bulbul:v3"]` and Sarvam's own Model Catalogue lists ONLY
+ *    `bulbul:v3` — v2 is the older, value model. We ship v3 to every account, so "one
+ *    voice" and "the good voice" are the same sentence.
+ *
+ *    The naming is deliberate and the boundary is in the next paragraph: this says our
+ *    voice is the best one the VENDOR sells, which is a fact about our own configuration
+ *    and stays true when anybody else reprices. It does NOT say it beats a competitor's
+ *    premium voice, because nothing in this repo has measured that.
+ *
  *    ⚠ NOT TO BE CONFUSED WITH THE PLAN'S OVERAGE RUNGS. `billing/invoice.py`'s
  *    `_RUNG_WORDING` still says "premium voice"/"value voice"; those are two rate SLOTS
  *    on a managed plan (`plans.overage_rate` / `overage_rate_value`, the second NULL on
@@ -91,10 +103,21 @@ export function WhatCallsCost({ listRate }: { listRate: string | null }) {
             {formatRupeeRate(listRate)}
           </strong>
         )}
-        {listRate !== null && " at the standard rate — a bigger pack brings that down."}
+        {listRate !== null &&
+          " at the standard rate — a bigger pack brings that down. One rate, because there is one voice and it is the best one our speech provider makes."}
       </p>
 
       <ul className="mt-4 space-y-3">
+        <Point
+          icon={<Waves className="h-4 w-4" aria-hidden />}
+          title="One voice, and it is the top one"
+        >
+          Every account gets the best voice our speech provider makes — Sarvam&rsquo;s
+          newest one — and there is nothing above it to upgrade to and nothing cheaper
+          below it that sounds worse. One voice, one rate, every call. What you hear in a
+          demo is what your customers hear at three in the morning.
+        </Point>
+
         <Point
           icon={<Clock3 className="h-4 w-4" aria-hidden />}
           title="You pay for the seconds you actually talk"
@@ -110,15 +133,6 @@ export function WhatCallsCost({ listRate }: { listRate: string | null }) {
         >
           Ringing out, engaged, or a number that never picks up: there is no talk time, so
           there is nothing to charge and no entry appears in your history.
-        </Point>
-
-        <Point
-          icon={<Waves className="h-4 w-4" aria-hidden />}
-          title="One voice, and it is the best one we can buy"
-        >
-          Every call on every account uses the same voice. There is no cheaper grade that
-          sounds worse and no setting that could put you on one by accident, so the rate
-          you see is what your callers hear.
         </Point>
 
         <Point

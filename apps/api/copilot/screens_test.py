@@ -19,7 +19,7 @@ WHAT IT READS, AND WHY THOSE TWO ARTEFACTS:
   other direction.
 
 WHAT IT CANNOT READ IS THE SYNONYMS, because no artefact knows that a client says
-"billing" for Calling credit. What it enforces there is that the field is non-empty and
+"billing" for Credits & billing. What it enforces there is that the field is non-empty and
 that no two screens claim the same word — the failure mode a thesaurus produces.
 
 A PARSER WITH NO BLIND-SPOT CHECK IS A TEST THAT PASSES WHEN IT STOPS WORKING, so
@@ -46,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 NAV_SOURCE = REPO_ROOT / "apps/web/src/lib/clientNav.ts"
 CLIENT_APP = REPO_ROOT / "apps/web/src/app/c/[slug]"
 
-#: `{ href: `/c/${slug}/credits`, label: "Calling credit", icon: Wallet },` — one entry,
+#: `{ href: `/c/${slug}/billing`, label: "Credits & billing", icon: Wallet },` — one entry,
 #: one line, which is the shape `clientNav.ts` documents as a parse contract.
 _ENTRY = re.compile(
     r"\{\s*href:\s*`/c/\$\{slug\}(?P<path>[^`]*)`,\s*label:\s*\"(?P<label>[^\"]+)\""
@@ -186,11 +186,15 @@ def test_the_screens_shut_to_staff_are_the_ones_rbac_shuts() -> None:
     """`screens_closed_to` reads the enforcement's own table, so this states the outcome a
     staff member actually gets rather than a role list written twice."""
     staff = screens_module.screens_closed_to(ROLE_PERMISSIONS["staff"])
-    assert [screen.name for screen in staff] == ["Usage", "Spend", "AI help", "Invoice"]
+    # ONE entry, where there were four, because Usage, Spend and Invoice are now tabs
+    # inside a screen staff can open rather than screens of their own (D-525). The list
+    # shrank without anything being opened up: the owner's figures still refuse, per TAB,
+    # inside `billing/page.tsx`. AI help is the last screen that refuses at the door.
+    assert [screen.name for screen in staff] == ["AI help"]
     assert screens_module.screens_closed_to(ROLE_PERMISSIONS["owner"]) == ()
     # The wallet is the one billing-shaped screen staff CAN open (`wallet:read`, 2 Sep
     # 2026) — the whole reason a role check had to be per screen rather than per group.
-    assert "Calling credit" not in {screen.name for screen in staff}
+    assert "Credits & billing" not in {screen.name for screen in staff}
 
 
 # --- the synonyms ------------------------------------------------------------------------
@@ -211,10 +215,10 @@ def test_every_screen_carries_the_words_a_client_would_use() -> None:
 
 def test_the_word_the_client_actually_used_reaches_the_screen_they_were_on() -> None:
     """THE DEFECT, as a test. "billing", "payment", "top up", "recharge" and "wallet" are
-    the words a client uses for the screen this console calls Calling credit, and the
+    the words a client uses for the screen this console calls Credits & billing, and the
     copilot denied all of them."""
     wallet = next(
-        screen for screen in screens_module.CLIENT_SCREENS if screen.name == "Calling credit"
+        screen for screen in screens_module.CLIENT_SCREENS if screen.name == "Credits & billing"
     )
     for word in ("billing", "payment", "top up", "recharge", "wallet"):
         assert word in wallet.aliases
@@ -235,7 +239,7 @@ def test_the_directory_is_in_the_static_prefix_and_names_every_screen() -> None:
 def test_the_directory_says_owner_only_for_exactly_the_screens_rbac_shuts() -> None:
     """THE LINE THAT WAS WRONG FIRST, AND ON THE ONE SCREEN THE DEFECT WAS ABOUT.
 
-    "declares a permission" is not "owner only": Calling credit declares `wallet:read`,
+    "declares a permission" is not "owner only": Credits & billing declares `wallet:read`,
     which STAFF HOLD (2 Sep 2026), so a directory keyed on "has a permission" told a staff
     member the screen they can open is shut to them — the same lie, in the other
     direction, on the same screen. So the marker is derived from `ROLE_PERMISSIONS` and
@@ -252,7 +256,7 @@ def test_the_directory_says_owner_only_for_exactly_the_screens_rbac_shuts() -> N
             else ("Open to: everyone on the team.")
         )
         assert expected in line, screen.name
-    assert "Calling credit" not in shut
+    assert "Credits & billing" not in shut
 
 
 def test_the_prompt_never_offers_a_screen_name_the_console_does_not_have() -> None:
@@ -268,7 +272,7 @@ def test_the_directory_tells_the_model_not_to_say_the_address_out_loud() -> None
     the answer because the founder banned route paths and code identifiers from everything
     a client reads."""
     directory = screens_module.render_directory()
-    assert "/c/{slug}/credits" in directory
+    assert "/c/{slug}/billing" in directory
     assert "never say this aloud" in directory
     assert "NEVER SAY AN ADDRESS OUT LOUD" in directory
 
@@ -288,7 +292,7 @@ def test_the_static_prefix_still_does_not_vary_by_request() -> None:
 
 @pytest.mark.parametrize(
     "route",
-    ["/c/{slug}/credits", "/c/acme/credits", "/c/:hidden/credits"],
+    ["/c/{slug}/billing", "/c/acme/billing", "/c/:hidden/billing"],
     ids=["declared", "address-bar", "masked-slug"],
 )
 def test_the_screen_a_person_is_on_is_recognised_however_the_route_arrives(route: str) -> None:
@@ -296,7 +300,7 @@ def test_the_screen_a_person_is_on_is_recognised_however_the_route_arrives(route
     bar (`lib/copilot/fallback.ts`). Both are the same screen and the assistant must say
     so — the undeclared case is the one it can otherwise say least about."""
     found = screens_module.match_route(route)
-    assert found is not None and found.name == "Calling credit"
+    assert found is not None and found.name == "Credits & billing"
 
 
 def test_a_detail_route_resolves_to_its_own_screen() -> None:
@@ -316,13 +320,13 @@ def test_a_route_that_belongs_to_no_screen_is_not_guessed_at() -> None:
 
 
 def test_where_is_names_the_screen_and_its_group_and_nothing_else() -> None:
-    """The founder's sentence: "Calling credit, under Settings & account in the left
+    """The founder's sentence: "Credits & billing, under Settings & account in the left
     sidebar". A screen in the primary group has no heading to name."""
-    wallet = screens_module.match_route("/c/{slug}/credits")
+    wallet = screens_module.match_route("/c/{slug}/billing")
     assert wallet is not None
     assert (
         screens_module.where_is(wallet)
-        == "Calling credit, under Settings & account in the left sidebar"
+        == "Credits & billing, under Settings & account in the left sidebar"
     )
     leads = screens_module.match_route("/c/{slug}/leads")
     assert leads is not None
@@ -345,11 +349,12 @@ def _render(viewer: context.Viewer | None) -> str:
 
 def test_the_block_names_the_screen_the_person_is_looking_at() -> None:
     """FAILURE ONE OF THREE, fixed: the copilot denied a screen the client was standing on
-    because nothing joined "the address is /c/x/credits" to "this screen is called Calling
-    credit"."""
-    rendered = _render(context.viewer_for(role="owner", route="/c/acme/credits"))
-    assert 'looking_at="Calling credit, under Settings &amp; account in the left sidebar"' in (
-        rendered
+    because nothing joined "the address is /c/x/billing" to "this screen is called
+    Credits & billing"."""
+    rendered = _render(context.viewer_for(role="owner", route="/c/acme/billing"))
+    assert (
+        'looking_at="Credits &amp; billing, under Settings &amp; account in the left sidebar"'
+        in (rendered)
     )
     assert 'role="owner"' in rendered
 
@@ -357,9 +362,12 @@ def test_the_block_names_the_screen_the_person_is_looking_at() -> None:
 def test_a_staff_member_is_named_the_screens_they_cannot_open() -> None:
     """By NAME, because a name is what they will look for in the sidebar — and only when
     there are any, because an empty attribute is a thing a model paraphrases."""
-    staff = _render(context.viewer_for(role="staff", route="/c/acme/credits"))
-    assert 'screens_you_cannot_open="Usage, Spend, AI help, Invoice"' in staff
-    owner = _render(context.viewer_for(role="owner", route="/c/acme/credits"))
+    staff = _render(context.viewer_for(role="staff", route="/c/acme/billing"))
+    # ONE name where there were four: Usage, Spend and Invoice are tabs of a screen staff
+    # can open now (D-525), and their figures refuse inside it. AI help is the last screen
+    # shut at the door.
+    assert 'screens_you_cannot_open="AI help"' in staff
+    owner = _render(context.viewer_for(role="owner", route="/c/acme/billing"))
     assert "screens_you_cannot_open" not in owner
 
 

@@ -1571,7 +1571,7 @@ async def _run_tool_loop(
                 # THE SERVER'S OWN SENTENCE, handed back verbatim — the model is told what
                 # is happening rather than asked to remember what it asked for. The
                 # PARENTHESIS IS LOAD-BEARING: if the browser finds unsaved work it asks
-                # first, so an assistant that said "you are now on Calling credit" would be
+                # first, so an assistant that said "you are now on Credits & billing" would be
                 # wrong for exactly the person who most needs it not to be.
                 f"OPENING {destination.where} for them now. If they have unsaved work on "
                 "this screen the console asks them before moving, so say you are opening "

@@ -48,10 +48,10 @@ const SESSION: Session = { orgSlug: "acme" };
 /** The frame the server sends for "take me to billing". Every string is its own. */
 const TO_CREDITS = {
   tool: "open_screen",
-  screen: "Calling credit",
-  route: "/c/{slug}/credits",
-  where: "Calling credit, under Settings & account in the left sidebar",
-  detail: "Opening Calling credit, under Settings & account in the left sidebar.",
+  screen: "Credits & billing",
+  route: "/c/{slug}/billing",
+  where: "Credits & billing, under Settings & account in the left sidebar",
+  detail: "Opening Credits & billing, under Settings & account in the left sidebar.",
   reversal: "Your browser's back button brings you back to this screen.",
 };
 
@@ -71,7 +71,7 @@ function sse(chunks: string[]): Response {
 /** An answer that opens a screen: the model's sentence, the frame, then `done`. */
 function navigationChunks(frame: Record<string, unknown> = TO_CREDITS): string[] {
   return [
-    'event: text\ndata: {"delta":"Opening Calling credit for you."}\n\n',
+    'event: text\ndata: {"delta":"Opening Credits & billing for you."}\n\n',
     `event: navigate\ndata: ${JSON.stringify(frame)}\n\n`,
     'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
   ];
@@ -155,7 +155,7 @@ async function askToBeTaken(surface: CopilotSurface, chunks = navigationChunks()
 
 describe("resolving a destination", () => {
   it("substitutes the slug and returns an in-app path", () => {
-    expect(resolveDestination("/c/{slug}/credits", "acme")).toBe("/c/acme/credits");
+    expect(resolveDestination("/c/{slug}/billing", "acme")).toBe("/c/acme/billing");
     expect(resolveDestination("/c/{slug}", "acme")).toBe("/c/acme");
     expect(resolveDestination("/c/{slug}/settings/team", "acme")).toBe("/c/acme/settings/team");
   });
@@ -172,7 +172,7 @@ describe("resolving a destination", () => {
     expect(resolveDestination("/admin/ops", "acme")).toBeNull();
     // A path with the slug already substituted is not a template and is refused too: the
     // wire's contract is the template, and accepting both would be two ways in.
-    expect(resolveDestination("/c/acme/credits", "acme")).toBeNull();
+    expect(resolveDestination("/c/acme/billing", "acme")).toBeNull();
   });
 });
 
@@ -215,14 +215,14 @@ describe('"take me to billing page"', () => {
   it("OPENS CALLING CREDIT, says so, and announces where it went", async () => {
     await askToBeTaken(READ_ONLY);
 
-    expect(nav.pushed).toEqual(["/c/acme/credits"]);
+    expect(nav.pushed).toEqual(["/c/acme/billing"]);
     // The receipt, in the server's own words — and no route path anywhere a person reads.
     expect(screen.getByText(TO_CREDITS.detail)).toBeTruthy();
     expect(screen.getByText(TO_CREDITS.reversal)).toBeTruthy();
-    expect(document.body.textContent).not.toContain("/c/acme/credits");
+    expect(document.body.textContent).not.toContain("/c/acme/billing");
     // WHAT A SCREEN-READER USER HEARS. Nothing else in this console announces a route
     // change, so a move nobody clicked for has to say where it went.
-    expect(screen.getByText("Opened Calling credit, under Settings & account in the left sidebar.")).toBeTruthy();
+    expect(screen.getByText("Opened Credits & billing, under Settings & account in the left sidebar.")).toBeTruthy();
     // …and where the caret is when they get there: the skip-link target, not the sidebar.
     // One frame, because the focus move waits for the router's own commit rather than
     // guessing a delay — see `CopilotDock`.
@@ -236,12 +236,12 @@ describe('"take me to billing page"', () => {
     await askToBeTaken(HAS_A_FORM);
 
     expect(nav.pushed).toEqual([]);
-    expect(screen.getByRole("dialog", { name: "Open Calling credit?" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Open Credits & billing?" })).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Stay here" }));
     });
     expect(nav.pushed).toEqual([]);
-    // The receipt goes with the refusal: "Opening Calling credit" stops being true the
+    // The receipt goes with the refusal: "Opening Credits & billing" stops being true the
     // moment they say no.
     expect(screen.queryByText(TO_CREDITS.detail)).toBeNull();
   });
@@ -249,9 +249,9 @@ describe('"take me to billing page"', () => {
   it("moves them when they answer the question with yes", async () => {
     await askToBeTaken(HAS_A_FORM);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Open Calling credit" }));
+      fireEvent.click(screen.getByRole("button", { name: "Open Credits & billing" }));
     });
-    expect(nav.pushed).toEqual(["/c/acme/credits"]);
+    expect(nav.pushed).toEqual(["/c/acme/billing"]);
   });
 
   it("MOVES NOBODY when the destination is not a screen this console has", async () => {
@@ -303,6 +303,6 @@ describe('"take me to billing page"', () => {
     expect(nav.pushed).toEqual([]);
     release!();
     await asked;
-    expect(nav.pushed).toEqual(["/c/acme/credits"]);
+    expect(nav.pushed).toEqual(["/c/acme/billing"]);
   });
 });

@@ -400,7 +400,7 @@ class CopilotNavigateEvent(BaseModel):
     list before moving, so neither half can navigate on the other's word alone.
 
     `screen` and `where` are the console's own vocabulary for the destination ("Calling
-    credit", "Calling credit, under Settings & account in the left sidebar") and are what a
+    credit", "Credits & billing, under Settings & account in the left sidebar") and are what a
     person and a screen reader are told. No route path and no identifier is ever spoken.
     """
 
