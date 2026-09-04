@@ -197,7 +197,7 @@ _COST_PER_MIN = {
 # detect it. That divergence is the single clearest piece of evidence that this descriptor
 # needed to exist.
 #
-# **`number_series` MOVED WITH BOLNA'S (D-535), AND THAT IS THE RULE ABOVE BEING
+# **`number_series` MOVED WITH BOLNA'S (D-537), AND THAT IS THE RULE ABOVE BEING
 # FOLLOWED, NOT BROKEN.** It was `frozenset()` for exactly as long as Bolna's was, for
 # exactly that reason. The founder adopted Model A on the inbound leg, Bolna's descriptor
 # now names the one class that vendor can be shown to sell, and a default fake left empty
@@ -388,7 +388,7 @@ class FakeEngine:
         self._account_kb: dict[EngineKBRef, AccountKBObject] = {}
         #: `engine_number_ref → agent ref` — the engine's inbound routing table (D-420).
         self._inbound: dict[str, EngineAgentRef] = {}
-        #: Numbers this engine has SOLD us, by its own handle (D-535). Stateful for
+        #: Numbers this engine has SOLD us, by its own handle (D-537). Stateful for
         #: `_inbound`'s reason: a fake that forgot a purchase could not fail a
         #: double-buy or an unreleased rental, which are the two defects that
         #: cost money.
@@ -765,7 +765,7 @@ class FakeEngine:
                     "does not supply them."
                 ),
             )
-        # THE NUMBER THE CALLER NAMED, AND NOTHING ELSE (D-535). This used to synthesise
+        # THE NUMBER THE CALLER NAMED, AND NOTHING ELSE (D-537). This used to synthesise
         # one from the spec, which was the fake being CHEERFUL where the real adapter
         # raises — the exact divergence `DEFAULT_FAKE_CAPABILITIES` exists to forbid. The
         # vendor's buy endpoint requires an exact E.164 and has no "one like this" mode, so

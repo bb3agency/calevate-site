@@ -3192,7 +3192,7 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   can be trusted to run (hard rule 5 forbids a bypass). So the honest value of this
 #   field, whose meaning is "is there an engine-side campaign object OUR code depends
 #   on", is False. If that ever changes it is a decision-log entry, not a flag flip.
-# * `number_series=frozenset({"standard"})` — **CHANGED BY D-535, AND ONLY BY ONE
+# * `number_series=frozenset({"standard"})` — **CHANGED BY D-537, AND ONLY BY ONE
 #   MEMBER.** The founder adopted Model A for the inbound leg: we buy Indian DIDs through
 #   this engine and the client forwards their own published number to one. So the
 #   capability that was empty because nothing was WANTED now names exactly what this
@@ -3210,7 +3210,7 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   ⚠ **THE DESCRIPTOR IS NOT THE PERMISSION.** This says the ENGINE can sell us a number;
 #   whether it is lawful for Calevate to hold one and put a client's traffic on it is a
 #   different fact, held by `campaigns/provisioning.py::number_resale_authorization` and
-#   OPERATIONS §2 gate 45. Nothing in this file may be read as answering it.
+#   OPERATIONS §2 gate 47. Nothing in this file may be read as answering it.
 # * `transfer=False`. **The reason changed and the value did not (D-262).** This used to
 #   say "Bolna may well support it; nobody has run the pilot gate". Bolna DOES support it,
 #   read at source: `bolna/agent_manager/task_manager.py` (bolna-ai/bolna@cd2e192)
@@ -3362,7 +3362,7 @@ class BolnaEngine:
         if currency == "INR":
             return Decimal(1), None, None
         # The published-else-configured rule itself lives in `core/fx.usd_inr_rate_now`
-        # (D-535): it was spelled here and again in `billing/number_rental.py`, and two
+        # (D-537): it was spelled here and again in `billing/number_rental.py`, and two
         # copies of a fallback is two places it can quietly stop happening. What stays
         # here is the question only an adapter can answer — whether the vendor quoted in
         # dollars at all.
@@ -4116,7 +4116,7 @@ class BolnaEngine:
         # this method cannot disagree.
         require_capability("transfer", engine=self)
 
-    # --- numbers: search, buy, release, reconcile (D-535) ---------------------
+    # --- numbers: search, buy, release, reconcile (D-537) ---------------------
     #
     # THE VENDOR'S FOUR ROUTES, IN ONE PLACE (`bolna-findings/mirror/pages/api-reference/
     # phone-numbers/overview.md:11-16`):
@@ -4342,7 +4342,7 @@ class BolnaEngine:
         undocumented parameter to a route that may ignore it would produce a walk that
         looks complete and is not. The reconciliation job therefore treats this listing as
         POSSIBLY PARTIAL and alarms on numbers it cannot explain in one direction only —
-        see `workers/number_reconciliation.py`. OPERATIONS §2 gate 25d.
+        see `workers/number_rental.py::reconcile_engine_numbers`. OPERATIONS §2 gate 25d.
 
         `rented` is their name here for what `buy` calls `bolna_owned` ("If the phone
         number was bought from Bolna", `get_all.md:115-118`); both are read into

@@ -427,6 +427,16 @@ class PendingInviteOut(BaseModel):
     role: str
     invited_at: datetime
     expires_at: datetime
+    #: WHEN THE LINK WAS LAST SENT AND HOW MANY TIMES (D-536). The founder asked for both
+    #: on screen — "say when the last one was sent and to which address" — and they are
+    #: the two facts that turn "they still have not signed up" into a decision: a link
+    #: sent four minutes ago is not yet a problem, and one sent five times to an address
+    #: that never answers is a telephone call rather than a sixth click.
+    #:
+    #: `invited_at` is the MINT and this is the SEND; after a resend they differ, and
+    #: reading the wrong one tells an operator to wait when they need not.
+    last_sent_at: datetime
+    send_count: int
 
 
 @router.get(
@@ -487,6 +497,8 @@ async def list_tenant_invitations(
             role=row.role,
             invited_at=row.invited_at,
             expires_at=row.expires_at,
+            last_sent_at=row.last_sent_at,
+            send_count=row.send_count,
         )
         for row in rows
     ]
@@ -541,6 +553,132 @@ async def revoke_tenant_invitation(
             object_id=str(invitation_id),
             ip=client_request_ip(request),
         )
+
+
+class ResendInviteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: A CORRECTED address, when the one on file cannot receive mail. Omitted means "send
+    #: it again to the address it already has", which is the ordinary case.
+    #:
+    #: THIS IS AN OPERATOR ATTESTATION AND IS RECORDED AS ONE. An admin typing an address
+    #: here is asserting they established it out of band — a telephone call, a signed
+    #: form — and that assertion is what the audit row carries: `attested: true`, the
+    #: operator, and the fact that nothing verified the mailbox. It is NOT a verification,
+    #: and the address does not become verified by being redeemed either (D-185): one
+    #: `email_verify` round trip the person completes themselves is what does that, and
+    #: `SessionOut.email_verified` is what reports it.
+    #:
+    #: It is safe here for a reason specific to this row rather than a general one: an
+    #: unredeemed invitation has no account behind it. No `users` row was created from it,
+    #: no credential exists, no session was ever minted. `resend_invitation` acts only on
+    #: `used_at IS NULL`, so the moment somebody HAS redeemed it this stops being
+    #: reachable — and from then on the address is a login identity, which is a different
+    #: act on a different surface.
+    email: EmailStr | None = None
+    #: Why the address is being corrected. Required WITH `email` and refused without it,
+    #: because an attestation with no stated ground is a claim rather than a record — the
+    #: same rule `record_kyc` applies to a rejection and `LifecycleIn` to a suspension.
+    attestation: str | None = Field(default=None, min_length=3, max_length=500)
+
+    @model_validator(mode="after")
+    def _a_corrected_address_states_its_ground(self) -> ResendInviteIn:
+        if self.email is not None and not (self.attestation or "").strip():
+            raise ValueError("changing the address needs a note saying how it was established")
+        if self.email is None and self.attestation:
+            raise ValueError("an attestation belongs with a corrected address")
+        return self
+
+
+class ResendInviteOut(BaseModel):
+    """What the resend did. The TOKEN IS NOT HERE — see `invite_member` and D-198."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    #: The address it actually went to, in full, so the operator can read back to the
+    #: client what they just did (the same disclosure `PendingInviteOut` already makes).
+    email: str
+    delivery: Literal["queued"]
+    expires_at: datetime
+    last_sent_at: datetime
+    send_count: int
+
+
+@router.post(
+    "/tenants/{tenant_id}/invitations/{invitation_id}/resend",
+    response_model=ResendInviteOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Send the invite link again — same invitation, new link, old one dead",
+    description=(
+        "Re-cuts the key for an invitation nobody has redeemed and mails it. The PREVIOUS "
+        "link stops working immediately: this rotates the token on the same row rather "
+        "than minting a second invitation, so two live keys to one account cannot exist. "
+        "The 72-hour clock restarts with the link. Optionally corrects the address, which "
+        "is the path for a client who mistyped it at signup and can therefore receive "
+        "nothing — that is recorded as an OPERATOR ATTESTATION, not as a verified "
+        "address, and it needs a note saying how the new address was established. "
+        "Rate-limited to one send every two minutes and ten sends in total; past that, "
+        "telephone the client and issue a fresh invitation. 404 if the invitation has "
+        "been redeemed, revoked or has expired."
+    ),
+)
+async def resend_tenant_invitation(
+    tenant_id: UUID,
+    invitation_id: UUID,
+    payload: ResendInviteIn,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> ResendInviteOut:
+    """The rotation, the mail and the audit row in ONE transaction.
+
+    Same reasoning as `invite_member` above and one degree sharper. A rotation that
+    committed without its mail would kill a link that WAS working and put nothing in its
+    place — strictly worse than not pressing the button — and a mail sent for a rotation
+    that rolled back is a link that does not work. `enqueue_invitation_email` puts the
+    promise in the same transaction as the row it describes.
+
+    The audit row names the send and, where there was one, the attestation and its ground.
+    The ADDRESS is not in the summary: the audit summary sanitizer redacts addresses, and
+    the fact a reviewer needs from this row is that an operator changed the recipient on
+    their own word — the address itself is on the invitation and on the screen.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        resent = await service.resend_invitation(
+            scoped,
+            invitation_id=invitation_id,
+            email=str(payload.email) if payload.email else None,
+        )
+        await enqueue_invitation_email(scoped, to=resent.email, token=resent.token)
+        await write_audit(
+            scoped,
+            action="admin.invitation_resent",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="invitation",
+            object_id=str(invitation_id),
+            ip=client_request_ip(request),
+            summary={
+                "send_count": resent.send_count,
+                "role": resent.role,
+                # THE ATTESTATION, DISTINGUISHABLE FROM A VERIFICATION. `address_changed`
+                # says an operator re-pointed the invitation; `attested_by_operator` says
+                # nothing checked the mailbox and a person vouched for it; `attestation`
+                # is their stated ground. A later reader can tell this apart from an
+                # address the invitee proved, which is the whole point of recording it.
+                "address_changed": payload.email is not None,
+                "attested_by_operator": payload.email is not None,
+                "attestation": payload.attestation,
+            },
+        )
+    return ResendInviteOut(
+        id=resent.id,
+        email=resent.email,
+        delivery="queued",
+        expires_at=resent.expires_at,
+        last_sent_at=resent.last_sent_at,
+        send_count=resent.send_count,
+    )
 
 
 class IntakeOut(BaseModel):
@@ -1351,7 +1489,7 @@ class ProvisionNumberIn(BaseModel):
     # record, never ours to choose: the account is theirs (Model B).
     provider: str | None = Field(default=None, max_length=60)
     purpose: str | None = Field(default=None, max_length=120)
-    # **THE FIELD WHOSE ABSENCE BROKE EVERY INBOUND PUBLISH (GAP-1, D-535).** The voice
+    # **THE FIELD WHOSE ABSENCE BROKE EVERY INBOUND PUBLISH (GAP-1, D-537).** The voice
     # platform addresses a number by its OWN handle, not by the E.164, and
     # `phone_numbers.engine_number_ref` had no writer anywhere in production code: this
     # body is `extra="forbid"`, so an operator who knew the handle could not send it, and

@@ -2207,7 +2207,7 @@ async def provision_number(
     row. Where the number CAME from is the caller's business — a client's own connection on
     their own Exotel / Plivo / Vobiz account (Model B, `docs/legal/LEGAL-OPS-PLAYBOOK.md`
     §9), or a purchase `campaigns/number_supply.buy_number` has already made at the engine
-    (Model A, D-535). Nothing here talks to a carrier and nothing here spends money.
+    (Model A, D-537). Nothing here talks to a carrier and nothing here spends money.
 
     **`engine_number_ref` IS THE COLUMN THAT HAD NO WRITER, AND ITS ABSENCE BROKE EVERY
     INBOUND PUBLISH (GAP-1).** It is declared on `phone_numbers`, it is READ by
@@ -2220,7 +2220,7 @@ async def provision_number(
     because it is genuinely unknown at the moment a client's own connection is first
     recorded — the operator learns the vendor's handle when the number is introduced to the
     voice platform, which is a later step — and `set_number_engine_ref` is where it lands
-    then. What is not acceptable, and was the state before D-535, is that there was no
+    then. What is not acceptable, and was the state before D-537, is that there was no
     later step at all.
 
     **`engine_owned` DECIDES WHAT A RELEASE MEANS** and defaults to False, which is what

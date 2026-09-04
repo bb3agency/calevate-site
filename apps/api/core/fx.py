@@ -168,7 +168,7 @@ def usd_inr_rate_now(configured: Decimal, now: datetime | None = None) -> UsdInr
 
     **ONE SPELLING OF THE FALLBACK RULE, for every writer of money.** It was written twice
     — once inside `engine/bolna.py::_conversion_rate` for a call's cost, and again the day
-    a recurring number rental needed converting (D-535) — and two copies of "use the
+    a recurring number rental needed converting (D-537) — and two copies of "use the
     published rate while it is fresh, else the operator's typed one" is two places the
     fallback can quietly stop happening. The engine adapter still owns the question this
     does NOT answer: whether the vendor quoted in dollars at all.

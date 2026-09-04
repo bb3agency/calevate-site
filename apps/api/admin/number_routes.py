@@ -1,4 +1,4 @@
-"""The operator's surface for a phone number we BUY — search, buy, link, release (D-535).
+"""The operator's surface for a phone number we BUY — search, buy, link, release (D-537).
 
 **ITS OWN PREFIX, `/v1/admin/numbers`, RATHER THAN A PATH UNDER `admin_router`.** That
 router owns `/v1/admin/tenants/{tenant_id}`, which would swallow a literal `/numbers`

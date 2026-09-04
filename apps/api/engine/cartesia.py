@@ -868,7 +868,7 @@ class CartesiaEngine:
         `number_series` is empty, so there is nothing to sell and nothing to search. The
         refusal is `require_capability` rather than an empty list DELIBERATELY: an empty
         result reads as "no inventory today" and would put an operator on a screen that
-        looks like it works and never will, which is the precise failure D-535 added this
+        looks like it works and never will, which is the precise failure D-537 added this
         method to avoid on the engine that CAN sell (see `BolnaEngine.search_numbers`).
         """
         require_capability("numbers", engine=self)

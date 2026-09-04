@@ -181,7 +181,7 @@ def _mount_routers(application: FastAPI) -> None:
     # segment under `/v1/admin/tenants/{tenant_id}`, which would swallow any literal
     # beside it, and it is about US rather than about a client.
     application.include_router(operator_router)
-    # Buying, linking and releasing a phone number (D-535). Its own
+    # Buying, linking and releasing a phone number (D-537). Its own
     # `/v1/admin/numbers` prefix for the reason the three above have theirs:
     # `/v1/admin/tenants/{tenant_id}` would swallow a literal `/numbers` beside it,
     # and the inventory search is cross-tenant — it is about the vendor's stock, not

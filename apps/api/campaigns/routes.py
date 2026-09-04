@@ -347,7 +347,7 @@ class CampaignSummaryOut(Strict):
 class NumberOut(Strict):
     """One number this account may dial from, or be answered on.
 
-    **`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-535).** A number we
+    **`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-537).** A number we
     bought for them is one they FORWARD their published number to — "point your existing
     phone at this number" — and their own connection is one they already publish. Those
     are opposite instructions, and a screen that cannot tell them apart gives the wrong

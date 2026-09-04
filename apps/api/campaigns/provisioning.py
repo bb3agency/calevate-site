@@ -1,6 +1,6 @@
 """Number provisioning — what this deployment may buy, and the two gates in front of it.
 
-**MODEL A IS ADOPTED ON THE INBOUND LEG, BY THE FOUNDER, ON 4 SEP 2026 (D-535), AND THIS
+**MODEL A IS ADOPTED ON THE INBOUND LEG, BY THE FOUNDER, ON 4 SEP 2026 (D-537), AND THIS
 MODULE USED TO SAY THE OPPOSITE IN ITS FIRST LINE.** Calevate buys an Indian DID through
 the voice engine; the clinic keeps its own published number and conditionally forwards it
 to ours. The client-facing story is "point your existing phone at this number", the DID is
@@ -28,7 +28,7 @@ THE TWO GATES, AND WHY THEY ARE DIFFERENT KINDS OF FACT
    client traffic on a Calevate carrier account (`:600-614`, items 1 and 10). The founder
    has neither today. So the code is built and the GOING LIVE is gated on a written
    status an operator records — deliberately, in the ops console, naming the instrument.
-   OPERATIONS §2 gate 45.
+   OPERATIONS §2 gate 47.
 
    **"THE CODE IS READY" AND "IT IS LAWFUL FOR US TO RESELL NUMBERS" ARE DIFFERENT FACTS
    AND THIS MODULE EXISTS SO THE PRODUCT CANNOT CONFLATE THEM.** That is also why the gate
@@ -88,7 +88,7 @@ from apps.api.engine.capabilities import engine_capabilities
 log = get_logger(__name__)
 
 # The carriers a CLIENT may hold their OWN connection with — Model B's whole relationship
-# with any of them, and untouched by D-535. A name outside this tuple resolves to
+# with any of them, and untouched by D-537. A name outside this tuple resolves to
 # `provider_not_implemented` rather than looking configured: `NUMBER_PROVIDER=twilio` must
 # fail loudly, not quietly behave like Exotel.
 #
@@ -126,10 +126,10 @@ NO_ENGINE_SUPPLY_REASON: Final = "engine_supplies_no_numbers"
 #: deliberately by recording the instrument (`Settings.number_resale_authorization`).
 NOT_AUTHORIZED_REASON: Final = "number_resale_not_authorized"
 
-# **STILL FALSE, AND D-535 DID NOT FLIP IT — READ WHAT IT MEANS BEFORE ASSUMING IT
+# **STILL FALSE, AND D-537 DID NOT FLIP IT — READ WHAT IT MEANS BEFORE ASSUMING IT
 # SHOULD HAVE.** This constant marks whether a CARRIER-DIRECT provisioning adapter exists:
 # a client of Exotel's or Plivo's own API, holding that carrier's auth id and auth token,
-# asking a telecom operator for a number. None exists, none is wanted, and D-535 did not
+# asking a telecom operator for a number. None exists, none is wanted, and D-537 did not
 # write one — the numbers this product now buys are bought THROUGH THE VOICE ENGINE, on
 # the engine's own carrier account, over `VoiceEngine.provision_number`. So "this
 # repository holds no telephony credential of any kind" stays true and stays load-bearing
@@ -276,7 +276,7 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
 
 
 def self_serve_purchase_refused() -> ProblemError:
-    """What a CLIENT asking for a number is told, and why it is still no (D-535).
+    """What a CLIENT asking for a number is told, and why it is still no (D-537).
 
     The founder adopted an OPERATOR-LED supply, not a self-serve one, and the distinction
     is the playbook's own: §19 names "we provision the number for self-serve" as the

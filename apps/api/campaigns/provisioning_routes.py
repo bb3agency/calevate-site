@@ -1,6 +1,6 @@
 """Asking Calevate for a phone number from the client console — still no, for a new reason.
 
-**MODEL A IS ADOPTED ON THE INBOUND LEG (D-535) AND THIS ROUTE STILL REFUSES.** Calevate
+**MODEL A IS ADOPTED ON THE INBOUND LEG (D-537) AND THIS ROUTE STILL REFUSES.** Calevate
 now buys Indian DIDs through the voice engine and a client forwards their own published
 number to one — but that supply is **operator-led**, arranged during onboarding, and the
 playbook names the self-serve shape specifically as the unsafe one: *"A future 'we
@@ -120,7 +120,7 @@ async def purchase_number(
     never a real shape, which is why it is `NoReturn` (see the decorator).
 
     **THE SECOND REFUSAL DOES NOT READ THE DEPLOYMENT'S CAPABILITY, AND THAT IS
-    DELIBERATE (D-535).** Whether this deployment has recorded a written reseller
+    DELIBERATE (D-537).** Whether this deployment has recorded a written reseller
     authorisation is OUR legal state, and answering a client differently depending on it
     would publish our paperwork through the shape of an error. The client-facing fact is
     the same either way: a number is not bought from this screen.

@@ -3189,7 +3189,7 @@ class CallContext(BaseModel):
 
 
 class NumberSearch(BaseModel):
-    """What a number SEARCH asks an engine, and why the port grew one at all (D-535).
+    """What a number SEARCH asks an engine, and why the port grew one at all (D-537).
 
     **`NumberSpec` COULD NOT EXPRESS THE VENDOR'S REQUEST, AND THAT WAS THE FINDING.**
     Our port modelled "provision me something matching this spec"; the engine we run
@@ -3225,7 +3225,7 @@ class NumberSearch(BaseModel):
 
 
 class AvailableNumber(BaseModel):
-    """One number an engine says it could sell us, at the price it says (D-535).
+    """One number an engine says it could sell us, at the price it says (D-537).
 
     NOT A `ProvisionedNumber`. Nothing has been bought, nothing is ours, and the only
     thing that may be done with this object is show it to an operator and hand its
@@ -3255,7 +3255,7 @@ class AvailableNumber(BaseModel):
 
 
 class NumberSpec(BaseModel):
-    """WHICH number to buy — not "something like this" (D-535).
+    """WHICH number to buy — not "something like this" (D-537).
 
     **`e164` IS THE LOAD-BEARING FIELD, AND EVERY ADAPTER MUST REFUSE A SPEC WITHOUT ONE**
     — the conformance suite has a clause for it. Bolna requires it (`buy.md:74-77`), and
@@ -4490,7 +4490,7 @@ class VoiceEngine(Protocol):
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None: ...
 
     async def search_numbers(self, query: NumberSearch) -> Sequence[AvailableNumber]:
-        """What could this engine sell us right now (D-535)?
+        """What could this engine sell us right now (D-537)?
 
         **THE METHOD THE PORT WAS MISSING, AND WITHOUT IT `provision_number` COULD NOT BE
         CALLED AT ALL** on the engine we actually run: their buy endpoint requires the
@@ -4529,7 +4529,7 @@ class VoiceEngine(Protocol):
         ...
 
     async def release_number(self, number: ProvisionedNumber) -> None:
-        """Give the number back to the engine and stop being billed for it (D-535).
+        """Give the number back to the engine and stop being billed for it (D-537).
 
         **THE OTHER END OF A RECURRING COST.** A number bought and never released renews
         every month for ever, against our wallet, for a client who has left — the margin
@@ -4553,12 +4553,13 @@ class VoiceEngine(Protocol):
         ...
 
     async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
-        """Every number the engine currently holds for this account (D-535).
+        """Every number the engine currently holds for this account (D-537).
 
         FOR RECONCILIATION, and for one question no other method can answer: is there a
         number we are paying for that our database has forgotten? A purchase that
         succeeded at the vendor and failed to commit here is invisible to every query we
-        own, and it renews monthly. `workers/number_reconciliation.py` walks this against
+        own, and it renews monthly. `workers/number_rental.py::reconcile_engine_numbers`
+        walks this against
         `phone_numbers` and alarms on either direction.
         """
         ...

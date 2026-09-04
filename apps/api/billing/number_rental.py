@@ -1,4 +1,4 @@
-"""The RECURRING cost of a phone number — the one this product had no home for (D-535).
+"""The RECURRING cost of a phone number — the one this product had no home for (D-537).
 
 **WHY THIS EXISTS AT ALL.** Every cost this platform records is per-CALL: a call happens,
 `pipeline._meter` writes `usage_events` rows keyed on `call_id`, and a month with no calls
@@ -46,7 +46,7 @@ MONEY (hard rule 7)
 THIS MODULE.** `monthly_rental_usd` is whatever the search result the operator accepted
 said (`bolna-findings/mirror/pages/api-reference/phone-numbers/search.md:126-133`). Their
 listing endpoint reports a current `price` per number (`get_all.md:103-106`) and
-`workers/number_reconciliation.py` is what compares the two and alarms on a disagreement —
+`workers/number_rental.py::reconcile_engine_numbers` compares the two and alarms —
 this module deliberately does not fetch, because a meter that makes a vendor call cannot
 run inside the caller's transaction and a rate limit must never be able to skip a charge.
 

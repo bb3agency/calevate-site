@@ -1,10 +1,10 @@
 """the numbers we bought, what they cost us, and when we gave them back
 
 Revision ID: d1e58c7a94f2
-Revises: c4a91e60d7b3
+Revises: a71f3c9e5d84
 Create Date: 2026-09-04 00:00:00.000000
 
-D-535. The founder adopted Model A on the inbound leg: Calevate buys an Indian DID
+D-537. The founder adopted Model A on the inbound leg: Calevate buys an Indian DID
 through the voice engine and the clinic forwards its own published number to it. Four
 columns on `phone_numbers`, and each of them closes something that is a defect today.
 
@@ -51,7 +51,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "d1e58c7a94f2"
-down_revision = "c4a91e60d7b3"
+down_revision = "a71f3c9e5d84"
 branch_labels = None
 depends_on = None
 

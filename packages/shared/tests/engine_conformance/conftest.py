@@ -255,7 +255,7 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
 
     #: Numbers this stub has SOLD, `phone_number -> id`. Stateful for the reason the
     #: agent map is: a stub that forgot a purchase could not fail a double-buy or an
-    #: unreleased rental, which are the two failures that cost money (D-535).
+    #: unreleased rental, which are the two failures that cost money (D-537).
     bought: dict[str, str] = {}
 
     def agent_id_for(body: dict[str, Any]) -> str:
@@ -469,7 +469,7 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             # BOTH REQUIRED, by their own schema (`buy.md:74-77`). A stub that accepted a
             # body without `phone_number` would let an adapter that "provisions something
             # like this spec" pass — which is exactly the shape the port could not express
-            # before D-535.
+            # before D-537.
             assert body.get("country") in {"IN", "US"}, "`country` is required"
             assert str(body.get("phone_number", "")).startswith("+"), (
                 "`phone_number` is required and is an exact E.164"

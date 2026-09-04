@@ -1,4 +1,4 @@
-"""Buying, releasing and reconciling a number at the voice engine (D-535).
+"""Buying, releasing and reconciling a number at the voice engine (D-537).
 
 **THE ONLY MODULE IN THIS SYSTEM THAT SPENDS MONEY AT A VENDOR ON PURPOSE.** Everything
 else here bills for work that already happened; this asks a vendor to charge us, now, for
@@ -24,8 +24,8 @@ things stand in front of that, in increasing order of how much they cost:
 3. and if the vendor charges us and our own INSERT then fails, the money is spent and the
    row is not written. That state is not recoverable inside a transaction, so it is
    ALARMED with the vendor's handle rather than swallowed, and
-   `workers/number_reconciliation.py` is what finds it again. Retrying is the one thing
-   that must not happen, and the alarm says so.
+   `workers/number_rental.py::reconcile_engine_numbers` finds it again. Retrying is the
+   one thing that must not happen, and the alarm says so.
 
 **A RELEASE IS NOT WHAT HAPPENS WHEN AN AGENT IS DELETED, AND THAT IS DELIBERATE.**
 `agents/lifecycle.py` releases an archived agent's numbers in the sense of UNBINDING them

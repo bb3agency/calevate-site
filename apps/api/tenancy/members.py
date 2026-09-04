@@ -359,6 +359,15 @@ class PendingInvitation:
     role: str
     invited_at: datetime
     expires_at: datetime
+    #: WHEN THE LINK WAS LAST PUT IN THAT INBOX, and how many times it has been (D-536).
+    #:
+    #: `invited_at` alone answered the wrong question once a resend existed: it is when the
+    #: invitation was MINTED, and after a resend the link in the mailbox is younger than
+    #: that. An owner or an operator looking at "why has this person not signed up" needs
+    #: the send, not the mint — and `send_count` is what turns "they still have not" into
+    #: "we have sent this five times, telephone them instead".
+    last_sent_at: datetime
+    send_count: int
 
 
 async def list_pending_invitations(
@@ -374,7 +383,8 @@ async def list_pending_invitations(
     rows = (
         await session.execute(
             text(
-                "SELECT id, email, role, created_at, expires_at FROM invitations "
+                "SELECT id, email, role, created_at, expires_at, last_sent_at, send_count "
+                "FROM invitations "
                 "WHERE used_at IS NULL AND expires_at > now() ORDER BY created_at DESC "
                 "LIMIT :limit"
             ),
@@ -388,6 +398,8 @@ async def list_pending_invitations(
             role=str(row[2]),
             invited_at=row[3],
             expires_at=row[4],
+            last_sent_at=row[5],
+            send_count=int(row[6]),
         )
         for row in rows
     ]

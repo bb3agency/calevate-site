@@ -142,6 +142,7 @@ from apps.workers.retention import (
 )
 from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
+from apps.workers.trials import sweep_trials
 from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
@@ -401,7 +402,7 @@ CRON_JOBS = [
     # other half of the retention obligation, on the same nightly cadence, with the same
     # "gone until tomorrow" failure mode and no next tick to self-heal on.
     cron(traced_job(sweep_expired), hour={3}, minute={17}, max_tries=WORKER_MAX_TRIES),
-    # THE RECURRING COST OF A PHONE NUMBER (D-535), and the only cost in this system that
+    # THE RECURRING COST OF A PHONE NUMBER (D-537), and the only cost in this system that
     # no event produces: the vendor debits its wallet on a renewal date we do not observe
     # and issues nothing, so the only way a monthly rental enters the ledger is that we go
     # and write it. Once per IST billing month, on the 1st, before anybody draws a
@@ -502,6 +503,22 @@ CRON_JOBS = [
     # `apply_retention` also alerts on a non-zero failure count now, because a retry
     # ladder that runs out still has to tell somebody.
     cron(traced_job(apply_retention), hour={3}, minute={40}, max_tries=WORKER_MAX_TRIES),
+    # TRIALS THAT HAVE RUN OUT, AND THE ERASURES THEY MAKE DUE (D-536). 02:25, ahead of
+    # the retention sweep at 03:40 rather than after it, so an erasure this tick files can
+    # be picked up by tonight's retention pass instead of tomorrow's — the two are days
+    # apart in effect, but the ordering is free and the shorter path is the one a data
+    # principal is owed.
+    #
+    # IT IS BOOKKEEPING, WHICH IS WHY A DAILY TICK IS ENOUGH. A trial past its end date has
+    # already stopped bypassing the credit gate (`billing/trials.TrialState.is_active` asks
+    # the clock as well as the status), so lateness here costs a stale word on a screen and
+    # never a free minute.
+    #
+    # `max_tries` EXPLICIT for `apply_retention`'s reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. A tick that
+    # gave up on its first transient error would leave a client's trial reading as running
+    # for another day and an erasure that is due unfiled.
+    cron(traced_job(sweep_trials), hour={2}, minute={25}, max_tries=WORKER_MAX_TRIES),
     # D-536. HOURLY, at :25 so it does not land on the same minute as the fleet's other
     # sweeps. The grace window is a PROMISE WITH A DATE ON IT and it has to hold in both
     # directions: an account must not be erased before the date the client was given, and

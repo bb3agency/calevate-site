@@ -568,7 +568,7 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
     dlt_status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     purpose: Mapped[str | None] = mapped_column(Text)
-    # D-535, migration `d1e58c7a94f2`. Did WE buy this number from the voice engine, or is
+    # D-537, migration `d1e58c7a94f2`. Did WE buy this number from the voice engine, or is
     # it the client's own connection on their own carrier account? The one column that
     # separates the two commercial models, and the one every release path reads: releasing
     # at the vendor stops a monthly charge for the first and does nothing for the second.

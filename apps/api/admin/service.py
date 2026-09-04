@@ -21,7 +21,8 @@ from __future__ import annotations
 import re
 import secrets
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import Any, Final
 from uuid import UUID
@@ -515,6 +516,175 @@ async def create_invitation(
     return invitation_id, raw
 
 
+#: The shortest gap between two sends of one invitation. A rate limit rather than a
+#: refusal, and a small one: the legitimate motion here is "they say it never arrived,
+#: send it again", which happens twice in a minute while an operator is on the telephone
+#: with the client. What it is actually stopping is the console's own button being held
+#: down and a mailbox being used as an outbound spam relay against an address the operator
+#: chose — so it is a floor on the SEND, and the previous link dies on every one of them.
+RESEND_MIN_INTERVAL = timedelta(minutes=2)
+
+#: How many times one invitation may be sent before the operator has to stop and do
+#: something else. Ten is enough for any honest sequence of "it went to spam, try again"
+#: and far short of anything that reads as delivery-by-repetition; past it the answer is a
+#: telephone call, which is also the only way to establish that the ADDRESS is wrong.
+RESEND_MAX_SENDS = 10
+
+
+@dataclass(frozen=True, slots=True)
+class ResentInvitation:
+    """What a resend produced: the row it rotated and the state the console renders."""
+
+    id: UUID
+    email: str
+    role: str
+    token: str
+    expires_at: datetime
+    last_sent_at: datetime
+    send_count: int
+
+
+async def resend_invitation(
+    session: AsyncSession,
+    *,
+    invitation_id: UUID,
+    email: str | None = None,
+) -> ResentInvitation:
+    """Re-cut the key for an invitation nobody has redeemed. Returns the RAW token once.
+
+    ═══ IT ROTATES THE ROW; IT DOES NOT MINT A SECOND ONE ═══
+
+    The obvious implementation is revoke-then-create, and it is wrong in two ways that
+    both matter. It produces two audit lineages for one invitation, so "we have sent this
+    five times" is a query nobody writes; and between the DELETE and the INSERT the
+    account has NO live invitation, so a failure in the second half leaves an operator
+    who pressed "resend" with less than they started with — on the wizard's owner invite,
+    that is an account nobody can get into.
+
+    Rotating `token_hash` in place makes the security property structural rather than
+    enforced: **the previous link stops working in the same statement that mints the new
+    one**, because `accept_invitation` matches on the hash and there is only ever one row.
+    `create_invitation`'s `invitation_already_pending` refusal — two live keys to one
+    account in somebody's inbox — is left exactly as it is; it now guards a door nobody
+    needs to walk through.
+
+    ═══ THE ADDRESS MAY BE CORRECTED, AND WHY THAT IS NOT A HOLE ═══
+
+    `email` re-points the invitation at a different mailbox. That is the founder's actual
+    case: a client mistyped their address at signup, so they can receive NOTHING and no
+    self-service recovery can reach them — every one of those flows sends a token to the
+    address that does not work.
+
+    It is not an account-takeover path, and the reason is that there is no account to take
+    over. This acts ONLY on an invitation with `used_at IS NULL`: nobody has redeemed it,
+    no `users` row was created from it, no credential exists and no session has ever been
+    minted for it. The moment one has, this refuses (the CAS below) and the address is a
+    LOGIN IDENTITY — changing that is a different act with a different, stronger flow, and
+    this deliberately cannot perform it.
+
+    What it does carry is an operator attestation: an admin typing a corrected address is
+    asserting they established it out of band, and the route records it as an attestation
+    rather than as a verified fact. The address still starts UNVERIFIED — redemption does
+    not mark it proved (D-185), and one `email_verify` round trip the person completes
+    themselves is what does.
+
+    ═══ THE FOUR REFUSALS ═══
+
+    * **No such live invitation** (used, expired, revoked, or another tenant's under RLS)
+      → 404. One answer for all of them, deliberately: an id that names another tenant's
+      row must not be distinguishable from one that names nothing (D-65).
+    * **The account is closed** → `assert_account_open`, the same predicate the mint and
+      the burn already ask. Re-cutting a key to an account on a retention clock is the
+      thing that check exists to stop, and a resend is a mint.
+    * **Sent too recently** → `invitation_resend_too_soon`, carrying the seconds to wait.
+    * **Sent too many times** → `invitation_resend_exhausted`. Not a lockout: revoking the
+      invitation and issuing a fresh one is available and is the honest motion at that
+      point, because ten failed sends is evidence about the ADDRESS, not about the link.
+
+    The rate limit is read and written in ONE statement, on the row itself, under the
+    database's own clock. A check-then-write against `last_sent_at` read separately is the
+    hole two rapid clicks walk through, and comparing an API-process clock with a
+    database-written column is wrong by the skew between them (D-322).
+    """
+    live = (
+        await session.execute(
+            text(
+                # `send_count` and the seconds still to wait, computed by the DATABASE
+                # from its own clock — see the docstring on why comparing a column the
+                # database wrote against the API process's clock is wrong by the skew.
+                "SELECT tenant_id, send_count, "
+                "  EXTRACT(EPOCH FROM (last_sent_at + :gap - now()))::int "
+                "FROM invitations "
+                "WHERE id = :id AND used_at IS NULL AND expires_at > now()"
+            ),
+            {"id": invitation_id, "gap": RESEND_MIN_INTERVAL},
+        )
+    ).first()
+    if live is None:
+        raise ProblemError.not_found("Invitation")
+    tenant_id, send_count, wait_s = live
+
+    await assert_account_open(session, tenant_id=UUID(str(tenant_id)))
+
+    if int(send_count) >= RESEND_MAX_SENDS:
+        raise ProblemError.business_rule(
+            "invitation_resend_exhausted",
+            "This invitation has been sent as many times as we will send it.",
+            remediation=(
+                "Telephone the client to check the address, then revoke this invitation "
+                "and issue a new one."
+            ),
+        )
+    if int(wait_s) > 0:
+        raise ProblemError.business_rule(
+            "invitation_resend_too_soon",
+            "That invitation was sent a moment ago.",
+            remediation=f"Wait {int(wait_s)} more second(s) before sending it again.",
+        )
+
+    raw = secrets.token_urlsafe(32)
+    rotated = (
+        await session.execute(
+            text(
+                "UPDATE invitations SET token_hash = :hash, email = COALESCE(:email, email), "
+                # THE CLOCK RESTARTS WITH THE LINK. A resend that kept the original
+                # `expires_at` would hand somebody a key that expires in four minutes,
+                # which is the invitation failing for a second reason after failing once.
+                "  expires_at = now() + make_interval(secs => :ttl_s), "
+                "  last_sent_at = now(), send_count = send_count + 1, updated_at = now() "
+                # The CAS. Re-asserted rather than trusted from the read above: an
+                # invitation redeemed between the two statements must lose, because the
+                # winner would otherwise be rotating the key of somebody who is now a
+                # member — and `used_at IS NULL` is the same predicate the burn itself is
+                # a CAS on.
+                "WHERE id = :id AND used_at IS NULL "
+                "RETURNING email, role, expires_at, last_sent_at, send_count"
+            ),
+            {
+                "id": invitation_id,
+                "hash": sha256(raw.encode()).hexdigest(),
+                "email": email,
+                "ttl_s": INVITE_TTL.total_seconds(),
+            },
+        )
+    ).first()
+    if rotated is None:
+        # Redeemed underneath us. 404 rather than 409, and the same 404 the read above
+        # gives: the person is a member now, so there is no live invitation with that id,
+        # which is exactly what this surface is asked about.
+        raise ProblemError.not_found("Invitation")
+
+    return ResentInvitation(
+        id=invitation_id,
+        email=str(rotated[0]),
+        role=str(rotated[1]),
+        token=raw,
+        expires_at=rotated[2],
+        last_sent_at=rotated[3],
+        send_count=int(rotated[4]),
+    )
+
+
 async def accept_invitation(session: AsyncSession, *, raw_token: str, user_id: UUID) -> UUID:
     """Burn the invitation and create the membership. The burn is a CAS on
     `used_at IS NULL` (BACKEND-PATTERNS §5): two clicks on the same emailed link must
@@ -786,6 +956,9 @@ __all__ = [
     "DISCLOSURE_TEMPLATES",
     "INVITE_TTL",
     "OPERATOR_SETTABLE_PLAN_TIERS",
+    "RESEND_MAX_SENDS",
+    "RESEND_MIN_INTERVAL",
+    "ResentInvitation",
     "TenantRootHook",
     "accept_invitation",
     "assert_account_open",
@@ -793,6 +966,7 @@ __all__ = [
     "create_invitation",
     "create_organization",
     "derive_slug",
+    "resend_invitation",
     "set_plan_tier",
     "slugify",
     "tenant_overview",

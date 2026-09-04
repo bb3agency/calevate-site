@@ -1376,7 +1376,7 @@ class Settings(BaseSettings):
     # looking configured; that module's comment carries the evidence for each name,
     # including why `twilio` is deliberately not one of them.
     number_provider: str | None = Field(default=None, max_length=64)
-    # **THE GO-LIVE GATE ON MODEL A, AND IT IS NOT A FEATURE FLAG (D-535).**
+    # **THE GO-LIVE GATE ON MODEL A, AND IT IS NOT A FEATURE FLAG (D-537).**
     #
     # The founder decided on 4 Sep 2026 that Calevate buys Indian DIDs through the voice
     # engine and a client forwards their own published number to one. The CODE for that is
@@ -1396,7 +1396,7 @@ class Settings(BaseSettings):
     #
     # UNSET IS THE ONLY SAFE DEFAULT and is the state of every deployment today: the
     # purchase route refuses with `number_resale_not_authorized`, the search route refuses
-    # with it, and the screen says which document is missing. OPERATIONS §2 gate 45 is what
+    # with it, and the screen says which document is missing. OPERATIONS §2 gate 47 is what
     # fills it in. Nothing about a client's OWN connection (Model B) is affected — that
     # path never touches this.
     number_resale_authorization: str | None = Field(default=None, max_length=200)

@@ -1627,7 +1627,7 @@ async def test_number_provisioning_matches_the_declared_series(engine: VoiceEngi
     for series in NUMBER_SERIES_VALUES:
         outcome: Exception | ProvisionedNumber
         try:
-            # THE EXACT NUMBER IS PART OF THE REQUEST NOW (D-535). The vendor's buy
+            # THE EXACT NUMBER IS PART OF THE REQUEST NOW (D-537). The vendor's buy
             # endpoint requires it and has no "one like this" mode, so a spec without one
             # is a refusal on every real adapter — which is a different clause (below),
             # not this one. Here the question is only whether the DECLARED series can be
@@ -1654,7 +1654,7 @@ async def test_number_provisioning_matches_the_declared_series(engine: VoiceEngi
 
 
 async def test_a_purchase_without_a_chosen_number_is_refused(engine: VoiceEngine) -> None:
-    """search -> pick -> buy, and the middle step is not optional (D-535).
+    """search -> pick -> buy, and the middle step is not optional (D-537).
 
     The vendor's own buy schema requires `phone_number` as well as `country`
     (`bolna-findings/mirror/pages/api-reference/phone-numbers/buy.md:74-77`), so an
