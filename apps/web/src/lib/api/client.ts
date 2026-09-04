@@ -384,47 +384,20 @@ interface RequestOptions {
 }
 
 /**
- * THE `identity_mirror_pending` RETRY RUNG WAS HERE, AND IT IS GONE (D-177).
+ * WHO IS ASKING, as headers — the credential, the account, and the view-as grant.
  *
- * It waited out a race that no longer exists: Clerk minted a session the instant an
- * account existed and sent the browser straight back to us, while the `user.created`
- * webhook travelled out of band — so `/signup` and `/invite`, the first thirty seconds of
- * every customer's and every colleague's life in the product, raced it. The API answered
- * `503 identity_mirror_pending` when it could not reconcile, and this transport spent four
- * extra attempts at 0.5s/1s/2s/4s before handing the refusal to a screen.
+ * EXTRACTED rather than copied, because there is now a second sender in this module:
+ * `apiUpload` puts a multipart body on an `XMLHttpRequest` (see its docstring for why it
+ * cannot be a `fetch`), and it has to carry byte-for-byte the same identity every other
+ * request carries. Two spellings of "who is asking" is exactly the drift that ends with
+ * one sender quietly omitting the impersonation grant and answering 403 for a reason
+ * nobody can find. `sendRequest` adds the per-request headers (content type, idempotency,
+ * confirmation, precondition) on top of what this returns.
  *
- * There is no upstream to be behind now. A credential names a `users` row we issued, in
- * the same transaction that issued the session, so the state this rung existed for cannot
- * arise — and a retry loop for a code no server can produce is a wait nobody can trigger
- * and nobody can test.
- *
- * WORTH RECORDING RATHER THAN JUST DELETING, because the argument it carried is the one a
- * future retry rung has to meet: retrying a POST is against `app/providers.tsx`'s
- * `mutations: { retry: false }`, and it was permissible for this ONE code only because the
- * refusal came from the auth dependency, before any handler body ran, so a refused request
- * had provably executed nothing. Any future exception needs that same proof.
+ * It THROWS rather than returning a partial set when a view-as session was built without
+ * a grant source: see the `AuthProblem` below.
  */
-export async function apiRequest<T>(
-  session: Session,
-  path: string,
-  options: RequestOptions = {},
-): Promise<T> {
-  return sendRequest<T>(session, path, options);
-}
-
-async function sendRequest<T>(
-  session: Session,
-  path: string,
-  {
-    method = "GET",
-    body,
-    idempotencyKey,
-    confirmAction,
-    ifMatch,
-    signal,
-    timeoutMs,
-  }: RequestOptions = {},
-): Promise<T> {
+async function identityHeaders(session: Session): Promise<Record<string, string>> {
   // Resolved HERE, per call, rather than when the session object was built. The `await`
   // is skipped when the source already has the string, so a local request still reaches
   // `fetch` in the same tick as the query that asked for it. If it throws, the throw
@@ -456,10 +429,6 @@ async function sendRequest<T>(
   // bracket assignment — and a header written in a third would be one the browser sends
   // and the preflight rejects, which is invisible to curl and fatal in a browser.
   if (token !== undefined) headers["Authorization"] = `Bearer ${token}`;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-  if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
-  if (ifMatch) headers["If-Match"] = ifMatch;
   if (session.impersonateOrg) {
     // FAIL CLOSED ON THIS SIDE TOO. The API refuses `X-Impersonate-Org` without a grant
     // (`core/auth.py::_load_admin_principal`), so sending the org header alone can only
@@ -481,6 +450,159 @@ async function sendRequest<T>(
     headers["X-Impersonation-Grant"] =
       typeof requestedGrant === "string" ? requestedGrant : await requestedGrant;
   }
+
+  return headers;
+}
+
+/**
+ * THE `identity_mirror_pending` RETRY RUNG WAS HERE, AND IT IS GONE (D-177).
+ *
+ * It waited out a race that no longer exists: Clerk minted a session the instant an
+ * account existed and sent the browser straight back to us, while the `user.created`
+ * webhook travelled out of band — so `/signup` and `/invite`, the first thirty seconds of
+ * every customer's and every colleague's life in the product, raced it. The API answered
+ * `503 identity_mirror_pending` when it could not reconcile, and this transport spent four
+ * extra attempts at 0.5s/1s/2s/4s before handing the refusal to a screen.
+ *
+ * There is no upstream to be behind now. A credential names a `users` row we issued, in
+ * the same transaction that issued the session, so the state this rung existed for cannot
+ * arise — and a retry loop for a code no server can produce is a wait nobody can trigger
+ * and nobody can test.
+ *
+ * WORTH RECORDING RATHER THAN JUST DELETING, because the argument it carried is the one a
+ * future retry rung has to meet: retrying a POST is against `app/providers.tsx`'s
+ * `mutations: { retry: false }`, and it was permissible for this ONE code only because the
+ * refusal came from the auth dependency, before any handler body ran, so a refused request
+ * had provably executed nothing. Any future exception needs that same proof.
+ */
+export async function apiRequest<T>(
+  session: Session,
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  return sendRequest<T>(session, path, options);
+}
+
+/**
+ * How long a MULTIPART body may take, which is a different number from `REQUEST_TIMEOUT_MS`.
+ *
+ * 70 seconds is a deadline for a request whose body is a few kilobytes and whose duration
+ * is the server's thinking time. This one's duration is the client's UPLINK: the API
+ * accepts 20 MB (`apps/api/kb/uploads.MAX_UPLOAD_BYTES`), and 20 MB over the ~1 Mbit
+ * uplink an Indian 4G phone gives on a bad day is about 160 seconds of sending before the
+ * server has seen the last byte. Under the shorter deadline that upload is aborted every
+ * time, on a connection that was working — so the number is the transfer's, not the
+ * server's, with room for a slower one.
+ *
+ * This is not a licence to wait forever: the progress callback is what tells the person
+ * something is still happening, and this is the point at which we admit it is not.
+ */
+export const UPLOAD_TIMEOUT_MS = 300_000;
+
+/** Bytes sent so far, and the total when the browser knows it. */
+export interface UploadProgress {
+  loaded: number;
+  /** `null` until the browser can compute it — see `lengthComputable`. */
+  total: number | null;
+}
+
+/**
+ * ONE multipart request, with the bytes-sent events a `fetch` cannot give us.
+ *
+ * ## Why this is an `XMLHttpRequest` in a codebase whose whole point is one `fetch`
+ *
+ * `fetch` still has no upload-progress event. The standard answer is a `ReadableStream`
+ * request body, which requires `duplex: "half"`, is HTTP/2-only, and is unimplemented in
+ * Safari — i.e. unavailable on a large share of the phones this console is read on, which
+ * is precisely the population the progress bar exists for. `XMLHttpRequest.upload`'s
+ * `progress` event is the interoperable way to know how much of a body has left the
+ * device, and it is what every upload widget in the industry still uses.
+ *
+ * So this is a second SENDER, deliberately, and it is emphatically not a second CLIENT:
+ * it lives in this module beside `sendRequest`, takes its identity from the same
+ * `identityHeaders`, sends the same cookie (`withCredentials`), and turns a non-2xx into
+ * the same `ApiProblem` through the same `problemFrom` — so an RFC-9457 refusal like
+ * `kb_upload_too_large` reaches `ProblemNotice` with its own remediation intact, exactly
+ * as it would from any other call. `tests/transportGuard.test.ts` bans a second `fetch`
+ * for those reasons; none of them is weakened by this, and putting it anywhere else would
+ * weaken all of them.
+ *
+ * `Content-Type` is deliberately NOT set: the browser must write it itself, because only
+ * it knows the multipart boundary it generated for this `FormData`.
+ */
+export async function apiUpload<T>(
+  session: Session,
+  path: string,
+  form: FormData,
+  {
+    onProgress,
+    signal,
+    timeoutMs = UPLOAD_TIMEOUT_MS,
+  }: { onProgress?: (progress: UploadProgress) => void; signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<T> {
+  const headers = await identityHeaders(session);
+  return await withDeadline<T>(
+    (deadlineSignal) =>
+      new Promise<T>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE}${path}`);
+        // The session cookie, for the reason `credentials: "include"` is set on every
+        // `fetch` here: the console and the API are different origins and the browser
+        // omits cookies cross-origin unless asked.
+        xhr.withCredentials = true;
+        for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+        // The response is read as text and parsed by `problemFrom` / JSON below, rather
+        // than through `responseType: "json"`, so a non-JSON body (an nginx 413 page, a
+        // proxy error) is still a sentence rather than a null nobody can render.
+        xhr.upload.addEventListener("progress", (event) => {
+          onProgress?.({
+            loaded: event.loaded,
+            // `lengthComputable` is false while the browser does not know the total, and
+            // a bar drawn against a guessed total is a bar that lies.
+            total: event.lengthComputable ? event.total : null,
+          });
+        });
+        xhr.addEventListener("load", () => {
+          const response = new Response(xhr.responseText || null, {
+            status: xhr.status,
+            headers: { "content-type": xhr.getResponseHeader("content-type") ?? "" },
+          });
+          if (xhr.status >= 200 && xhr.status < 300) {
+            void readBody(response).then((value) => resolve(value as T), reject);
+            return;
+          }
+          void problemFrom(response).then(reject, reject);
+        });
+        // A transport failure gives XHR no status at all, so it gets the same sentence a
+        // dead `fetch` would: `problemFrom` on status 0 falls through to the generic
+        // refusal, which is the honest description of "the request never landed".
+        xhr.addEventListener("error", () => reject(new ApiProblem(0, transportProblem(0))));
+        xhr.addEventListener("abort", () => reject(deadlineSignal.reason));
+        deadlineSignal.addEventListener("abort", () => xhr.abort(), { once: true });
+        xhr.send(form);
+      }),
+    { timeoutMs, signal },
+  );
+}
+
+async function sendRequest<T>(
+  session: Session,
+  path: string,
+  {
+    method = "GET",
+    body,
+    idempotencyKey,
+    confirmAction,
+    ifMatch,
+    signal,
+    timeoutMs,
+  }: RequestOptions = {},
+): Promise<T> {
+  const headers = await identityHeaders(session);
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
+  if (ifMatch) headers["If-Match"] = ifMatch;
 
   // THE WHOLE EXCHANGE IS UNDER THE DEADLINE, not just the round trip. A response whose
   // headers arrive and whose body then stalls is the same hang from the reader's chair,
