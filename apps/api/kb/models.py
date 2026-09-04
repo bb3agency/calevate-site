@@ -10,6 +10,7 @@ query filters on.
 from datetime import datetime
 from uuid import UUID
 
+from calevate_shared.document_ingest import CONVERTIBLE_KINDS
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
@@ -27,8 +28,6 @@ from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
-from calevate_shared.document_ingest import CONVERTIBLE_KINDS
-
 from apps.api.kb.gloss import GLOSS_PENDING, GLOSS_STATES
 from apps.api.retrieval.embedding import EMBEDDING_DIMS
 
@@ -285,7 +284,9 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     #: off a photograph is never auto-approved, whoever uploaded it.
     text_provenance: Mapped[str | None] = mapped_column(Text)
     extractor: Mapped[str | None] = mapped_column(Text)
-    ingest_status: Mapped[str] = mapped_column(String, nullable=False, server_default=UPLOAD_RECEIVED)
+    ingest_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=UPLOAD_RECEIVED
+    )
     #: A sentence written for the CLIENT and rendered beside the row. Never a key, a path
     #: or a stack (hard rule 6).
     ingest_detail: Mapped[str | None] = mapped_column(Text)

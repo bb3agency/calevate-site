@@ -4432,8 +4432,7 @@ class BolnaEngine:
                 code="engine_kb_ambiguous_source",
                 title="That knowledge source names two origins",
                 detail=(
-                    "A knowledge base is built from a document or from a web page, never "
-                    "from both."
+                    "A knowledge base is built from a document or from a web page, never from both."
                 ),
                 failure_stage="CORE_LOGIC",
             )

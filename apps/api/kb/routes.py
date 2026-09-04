@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
-from apps.api.kb import service
+from apps.api.kb import service, uploads
 from apps.api.kb.curation import read_switch, requires_kb_curation, write_switch
 
 router = APIRouter(prefix="/v1/kb", tags=["knowledge-base"])
@@ -158,6 +158,298 @@ async def preview_source(
     source_id: UUID, session: Session, _: Principal = Depends(requires("agents:read"))
 ) -> list[ChunkOut]:
     return [ChunkOut.model_validate(c) for c in await service.preview(session, source_id)]
+
+
+# --- Uploads and links: the half of this screen that did not exist (D-532) ---------
+#
+# `/c/{slug}/knowledge` offered a title box and a text box, so a clinic with a price list
+# in a Word file had to retype it. These six routes are the door for a document, a
+# photograph and a link. The MODEL of all of it is `kb/uploads.py`; what is here is the
+# HTTP shape, the permission and the one thing a route must own: reading a request body
+# without letting a stranger decide how much memory we spend on it.
+
+
+class UploadOut(Strict):
+    """One uploaded document or link, as a client's screen shows it.
+
+    THE TWO STATES ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE FACTS, and collapsing
+    them into one "status" is the mistake this model exists to avoid. `ingest_status` is
+    how far the machinery got (are the bytes read, has the voice platform indexed them);
+    `review_state` is whether a human has approved it. A document can be `processed` and
+    still `pending_approval` — indexed, ready, and deliberately not live.
+    """
+
+    id: UUID
+    source_id: UUID
+    agent_id: UUID
+    name: str
+    #: `pdf` · `url` · `docx` · `txt` · `csv` · `xlsx` · `image`.
+    source_kind: str
+    #: `received` · `converting` · `conversion_unavailable` · `conversion_failed` ·
+    #: `processing` · `processed` · `error`. The last three are the voice platform's own
+    #: words, deliberately not paraphrased.
+    ingest_status: str
+    #: A sentence to show the client when something went wrong. Never a key or a stack.
+    ingest_detail: str | None = None
+    #: `pending_approval` · `approved` · `rejected` · `archived` — `kb_sources.status`.
+    review_state: str
+    is_live: bool
+    version: int
+    filename: str | None = None
+    byte_size: int | None = None
+    source_url: str | None = None
+    #: When a re-scrape last found this link's page materially changed. A NEW version is
+    #: submitted for review when that happens; the live one keeps answering until somebody
+    #: approves the new one.
+    change_detected_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class LinkIn(Strict):
+    agent_id: UUID
+    #: Optional: the host and last path segment are used when it is absent.
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    #: BOUNDED because it is STORED (D-302), and 2048 is this repo's URL ceiling — the
+    #: same number `SubmitIn.uri` carries, for the same reason.
+    url: str = Field(min_length=8, max_length=2048)
+
+
+class DownloadOut(Strict):
+    """A short-lived link to the client's own file, for the person reviewing it."""
+
+    url: str
+    expires_in_s: int
+
+
+@router.post(
+    "/uploads",
+    response_model=UploadOut,
+    status_code=201,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Upload a document, spreadsheet or photograph as knowledge",
+    description=(
+        "Accepts a PDF, a Word document, plain text, a CSV, a spreadsheet or a photograph "
+        "of a printed page, up to 20 MB. A PDF is sent to the voice platform as it is; "
+        "everything else has its text read out first and chunked for review. Poll "
+        "`GET /v1/kb/uploads` for `ingest_status`."
+    ),
+)
+async def upload_document(
+    session: Session,
+    agent_id: Annotated[UUID, Form()],
+    file: Annotated[UploadFile, File()],
+    name: Annotated[str | None, Form()] = None,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> UploadOut:
+    assert principal.tenant_id is not None
+    data = await _read_bounded(file)
+    result = await uploads.create_upload(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        name=name,
+        filename=file.filename or "document",
+        content_type=file.content_type,
+        data=data,
+        submitted_by=principal.user_id,
+        # The founder's rule, and the ONE place the authority is read
+        # (`uploads.may_self_approve`). WHEN it takes effect is `create_upload`'s to
+        # decide: a PDF is approvable the moment it lands because the artefact a reviewer
+        # reads is the file itself, while a document whose text has not been extracted yet
+        # cannot be approved by anybody — so that promotion waits for the ingest job.
+        auto_approve=uploads.may_self_approve(principal),
+    )
+    return UploadOut.model_validate(result)
+
+
+async def _read_bounded(file: UploadFile) -> bytes:
+    """The upload body, or a 413 — read in chunks and STOPPED at the ceiling.
+
+    **`await file.read()` IS THE BUG THIS FUNCTION EXISTS TO NOT HAVE.** It reads whatever
+    was sent, so the amount of memory one request spends is chosen by whoever sent it, and
+    on an ASGI server that is every tenant's process rather than only the uploader's. The
+    proxy in front caps a body at 25 MB (`infra/nginx/calevate.conf.template`), which is a
+    second control and not this one: the app must hold on its own, because a deployment
+    without that proxy is a deployment somebody will make.
+
+    Starlette spools an `UploadFile` to disk past 1 MB, so what this bounds is the read
+    ITSELF — one chunk at a time, stopping one byte over the ceiling, which is enough to
+    know the file is too large without ever holding it.
+
+    The refusal is `assert_within_limit`'s, so the client reads the SAME sentence whether
+    the size was known from the header or discovered while reading.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > uploads.MAX_UPLOAD_BYTES:
+            # Stop reading and refuse: the remaining body is not worth the memory, and the
+            # answer cannot change.
+            uploads.assert_within_limit(total)
+        chunks.append(chunk)
+    uploads.assert_within_limit(total)
+    return b"".join(chunks)
+
+
+#: One read of the spooled upload. 1 MiB is Starlette's own spool threshold, so this is the
+#: size at which its buffer stops being in memory anyway.
+_READ_CHUNK_BYTES = 1024 * 1024
+
+
+@router.post(
+    "/links",
+    response_model=UploadOut,
+    status_code=201,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Add a web page as knowledge",
+    description=(
+        "The voice platform reads the page itself. We re-read it on a schedule and submit "
+        "a new version for review when the page changes materially — the live version "
+        "keeps answering until somebody approves the new one."
+    ),
+)
+async def add_link(
+    payload: LinkIn,
+    session: Session,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> UploadOut:
+    assert principal.tenant_id is not None
+    result = await uploads.create_link(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=payload.agent_id,
+        name=payload.name,
+        url=payload.url,
+        submitted_by=principal.user_id,
+        auto_approve=uploads.may_self_approve(principal),
+    )
+    return UploadOut.model_validate(result)
+
+
+@router.get(
+    "/uploads",
+    response_model=list[UploadOut],
+    openapi_extra=permission_meta("agents:read"),
+    summary="Every document and link, with its live status",
+)
+async def list_uploads(
+    session: Session,
+    agent_id: UUID | None = None,
+    # Bounded (D-302): a client mints one of these per document they upload and nothing
+    # prunes them, so the length is caller-controlled — `list_sources`' ceiling and number.
+    limit: int = Query(uploads.MAX_UPLOADS_PAGE, ge=1, le=uploads.MAX_UPLOADS_PAGE),
+    _: Principal = Depends(requires("agents:read")),
+) -> list[UploadOut]:
+    return [
+        UploadOut.model_validate(row)
+        for row in await uploads.list_uploads(session, agent_id=agent_id, limit=limit)
+    ]
+
+
+@router.get(
+    "/uploads/{upload_id}",
+    response_model=UploadOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="One document or link",
+)
+async def read_upload(
+    upload_id: UUID, session: Session, _: Principal = Depends(requires("agents:read"))
+) -> UploadOut:
+    return UploadOut.model_validate(await uploads.get_upload(session, upload_id))
+
+
+@router.get(
+    "/uploads/{upload_id}/original",
+    response_model=DownloadOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="A short-lived link to the uploaded file, for reviewing it",
+    description=(
+        "The approval gate is a human reading what the agent will be handed. For a PDF "
+        "that is the file itself; there are no chunks to preview and none are invented."
+    ),
+)
+async def download_original(
+    upload_id: UUID, session: Session, _: Principal = Depends(requires("agents:read"))
+) -> DownloadOut:
+    from apps.workers.storage import PRESIGN_TTL_S
+
+    return DownloadOut(
+        url=await uploads.original_download(session, upload_id), expires_in_s=PRESIGN_TTL_S
+    )
+
+
+@router.post(
+    "/uploads/{upload_id}/confirm",
+    response_model=UploadOut,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Approve what was read out of this document, and publish it",
+    description=(
+        "The account owner's own approval. Text read off a photograph is never approved "
+        "automatically, whoever uploaded it — a model told us what it thought it said, and "
+        "a person has to agree before an agent recites it on a phone call."
+    ),
+)
+async def confirm_upload(
+    upload_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> UploadOut:
+    assert principal.tenant_id is not None
+    result = await uploads.confirm_upload(
+        session,
+        tenant_id=principal.tenant_id,
+        upload_id=upload_id,
+        principal=principal,
+    )
+    await write_audit(
+        session,
+        action="kb.approved",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(result["source_id"]),
+        ip=client_request_ip(request),
+        # Ids and the two states. Never the document, its name or its text (hard rule 6).
+        summary={"upload_id": str(upload_id), "self_approved": True},
+    )
+    return UploadOut.model_validate(result)
+
+
+@router.delete(
+    "/uploads/{upload_id}",
+    status_code=204,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Remove a document or link from the agent, and delete it",
+    description=(
+        "Withdraws the copy the voice platform holds before deleting anything of ours, so "
+        "neither side is left holding knowledge the other cannot see."
+    ),
+)
+async def delete_upload(
+    upload_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires_kb_curation()),
+) -> None:
+    assert principal.tenant_id is not None
+    source_id = (await uploads.get_upload(session, upload_id))["source_id"]
+    await uploads.remove_upload(session, tenant_id=principal.tenant_id, upload_id=upload_id)
+    await write_audit(
+        session,
+        action="kb.removed",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(source_id),
+        ip=client_request_ip(request),
+        summary={"upload_id": str(upload_id)},
+    )
 
 
 # --- Who in the account may curate: the OWNER's switch ----------------------------

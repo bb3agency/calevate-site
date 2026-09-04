@@ -436,6 +436,75 @@ async def submit_source(
     }
 
 
+async def store_extracted_text(
+    session: AsyncSession, *, tenant_id: UUID, source_id: UUID, body: str
+) -> int:
+    """Chunk text READ OUT OF an uploaded document into an existing source version.
+
+    The other half of `submit_source`: that one mints a version from text a client TYPED,
+    this one fills a version that was minted at upload time, once the conversion lane has
+    read the file (`apps/workers/kb_ingest.py`). The chunking, the ceilings and the
+    invisible-character refusal are the SAME code — `chunk_text` and
+    `_reject_invisible_characters` — because a reviewer approving a scanned menu and a
+    reviewer approving a pasted one must be looking at text that passed the same gate.
+    That gate is not cosmetic here: a bidi override reorders a sentence VISUALLY while
+    leaving the stored order untouched, so the reviewer reads one price and the agent says
+    another (Trojan Source, CVE-2021-42574 — see `_FORBIDDEN_CODEPOINTS`).
+
+    **IT REPLACES THE VERSION'S CHUNKS RATHER THAN APPENDING**, and the DELETE is what
+    makes a re-extraction idempotent. A job that crashed after writing half the chunks and
+    is retried would otherwise leave a source holding one and a half readings of the same
+    document, each competing for a slot in the top-k.
+
+    IT REFUSES TO TOUCH A VERSION THAT IS ALREADY APPROVED. Approval is a human saying yes
+    to specific words; rewriting them underneath that yes is the one thing this function
+    must never do, and the retry that could have done it is exactly the caller.
+    """
+    _reject_invisible_characters(body, field="document text")
+    chunks = chunk_text(body)
+    if not chunks:
+        raise ProblemError(
+            kind="validation",
+            code="kb_empty",
+            title="Nothing to add",
+            detail="There was no text in that document.",
+            remediation="If it is a scan or a photograph, upload it as a photo instead.",
+        )
+    approved = (
+        await session.execute(
+            text("SELECT approved_at FROM kb_sources WHERE id = :sid"), {"sid": source_id}
+        )
+    ).first()
+    if approved is None:
+        raise ProblemError.not_found("Knowledge source")
+    if approved[0] is not None:
+        raise ProblemError.conflict(
+            "kb_already_approved",
+            "That knowledge has already been approved and cannot be re-read.",
+            remediation="Upload the document again as a new knowledge source.",
+        )
+    await session.execute(
+        text("DELETE FROM kb_documents WHERE source_id = :sid"), {"sid": source_id}
+    )
+    for idx, chunk in enumerate(chunks):
+        await session.execute(
+            text(
+                "INSERT INTO kb_documents (id, tenant_id, source_id, idx, title, content, "
+                "created_at, updated_at) SELECT :id, :tid, :sid, :idx, s.name, :content, "
+                "now(), now() FROM kb_sources s WHERE s.id = :sid"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "sid": source_id,
+                "idx": idx,
+                "content": chunk,
+            },
+        )
+    log.info("kb_text_extracted", extra={"source_id": str(source_id), "chunks": len(chunks)})
+    return len(chunks)
+
+
 async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]]:
     """The chunks a reviewer reads, or a 404 — never an empty list standing in for one.
 
@@ -1260,7 +1329,6 @@ async def live_glosses(
     return [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows if r[2]]
 
 
-
 async def _upload_row(session: AsyncSession, source_id: UUID) -> dict[str, Any] | None:
     """The `kb_uploads` row behind this source version, or None for pasted text.
 
@@ -1769,7 +1837,6 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         },
     )
     return int(version)
-
 
 
 async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> bool:

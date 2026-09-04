@@ -66,9 +66,9 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
-from apps.api.kb.models import UPLOAD_RECEIVED
+from apps.api.kb.models import UPLOAD_CONVERTING, UPLOAD_RECEIVED
 from apps.api.kb.pdf_render import MAX_UPLOAD_BYTES
-from apps.api.kb.service import insert_source_version, withdraw_source
+from apps.api.kb.service import approve_source, insert_source_version, withdraw_source
 from apps.api.reliability.service import enqueue_outbox
 
 log = get_logger(__name__)
@@ -183,7 +183,9 @@ def classify_upload(*, filename: str, content_type: str | None) -> str:
     if kind is not None and kind in SUPPORTED_UPLOAD_KINDS:
         return kind
     readable = ", ".join(
-        f".{ext}" for ext in sorted(_EXTENSION_KINDS) if _EXTENSION_KINDS[ext] in SUPPORTED_UPLOAD_KINDS
+        f".{ext}"
+        for ext in sorted(_EXTENSION_KINDS)
+        if _EXTENSION_KINDS[ext] in SUPPORTED_UPLOAD_KINDS
     )
     instead = _NEAR_MISS_EXTENSIONS.get(extension)
     raise ProblemError(
@@ -307,6 +309,11 @@ async def create_upload(
         key=key, data=data, content_type=content_type or "application/octet-stream"
     )
 
+    # A PDF is approvable NOW: the artefact a reviewer opens is the file itself. Every
+    # other kind has to be READ first — there is nothing for a person to approve until the
+    # conversion lane has produced text — so the intent travels to the ingest job and the
+    # promotion happens there, once there is something on the screen to say yes to.
+    native = kind == "pdf"
     source_id, version, status = await insert_source_version(
         session,
         tenant_id=tenant_id,
@@ -318,7 +325,7 @@ async def create_upload(
         # copy-paste from being pasted somewhere it should not be.
         uri=filename[:2048],
         submitted_by=submitted_by,
-        auto_approve=auto_approve,
+        auto_approve=auto_approve and native,
     )
     digest = hashlib.sha256(data).hexdigest()
     # A PDF IS the document the engine will be handed, so both slots point at one object
@@ -326,7 +333,6 @@ async def create_upload(
     # Every other kind is read into TEXT by the conversion lane and then chunked, so
     # `document_key` stays NULL for them and `kb/service._publish_payload` renders their
     # approved chunks exactly as it does for pasted knowledge.
-    native = kind == "pdf"
     await session.execute(
         text(
             "INSERT INTO kb_uploads (id, tenant_id, agent_id, source_id, source_kind, "
@@ -355,7 +361,17 @@ async def create_upload(
     await enqueue_outbox(
         session,
         job=INGEST_KB_SOURCE_JOB,
-        payload={"tenant_id": str(tenant_id), "source_id": str(source_id)},
+        payload={
+            "tenant_id": str(tenant_id),
+            "source_id": str(source_id),
+            # WHETHER THE SUBMITTER COULD HAVE APPROVED IT, carried rather than re-derived:
+            # the job runs minutes later with no request, no session cookie and no
+            # principal, and re-reading the role table then would answer for whoever the
+            # user IS at that moment rather than for the person who uploaded the file. It
+            # is a column-free fact about one submission, and the outbox row is durable —
+            # so it travels with the job that acts on it.
+            "may_self_approve": bool(auto_approve),
+        },
     )
     # Ids, a kind and a byte count. Never the filename (a client's own business data) and
     # never the key (hard rule 6).
@@ -418,8 +434,7 @@ async def create_link(
             code="kb_link_refused",
             title="We cannot fetch that address",
             detail=(
-                "That web address does not resolve to a public website we are willing to "
-                "read."
+                "That web address does not resolve to a public website we are willing to read."
             ),
             remediation="Check the address and paste the public link to the page.",
             status=422,
@@ -455,7 +470,11 @@ async def create_link(
     await enqueue_outbox(
         session,
         job=INGEST_KB_SOURCE_JOB,
-        payload={"tenant_id": str(tenant_id), "source_id": str(source_id)},
+        payload={
+            "tenant_id": str(tenant_id),
+            "source_id": str(source_id),
+            "may_self_approve": bool(auto_approve),
+        },
     )
     log.info(
         "kb_link_received",
@@ -598,6 +617,67 @@ async def original_download(session: AsyncSession, upload_id: UUID) -> str:
     return url
 
 
+async def confirm_upload(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    upload_id: UUID,
+    principal: Principal,
+) -> dict[str, Any]:
+    """The account owner reads what we made of their document and says yes.
+
+    ═══ WHY THIS ROUTE EXISTS AT ALL, WHEN ADMINS ALREADY APPROVE ═══
+
+    Two things need it and neither is served by the admin queue. The founder's rule is that
+    an owner's own submission does not wait for us — and for a photograph it CANNOT be
+    approved at submission time, because at that moment nobody has seen the text: a model
+    read it, `document_ingest.ExtractedText.needs_confirmation` says so, and the whole
+    point of that flag is that a person looks at the chunks first. So the owner's approval
+    is a second act, after the extraction, on the screen that shows what was read.
+
+    ═══ WHAT IT DOES NOT WIDEN ═══
+
+    `may_self_approve` is the OWNER's test — the role table's `kb:write`, in the client
+    realm, not impersonating. A STAFF member reaching this route is refused even in an
+    account whose owner switched staff curation ON, because that switch grants submission
+    and explicitly not approval (`kb/curation.py`). The dependency above already refused
+    everyone else; this is the one further question.
+
+    IT IS `service.approve_source`, NOT AN UPDATE WRITTEN HERE. That function is the CAS on
+    `pending_approval` with the discriminator this repo settled (404 for invisible, 409 for
+    rejected, success-without-a-second-write for an already-approved row), and a second
+    approval statement would be the place that forgets one of the three.
+    """
+    if not may_self_approve(principal):
+        raise ProblemError.forbidden("Only the account owner can approve knowledge for the agent.")
+    row = await get_upload(session, upload_id)
+    if row["ingest_status"] in (UPLOAD_RECEIVED, UPLOAD_CONVERTING) and row["source_kind"] not in (
+        "pdf",
+        "url",
+    ):
+        # Nothing to approve YET is a different answer from "you may not", and a client
+        # who is told "not yet, we are still reading it" reloads rather than files a ticket.
+        raise ProblemError.conflict(
+            "kb_upload_not_ready",
+            "We are still reading that document.",
+            remediation="Give it a moment and refresh — you will see the text we read.",
+        )
+    await approve_source(session, source_id=row["source_id"], approved_by=principal.user_id)
+    await enqueue_outbox(
+        session,
+        job=INGEST_KB_SOURCE_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "source_id": str(row["source_id"]),
+            # Already approved by the statement above; the job's only remaining work is to
+            # publish. Passing False here rather than True is not a subtlety: it means the
+            # job never approves anything on its own behalf on this path.
+            "may_self_approve": False,
+        },
+    )
+    return await get_upload(session, upload_id)
+
+
 async def remove_upload(session: AsyncSession, *, tenant_id: UUID, upload_id: UUID) -> None:
     """Take an upload off the agent and delete it, both sides, in that order.
 
@@ -651,9 +731,11 @@ async def remove_upload(session: AsyncSession, *, tenant_id: UUID, upload_id: UU
 __all__ = [
     "INGEST_KB_SOURCE_JOB",
     "MAX_UPLOADS_PAGE",
-    "UPLOAD_PROCESSED",
+    "MAX_UPLOAD_BYTES",
+    "SUPPORTED_UPLOAD_KINDS",
     "assert_within_limit",
     "classify_upload",
+    "confirm_upload",
     "create_link",
     "create_upload",
     "get_upload",

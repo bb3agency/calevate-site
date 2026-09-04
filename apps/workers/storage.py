@@ -544,7 +544,10 @@ async def store_kb_object(*, key: str, data: bytes, content_type: str) -> str:
     except (BotoCoreError, ClientError) as exc:
         # The key's TENANT and UPLOAD segments are ids; the filename is not in the key and
         # not in this log line (hard rule 6).
-        log.warning("kb_object_store_failed", extra={"bytes": len(data), "reason": type(exc).__name__})
+        log.warning(
+            "kb_object_store_failed",
+            extra={"bytes": len(data), "reason": type(exc).__name__},
+        )
         raise StorageUnavailableError("Object storage refused the knowledge upload") from exc
     return key
 
@@ -574,7 +577,6 @@ async def read_kb_object(key: str) -> bytes | None:
     except BotoCoreError as exc:
         log.warning("kb_object_read_failed", extra={"reason": type(exc).__name__})
         raise StorageUnavailableError("Object storage is unavailable") from exc
-
 
 
 DELIVERY_BODY_PREFIX = "webhook-bodies"

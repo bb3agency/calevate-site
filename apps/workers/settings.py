@@ -117,6 +117,8 @@ from apps.workers.kb_aggregation import (
 )
 from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
+from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
+from apps.workers.kb_ingest import ingest_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
@@ -221,6 +223,14 @@ FUNCTIONS: list[Any] = [
         # stated failure ("a client whose phone stops being answered because a top-up
         # lapsed is a client who leaves"). `check_job_wiring` shape 3.
         notify_low_balance,
+        # D-532. The upload lane's one job: read a client's document into text, approve it
+        # if its submitter could, and publish it to the voice platform. Enqueued through
+        # the OUTBOX in the same transaction as the `kb_uploads` row, so an unregistered
+        # name here is the `check_job_wiring` shape 3 failure with a screen behind it — the
+        # outbox marks the row published, arq drops the job with a warning nothing reads,
+        # and the client watches an upload sit at "received" for ever while every one of
+        # our screens reports it as queued.
+        ingest_kb_source,
     )
 ]
 
@@ -546,6 +556,25 @@ CRON_JOBS = [
     cron(
         traced_job(write_knowledge_glosses),
         minute=set(GLOSS_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE UPLOAD SWEEP (D-532), and it is two jobs that are one job seen twice: re-drive an
+    # ingestion that stalled, and re-read a client's LINK to see whether the page still
+    # says what they approved. Both walk `kb_uploads` asking "does this row still reflect
+    # reality", which is why they share a tick rather than a second registration.
+    #
+    # It is the self-healing half of the feature, and the states it exists for are ordinary
+    # rather than exotic: an upload that landed before the client had published their agent
+    # (nowhere to put the knowledge yet), a worker restarted mid-publish, and a menu page
+    # the client's web designer edited without telling anybody. Without it each of those is
+    # a row that sits at `received` for ever with a screen saying "processing".
+    #
+    # `minute` comes FROM the module for its neighbours' reason, and `max_tries` is
+    # EXPLICIT because `cron()` defaults it to 1 — a sweep that gave up on its first
+    # failure would leave every stalled upload unattended until somebody noticed.
+    cron(
+        traced_job(sweep_kb_uploads),
+        minute=set(KB_UPLOAD_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE EMBEDDING SWEEP (D-502). The gloss sweep's sibling on the same table and the

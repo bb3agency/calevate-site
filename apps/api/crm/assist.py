@@ -158,6 +158,18 @@ ASSIST_FEATURE_COPILOT_MEMORY: Final = "copilot_memory_distillation"
 #: they USE, which is a different curve and one an operator will want to see on its own.
 ASSIST_FEATURE_KB_GLOSS: Final = "kb_gloss"
 
+#: `usage_events.meta.feature` for READING A PHOTOGRAPH a client uploaded as knowledge
+#: (`apps/workers/document_ocr.py`, driven by `apps/workers/kb_ingest.py`) — D-532.
+#:
+#: A SEVENTH name, and it belongs beside `kb_gloss` rather than inside it: both are AI
+#: spend on a client's knowledge, and they answer different questions. A gloss is
+#: BACKGROUND work on a schedule that no client action triggers; an OCR pass happens
+#: because somebody uploaded a photograph a moment ago, and its quantity is a function of
+#: how many photographs an account sends. Filing them under one name would make "did that
+#: client's menu photos cost us anything" unanswerable, which is the exact question an
+#: operator asks the first time a shop uploads twenty pages of a laminated card.
+ASSIST_FEATURE_KB_OCR: Final = "kb_ocr"
+
 #: `platform_ai_usage.meta.feature` for the ADMIN-REALM COPILOT (D-499) — the assistant an
 #: operator or superadmin uses inside the admin console, and inside a D-22 view-as session.
 #:
@@ -621,6 +633,7 @@ __all__ = [
     "ASSIST_FEATURE_COPILOT",
     "ASSIST_FEATURE_COPILOT_MEMORY",
     "ASSIST_FEATURE_KB_GLOSS",
+    "ASSIST_FEATURE_KB_OCR",
     "ASSIST_FEATURE_RESUMMARISE",
     "ASSIST_FEATURE_SCRIPT_DRAFT",
     "AssistMetering",
