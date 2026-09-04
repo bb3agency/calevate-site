@@ -214,6 +214,14 @@ class CallerNoticeDraft:
     #: it in place because that is where a caller is being told what the note IS, and a
     #: reader should not have to cross-reference a list to learn how long it lasts.
     memory_retention_days: int | None = None
+    #: Agents that HAND A CALLER TO A PERSON mid-call (D-533), by name. Named rather than
+    #: counted for `ai_disclosure_off`'s reason, and the fact needs stating for a reason
+    #: none of the others have: it is the one part of the call where the caller stops
+    #: talking to a machine and starts talking to a member of the client's own staff, on
+    #: that person's own phone, and the voice platform records that second leg separately.
+    #: A notice that itemised the AI half and said nothing about the human one would be
+    #: describing the wrong call.
+    handoff_agents: list[str] = field(default_factory=list)
     #: What only the client can answer, each as a sentence they can act on.
     open_questions: list[str] = field(default_factory=list)
     #: The rendered document. NAMED `markdown` and never `text`: `text` is this
@@ -247,7 +255,8 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
         await session.execute(
             text(
                 "SELECT a.id, a.name, a.ai_disclosure_enabled, a.recording_notice_enabled, "
-                "a.direction, a.caller_memory_enabled, s.fields, o.vertical_template "
+                "a.direction, a.caller_memory_enabled, a.handoff_enabled, "
+                "s.fields, o.vertical_template "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                 "LEFT JOIN extraction_schemas s ON s.id = a.extraction_schema_id "
                 "WHERE a.status IN ('live', 'paused') AND a.deleted_at IS NULL "
@@ -277,8 +286,16 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             # their own business. The predicate is imported rather than repeated so the two
             # answers cannot drift.
             "caller_memory_enabled": bool(row[5])
-            and not spdi_refuses_memory(None if row[7] is None else str(row[7])),
-            "fields": row[6] or [],
+            and not spdi_refuses_memory(None if row[8] is None else str(row[8])),
+            # D-533. The switch alone, deliberately NOT and'ed with "is anybody on the
+            # roster right now": the notice describes what CAN happen on a call, and a
+            # roster that is empty this afternoon is not a statement that this business
+            # never puts callers through. Under-disclosing because of a temporary state is
+            # the direction Rule 3 is about, and `caller_memory_enabled` above is and'ed
+            # only because there the refusal is STRUCTURAL — on a refused vertical nothing
+            # can ever be written, which is a different fact from "nothing is right now".
+            "handoff_enabled": bool(row[6]),
+            "fields": row[7] or [],
         }
         for row in rows
     ]
@@ -397,6 +414,41 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
     return "\n".join(lines)
 
 
+def _handoff_paragraph(draft: CallerNoticeDraft) -> str:
+    """What happens when the assistant puts a caller through to a person, or "".
+
+    EMPTY WHEN NO AGENT HANDS OVER, which is every client until one configures a handover
+    list — `_memory_paragraph`'s argument exactly: a notice describing a transfer that
+    cannot happen over-discloses, and one silent about a transfer that can under-discloses.
+
+    **IT SAYS THE SECOND RECORDING EXISTS, and that is the sentence worth the section.**
+    The voice platform records the transferred leg as an object of its own
+    (`HandoffLeg.recording_present`), which is a recording of this caller that Calevate
+    does not hold and cannot erase on the client's behalf — so a caller asking for erasure
+    is asking for something the client must route to us, and a notice that quietly counted
+    it as "the call recording" would be describing one recording where there are two. The
+    blank is marked rather than filled: how long the platform keeps it is
+    OPERATIONS §2 gate 46b, and a plausible number here would be a guess published as a
+    fact.
+    """
+    if not draft.handoff_agents:
+        return ""
+    named = ", ".join(draft.handoff_agents)
+    return f"""## When we put you through to a person
+
+Some of our assistants can hand your call to a member of our team while you are still on
+the line ({named}) — if you ask to speak to a person, or if the assistant judges that
+somebody should. When that happens we ring one of our own staff and connect you; you are
+talking to a person from that point on, and they see why you called.
+
+That second connection is a separate telephone call, made by our calling platform, and it
+is recorded separately from the first part of your call. {{{{HOW LONG THAT SECOND
+RECORDING IS KEPT IS SET BY OUR CALLING PROVIDER'S PLATFORM AND NOT BY US — ASK CALEVATE
+FOR THE PERIOD AND STATE IT HERE}}}}
+
+"""
+
+
 def _memory_paragraph(draft: CallerNoticeDraft) -> str:
     """The cross-call memory sentence, or "" when this client does not remember callers.
 
@@ -462,7 +514,7 @@ only on our instructions.
 
 {collected}
 
-{_memory_paragraph(draft)}
+{_memory_paragraph(draft)}{_handoff_paragraph(draft)}
 ## Why we collect it
 
 To answer your enquiry, to do what you asked us to do on the call, to keep a record of
@@ -528,6 +580,7 @@ async def build_caller_notice(session: AsyncSession, *, tenant_id: UUID) -> Call
         recording_notice_off=[a["name"] for a in agents if not a["recording_notice_enabled"]],
         caller_memory_on=remembering,
         memory_retention_days=memory_days,
+        handoff_agents=[a["name"] for a in agents if a["handoff_enabled"]],
         open_questions=_open_questions(agents),
     )
     log.info(
@@ -545,6 +598,7 @@ async def build_caller_notice(session: AsyncSession, *, tenant_id: UUID) -> Call
         recording_notice_off=draft.recording_notice_off,
         caller_memory_on=draft.caller_memory_on,
         memory_retention_days=draft.memory_retention_days,
+        handoff_agents=draft.handoff_agents,
         open_questions=draft.open_questions,
         markdown=_render(draft),
     )

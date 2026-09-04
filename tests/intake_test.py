@@ -113,8 +113,17 @@ async def test_intake_facts_reach_the_agent_the_engine_actually_runs() -> None:
 
 
 async def test_the_structured_facts_land_in_the_columns_that_already_read_them() -> None:
-    """Hours, escalation contacts and languages have typed homes on `agents`
-    (DATA-MODEL §3). They go there as data, not only as prose inside a prompt."""
+    """Hours, escalation contacts and languages have typed homes (DATA-MODEL §3). They go
+    there as data, not only as prose inside a prompt.
+
+    **THE ESCALATION HALF MOVED AND THIS TEST MOVED WITH IT (D-533).** It used to assert
+    `agents.escalation_config`, a JSONB blob nothing ever read — the wizard collected an
+    ordered list of the people who take a call, blocked the intake without one, and wired
+    it to nothing. The contacts now land in `agent_handoff_members`, which is what the
+    publish path resolves an on-duty handover destination from, so this asserts the column
+    that is actually dialled. `escalation_config` is no longer written (hard rule 8's
+    step 1), which the last clause pins so a re-added writer is caught.
+    """
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         await intake.record_intake(
@@ -129,11 +138,28 @@ async def test_the_structured_facts_land_in_the_columns_that_already_read_them()
                 {"aid": agent_id},
             )
         ).first()
+        roster = (
+            await session.execute(
+                text(
+                    "SELECT position, label, phone_e164, hours, note, active "
+                    "FROM agent_handoff_members WHERE agent_id = :aid ORDER BY position"
+                ),
+                {"aid": agent_id},
+            )
+        ).all()
     assert row is not None
     hours, escalation, languages = row
     assert hours["mon"] == {"opens": "09:30", "closes": "18:00"}
     assert hours["sun"] is None, "a closed day is recorded closed, not omitted"
-    assert escalation["contacts"][0]["phone_e164"] == "+919000000123"
+    assert roster, "the people who take a call have to reach the table the publish reads"
+    assert roster[0][2] == "+919000000123"
+    assert roster[0][0] == 0, "the order the operator typed is the order they are tried in"
+    # THE FREE-TEXT AVAILABILITY IS A NOTE, NEVER A MACHINE WINDOW. Guessing a window from
+    # a sentence would put a personal mobile on a schedule nobody agreed to; NULL means
+    # "whenever the business is open", which is what this form's own blocker asks for.
+    assert roster[0][3] is None
+    assert roster[0][5] is True
+    assert escalation is None, "the legacy blob is no longer written (hard rule 8 step 1)"
     # The primary language is on the agent already; `languages_extra` is the rest.
     assert languages == ["en-IN"]
 

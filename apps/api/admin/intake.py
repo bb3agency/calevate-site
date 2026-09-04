@@ -76,11 +76,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import handoff as handoff_service
 from apps.api.agents import t0
+from apps.api.agents.handoff import MAX_HANDOFF_MEMBERS
 from apps.api.agents.prompts import insert_prompt_version
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
@@ -439,6 +442,56 @@ async def save_intake_draft(
     return {"agent_id": agent_id, "blockers": blockers}
 
 
+async def _store_escalation_roster(
+    session: AsyncSession, *, agent_id: UUID, contacts: list[EscalationContact]
+) -> None:
+    """Replace this agent's handover list from the intake answers (D-533).
+
+    THE SAME WHOLE-LIST WRITE THE CLIENT'S OWN ROUTE MAKES, and deliberately so: two
+    writers with two update strategies against a table whose ORDER is the product is how
+    the two come to disagree about who answers first. `agents/handoff_routes.put_handoff`
+    carries the argument; this is the admin console's copy of the same intention.
+
+    **THE FREE-TEXT `hours` GOES TO `note`, NEVER TO THE HOURS COLUMN.** The form asks a
+    human "when are they available?" and takes a sentence; the column holds a machine
+    window that decides whether a personal mobile rings. Guessing a window from "after 6pm"
+    would put somebody's phone on a schedule they never agreed to, so the hours stay NULL —
+    which means "whenever the business is open", the answer this form's own blocker was
+    asking for — and the sentence is kept where a person can read it.
+
+    A duplicate number is DROPPED rather than refused: this runs inside a submit that has
+    already passed its blockers, and failing an onboarding at the last statement over a
+    contact typed twice would be a worse outcome than a list with one rung fewer. The
+    client's own route refuses it, because there a person is looking at the form.
+    """
+    await session.execute(
+        text("DELETE FROM agent_handoff_members WHERE agent_id = :aid"), {"aid": agent_id}
+    )
+    seen: set[str] = set()
+    position = 0
+    for contact in contacts[:MAX_HANDOFF_MEMBERS]:
+        if contact.phone_e164 in seen:
+            continue
+        seen.add(contact.phone_e164)
+        await session.execute(
+            text(
+                "INSERT INTO agent_handoff_members "
+                "(id, tenant_id, agent_id, position, label, phone_e164, note) "
+                "SELECT :id, a.tenant_id, a.id, :pos, :label, :phone, :note "
+                "FROM agents a WHERE a.id = :aid"
+            ),
+            {
+                "id": uuid7(),
+                "aid": agent_id,
+                "pos": position,
+                "label": contact.name.strip()[:120],
+                "phone": contact.phone_e164,
+                "note": contact.hours,
+            },
+        )
+        position += 1
+
+
 async def record_intake(
     session: AsyncSession,
     *,
@@ -494,20 +547,24 @@ async def record_intake(
     await session.execute(
         text(
             "UPDATE agents SET business_hours = CAST(:hours AS jsonb), "
-            "escalation_config = CAST(:escalation AS jsonb), languages_extra = :langs, "
-            "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
+            "languages_extra = :langs, updated_at = now() "
+            "WHERE id = :aid AND deleted_at IS NULL"
         ),
         {
             "hours": json.dumps(hours) if hours else None,
-            "escalation": (
-                json.dumps({"contacts": [c.model_dump() for c in facts.escalation_contacts]})
-                if facts.escalation_contacts
-                else None
-            ),
             "langs": extra or None,
             "aid": agent_id,
         },
     )
+    # **`escalation_config` IS NO LONGER WRITTEN, AND THAT IS STEP 1 OF HARD RULE 8'S
+    # TWO-STEP** (D-533, migration c4a91e60d7b3). This statement used to fold the
+    # escalation contacts into that JSONB column, where nothing ever read them: the form
+    # collected an ordered list of the people who take a call from every client, blocked
+    # the intake without one, and wired it to nothing. It is now `agent_handoff_members`,
+    # which is what the publish path resolves an on-duty destination from — so the answer
+    # this form has always collected finally reaches a caller who asks for a person.
+    # The column stays until a later release drops it; nothing writes it.
+    await _store_escalation_roster(session, agent_id=agent_id, contacts=facts.escalation_contacts)
 
     # The intake half is ours; the published-knowledge half is not. Compiling only our
     # own half and writing it as the whole block dropped every fact a client had already
@@ -705,10 +762,22 @@ async def read_intake(session: AsyncSession, *, agent_id: UUID) -> dict[str, Any
     primary = str(row[5])
     facts = _sheet_answers(sheet, agent_id=agent_id)
     if facts is None:
-        escalation = row[1] or {}
+        # **THE ROSTER TABLE FIRST, THE LEGACY COLUMN ONLY AS A FALLBACK** (D-533). This
+        # branch is for an org with no answer sheet at all, and since the submit path
+        # stopped writing `escalation_config` that column is a snapshot of whatever was
+        # true before the move — so an operator resuming a wizard would be shown a list
+        # the publish path no longer reads. The table is the live answer; the column is
+        # kept until the DROP (hard rule 8) and is still read for a row nobody has
+        # re-submitted since, which is the only case it can still be right about.
+        members = await handoff_service.roster(session, agent_id=agent_id)
+        legacy = row[1] or {}
         return {
             "business_hours": row[0] or {},
-            "escalation_contacts": escalation.get("contacts", []),
+            "escalation_contacts": (
+                [{"name": m.label, "phone_e164": m.phone_e164, "hours": m.note} for m in members]
+                if members
+                else legacy.get("contacts", [])
+            ),
             "languages": list(row[2] or []),
             "prose_answers": None,
             "compiled_t0_context": row[3],
