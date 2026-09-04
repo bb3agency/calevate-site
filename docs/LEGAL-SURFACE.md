@@ -762,7 +762,13 @@ nothing and closed two statutory obligations in two instruments. A person was ap
 both contacts publish. The entity half closed with the Udyam registration (25 Aug 2026), whose
 certificate supplies the name, registration number, principal place of business and phone the
 documents now identify the supplier by. ⚠ What is still open is a SURNAME: the published name
-is a first name only.
+is a first name only. ⚠ The principal place of business is published at CITY level only —
+"Guntur, Andhra Pradesh, India" — since 4 Sep 2026 (D-532): the certificate's street lines are
+the founder's home address. The one duty that reduction does not clearly satisfy is rule
+4(2)(b) of the Consumer Protection (E-Commerce) Rules 2020 ("principal geographic address of
+its headquarters and all branches"), which is a website display duty on the entity rather than
+a clause any of the eight documents owes, and which closes with a business address that is not
+somebody's home.
 
 ### F-10 — Sub-processor contracts: none signed, downward flow-through unevidenced.
 
