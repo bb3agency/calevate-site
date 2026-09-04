@@ -76,6 +76,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
@@ -2195,12 +2196,40 @@ async def provision_number(
     agent_id: UUID | None,
     provider: str | None,
     purpose: str | None,
+    engine_number_ref: str | None = None,
+    engine_owned: bool = False,
+    purchase_price_usd: Decimal | None = None,
+    monthly_rental_usd: Decimal | None = None,
 ) -> UUID:
-    """Record a number the tenant may dial from (DATA-MODEL §6, admin-only).
+    """Record a number the tenant may dial from and be answered on (DATA-MODEL §6).
 
-    RECORD, not obtain: the connection is the client's own, taken in their name on their
-    own Exotel / Plivo / Vobiz account, and Calevate neither supplies nor resells it
-    (Model B — `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). Nothing here talks to an operator.
+    RECORD, not obtain, and that is still true of this function under Model A: it writes a
+    row. Where the number CAME from is the caller's business — a client's own connection on
+    their own Exotel / Plivo / Vobiz account (Model B, `docs/legal/LEGAL-OPS-PLAYBOOK.md`
+    §9), or a purchase `campaigns/number_supply.buy_number` has already made at the engine
+    (Model A, D-535). Nothing here talks to a carrier and nothing here spends money.
+
+    **`engine_number_ref` IS THE COLUMN THAT HAD NO WRITER, AND ITS ABSENCE BROKE EVERY
+    INBOUND PUBLISH (GAP-1).** It is declared on `phone_numbers`, it is READ by
+    `route_inbound_numbers` → `bind_inbound_number` → `BolnaEngine._inbound_number_id`,
+    and until now the only INSERT in production code omitted it, no request body carried
+    it (`ProvisionNumberIn` is `extra="forbid"`) and no screen set it — a repo-wide grep
+    found it written only in test fixtures. The consequence, on every publish of an inbound
+    agent with a recorded number: `engine_number_not_linked`, one `CORE_LOGIC` alarm per
+    number, and a publish that reports SUCCESS. It is optional here rather than required
+    because it is genuinely unknown at the moment a client's own connection is first
+    recorded — the operator learns the vendor's handle when the number is introduced to the
+    voice platform, which is a later step — and `set_number_engine_ref` is where it lands
+    then. What is not acceptable, and was the state before D-535, is that there was no
+    later step at all.
+
+    **`engine_owned` DECIDES WHAT A RELEASE MEANS** and defaults to False, which is what
+    every client-brought connection is: releasing one at the vendor would do nothing there
+    and would lose our record of it here.
+
+    The two USD prices are the vendor's own quote and are recorded only for a number we
+    bought. They are what `billing/number_rental.py` meters against; the rupee is struck
+    monthly, never here (hard rule 7).
 
     `series` is the load-bearing field: it is what the campaign launch gate matches
     against the campaign's classification, so getting it wrong here is a DLT violation
@@ -2274,8 +2303,9 @@ async def provision_number(
         await session.execute(
             text(
                 "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, provider, "
-                "dlt_status, purpose, created_at, updated_at) VALUES (:id, :tid, :aid, :e, :s, "
-                ":prov, 'pending', :purpose, now(), now())"
+                "dlt_status, purpose, engine_number_ref, engine_owned, purchase_price_usd, "
+                "monthly_rental_usd, created_at, updated_at) VALUES (:id, :tid, :aid, :e, :s, "
+                ":prov, 'pending', :purpose, :ref, :owned, :buy_usd, :rent_usd, now(), now())"
             ),
             {
                 "id": number_id,
@@ -2285,6 +2315,10 @@ async def provision_number(
                 "s": series,
                 "prov": provider,
                 "purpose": purpose,
+                "ref": engine_number_ref,
+                "owned": engine_owned,
+                "buy_usd": purchase_price_usd,
+                "rent_usd": monthly_rental_usd,
             },
         )
     except IntegrityError as exc:
@@ -2344,6 +2378,62 @@ async def set_number_dlt_status(session: AsyncSession, *, number_id: UUID, dlt_s
         raise ProblemError.not_found("Number")
 
 
+async def set_number_engine_ref(
+    session: AsyncSession, *, number_id: UUID, engine_number_ref: str
+) -> InboundRouting:
+    """Tell us the voice platform's own handle for a number, and route it immediately.
+
+    **THE OTHER HALF OF GAP-1.** A number bought through the engine gets its ref at
+    purchase; a number the CLIENT holds gets one only when an operator introduces it to the
+    voice platform account, which is a step outside this system. Without a route that
+    accepts the answer, every such number stayed unbindable for ever and every publish of
+    the agent answering it raised a `CORE_LOGIC` alarm while reporting success.
+
+    **IT ROUTES IN THE SAME CALL RATHER THAN WAITING FOR THE NEXT PUBLISH**, for
+    `provision_number`'s reason: an assignment that works only if somebody happens to edit
+    the agent afterwards is a screen with nothing behind it, which is the whole class of
+    defect D-420 closed. If the number is attached to no agent, or to one that is not live,
+    the routing is a no-op and `activate` picks it up — the ordinary onboarding order.
+
+    THE REF IS NOT VALIDATED, and that is deliberate and documented at the adapter: the
+    vendor's own pages type this field three different ways (dashed uuid, bare hex, a
+    ULID-looking string), so a format check here would refuse the very value the vendor
+    issued. It is stored verbatim and handed back verbatim.
+    """
+    result = await session.execute(
+        text(
+            "UPDATE phone_numbers SET engine_number_ref = :ref, updated_at = now() "
+            "WHERE id = :id RETURNING agent_id"
+        ),
+        {"ref": engine_number_ref, "id": number_id},
+    )
+    row = result.first()
+    if row is None:
+        raise ProblemError.not_found("Number")
+    agent_id = row[0]
+    if agent_id is None:
+        return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
+    published = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref, direction, status FROM agents "
+                "WHERE id = :aid AND deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if published is None or not published[0] or str(published[2]) != "live":
+        return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
+    direction = published[1]
+    return await route_inbound_numbers(
+        session,
+        get_engine(),
+        agent_id=agent_id,
+        ref=str(published[0]),
+        answers=_is_agent_direction(direction) and agent_answers_inbound(direction),
+    )
+
+
 __all__ = [
     "DIAL_NOT_PLACED_CODES",
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
@@ -2362,5 +2452,6 @@ __all__ = [
     "resolve_caller_id",
     "route_inbound_numbers",
     "set_number_dlt_status",
+    "set_number_engine_ref",
     "unconfirmed_engine_call_id",
 ]
