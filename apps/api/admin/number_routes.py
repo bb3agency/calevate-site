@@ -39,7 +39,7 @@ from apps.api.admin import service
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import number_supply
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
@@ -371,7 +371,9 @@ _TENANT_NUMBERS = (
 )
 async def tenant_numbers(
     tenant_id: UUID,
-    _: NumberOperator,
+    session: AdminSession,
+    request: Request,
+    principal: NumberOperator,
     limit: int = Query(100, ge=1, le=500),
 ) -> list[TenantNumberCostOut]:
     """Read under the tenant's own RLS, so one client's numbers is exactly what comes back.
@@ -381,9 +383,18 @@ async def tenant_numbers(
     trim after the fact still pays for the read (`check_list_bounds`'s whole subject).
     Released numbers are INCLUDED — a closed month's cost still refers to them, and an
     operator asking "what have we paid for this client" needs the ones we gave back.
+
+    **AND IT RECORDS THE READ** (SEC-COMP §5, D-482 L-1). This is an admin-realm GET of one
+    client's tenant-scoped rows OUTSIDE impersonation, which is exactly the shape that has
+    to leave a trail: a client's telephone numbers are their business data, and "who looked
+    at this account and when" is not answerable afterwards unless the read says so itself.
+    Written LATE, in the same transaction, so the row and the read commit together.
     """
     async with tenant_session(tenant_id) as scoped:
         rows = (await scoped.execute(text(_TENANT_NUMBERS), {"limit": limit})).all()
+    await record_admin_tenant_read(
+        session, request=request, principal=principal, tenant_id=tenant_id
+    )
     return [
         TenantNumberCostOut(
             id=row[0],

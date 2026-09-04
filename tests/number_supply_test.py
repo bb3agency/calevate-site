@@ -430,6 +430,89 @@ async def test_a_clients_own_connection_cannot_be_released_here(authorized: None
     assert raised.value.code == "number_not_ours_to_release"
 
 
+# ------------------------------------------------------- the cron that writes it
+
+
+async def test_the_monthly_meter_reaches_every_tenants_bought_numbers(authorized: None) -> None:
+    """**THE JOB THAT ACTUALLY HAS TO RUN, AGAINST THE REAL POLICY.**
+
+    `phone_numbers` is FORCE-RLS'd, so an untenanted read of it returns zero rows, and
+    `SET LOCAL row_security = off` is refused outright — the app role holds no BYPASSRLS
+    and Postgres answers *"query would be affected by row-level security policy"*. The
+    first version of this job did exactly that and would have metered nothing, for ever,
+    silently: a rental leak whose whole symptom is the absence of a row. So this test runs
+    the CRON rather than the writer, and asserts on rows that reached the ledger.
+    """
+    from apps.workers.number_rental import meter_number_rentals
+
+    tenant_id = await _tenant()
+    offer = await _offer(uuid.uuid4().hex[:6])
+    async with tenant_session(tenant_id) as session:
+        bought = await number_supply.buy_number(
+            session,
+            get_engine(),
+            tenant_id=tenant_id,
+            e164=offer.e164,
+            country="IN",
+            provider=offer.provider,
+            monthly_rental_usd=offer.monthly_price_usd,
+            agent_id=None,
+            purpose=None,
+        )
+
+    first = await meter_number_rentals({})
+    # A SECOND RUN IS A NO-OP, which is what makes a re-run after a failure safe.
+    second = await meter_number_rentals({})
+
+    assert "'failed': 0" in first and "'unpriced': 0" in first, first
+    assert "'metered': 0" in second, f"a re-run must replay, not charge again: {second}"
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT unit_cost_paid FROM usage_events "
+                    "WHERE unit_type = 'number_rental' AND ref LIKE :prefix"
+                ),
+                {"prefix": f"number_rental:{bought.number_id}:%"},
+            )
+        ).all()
+    assert len(rows) == 1, "one row per number per month, whatever the job is run"
+    assert rows[0][0] > 0
+
+
+async def test_a_released_number_stops_being_metered(authorized: None) -> None:
+    """`released_at` is the meter's off switch, and the row survives so a closed month's
+    cost query still refers to it. A release that only deleted the row would take the
+    history with it; one that left the row untouched would keep charging."""
+    from apps.workers.number_rental import meter_number_rentals
+
+    tenant_id = await _tenant()
+    offer = await _offer(uuid.uuid4().hex[:6])
+    async with tenant_session(tenant_id) as session:
+        bought = await number_supply.buy_number(
+            session,
+            get_engine(),
+            tenant_id=tenant_id,
+            e164=offer.e164,
+            country="IN",
+            provider=offer.provider,
+            monthly_rental_usd=offer.monthly_price_usd,
+            agent_id=None,
+            purpose=None,
+        )
+        await number_supply.release_number(session, get_engine(), number_id=bought.number_id)
+
+    await meter_number_rentals({})
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM usage_events WHERE ref LIKE :prefix"),
+                {"prefix": f"number_rental:{bought.number_id}:%"},
+            )
+        ).scalar()
+    assert rows == 0, "a number given back to the vendor must not be charged for"
+
+
 # ------------------------------------------------------- hard rule 1
 
 

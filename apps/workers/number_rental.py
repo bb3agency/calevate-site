@@ -35,17 +35,31 @@ permanent lie into an append-only ledger, and skipping it silently is the leak t
 job exists to close. So it is counted and alarmed, and the row is simply absent — which
 `reconcile_engine_numbers` then also sees.
 
-HARD RULE 1: both jobs read across tenants and must not use the admin role in app code.
-`untenanted_session` is fail-closed on RLS'd tables, so the estate is enumerated from
-`phone_numbers` under an admin-realm-free untenanted read of the columns that carry no
-tenant secret — and every WRITE happens inside that number's own `tenant_session`, which
-is where `usage_events`' policy can see it.
+HARD RULE 1, AND THE THING THAT ACTUALLY BIT
+--------------------------------------------
+Both jobs need the whole estate, across tenants, and neither may use the admin DB role.
+`phone_numbers` is FORCE-RLS'd, so an `untenanted_session` reads zero rows from it, and
+`SET LOCAL row_security = off` is not available either — the app role holds no BYPASSRLS,
+and Postgres answers *"query would be affected by row-level security policy"*. That was
+measured, not reasoned about: the first version of this file did exactly that and failed
+on the first tick.
+
+So the shape is the one every fleet walk in this package already uses — `qa_sampling`,
+`topup_settlement`, `trials`, `dispatcher` — and it is the ONLY thing the admin role is
+used for here: **one `admin_session` that reads the DIRECTORY (`SELECT id FROM
+organizations`) and nothing else, then a `tenant_session` per tenant for every row that is
+actually about a client.** No client data is read under the admin role and nothing is
+written under it. `organizations` is the right directory rather than the
+`engine_agent_routes` roster the retention sweep walks: a tenant can hold a bought number
+before it has ever published an agent, so that roster would miss exactly the account that
+was set up yesterday and is already being charged.
 
 HARD RULE 6: ids and counts in every log line and every alarm. No E.164 anywhere.
 """
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -56,31 +70,51 @@ from apps.api.billing.service import current_billing_month
 from apps.api.campaigns.provisioning import number_provisioning_capability
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import admin_session, tenant_session
 from apps.api.engine import get_engine
 
 log = get_logger(__name__)
 
-#: Numbers we bought and have not given back — the whole billable estate. The partial
-#: index `ix_phone_numbers_engine_owned_live` carries exactly this predicate.
+#: Numbers we bought and have not given back — one tenant's share of the billable estate.
+#: The partial index `ix_phone_numbers_engine_owned_live` carries exactly this predicate.
+#: Read inside a `tenant_session`, so the policy answers it rather than being worked around.
 _LIVE_BOUGHT = (
-    "SELECT id, tenant_id, provider, monthly_rental_usd, engine_number_ref "
+    "SELECT id, provider, monthly_rental_usd, engine_number_ref "
     "FROM phone_numbers WHERE engine_owned AND released_at IS NULL ORDER BY created_at, id"
 )
+
+#: The directory, and the only statement in this module that runs as the admin role.
+#: `ORDER BY id` is load-bearing rather than tidy, for `qa_sampling._DIRECTORY`'s reason:
+#: an unordered walk that runs out of budget starves a different arbitrary slice of the
+#: fleet every run, so no client is reliably metered and nobody can say which were missed.
+#: `deleted_at IS NULL` matches the other fleet walks — a soft-deleted organization's
+#: numbers are released by the offboarding path, not by a meter.
+_ALL_TENANTS = "SELECT id FROM organizations WHERE deleted_at IS NULL ORDER BY id"
+
+
+async def _bought_numbers() -> list[tuple[UUID, UUID, str | None, Decimal | None, str | None]]:
+    """The whole billable estate, tenant by tenant, each read under its own policy.
+
+    N+1 BY CONSTRUCTION AND THAT IS THE PRICE OF HARD RULE 1: the numbers themselves are
+    never read under the admin role, only the list of tenant ids is, so the policy answers
+    every query about a client's data. The N is the number of CLIENTS, once a day, and each
+    query is an index scan of a partial index over a handful of rows.
+    """
+    async with admin_session() as directory:
+        tenants = list((await directory.execute(text(_ALL_TENANTS))).scalars().all())
+    estate: list[tuple[UUID, UUID, str | None, Decimal | None, str | None]] = []
+    for raw in tenants:
+        tenant_id = UUID(str(raw))
+        async with tenant_session(tenant_id) as scoped:
+            for row in (await scoped.execute(text(_LIVE_BOUGHT))).all():
+                estate.append((UUID(str(row[0])), tenant_id, row[1], row[2], row[3]))
+    return estate
 
 
 async def meter_number_rentals(ctx: dict[str, Any]) -> str:
     """Write one `number_rental` usage event per bought number for the current IST month."""
     month = current_billing_month()
-    async with untenanted_session() as session:
-        # `phone_numbers` is RLS'd, so an untenanted read is fail-closed and returns
-        # nothing. The estate is therefore enumerated with row security explicitly
-        # disabled for THIS statement only, in a read-only session, selecting no column
-        # that carries a person's identity — the same bounded exception
-        # `retention.py` takes for its global sweeps, and for the same reason: a
-        # per-tenant loop cannot enumerate the tenants it is supposed to loop over.
-        await session.execute(text("SET LOCAL row_security = off"))
-        rows = (await session.execute(text(_LIVE_BOUGHT))).all()
+    rows = await _bought_numbers()
     metered = replayed = unpriced = failed = 0
     for number_id, tenant_id, provider, rental_usd, _ref in rows:
         if rental_usd is None or rental_usd <= 0:
@@ -166,9 +200,7 @@ async def reconcile_engine_numbers(ctx: dict[str, Any]) -> str:
         log.info("number_reconciliation_skipped", extra={"reason": "supply_unavailable"})
         return "skipped"
     held = {number.engine_number_ref for number in await get_engine().list_engine_numbers()}
-    async with untenanted_session() as session:
-        await session.execute(text("SET LOCAL row_security = off"))
-        rows = (await session.execute(text(_LIVE_BOUGHT))).all()
+    rows = await _bought_numbers()
     ours = {str(row[4]) for row in rows if row[4]}
     unknown_to_us = {ref for ref in held if ref and ref not in ours}
     missing_at_vendor = ours - {ref for ref in held if ref}

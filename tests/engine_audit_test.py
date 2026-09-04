@@ -1670,6 +1670,19 @@ _VENDOR_ONLY_KEYS = frozenset(
         "latency_data",
         "time_to_first_audio",
         "turn_latency",
+        # THE PHONE-NUMBER RESOURCE'S FIVE VENDOR NOUNS (D-537). Each is Bolna's own
+        # spelling for something we already have a word for, which is what makes them
+        # vendor-only rather than shared:
+        #   `bolna_owned` / `rented` -> ours is `engine_owned`, one column for one question
+        #   `telephony_provider` -> ours is plain `provider`, which IS shared and is below
+        #   `locality` -> a Twilio-shaped subdivision of `region`; we model only `region`
+        # Any of them appearing outside the adapter is a vendor shape that escaped — and
+        # `bolna_owned` in particular names the VENDOR in a column value, which is the kind
+        # of thing hard rule 2 exists to keep behind the boundary.
+        "bolna_owned",
+        "locality",
+        "rented",
+        "telephony_provider",
         "conversation_duration",
         "cost_breakdown",
         "cost_currency",
@@ -1959,6 +1972,19 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         # spells any of these three — they are `TurnLatency`'s field names.
         "llm_ttft_ms",
         "region",
+        # THE NUMBER SEARCH'S TWO SHARED WORDS (D-537). `pattern` is the vendor's query
+        # parameter for a dialling prefix AND our own field name on `NumberSearch` — we
+        # pass their unit through deliberately rather than inventing a second vocabulary
+        # for a three-character prefix. `price` is a word this repository uses everywhere
+        # money is discussed (`LlmPrice`, `platform_model_prices`, the rate card), so
+        # seeing it outside the adapter proves nothing at all. `phone_number` is the same
+        # kind of word from a THIRD direction: Meta's lead-ads payloads carry it and
+        # `apps/api/ingest/` reads it, so banning it here would fail on a module that has
+        # nothing to do with the voice engine. (Our own noun for the value is still `e164`,
+        # and that is what every column and model field uses.)
+        "pattern",
+        "phone_number",
+        "price",
         "stt_ms",
         "text",
         "to_e164",
