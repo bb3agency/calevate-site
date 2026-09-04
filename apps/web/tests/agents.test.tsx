@@ -144,6 +144,24 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * A control that is ready to be pressed.
+ *
+ * The permission read (`useWriteAccess`) resolves a moment after first paint, so a button
+ * gated on it is momentarily DISABLED — and `fireEvent.click` on a disabled button is a
+ * no-op that fails later, in an assertion about a request that never went out. Waiting for
+ * the enabled state is the difference between a test that pins behaviour and one that
+ * pins timing.
+ */
+async function pressable(
+  scope: HTMLElement,
+  name: RegExp | string,
+): Promise<HTMLElement> {
+  const button = within(scope).getByRole("button", { name });
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+  return button;
+}
+
 /** The rows under one section heading, so a claim is read off the section it is about. */
 function section(title: string): HTMLElement {
   // The heading's card — `Card` renders `<h2>` inside a `<section>`, which is the element
@@ -327,7 +345,10 @@ describe("deleting an agent from the roster", () => {
       );
     });
 
-    const panel = screen.getByRole("status");
+    /* Scoped to the SECTION, not the document: a `Skeleton` is also `role="status"` (it
+       carries the sr-only "Loading…"), and the lane guide below is still fetching while
+       this panel is open — a document-wide query is a race, not an assertion. */
+    const panel = within(section("Working right now")).getByRole("status");
     expect(panel.textContent).toContain("Front desk is working right now");
     expect(panel.textContent).toContain(
       "switched off before it can be deleted",
@@ -341,9 +362,7 @@ describe("deleting an agent from the roster", () => {
 
     // The next step is offered IN the refusal, which is the whole two-step on one screen.
     await act(async () => {
-      fireEvent.click(
-        within(panel).getByRole("button", { name: /Switch it off/ }),
-      );
+      fireEvent.click(await pressable(panel, /Switch it off/));
     });
     await waitFor(() =>
       expect(calls.find((call) => call.method === "POST")?.path).toBe(
@@ -373,16 +392,14 @@ describe("deleting an agent from the roster", () => {
       );
     });
 
-    const panel = screen.getByRole("status");
+    const panel = within(section("Not working")).getByRole("status");
     // The sentence that makes the word "delete" honest, and it is the DETAIL screen's
     // sentence — `MOVE_COPY`, imported, not a second wording that could drift from it.
     expect(panel.textContent).toContain("stay in your call log");
     expect(calls.some((call) => call.method === "POST")).toBe(false);
 
     await act(async () => {
-      fireEvent.click(
-        within(panel).getByRole("button", { name: /Delete Weekend line/ }),
-      );
+      fireEvent.click(await pressable(panel, /Delete Weekend line/));
     });
     await waitFor(() =>
       expect(calls.find((call) => call.method === "POST")?.path).toBe(
