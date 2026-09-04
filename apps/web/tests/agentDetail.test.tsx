@@ -236,6 +236,23 @@ function routes(over: Record<string, unknown> = {}) {
       open_count: 0,
       total: 0,
     },
+    // The handover panel's read (D-533), for the SAME reason as the two entries above and
+    // not because this file asserts anything about it — `agentHandover.test.tsx` is that
+    // subject. Unstubbed, the panel raises its own `role="alert"` and every
+    // `findByRole("alert")` here becomes a race it loses whenever that one paints first.
+    "/v1/agents/agent-1/handoff": {
+      agent_id: "agent-1",
+      enabled: false,
+      trigger: null,
+      effective_trigger: "Hand the call to a person when the caller asks for one.",
+      spoken_line: "Okay, I am putting you through to someone from our team now.",
+      members: [],
+      recent: [],
+      on_duty_member_id: null,
+      unavailable_reason: "disabled",
+      remediation: "Handing calls to a person is switched off for this agent.",
+      published: true,
+    },
     ...over,
   };
 }

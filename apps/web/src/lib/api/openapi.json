@@ -1242,80 +1242,6 @@
         "title": "AssistOut",
         "type": "object"
       },
-      "AttemptOut": {
-        "additionalProperties": false,
-        "description": "One handover that actually happened, as the client sees it.\n\n**THE NUMBER IS NOT ON THIS OBJECT AND THE LABEL MAY BE NULL**, which is deliberate\nrather than an oversight. `handoff_attempts.destination_e164` records the number that\nrang because an operator may have to answer for it; a client's own screen already knows\nwho is on the list and gains nothing from seeing the digits again on every row (hard\nrule 6, minimum necessary). `member` is null when that person has since been removed\nfrom the roster \u2014 the FK is `SET NULL` precisely so removing somebody does not rewrite\nthe history of the calls they took \u2014 and the row still says what happened.",
-        "properties": {
-          "callback_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Callback Id"
-          },
-          "duration_s": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duration S"
-          },
-          "explanation": {
-            "title": "Explanation",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "member": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Member"
-          },
-          "outcome": {
-            "title": "Outcome",
-            "type": "string"
-          },
-          "second_recording_at_platform": {
-            "title": "Second Recording At Platform",
-            "type": "boolean"
-          },
-          "started_at": {
-            "format": "date-time",
-            "title": "Started At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "started_at",
-          "member",
-          "outcome",
-          "explanation",
-          "duration_s",
-          "second_recording_at_platform",
-          "callback_id"
-        ],
-        "title": "AttemptOut",
-        "type": "object"
-      },
       "AttentionItemOut": {
         "additionalProperties": false,
         "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose composed by us \u2014 never a vendor\nstring and never transcript text. A blocked lead is named by its captured lead NAME,\nfalling back to its number in full, because \"ring this person\" is the action the row\nexists to prompt (D-436).",
@@ -5182,28 +5108,6 @@
         "title": "DayHours",
         "type": "object"
       },
-      "DayWindow": {
-        "additionalProperties": false,
-        "description": "One day's opening window, in the shape `agents.business_hours` already stores.\n\n`HH:MM`, 24-hour, IST wall clock \u2014 the zone is a property of the column and is argued\nin `agents/business_hours.py`, not repeated per request. A pattern rather than a\n`time` type because this round-trips into JSONB that a different writer (the intake\nwizard) also fills, and one storage shape with two spellings is how the two start\ndisagreeing about when a shop opens.",
-        "properties": {
-          "closes": {
-            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
-            "title": "Closes",
-            "type": "string"
-          },
-          "opens": {
-            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
-            "title": "Opens",
-            "type": "string"
-          }
-        },
-        "required": [
-          "opens",
-          "closes"
-        ],
-        "title": "DayWindow",
-        "type": "object"
-      },
       "DeadLetterJobOut": {
         "additionalProperties": false,
         "description": "One `job`'s share of the outbox DLQ.\n\nCOUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding\nlead fields and phone numbers; `job` is an ARQ job name \u2014 a code identifier \u2014 and\nnothing derived from a payload reaches this model. See\n`reliability.service.DeadLetterQueue`, which is where that boundary is enforced.",
@@ -7747,6 +7651,102 @@
         "title": "GlobalSuppressOut",
         "type": "object"
       },
+      "HandoffAttemptOut": {
+        "additionalProperties": false,
+        "description": "One handover that actually happened, as the client sees it.\n\n**THE NUMBER IS NOT ON THIS OBJECT AND THE LABEL MAY BE NULL**, which is deliberate\nrather than an oversight. `handoff_attempts.destination_e164` records the number that\nrang because an operator may have to answer for it; a client's own screen already knows\nwho is on the list and gains nothing from seeing the digits again on every row (hard\nrule 6, minimum necessary). `member` is null when that person has since been removed\nfrom the roster \u2014 the FK is `SET NULL` precisely so removing somebody does not rewrite\nthe history of the calls they took \u2014 and the row still says what happened.",
+        "properties": {
+          "callback_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Id"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "member": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "second_recording_at_platform": {
+            "title": "Second Recording At Platform",
+            "type": "boolean"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "member",
+          "outcome",
+          "explanation",
+          "duration_s",
+          "second_recording_at_platform",
+          "callback_id"
+        ],
+        "title": "HandoffAttemptOut",
+        "type": "object"
+      },
+      "HandoffDayWindow": {
+        "additionalProperties": false,
+        "description": "One day's opening window, in the shape `agents.business_hours` already stores.\n\n`HH:MM`, 24-hour, IST wall clock \u2014 the zone is a property of the column and is argued\nin `agents/business_hours.py`, not repeated per request. A pattern rather than a\n`time` type because this round-trips into JSONB that a different writer (the intake\nwizard) also fills, and one storage shape with two spellings is how the two start\ndisagreeing about when a shop opens.",
+        "properties": {
+          "closes": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Closes",
+            "type": "string"
+          },
+          "opens": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Opens",
+            "type": "string"
+          }
+        },
+        "required": [
+          "opens",
+          "closes"
+        ],
+        "title": "HandoffDayWindow",
+        "type": "object"
+      },
       "HandoffIn": {
         "additionalProperties": false,
         "description": "The whole configuration, replaced in one write.",
@@ -7757,7 +7757,7 @@
           },
           "members": {
             "items": {
-              "$ref": "#/components/schemas/MemberIn"
+              "$ref": "#/components/schemas/HandoffMemberIn"
             },
             "maxItems": 10,
             "title": "Members",
@@ -7782,6 +7782,141 @@
         "title": "HandoffIn",
         "type": "object"
       },
+      "HandoffMemberIn": {
+        "additionalProperties": false,
+        "description": "One person on the list, as the client writes them.",
+        "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "hours": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HandoffDayWindow"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "phone_e164": {
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "Phone E164",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "phone_e164"
+        ],
+        "title": "HandoffMemberIn",
+        "type": "object"
+      },
+      "HandoffMemberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "hours": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HandoffDayWindow"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "on_duty": {
+            "title": "On Duty",
+            "type": "boolean"
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "label",
+          "phone_e164",
+          "active",
+          "hours",
+          "note",
+          "on_duty"
+        ],
+        "title": "HandoffMemberOut",
+        "type": "object"
+      },
       "HandoffOut": {
         "additionalProperties": false,
         "properties": {
@@ -7800,7 +7935,7 @@
           },
           "members": {
             "items": {
-              "$ref": "#/components/schemas/apps__api__agents__handoff_routes__MemberOut"
+              "$ref": "#/components/schemas/HandoffMemberOut"
             },
             "title": "Members",
             "type": "array"
@@ -7823,7 +7958,7 @@
           },
           "recent": {
             "items": {
-              "$ref": "#/components/schemas/AttemptOut"
+              "$ref": "#/components/schemas/HandoffAttemptOut"
             },
             "title": "Recent",
             "type": "array"
@@ -11578,65 +11713,36 @@
         "title": "Measurement",
         "type": "object"
       },
-      "MemberIn": {
+      "MemberOut": {
         "additionalProperties": false,
-        "description": "One person on the list, as the client writes them.",
+        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: an invitation carries an address and,\noptionally, a name, so a colleague who typed neither has NULL\n(`authn/invitations.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
         "properties": {
-          "active": {
-            "default": true,
-            "title": "Active",
-            "type": "boolean"
-          },
-          "hours": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/DayWindow"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hours"
-          },
-          "label": {
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Label",
+          "id": {
+            "format": "uuid",
+            "title": "Id",
             "type": "string"
           },
-          "note": {
+          "name": {
             "anyOf": [
               {
-                "maxLength": 500,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Note"
+            "title": "Name"
           },
-          "phone_e164": {
-            "pattern": "^\\+[1-9]\\d{7,18}$",
-            "title": "Phone E164",
+          "role": {
+            "title": "Role",
             "type": "string"
           }
         },
         "required": [
-          "label",
-          "phone_e164"
+          "id",
+          "role"
         ],
-        "title": "MemberIn",
+        "title": "MemberOut",
         "type": "object"
       },
       "MemberRemovedOut": {
@@ -20099,80 +20205,6 @@
         "title": "PublishOut",
         "type": "object"
       },
-      "apps__api__agents__handoff_routes__MemberOut": {
-        "additionalProperties": false,
-        "properties": {
-          "active": {
-            "title": "Active",
-            "type": "boolean"
-          },
-          "hours": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/DayWindow"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Hours"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "on_duty": {
-            "title": "On Duty",
-            "type": "boolean"
-          },
-          "phone_e164": {
-            "title": "Phone E164",
-            "type": "string"
-          },
-          "position": {
-            "title": "Position",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "position",
-          "label",
-          "phone_e164",
-          "active",
-          "hours",
-          "note",
-          "on_duty"
-        ],
-        "title": "MemberOut",
-        "type": "object"
-      },
       "apps__api__agents__routes__PublishOut": {
         "additionalProperties": false,
         "properties": {
@@ -20331,38 +20363,6 @@
           "number_purchase_available"
         ],
         "title": "KycRecordOut",
-        "type": "object"
-      },
-      "apps__api__tenancy__routes__MemberOut": {
-        "additionalProperties": false,
-        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: an invitation carries an address and,\noptionally, a name, so a colleague who typed neither has NULL\n(`authn/invitations.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "role": {
-            "title": "Role",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "role"
-        ],
-        "title": "MemberOut",
         "type": "object"
       }
     }
@@ -31838,7 +31838,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/apps__api__tenancy__routes__MemberOut"
+                    "$ref": "#/components/schemas/MemberOut"
                   },
                   "title": "Response List Members V1 Members Get",
                   "type": "array"
@@ -31929,7 +31929,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/apps__api__tenancy__routes__MemberOut"
+                  "$ref": "#/components/schemas/MemberOut"
                 }
               }
             },

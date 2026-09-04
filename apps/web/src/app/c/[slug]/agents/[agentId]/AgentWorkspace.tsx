@@ -238,7 +238,7 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
           assume away (nobody is briefed before they pick up; the list is not retried on the
           same call), and doctrine §8 forbids putting a statement a client would sell to
           their own callers behind a click. */}
-      <Card title="Putting a caller through to a person">
+      <Card title="Handing a call to a person">
         <Handover agent={agent} />
       </Card>
 

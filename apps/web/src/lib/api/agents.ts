@@ -395,3 +395,76 @@ export function useAgentLifecycle(
     onSuccess: refresh,
   });
 }
+
+/**
+ * THE HANDOVER LIST — who takes a call this agent puts through, and whether anyone can
+ * right now (D-533).
+ *
+ * ## Why the read carries a verdict and not just a list
+ *
+ * A list of names does not answer the question the screen is for. Whether the next caller
+ * who asks for a person actually reaches one depends on three things a roster cannot show:
+ * the master switch, who is switched on, and the clock. So the server answers
+ * `on_duty_member_id` plus, when nobody is, `unavailable_reason` and the one sentence that
+ * fixes it — and the screen renders the server's words rather than composing its own. Five
+ * causes, four of them a minute's work for the owner; a screen that collapsed them into
+ * one silence would leave them with a feature that does not work and nothing to do about it.
+ *
+ * ## Why it is a whole-list PUT
+ *
+ * `useSetExtractionSchema`'s argument, about a list where the ORDER is the product: "move
+ * Priya above Ravi and take Ravi off while he is away" is one intention, and four requests
+ * over rows can half-apply into two people at the same position or a roster that is briefly
+ * empty. The member ids are therefore NOT stable across a save, which is why the screen
+ * keys its rows on their position while editing.
+ *
+ * ## What it deliberately does NOT do
+ *
+ * It does not publish. Editing the roster changes what the next publish sends and reaches
+ * no live call, because the destination is engine configuration — so a typo in a phone
+ * number is not an immediate change to a live call path. `published` on the response is
+ * what lets the screen say so honestly; it never claims the platform is holding today's
+ * on-duty member, which only the drift read-back can answer.
+ *
+ * Invalidates the agent row as well as this key: `AgentWorkspace` reads the agent for the
+ * header, and the publishing panel's "what callers hear right now" changes meaning when an
+ * agent gains or loses the ability to put somebody through.
+ */
+export type HandoffOut = components["schemas"]["HandoffOut"];
+export type HandoffIn = components["schemas"]["HandoffIn"];
+export type HandoffMember = HandoffOut["members"][number];
+export type HandoffAttempt = HandoffOut["recent"][number];
+
+export const handoffKey = (org: string, agentId: string) =>
+  ["agent-handoff", org, agentId] as const;
+
+export function useHandoff(session: Session, agentId: string): UseQueryResult<HandoffOut> {
+  return useQuery({
+    queryKey: handoffKey(session.orgSlug, agentId),
+    queryFn: () => apiRequest<HandoffOut>(session, `/v1/agents/${agentId}/handoff`),
+    enabled: Boolean(agentId),
+    // SHORTER THAN `AGENT_STALE_MS`, and the reason is the verdict rather than the list.
+    // "Is anybody on duty" is a function of the clock: a five-minute window would show a
+    // shop owner "Ravi is taking calls" for five minutes after Ravi's hours ended.
+    staleTime: 30_000,
+  });
+}
+
+export function useSetHandoff(
+  session: Session,
+  agentId: string,
+): UseMutationResult<HandoffOut, Error, HandoffIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: HandoffIn) =>
+      apiRequest<HandoffOut>(session, `/v1/agents/${agentId}/handoff`, {
+        method: "PUT",
+        body: payload,
+      }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: handoffKey(session.orgSlug, agentId) }),
+        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
+      ]),
+  });
+}

@@ -6122,42 +6122,6 @@ export interface components {
             script: components["schemas"]["CallScript"];
         };
         /**
-         * AttemptOut
-         * @description One handover that actually happened, as the client sees it.
-         *
-         *     **THE NUMBER IS NOT ON THIS OBJECT AND THE LABEL MAY BE NULL**, which is deliberate
-         *     rather than an oversight. `handoff_attempts.destination_e164` records the number that
-         *     rang because an operator may have to answer for it; a client's own screen already knows
-         *     who is on the list and gains nothing from seeing the digits again on every row (hard
-         *     rule 6, minimum necessary). `member` is null when that person has since been removed
-         *     from the roster — the FK is `SET NULL` precisely so removing somebody does not rewrite
-         *     the history of the calls they took — and the row still says what happened.
-         */
-        AttemptOut: {
-            /** Callback Id */
-            callback_id: string | null;
-            /** Duration S */
-            duration_s: number | null;
-            /** Explanation */
-            explanation: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Member */
-            member: string | null;
-            /** Outcome */
-            outcome: string;
-            /** Second Recording At Platform */
-            second_recording_at_platform: boolean;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-        };
-        /**
          * AttentionItemOut
          * @description One thing the platform refused to do quietly (crm/attention.py).
          *
@@ -7772,22 +7736,6 @@ export interface components {
             opens?: string | null;
         };
         /**
-         * DayWindow
-         * @description One day's opening window, in the shape `agents.business_hours` already stores.
-         *
-         *     `HH:MM`, 24-hour, IST wall clock — the zone is a property of the column and is argued
-         *     in `agents/business_hours.py`, not repeated per request. A pattern rather than a
-         *     `time` type because this round-trips into JSONB that a different writer (the intake
-         *     wizard) also fills, and one storage shape with two spellings is how the two start
-         *     disagreeing about when a shop opens.
-         */
-        DayWindow: {
-            /** Closes */
-            closes: string;
-            /** Opens */
-            opens: string;
-        };
-        /**
          * DeadLetterJobOut
          * @description One `job`'s share of the outbox DLQ.
          *
@@ -8936,6 +8884,58 @@ export interface components {
             malformed: number;
         };
         /**
+         * HandoffAttemptOut
+         * @description One handover that actually happened, as the client sees it.
+         *
+         *     **THE NUMBER IS NOT ON THIS OBJECT AND THE LABEL MAY BE NULL**, which is deliberate
+         *     rather than an oversight. `handoff_attempts.destination_e164` records the number that
+         *     rang because an operator may have to answer for it; a client's own screen already knows
+         *     who is on the list and gains nothing from seeing the digits again on every row (hard
+         *     rule 6, minimum necessary). `member` is null when that person has since been removed
+         *     from the roster — the FK is `SET NULL` precisely so removing somebody does not rewrite
+         *     the history of the calls they took — and the row still says what happened.
+         */
+        HandoffAttemptOut: {
+            /** Callback Id */
+            callback_id: string | null;
+            /** Duration S */
+            duration_s: number | null;
+            /** Explanation */
+            explanation: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Member */
+            member: string | null;
+            /** Outcome */
+            outcome: string;
+            /** Second Recording At Platform */
+            second_recording_at_platform: boolean;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /**
+         * HandoffDayWindow
+         * @description One day's opening window, in the shape `agents.business_hours` already stores.
+         *
+         *     `HH:MM`, 24-hour, IST wall clock — the zone is a property of the column and is argued
+         *     in `agents/business_hours.py`, not repeated per request. A pattern rather than a
+         *     `time` type because this round-trips into JSONB that a different writer (the intake
+         *     wizard) also fills, and one storage shape with two spellings is how the two start
+         *     disagreeing about when a shop opens.
+         */
+        HandoffDayWindow: {
+            /** Closes */
+            closes: string;
+            /** Opens */
+            opens: string;
+        };
+        /**
          * HandoffIn
          * @description The whole configuration, replaced in one write.
          */
@@ -8943,9 +8943,54 @@ export interface components {
             /** Enabled */
             enabled: boolean;
             /** Members */
-            members?: components["schemas"]["MemberIn"][];
+            members?: components["schemas"]["HandoffMemberIn"][];
             /** Trigger */
             trigger?: string | null;
+        };
+        /**
+         * HandoffMemberIn
+         * @description One person on the list, as the client writes them.
+         */
+        HandoffMemberIn: {
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Hours */
+            hours?: {
+                [key: string]: components["schemas"]["HandoffDayWindow"] | null;
+            } | null;
+            /** Label */
+            label: string;
+            /** Note */
+            note?: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+        };
+        /** HandoffMemberOut */
+        HandoffMemberOut: {
+            /** Active */
+            active: boolean;
+            /** Hours */
+            hours: {
+                [key: string]: components["schemas"]["HandoffDayWindow"] | null;
+            } | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string | null;
+            /** On Duty */
+            on_duty: boolean;
+            /** Phone E164 */
+            phone_e164: string;
+            /** Position */
+            position: number;
         };
         /** HandoffOut */
         HandoffOut: {
@@ -8959,13 +9004,13 @@ export interface components {
             /** Enabled */
             enabled: boolean;
             /** Members */
-            members: components["schemas"]["apps__api__agents__handoff_routes__MemberOut"][];
+            members: components["schemas"]["HandoffMemberOut"][];
             /** On Duty Member Id */
             on_duty_member_id: string | null;
             /** Published */
             published: boolean;
             /** Recent */
-            recent: components["schemas"]["AttemptOut"][];
+            recent: components["schemas"]["HandoffAttemptOut"][];
             /** Remediation */
             remediation: string | null;
             /** Spoken Line */
@@ -10623,25 +10668,30 @@ export interface components {
             total: number;
         };
         /**
-         * MemberIn
-         * @description One person on the list, as the client writes them.
+         * MemberOut
+         * @description One colleague, as a control that has to NAME them needs them.
+         *
+         *     **No email, and that is a rule rather than a preference.** `email` is in
+         *     `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model
+         *     declaring it fails the guardrail unless the route is allowlisted as role-checked and
+         *     audited — which an assignee picker is not, and should not have to be. Nothing on
+         *     this surface needs it either: the control writes an id and prints a name.
+         *
+         *     `name` is nullable because `users.name` is: an invitation carries an address and,
+         *     optionally, a name, so a colleague who typed neither has NULL
+         *     (`authn/invitations.py`). The screen says "Unnamed member" rather than falling
+         *     back to an address — a fallback that leaks is not a fallback.
          */
-        MemberIn: {
+        MemberOut: {
             /**
-             * Active
-             * @default true
+             * Id
+             * Format: uuid
              */
-            active: boolean;
-            /** Hours */
-            hours?: {
-                [key: string]: components["schemas"]["DayWindow"] | null;
-            } | null;
-            /** Label */
-            label: string;
-            /** Note */
-            note?: string | null;
-            /** Phone E164 */
-            phone_e164: string;
+            id: string;
+            /** Name */
+            name?: string | null;
+            /** Role */
+            role: string;
         };
         /** MemberRemovedOut */
         MemberRemovedOut: {
@@ -14135,30 +14185,6 @@ export interface components {
             /** Version */
             version: number;
         };
-        /** MemberOut */
-        apps__api__agents__handoff_routes__MemberOut: {
-            /** Active */
-            active: boolean;
-            /** Hours */
-            hours: {
-                [key: string]: components["schemas"]["DayWindow"] | null;
-            } | null;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Label */
-            label: string;
-            /** Note */
-            note: string | null;
-            /** On Duty */
-            on_duty: boolean;
-            /** Phone E164 */
-            phone_e164: string;
-            /** Position */
-            position: number;
-        };
         /** PublishOut */
         apps__api__agents__routes__PublishOut: {
             /**
@@ -14206,32 +14232,6 @@ export interface components {
             submitted_at: string | null;
             /** Verified At */
             verified_at: string | null;
-        };
-        /**
-         * MemberOut
-         * @description One colleague, as a control that has to NAME them needs them.
-         *
-         *     **No email, and that is a rule rather than a preference.** `email` is in
-         *     `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model
-         *     declaring it fails the guardrail unless the route is allowlisted as role-checked and
-         *     audited — which an assignee picker is not, and should not have to be. Nothing on
-         *     this surface needs it either: the control writes an id and prints a name.
-         *
-         *     `name` is nullable because `users.name` is: an invitation carries an address and,
-         *     optionally, a name, so a colleague who typed neither has NULL
-         *     (`authn/invitations.py`). The screen says "Unnamed member" rather than falling
-         *     back to an address — a fallback that leaks is not a fallback.
-         */
-        apps__api__tenancy__routes__MemberOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name?: string | null;
-            /** Role */
-            role: string;
         };
     };
     responses: never;
@@ -22461,7 +22461,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["apps__api__tenancy__routes__MemberOut"][];
+                    "application/json": components["schemas"]["MemberOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -22527,7 +22527,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["apps__api__tenancy__routes__MemberOut"];
+                    "application/json": components["schemas"]["MemberOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

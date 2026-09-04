@@ -73,7 +73,15 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class DayWindow(Strict):
+# EVERY WIRE MODEL HERE IS PREFIXED `Handoff`, AND THAT IS A CONTRACT CONSTRAINT RATHER
+# THAN A STYLE ONE. The OpenAPI document is generated into a FLAT `components.schemas` map
+# and `openapi-typescript` fully-qualifies BOTH sides of any collision — so a `MemberOut`
+# here would have silently renamed `tenancy/routes.MemberOut` to
+# `apps__api__tenancy__routes__MemberOut` and broken two existing frontend modules that
+# name it. Measured, not reasoned about: `pnpm typecheck` failed on exactly that.
+
+
+class HandoffDayWindow(Strict):
     """One day's opening window, in the shape `agents.business_hours` already stores.
 
     `HH:MM`, 24-hour, IST wall clock — the zone is a property of the column and is argued
@@ -87,7 +95,7 @@ class DayWindow(Strict):
     closes: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-class MemberIn(Strict):
+class HandoffMemberIn(Strict):
     """One person on the list, as the client writes them."""
 
     label: str = Field(min_length=1, max_length=120)
@@ -98,7 +106,7 @@ class MemberIn(Strict):
     #: This person's OWN hours, or omitted to be reachable whenever the business is open.
     #: A day left out of the map is a day this person is not available — `is_after_hours`
     #: answers "unknown" for it, and an unknown hour is not one we ring a mobile in.
-    hours: dict[str, DayWindow | None] | None = None
+    hours: dict[str, HandoffDayWindow | None] | None = None
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -109,25 +117,25 @@ class HandoffIn(Strict):
     #: The client's own words for WHEN to hand over, or null for the composed default.
     #: Bounded because it becomes a tool description the model reads on every turn.
     trigger: str | None = Field(default=None, max_length=1000)
-    members: list[MemberIn] = Field(
+    members: list[HandoffMemberIn] = Field(
         default_factory=list, max_length=handoff_service.MAX_HANDOFF_MEMBERS
     )
 
 
-class MemberOut(Strict):
+class HandoffMemberOut(Strict):
     id: UUID
     position: int
     label: str
     phone_e164: str
     active: bool
-    hours: dict[str, DayWindow | None] | None
+    hours: dict[str, HandoffDayWindow | None] | None
     note: str | None
     #: Is this the person a caller would reach RIGHT NOW? Exactly one member can be, and
     #: for a roster where nobody is, none of them is.
     on_duty: bool
 
 
-class AttemptOut(Strict):
+class HandoffAttemptOut(Strict):
     """One handover that actually happened, as the client sees it.
 
     **THE NUMBER IS NOT ON THIS OBJECT AND THE LABEL MAY BE NULL**, which is deliberate
@@ -184,7 +192,7 @@ class HandoffOut(Strict):
     #: What the caller hears while the handover is placed, in this agent's language.
     #: Composed by us and not editable: see `agents/handoff.HANDOFF_SPOKEN_TEMPLATES`.
     spoken_line: str
-    members: list[MemberOut]
+    members: list[HandoffMemberOut]
     #: Null when nobody is on duty; then `unavailable_reason` and `remediation` say why.
     on_duty_member_id: UUID | None
     unavailable_reason: str | None
@@ -192,7 +200,7 @@ class HandoffOut(Strict):
     #: The most recent handovers this agent actually made, newest first. Bounded — see
     #: `RECENT_ATTEMPTS`; a client wanting the whole history reads it on the calls list,
     #: where each escalated call carries its own row.
-    recent: list[AttemptOut]
+    recent: list[HandoffAttemptOut]
     #: HAS THIS AGENT EVER BEEN PUBLISHED? The honest half of "is my handover list live".
     #:
     #: False means nothing here is in effect at all — the agent is not on the voice
@@ -240,7 +248,7 @@ async def _render(session: AsyncSession, agent_id: UUID) -> HandoffOut:
         effective_trigger=(row[2] or "").strip() or handoff_service.HANDOFF_TRIGGER_DEFAULT,
         spoken_line=handoff_service.spoken_line_for(str(row[4])),
         members=[
-            MemberOut(
+            HandoffMemberOut(
                 id=m.id,
                 position=m.position,
                 label=m.label,
@@ -275,12 +283,12 @@ _RECENT_SQL = (
 )
 
 
-async def _recent(session: AsyncSession, agent_id: UUID) -> list[AttemptOut]:
+async def _recent(session: AsyncSession, agent_id: UUID) -> list[HandoffAttemptOut]:
     rows = (
         await session.execute(text(_RECENT_SQL), {"aid": agent_id, "lim": RECENT_ATTEMPTS})
     ).all()
     return [
-        AttemptOut(
+        HandoffAttemptOut(
             id=row[0],
             started_at=row[1],
             member=row[2],
@@ -302,7 +310,7 @@ async def _recent(session: AsyncSession, agent_id: UUID) -> list[AttemptOut]:
     ]
 
 
-def _hours_out(raw: dict[str, Any] | None) -> dict[str, DayWindow | None] | None:
+def _hours_out(raw: dict[str, Any] | None) -> dict[str, HandoffDayWindow | None] | None:
     """The stored JSONB as the wire model, with anything unreadable dropped.
 
     A day whose stored value is not a window we can parse comes back ABSENT rather than as
@@ -313,7 +321,7 @@ def _hours_out(raw: dict[str, Any] | None) -> dict[str, DayWindow | None] | None
     """
     if not raw:
         return None
-    out: dict[str, DayWindow | None] = {}
+    out: dict[str, HandoffDayWindow | None] = {}
     for day in DAYS:
         if day not in raw:
             continue
@@ -323,7 +331,7 @@ def _hours_out(raw: dict[str, Any] | None) -> dict[str, DayWindow | None] | None
             continue
         if isinstance(value, dict) and isinstance(value.get("opens"), str):
             try:
-                out[day] = DayWindow(opens=value["opens"], closes=value["closes"])
+                out[day] = HandoffDayWindow(opens=value["opens"], closes=value["closes"])
             except (KeyError, TypeError, ValueError):
                 continue
     return out or None
