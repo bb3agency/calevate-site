@@ -169,9 +169,19 @@ def _decode(data: bytes) -> str:
         except UnicodeDecodeError as failure:
             raise _encoding_refusal() from failure
     try:
-        return data.decode("utf-8-sig")
+        text = data.decode("utf-8-sig")
     except UnicodeDecodeError as failure:
         raise _encoding_refusal() from failure
+    # A NUL SURVIVING UTF-8 DECODING MEANS THE DECODE WAS WRONG, and this arm exists
+    # because it silently was: UTF-16 WITHOUT a byte-order mark is what a lot of Windows
+    # tooling writes, every second byte of it is 0x00, and 0x00 is a perfectly legal
+    # UTF-8 codepoint — so `decode("utf-8")` SUCCEEDS and hands back "I\x00t\x00e\x00m".
+    # Nothing downstream would have said so usefully either: `kb/service` refuses C0
+    # controls, so the client would have got "your wording contains an invisible
+    # character" for a file whose only problem is how it was saved.
+    if "\x00" in text:
+        raise _encoding_refusal()
+    return text
 
 
 def _encoding_refusal() -> DocumentUnreadableError:
