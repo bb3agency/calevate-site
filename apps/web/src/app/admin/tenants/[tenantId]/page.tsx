@@ -1402,9 +1402,15 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           `<select>` sized by its longest option) are what set it. */}
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <div className="min-w-0 space-y-3">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-            <Hash className="h-3.5 w-3.5" />
-            Numbers
+          {/* The heading is a flex ROW of two items — the icon and the label — and the
+              link is a sibling of the whole heading rather than a third child of it: a
+              flex container holding loose text beside an inline element lays that element
+              out as its own item with the gap on both sides (tests/inlineFlow.test.ts). */}
+          <div className="flex items-center gap-2">
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+              <Hash className="h-3.5 w-3.5" />
+              <span>Numbers</span>
+            </h3>
             {/* THE OTHER DOOR, and it is a different act (D-537). This form RECORDS a
                 connection the client already holds; the numbers screen BUYS one, links a
                 vendor handle to one that has none, and releases one — each of which
@@ -1412,11 +1418,11 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
                 are deliberately not one form. */}
             <Link
               href={`/admin/tenants/${tenantId}/numbers`}
-              className="ml-auto text-xs font-medium normal-case text-ink-muted underline underline-offset-2 hover:text-ink"
+              className="ml-auto text-xs font-medium text-ink-muted underline underline-offset-2 hover:text-ink"
             >
               Buy, link or release a number
             </Link>
-          </h3>
+          </div>
           {provision.error && <ProblemNotice error={provision.error} />}
           {setDlt.error && <ProblemNotice error={setDlt.error} />}
           {/* A failed read printed "No numbers on file" — the sentence an operator acts

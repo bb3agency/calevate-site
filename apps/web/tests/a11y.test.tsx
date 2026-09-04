@@ -20,6 +20,7 @@ import FleetSpendPage from "@/app/admin/spend/page";
 import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
 import TenantCreditsPage from "@/app/admin/tenants/[tenantId]/credits/page";
+import TenantNumbersPage from "@/app/admin/tenants/[tenantId]/numbers/page";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
@@ -49,6 +50,7 @@ import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
+import PhoneNumberPage from "@/app/c/[slug]/phone-number/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
@@ -1984,6 +1986,45 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // BOTH KINDS OF NUMBER, because they render opposite instructions and a fixture with
+    // one of them would sweep half the screen: `supplied_by_us` is the one the client
+    // forwards TO, and the other is the connection they hold themselves and must not
+    // touch. One of ours is deliberately NOT `answerable` — that branch carries the
+    // warning paragraph, which is the only prose on the page a client acts on.
+    file: "c/[slug]/phone-number/page.tsx",
+    realm: "client",
+    element: () => <PhoneNumberPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/campaigns/numbers": [
+        {
+          id: "num-1",
+          e164: "+918041234567",
+          series: "standard",
+          dlt_status: "pending",
+          supplied_by_us: true,
+          answerable: true,
+        },
+        {
+          id: "num-2",
+          e164: "+918041234568",
+          series: "standard",
+          dlt_status: "pending",
+          supplied_by_us: true,
+          answerable: false,
+        },
+        {
+          id: "num-3",
+          e164: "+911600000001",
+          series: "160",
+          dlt_status: "registered",
+          supplied_by_us: false,
+          answerable: true,
+        },
+      ],
+    },
+  },
+  {
     file: "c/[slug]/knowledge/page.tsx",
     realm: "client",
     element: () => <KnowledgePage />,
@@ -2656,6 +2697,41 @@ const ADMIN_SCREENS: Screen[] = [
     // rather than with everything on the ledger. `payments` is the SAME wallet grouped
     // by bank transfer (D-89) and is what the restatement panel and the payments table
     // render from — a page-level fixture without it renders neither.
+    file: "admin/tenants/[tenantId]/numbers/page.tsx",
+    realm: "admin",
+    element: () => <TenantNumbersPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      // One number we bought and one the client brought that has NO vendor handle: the
+      // second is what renders the "link and route" input, which is the only form on the
+      // page and therefore the only thing with a label for axe to judge.
+      "/v1/admin/numbers/tenants/t1": [
+        {
+          id: "num-1",
+          e164: "+918041234567",
+          series: "standard",
+          dlt_status: "pending",
+          provider: "plivo",
+          engine_owned: true,
+          engine_linked: true,
+          monthly_rental_usd: "5.0000",
+          released: false,
+        },
+        {
+          id: "num-2",
+          e164: "+911600000001",
+          series: "160",
+          dlt_status: "registered",
+          provider: "exotel",
+          engine_owned: false,
+          engine_linked: false,
+          monthly_rental_usd: null,
+          released: false,
+        },
+      ],
+    },
+  },
+  {
     file: "admin/tenants/[tenantId]/credits/page.tsx",
     realm: "admin",
     element: () => <TenantCreditsPage params={tenant} />,

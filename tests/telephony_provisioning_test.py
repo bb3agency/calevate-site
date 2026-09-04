@@ -1,11 +1,18 @@
 """The number-provisioning provider set, held against the engine's own carrier table.
 
-`campaigns/provisioning.py::KNOWN_PROVIDERS` is the tuple that decides which refusal an
-operator sees when they set `NUMBER_PROVIDER`. A name inside it means "supported vendor,
-no adapter yet" (`no_provisioning_adapter`); a name outside it means "we do not support
-that vendor at all" (`provider_not_implemented`). Those are different operator problems
-with different fixes, which is the whole reason the module keeps two reason codes — so
-the membership of that tuple is a behavioural claim and not a note.
+`campaigns/provisioning.py::KNOWN_PROVIDERS` is the set of carriers a CLIENT may hold
+their own connection with, and a name outside it resolves to `provider_not_implemented` —
+"we do not support that vendor at all". So the membership of that tuple is a behavioural
+claim and not a note: naming a carrier that actually allocates a series we sell must never
+produce that refusal, because it sends an operator to change a setting that was right.
+
+**D-537 CHANGED WHAT THE OTHER SIDE OF THAT SPLIT IS, AND THIS FILE USED TO ASSERT THE OLD
+ONE.** It expected `no_provisioning_adapter:<carrier>` — a constant that meant "supported
+vendor, no adapter written". There is no carrier-direct adapter and there is not going to
+be one: a number this product supplies is bought THROUGH THE VOICE ENGINE, on the engine's
+own carrier account. What refuses now is the legal gate — no written VNO/reseller status
+is recorded — which is a different fact with a different fix, and asserting it here is what
+stops the two being confused again.
 
 WHY THIS IS PINNED TO THE VENDOR RATHER THAN TO ITSELF. `NUMBER_SERIES` enumerates the
 DLT number classes we model (`agents/models.py:44`). Bolna maps each regulated class onto
@@ -34,7 +41,7 @@ import pytest
 from apps.api.agents.models import NUMBER_SERIES
 from apps.api.campaigns.provisioning import (
     KNOWN_PROVIDERS,
-    NO_ADAPTER_REASON,
+    NOT_AUTHORIZED_REASON,
     PROVIDER_NOT_IMPLEMENTED_REASON,
     number_provisioning_capability,
 )
@@ -80,10 +87,12 @@ def test_a_carrier_resolves_to_the_missing_adapter_and_not_to_an_unknown_vendor(
     monkeypatch.setattr(get_settings(), "number_provider", carrier)
     capability = number_provisioning_capability()
 
-    assert capability.available is False, f"{series}: no adapter exists for any vendor"
-    assert capability.reason == f"{NO_ADAPTER_REASON}:{carrier}", (
-        f"{series}-series carrier {carrier!r} must refuse as a missing adapter, "
-        f"got {capability.reason!r}"
+    assert capability.available is False, (
+        f"{series}: no deployment has recorded a written reseller authorisation"
+    )
+    assert capability.reason == NOT_AUTHORIZED_REASON, (
+        f"{series}-series carrier {carrier!r} must refuse on the LEGAL gate — the thing "
+        f"that is actually missing — got {capability.reason!r}"
     )
     assert not str(capability.reason).startswith(PROVIDER_NOT_IMPLEMENTED_REASON), (
         f"{series}-series carrier {carrier!r} reported as an unsupported vendor"
