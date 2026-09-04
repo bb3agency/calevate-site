@@ -122,6 +122,20 @@ def _azure(monkeypatch: pytest.MonkeyPatch, *, deployments: str = "") -> None:
         monkeypatch.setattr(settings, field, value, raising=False)
 
 
+def _azure_leg_for_both_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment that can actually serve BOTH allow-listed models — the state a client
+    picking between them is in.
+
+    Every route test below that CHOOSES a model needs this, and needed it from the moment a
+    credential became one of the three offerability conditions: with no Azure leg configured
+    there is nothing to choose from, because the engine's passthrough runs the engine's own
+    bundled models rather than ours (see `test_with_no_azure_leg_no_model_is_offerable_on_
+    any_leg`). They used to run on `_no_azure`, which offered every Azure model on a
+    deployment with no Azure — the defect this file now pins.
+    """
+    _azure(monkeypatch, deployments=f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}")
+
+
 def _no_azure(monkeypatch: pytest.MonkeyPatch) -> None:
     """Local, CI and any staging without a resource — the arm where the model itself is
     what the engine is sent."""
@@ -168,20 +182,39 @@ def test_the_three_levels_are_the_whole_vocabulary() -> None:
 # --- 2. the menu and the kitchen ---------------------------------------------------------
 
 
-def test_with_no_azure_leg_every_azure_model_is_offerable_and_no_other_leg_is(
+def test_with_no_azure_leg_no_model_is_offerable_on_any_leg(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """There is no deployment indirection on this arm: `in_call_llm` sends the model itself,
-    so anything the Azure catalogue admits can genuinely run.
+    """**THE FOUNDER'S BUG, PINNED.** On a deployment holding no Azure resource, no Azure key
+    and no Azure deployment, the client picker showed `gpt-4o-mini` and `gpt-4.1-mini` under
+    a heading reading AZURE OPENAI, priced, selectable, one of them badged as the model
+    running now. The founder asked why, having configured no Azure account.
 
-    **AND THE OTHER TWO LEGS ARE NOT OFFERED, WHICH IS THE ASYMMETRY WORTH PINNING.** Their
-    credential lives in the ENGINE's own store, so "unconfigured" there is not a passthrough
-    — it is an agent that 401s on its first turn. `installed_llm_providers()` answers
-    Azure-only with nothing installed, which reproduces this repository's behaviour from
-    before there was a second leg: CI and every local run see exactly what they always saw.
+    **THIS TEST USED TO ASSERT THE OPPOSITE**, on the ground that `in_call_llm` sends the
+    model identifier straight to the engine so "anything the Azure catalogue admits can
+    genuinely run". The premise is true and the conclusion did not follow: the engine's
+    passthrough serves those two identifiers from its OWN bundled tier, where they are
+    OPENAI models and the Azure spellings are different wire values —
+    `gpt-4.1-mini`/`gpt-4o-mini` under OpenAI against `azure/gpt-4.1-mini`/`azure/gpt-4o-mini`
+    under Azure OpenAI (VERIFIED-VENDOR-DOCS,
+    `bolna-findings/mirror/pages/pricing/preferred-models.md:69-74`) — and are inside the
+    engine's flat per-minute rate rather than our per-token Azure card (same page, :12). So
+    the row named a vendor the call would not touch and quoted a price nobody would pay.
+
+    All three legs now answer one question: is a credential installed? None is, so nothing is
+    offerable — and every row says so rather than going missing (the test below).
     """
     _no_azure(monkeypatch)
-    assert offerable_models() == AZURE_OPENAI_MODELS
+    assert offerable_models() == frozenset()
+
+
+def test_an_azure_key_alone_does_not_offer_a_model_the_deployment_map_cannot_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the same fix: a credential is necessary and not sufficient on the one
+    leg that addresses a deployment id."""
+    _azure(monkeypatch)
+    assert offerable_models() == {AZURE_OPENAI_DEFAULT_MODEL}
     assert not offerable_models() & (OPENAI_DIRECT_MODELS | GOOGLE_DIRECT_MODELS)
 
 
@@ -496,7 +529,7 @@ async def test_an_agent_reports_its_model_and_which_level_chose_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The whole client-facing contract in one route, walked down all three rungs."""
-    _no_azure(monkeypatch)
+    _azure_leg_for_both_models(monkeypatch)
     tenant_id, agent_id, bearer = await _tenant()
     app = _app()
     headers = {"Authorization": f"Bearer {bearer}"}
@@ -671,7 +704,7 @@ async def test_an_operator_can_set_it_for_any_client_and_the_change_is_audited(
     attached, so it lands in the hash-chained ledger and its summary carries the VALUE — a
     model identifier is a platform constant, not anybody's personal data, and WHICH model
     was chosen is the whole of what an auditor reconstructing a bill needs."""
-    _no_azure(monkeypatch)
+    _azure_leg_for_both_models(monkeypatch)
     tenant_id, _agent_id, _bearer = await _tenant()
     operator = await _operator()
 
@@ -700,7 +733,7 @@ async def test_an_operator_can_set_it_for_any_client_and_the_change_is_audited(
 async def test_a_client_setting_their_own_default_is_audited(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    _no_azure(monkeypatch)
+    _azure_leg_for_both_models(monkeypatch)
     tenant_id, _agent_id, bearer = await _tenant()
     with caplog.at_level("INFO", logger="apps.api.compliance.audit"):
         caplog.clear()
@@ -773,7 +806,7 @@ async def test_the_agents_own_model_change_is_audited_with_the_model(
     that never named the field carries no model key at all — the third state, in the entry
     as well as on the wire.
     """
-    _no_azure(monkeypatch)
+    _azure_leg_for_both_models(monkeypatch)
     _tenant_id, agent_id, bearer = await _tenant()
     headers = {"Authorization": f"Bearer {bearer}"}
 
@@ -845,14 +878,16 @@ async def test_moving_the_account_default_reaches_the_agents_it_moves(
     `status = 'live'` would put an unfinished agent on the phone as a side effect of a
     settings change.
     """
-    _no_azure(monkeypatch)
+    _azure_leg_for_both_models(monkeypatch)
     tenant_id, agent_id, bearer = await _tenant()
     ref = await _published(tenant_id, agent_id)
     engine = get_engine()
     assert isinstance(engine, FakeEngine)
-    # Nobody has chosen, so on this arm the engine is sent no model at all and runs the
-    # platform's own — `chosen_llm_model` answers None for the platform rung.
-    assert await _engine_model(engine, ref) is None
+    # Nobody has chosen, so the platform's own model answers — and on a deployment WITH an
+    # Azure leg the wire value is that model's DEPLOYMENT ID, never its name (D-454). This
+    # used to run with no Azure leg at all and assert `None`, which stopped being a state a
+    # client can choose a model from once a credential became an offerability condition.
+    assert await _engine_model(engine, ref) == DEFAULT_DEPLOYMENT
 
     draft_id = await _second_agent(tenant_id)
     async with _client(_app()) as client:
@@ -863,7 +898,7 @@ async def test_moving_the_account_default_reaches_the_agents_it_moves(
         )
         assert put.status_code == 200, put.text
 
-    assert await _engine_model(engine, ref) == ALTERNATE_MODEL
+    assert await _engine_model(engine, ref) == ALTERNATE_DEPLOYMENT
     async with tenant_session(tenant_id) as session:
         draft = (
             await session.execute(
@@ -880,7 +915,7 @@ async def test_an_agent_with_its_own_model_is_left_where_it_is(
 ) -> None:
     """The account default moves the agents that INHERIT it and no others — the sentence
     both screens print, checked against the config the engine is actually holding."""
-    _no_azure(monkeypatch)
+    _azure_leg_for_both_models(monkeypatch)
     tenant_id, agent_id, bearer = await _tenant()
     ref = await _published(tenant_id, agent_id)
     headers = {"Authorization": f"Bearer {bearer}"}
@@ -901,7 +936,8 @@ async def test_an_agent_with_its_own_model_is_left_where_it_is(
 
     engine = get_engine()
     assert isinstance(engine, FakeEngine)
-    assert await _engine_model(engine, ref) == AZURE_OPENAI_DEFAULT_MODEL
+    # The agent's OWN choice, addressed as the deployment serving it.
+    assert await _engine_model(engine, ref) == DEFAULT_DEPLOYMENT
 
 
 async def test_re_sending_the_value_already_on_file_pushes_nothing(
@@ -911,7 +947,7 @@ async def test_re_sending_the_value_already_on_file_pushes_nothing(
     Save must not become a fleet-wide re-publish. The entry says `changed: false`, which
     is what tells an auditor reading a run of identical entries which one moved a phone
     line."""
-    _no_azure(monkeypatch)
+    _azure_leg_for_both_models(monkeypatch)
     tenant_id, agent_id, bearer = await _tenant()
     ref = await _published(tenant_id, agent_id)
     headers = {"Authorization": f"Bearer {bearer}"}

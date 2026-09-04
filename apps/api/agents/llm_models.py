@@ -72,12 +72,31 @@ others as `model=deployment` pairs. `deployment_for()` below is the only reader 
 either, so "which deployment serves this model" has one answer and one place.
 
 ON A DEPLOYMENT WITH NO AZURE CREDENTIALS AT ALL — local, CI, any staging without a
-resource — there is no deployment indirection: `in_call_llm` passes the model straight
-to the engine, so every Azure-catalogue model is addressable and the picker offers them
-all. That is not a special case bolted on; it is the same question ("can this deployment
-put this model on the wire?") answered for the other arm of the same switch. The other two
-legs have no such arm: their credential lives in the engine's own store and there is
-nothing to fall back to.
+resource — THE AZURE LEG IS NOT CONFIGURED, AND NO AZURE MODEL IS OFFERED. ⚠ **THIS
+PARAGRAPH SAID THE OPPOSITE UNTIL THE FOUNDER READ THEIR OWN SCREEN**: it said the model
+went to the engine verbatim, so "every Azure-catalogue model is addressable and the picker
+offers them all", and the picker duly presented `gpt-4o-mini` and `gpt-4.1-mini` under a
+heading reading AZURE OPENAI on a deployment holding no Azure resource, no Azure key and no
+Azure deployment. Two things are wrong with that, and only the second is about tidiness:
+
+* **IT IS A FALSE CLAIM ABOUT WHOSE MODEL ANSWERS THE CALL.** The engine's passthrough does
+  not reach Azure — it reaches the engine's own bundled tier, where those two identifiers
+  belong to OPENAI and the Azure spellings are different wire values entirely:
+  `gpt-4.1-mini`, `gpt-4o-mini` under **OpenAI** against `azure/gpt-4.1-mini`,
+  `azure/gpt-4o-mini` under **Azure OpenAI** (VERIFIED-VENDOR-DOCS,
+  `bolna-findings/mirror/pages/pricing/preferred-models.md:69-74`). So the row named a
+  vendor, a region and a DPA that the call would not be under, on the screen a client reads
+  to decide what their calls cost and where they run.
+* **IT PRICED A LEG WE ARE NOT ON.** Those bundled models are inside the engine's flat
+  per-minute rate (same page, :12), while the row quoted our Azure catalogue's per-token
+  figures. Hard rule 7 is that a price describes what actually happened.
+
+`in_call_llm`'s passthrough arm is UNCHANGED and is still what every local run, CI run and
+conformance fixture exercises: an account that has chosen nothing inherits the platform's
+model and the engine serves it from that bundled tier. What no longer happens is a client
+CHOOSING an Azure model on a deployment that has no Azure. The other two legs never had
+such an arm — their credential lives in the engine's own store — so all three legs now
+answer the same question the same way: is a credential installed?
 
 WHAT THIS MODULE STILL DOES NOT DO, on purpose: it holds no key, stores no attestation and
 reads no database. The ops console owns both (`apps/api/ops/`), and reaches this module
@@ -320,17 +339,24 @@ def installed_llm_providers() -> frozenset[LlmProvider]:
     filled in behave as they always have. The other two legs are simply not usable until
     somebody installs a key, which is the honest state and the one the picker should show.
 
-    ⚠ **AZURE IS PRESENT ON *BOTH* ARMS OF `azure_credentials()`, AND THAT IS NOT A BUG.**
-    A deployment with no Azure credentials at all has no Azure leg to configure — and on
-    that arm `in_call_llm` sends the model identifier straight through to the engine's own
-    default client, which is the passthrough every conformance fixture and every local run
-    exercises. So "can this platform run an Azure-catalogue model" is true either way, and
-    it is `_leg_is_addressable` below that knows the two arms need different questions
-    asked of them.
+    ⚠ **AZURE USED TO BE PRESENT ON *BOTH* ARMS OF `azure_credentials()`, AND THAT WAS THE
+    DEFECT THE FOUNDER FOUND.** The reasoning was that a deployment with no Azure
+    credentials sends the model identifier straight to the engine's own default client, so
+    "can this platform run an Azure-catalogue model" was true either way. It is not: that
+    passthrough reaches the engine's BUNDLED OpenAI tier, not Azure (the module docstring
+    carries the vendor page and the line numbers), so answering "yes, Azure" for it named a
+    vendor the call would never touch. One question, one answer, all three legs: a leg is
+    installed when this platform holds a credential for it.
+
+    `azure_credentials()` is the reader because it is the ONE definition of "the Azure leg
+    is configured" in this tree — all three fields or none, with a blank or whitespace value
+    counting as absent — and it is what `agents/service.in_call_llm` and the copilot already
+    branch on. A second notion of "installed" here is how the picker and the wire come to
+    disagree.
     """
     if _credential_reader is not None:
         return _credential_reader()
-    return frozenset({"azure_openai"})
+    return frozenset({"azure_openai"}) if azure_credentials() is not None else frozenset()
 
 
 def _leg_is_addressable(model: str) -> bool:
@@ -345,18 +371,21 @@ def _leg_is_addressable(model: str) -> bool:
       a model with no deployment would be quoted at its own price while every call ran a
       different deployment — a charge for something we did not deliver, invisible in a
       transcript and in an execution payload, and a hard-rule-7 defect rather than a
-      cosmetic one. On the no-credentials arm there is no deployment indirection at all, so
-      the model IS what the engine is sent and every catalogue model is addressable.
+      cosmetic one.
     * **OpenAI and Google address the model's own published name.** There is nothing to
       configure per model, so the whole question is whether the leg's credential is
       installed — and if it is, every model on it is addressable.
+
+    ⚠ **THE THIRD ARM IS GONE, AND ITS ABSENCE IS THE FIX.** This function used to answer
+    True for every Azure model when `azure_credentials()` was None, on the ground that the
+    engine's passthrough would carry the identifier. `installed_llm_providers()` now refuses
+    the leg outright on that arm — see its note and the module docstring for the vendor page
+    that settles where such a call actually lands — so the question never reaches here.
     """
     leg = leg_for_model(model)
     if leg.provider not in installed_llm_providers():
         return False
     if not leg.addresses_a_deployment:
-        return True
-    if azure_credentials() is None:
         return True
     return deployment_for(model) is not None
 
