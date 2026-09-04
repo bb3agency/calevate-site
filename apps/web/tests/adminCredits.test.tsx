@@ -146,6 +146,8 @@ function credits(over: Partial<Credits> = {}): Credits {
     balance_inr: "2500.00",
     is_low: false,
     low_balance_threshold_inr: "200.00",
+    granted_inr: "0.00",
+    paid_inr: "2500.00",
     entries: [entry()],
     payments: [payment()],
     ...over,

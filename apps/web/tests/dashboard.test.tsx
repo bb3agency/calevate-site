@@ -151,6 +151,8 @@ const USAGE: UsagePanel = {
   minutes_left: null,
   capped: false,
   spend_used_inr: "10159.00",
+  trial: { active: false, days_remaining: null, ends_at: null },
+  trial_absorbed_inr: "0.00",
   plan_tier: "managed",
   credit_balance_inr: null,
 };
@@ -166,6 +168,9 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
     balance_inr: "3400.00",
     is_low: false,
     low_balance_threshold_inr: "200.00",
+    granted_inr: "0.00",
+    paid_inr: "2500.00",
+    trial: null,
     outbound_stopped: false,
     runway: {
       basis: "projected",

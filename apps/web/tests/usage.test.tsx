@@ -94,6 +94,8 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     month_charges_inr: "15158.00",
     plan_tier: "managed",
     spend_used_inr: "15158.00",
+    trial: { active: false, days_remaining: null, ends_at: null },
+    trial_absorbed_inr: "0.00",
     ...over,
   };
 }

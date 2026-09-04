@@ -75,6 +75,9 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
     balance_inr: "1200.00",
     is_low: false,
     low_balance_threshold_inr: "200.00",
+    granted_inr: "0.00",
+    paid_inr: "2500.00",
+    trial: null,
     outbound_stopped: false,
     runway: {
       basis: "projected",

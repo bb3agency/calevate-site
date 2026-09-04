@@ -105,6 +105,14 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # `_validate_fields` to the 404 this census is about.
     "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {"fields": []},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {},
+    # D-538. The close demands a reason, so an empty body would 422 and this census would
+    # stop measuring the 404 it is about. The undo and the read take no body at all.
+    "POST /v1/admin/tenants/{tenant_id}/closure": {"reason": "Census"},
+    "DELETE /v1/admin/tenants/{tenant_id}/closure": None,
+    "GET /v1/admin/tenants/{tenant_id}/closure": None,
+    # An EMPTY body is the ordinary resend — "send it again to the address it has" — and
+    # it is the one that reaches the tenant lookup rather than the address validator.
+    "POST /v1/admin/tenants/{tenant_id}/invitations/{invitation_id}/resend": {},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft": {},
     "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         "provider": "airtel",
@@ -215,6 +223,7 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
     return {
         "POST /v1/admin/tenants/{tenant_id}/commercial-terms": f"loosen_spend_ceiling:{subject}",
         "POST /v1/admin/tenants/{tenant_id}/erasure": f"erase_tenant_data:{subject}",
+        "POST /v1/admin/tenants/{tenant_id}/closure": f"close_and_schedule_erasure:{subject}",
         "POST /v1/admin/tenants/{tenant_id}/credits/adjustments": f"adjust_credits:{subject}",
         "POST /v1/admin/tenants/{tenant_id}/credits/restatements": (
             "restate_topup:UTR-CENSUS-1:900.00"
