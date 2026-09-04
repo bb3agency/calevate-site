@@ -29,6 +29,7 @@ from calevate_shared.engine import (
     CostBreakdown,
     EngineCapabilities,
     ExecutionSnapshot,
+    HandoffSpec,
     KBSourceRef,
     ModelConfig,
     NumberSeries,
@@ -90,6 +91,7 @@ def _agent_config(
     agent_id: str = "0199a0b0-0000-7000-8000-000000000002",
     system_prompt: str = "You are the receptionist for Sunrise Clinic.",
     opening_line: str = "Idi AI assistant. Ee call record avutundi.",
+    handoff: HandoffSpec | None = None,
 ) -> AgentConfig:
     return AgentConfig(
         tenant_id="0199a0b0-0000-7000-8000-000000000001",
@@ -101,7 +103,19 @@ def _agent_config(
         opening_line=opening_line,
         models=_byok_models(engine),
         webhook_url="https://hooks.calevate.tech/v1/engine/bolna",
+        handoff=handoff,
     )
+
+
+#: The one person on duty, as a publish carries them (D-533). A number OUTSIDE every other
+#: fixture in this file, so a clause that finds it in a read-back found it because the
+#: publish carried it and not because something else in the suite put it there.
+HANDOFF = HandoffSpec(
+    destination_e164="+919000000042",
+    trigger="Hand over when the caller asks to speak to a person.",
+    spoken_line="Okay, I am putting you through to someone now.",
+    brief_url="https://hooks.calevate.tech/tools/v1/bolna/handoff",
+)
 
 
 #: Every hosting shape an engine may declare, DERIVED FROM THE TYPE rather than retyped —
@@ -1715,6 +1729,81 @@ async def test_a_declared_caller_id_reaches_the_dial_or_is_refused_by_name(
     assert getattr(refusal, "capability", None) == "caller_id", (
         "the refusal does not name `caller_id`, so a console cannot tell it apart from a "
         "transient engine failure and will offer the number again"
+    )
+
+
+async def test_a_declared_handoff_reaches_the_engine_or_is_refused_by_name(
+    engine: VoiceEngine,
+) -> None:
+    """THE PERSON A CALLER ASKS FOR IS EITHER ON THE ENGINE OR THE PUBLISH SAID NO (D-533).
+
+    Escalation is the one feature whose failure is invisible until the worst moment. A
+    client configures the people who take their calls, the screen says saved, the agent
+    goes live — and if the destination never reached the engine, the first anybody hears
+    of it is a caller asking for a human and being told, plausibly, to wait. So this
+    clause admits exactly two outcomes and no third.
+
+    1. `in_call_handoff=True` ⇒ the destination REACHES THE ENGINE. Asserted through the
+       read-back and never through the argument we passed: an adapter that echoed its own
+       input would agree with every caller and prove nothing, which is the property
+       `get_agent` was built for.
+    2. `in_call_handoff=False` ⇒ the publish is REFUSED, naming `in_call_handoff`, rather
+       than succeeding with the tool quietly dropped. Dropping is the dangerous direction,
+       and it is the direction an adapter falls into by accident — a `if cfg.handoff` that
+       is simply never written.
+    3. AND AN AGENT WITH NO HANDOFF READS BACK WITH NONE. This is the half that makes the
+       business-hours rule enforceable: outside every roster member's hours the publish
+       carries `handoff=None`, and "the agent cannot hand off" is a claim about the ENGINE
+       that only a read-back can settle. An adapter that added a tool on create and never
+       removed it on update would leave a mobile ringing at midnight with every screen in
+       this product reporting the roster closed.
+
+    Skipped where the engine does not host agents of ours at all: there is no agent record
+    to hang a tool on, `create_agent` refuses one step earlier on `agent_hosting`, and a
+    refusal naming the wrong capability is not evidence about this one.
+    """
+    caps = engine.capabilities
+    if not caps.hosts_agents():
+        pytest.skip("no agent record on this shape; `agent_hosting` covers it")
+
+    cfg = _agent_config(engine, handoff=HANDOFF)
+
+    if not caps.in_call_handoff:
+        refused: Exception | None = None
+        try:
+            await engine.create_agent(cfg)
+        except Exception as exc:
+            refused = exc
+        assert refused is not None, (
+            "this adapter declares no in-call handoff and published one anyway — a client "
+            "would see their handover list saved and live, and find out it was never "
+            "wired when a caller asked for a person"
+        )
+        assert getattr(refused, "capability", None) == "in_call_handoff", (
+            "the refusal does not name `in_call_handoff`, so a console cannot tell it "
+            "apart from a transient engine failure and will offer the control again"
+        )
+        return
+
+    ref = await engine.create_agent(cfg)
+    snapshot = await engine.get_agent(ref)
+    assert snapshot.handoff_destinations_readable, (
+        "this engine claims it can hand a caller to a person but cannot say who its "
+        "agents hand off to — so a destination added in the vendor's own console, to a "
+        "number nobody here chose, is invisible to every instrument in this repository"
+    )
+    assert HANDOFF.destination_e164 in snapshot.handoff_destinations, (
+        "the handoff destination did not reach the engine. The agent published fine and "
+        "will tell a caller it is putting them through to nobody"
+    )
+
+    # AND IT COMES BACK OFF, which is the hours rule (decision 4) as a property of the
+    # engine rather than of our intent.
+    await engine.update_agent(ref, _agent_config(engine, handoff=None))
+    closed = await engine.get_agent(ref)
+    assert closed.handoff_destinations == (), (
+        "an agent republished with no handoff still holds one on the engine, so a staff "
+        "mobile rings after hours however carefully the roster is enforced here"
     )
 
 

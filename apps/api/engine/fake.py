@@ -255,10 +255,15 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     caller_id=True,
     inbound_binding=True,
     transfer=True,
-    # Unchanged from the default for the reason the lines above give: this fixture's axis
-    # is SPEECH, and a second difference would stop a failing clause saying which one it
-    # measured.
-    in_call_handoff=True,
+    # **THE EXACT MIRROR OF BOLNA, AND THE ONLY PLACE THE PAIR IS PROVED DISTINGUISHABLE**
+    # (D-533). Bolna has no out-of-band transfer command and DOES have an in-call handoff
+    # tool; this shape is the opposite, and one of the two had to exist or the two fields
+    # would be a distinction nothing exercises. It is also the only profile that both
+    # HOSTS agents and refuses the handoff, which is what makes the refusal branch of
+    # `require_capability("in_call_handoff")` reachable at all: on the externally-deployed
+    # shape `create_agent` refuses one step earlier, on `agent_hosting`, so a suite with
+    # only that profile would report the handoff clause green having never run it.
+    in_call_handoff=False,
     webhook_auth="hmac",
 )
 
@@ -410,6 +415,12 @@ class FakeEngine:
         require_speech_leg("stt", engine=self, value=cfg.models.stt_model)
         require_speech_leg("llm", engine=self, value=cfg.models.llm_model)
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
+        # THE HANDOFF, ON BOTH WRITE PATHS FOR THE SAME REASON THE THREE LEGS ARE (D-533).
+        # An engine that refused a hunt list on create and accepted one on update would
+        # leave the second publish silently unwired, and update is the path a roster
+        # rotation uses on every hours boundary.
+        if cfg.handoff is not None:
+            require_capability("in_call_handoff", engine=self)
 
     def _assert_this_engine_hosts_agents(self) -> None:
         """Refuse the three agent-write/read methods when this instance says its agents
@@ -518,6 +529,18 @@ class FakeEngine:
             # distinction matters: `readable=False` would send D-41's dangling-handle
             # check looking for a field on an engine that has no such concept.
             knowledge_base_refs_readable=True,
+            # THE HANDOFF DESTINATION THIS ENGINE HOLDS (D-533), from the CURRENT config —
+            # so an agent republished after hours, with `handoff=None`, reads back handing
+            # off to nobody. That is what makes the hours enforcement testable as a
+            # property of the ENGINE rather than of our own intent: the roster is honoured
+            # by the tool not being there, and only a read-back can prove it is not.
+            handoff_destinations=(
+                (cfg.handoff.destination_e164,) if cfg.handoff is not None else ()
+            ),
+            # An engine that holds handoff tools KNOWS which it holds; the empty tuple
+            # above is a readable "none", never a "cannot tell" (`knowledge_base_refs_
+            # readable` makes the identical argument one field up).
+            handoff_destinations_readable=self.capabilities.in_call_handoff,
             # Only the legs this instance actually owns. A dictated leg reports None
             # rather than the engine's own product name (`AgentSnapshot.models`): the
             # engine's voice id is a vendor string, and a caller comparing it against our
