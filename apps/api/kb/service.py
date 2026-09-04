@@ -1324,10 +1324,11 @@ async def _publish_payload(
     and a link, because all three are `kb_sources` versions and this function is where they
     stop differing.
 
-    * **Typed text** renders the approved chunks to a PDF, exactly as before.
-    * **An uploaded document** is sent as the client's own bytes: the PDF they uploaded, or
-      the PDF a `DocumentConverter` made from their Word file or photograph. NOT re-rendered
-      — the artefact a human reviewed IS the document, and rendering a second one would
+    * **Typed text, and any upload the conversion lane read into text** (Word,
+      spreadsheets, CSV, plain text, photographs) renders the approved chunks to a PDF,
+      exactly as before. There is ONE text→PDF renderer in this repository and this is it.
+    * **An uploaded PDF** is sent as the client's own bytes and is NOT re-rendered: the
+      artefact a human reviewed IS the document, and rendering a second one from it would
       publish something nobody read.
     * **A link** sends no bytes at all; the engine scrapes the page itself.
 
@@ -1339,7 +1340,13 @@ async def _publish_payload(
     on a path that is about to spend minutes.
     """
     upload = await _upload_row(session, source_id)
-    if upload is None:
+    # A source whose text was EXTRACTED from a Word file, a spreadsheet or a photograph
+    # is rendered exactly as pasted text is: the conversion lane hands us prose, the prose
+    # is chunked into `kb_documents`, a human reads the chunks, and this renderer makes the
+    # document. So the only uploads that take a different road are the two the engine
+    # ingests natively — a PDF (the client's own bytes, reviewed as the file itself) and a
+    # link (the engine scrapes it).
+    if upload is None or upload["source_kind"] not in ("pdf", "url"):
         rendered = _render_document(
             title=name,
             chunks=await _approved_chunks_of(session, source_id, source_name=name),
@@ -1762,6 +1769,89 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         },
     )
     return int(version)
+
+
+
+async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> bool:
+    """Take one source off the agent: withdraw the vendor's copy and stop it being live.
+
+    Answers whether anything was attached to withdraw. It does NOT delete our row — the
+    caller decides that, because "stop answering from this" and "erase this" are different
+    requests and only one of them is reversible.
+
+    **IT IS THE MIRROR OF `publish_source` AND IT REUSES ITS PARTS DELIBERATELY.** Same
+    lock (so a withdrawal cannot interleave with a publish of the same agent), same claim
+    table, same T0 recompile at the end and in the same position — after the flip, because
+    `active_knowledge` reads what the flip decided. A second, simpler "just delete it" path
+    is exactly the drift the quality bar's one-way-per-problem rule refuses: it would be the
+    place that forgets to recompile the prompt, and the client's agent would go on reciting
+    a document nobody can find any more.
+
+    THE ENGINE FAILURE IS NOT SWALLOWED. If the vendor will not withdraw the copy, this
+    raises and our rows are unchanged — the alternative (delete ours, leave theirs) is an
+    orphan that still answers calls and that nothing of ours can ever address again.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT s.agent_id, a.engine_agent_ref FROM kb_sources s "
+                "JOIN agents a ON a.id = s.agent_id WHERE s.id = :sid"
+            ),
+            {"sid": source_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Knowledge source")
+    agent_id, engine_ref = UUID(str(row[0])), row[1]
+    await _lock_agent_publishes(session, agent_id=agent_id)
+
+    handle = await _engine_kb_ref(session, source_id)
+    withdrawn = False
+    if handle and engine_ref:
+        engine = get_engine()
+        require_capability("knowledge_base", engine=engine)
+        agent_config = await _publish_config(session, tenant_id, agent_id)
+        # `attached=None` — no listing was read here, so the detach is ATTEMPTED for real
+        # rather than skipped on an assumption. `_detach_superseded` treats a handle the
+        # engine no longer holds as its own postcondition, so a copy somebody already
+        # removed clears our record instead of failing.
+        await _detach_superseded(
+            session,
+            engine,
+            str(engine_ref),
+            source_id,
+            handle,
+            agent=agent_config,
+            attached=None,
+        )
+        withdrawn = True
+
+    await session.execute(
+        text(
+            "UPDATE kb_sources SET is_active = false, status = 'archived', updated_at = now() "
+            "WHERE id = :sid"
+        ),
+        {"sid": source_id},
+    )
+    await session.execute(
+        text("UPDATE kb_chunks SET is_active = false, updated_at = now() WHERE source_id = :sid"),
+        {"sid": source_id},
+    )
+    prompt_version = await recompile_t0(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        knowledge=await active_knowledge(session, agent_id=agent_id),
+    )
+    log.info(
+        "kb_withdrawn",
+        extra={
+            "source_id": str(source_id),
+            "detached": withdrawn,
+            "prompt_version": prompt_version,
+        },
+    )
+    return withdrawn
 
 
 #: The sparse retrieval key, built from the chunk's own text AND its English gloss. It MUST

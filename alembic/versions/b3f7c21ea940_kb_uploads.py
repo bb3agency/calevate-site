@@ -29,6 +29,26 @@ handed the engine, and how far along it got. `submitted_by`, the review state an
 flag are NOT duplicated here — they are `kb_sources`' columns and stay its columns.
 
 --------------------------------------------------------------------------------
+WHAT AN UPLOAD BECOMES, PER KIND — AND WHY IT IS NOT ONE ANSWER
+--------------------------------------------------------------------------------
+* **PDF** — the client's own bytes ARE the published document. `document_key` points at
+  them, and what a reviewer approves is the file itself, opened through
+  `GET /v1/kb/uploads/{id}/original`. Nothing re-renders it: rendering a second document
+  from a file a human already read would publish something nobody signed.
+* **URL** — the ENGINE scrapes the page. There is nothing of ours to store, and
+  `document_key` stays null.
+* **Everything else** (Word, plain text, CSV, spreadsheets, photographs) — the conversion
+  lane extracts TEXT (`calevate_shared.document_ingest`), the text is chunked into
+  `kb_documents` like any pasted knowledge, a human reads the chunks, and the EXISTING
+  renderer makes the PDF at publish. `document_key` stays null for these too: they reach
+  the engine by the path pasted text has always taken.
+
+  That is the conversion lane's decision and it is the right one: the alternative — a PDF
+  made straight from an unread upload — routes a client's own bytes around the approval
+  gate, and adds a second way to make a PDF beside `kb/pdf_render.py`, which the whole
+  publish path (digest guard, size ceiling, marker traceability) is already built around.
+
+--------------------------------------------------------------------------------
 WHAT IS DELIBERATELY NOT A COLUMN: `rag_id`
 --------------------------------------------------------------------------------
 The vendor mints two identifiers for one knowledge base — a `rag_id` from the create and a
@@ -44,9 +64,10 @@ strand. `ingest_status` says how far the vendor got; the handle stays where hand
 `ingest_status`, AND WHY THE VENDOR'S THREE WORDS ARE IN IT VERBATIM
 --------------------------------------------------------------------------------
     received               the bytes are ours; nothing has been asked of the engine yet
-    converting             a `DocumentConverter` is turning it into a PDF
-    conversion_unavailable no converter is installed for this kind on this deployment
-    conversion_failed      this object could not be converted (corrupt, encrypted, huge)
+    converting             a reader (or the OCR leg) is taking the text out of it
+    conversion_unavailable this deployment has no reader for that kind — an OPERATOR fixes
+                           it, so a sweep must not retry it for ever
+    conversion_failed      this object could not be read (corrupt, encrypted, empty, huge)
     processing             handed to the engine, indexing, no `vector_id` yet
     processed              indexed, `vector_id` recorded, referenced by the agent
     error                  the engine refused it, or we did
@@ -107,7 +128,11 @@ POLICY = "tenant_isolation"
 _GUC = "NULLIF(current_setting('app.tenant_id', true), '')"
 _OWN_TENANT_OR_OPS = f"(tenant_id = ({_GUC})::uuid OR {_GUC} IS NULL)"
 
-_KINDS = ("pdf", "url", "docx", "xlsx", "text", "image")
+#: THE UPLOAD LANE'S TWO NATIVE KINDS PLUS `document_ingest.CONVERTIBLE_KINDS`, which is
+#: the conversion lane's own vocabulary and is spelled here rather than imported for the
+#: reason every migration spells its constants: a migration is a snapshot of the schema on
+#: the day it ran, and a constant that moves later must not change what this file did.
+_KINDS = ("pdf", "url", "docx", "txt", "csv", "xlsx", "image")
 _STATUSES = (
     "received",
     "converting",
@@ -143,7 +168,13 @@ def upgrade() -> None:
         sa.Column("document_key", sa.Text(), nullable=True),
         sa.Column("document_bytes", sa.BigInteger(), nullable=True),
         sa.Column("document_sha256", sa.Text(), nullable=True),
-        sa.Column("converter", sa.Text(), nullable=True),
+        # HOW the text was obtained and BY WHAT. `parsed` means a deterministic reader
+        # took it out of a file format that stores text; `ocr` means a model looked at a
+        # photograph and told us what it thought it said. They are different epistemic
+        # states and the product treats them differently — OCR text is never auto-approved,
+        # whoever uploaded it (`calevate_shared.document_ingest.TextProvenance`).
+        sa.Column("text_provenance", sa.Text(), nullable=True),
+        sa.Column("extractor", sa.Text(), nullable=True),
         sa.Column("ingest_status", sa.Text(), nullable=False, server_default="received"),
         # A sentence for the CLIENT, never a stack or a key (hard rule 6).
         sa.Column("ingest_detail", sa.Text(), nullable=True),
@@ -172,6 +203,10 @@ def upgrade() -> None:
         sa.UniqueConstraint("source_id", name=op.f("uq_kb_uploads_source")),
         sa.CheckConstraint(f"source_kind IN {_KINDS!r}", name=op.f("ck_kb_uploads_kind")),
         sa.CheckConstraint(f"ingest_status IN {_STATUSES!r}", name=op.f("ck_kb_uploads_status")),
+        sa.CheckConstraint(
+            "text_provenance IS NULL OR text_provenance IN ('parsed', 'ocr')",
+            name=op.f("ck_kb_uploads_provenance"),
+        ),
         # A link has a URL and a file has a key. Stated in the schema because the two are
         # different products of the same table and a row that is neither is unserviceable:
         # nothing to upload and nothing to scrape.

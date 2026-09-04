@@ -27,6 +27,8 @@ from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
+from calevate_shared.document_ingest import CONVERTIBLE_KINDS
+
 from apps.api.kb.gloss import GLOSS_PENDING, GLOSS_STATES
 from apps.api.retrieval.embedding import EMBEDDING_DIMS
 
@@ -194,10 +196,12 @@ class KbChunk(PKMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
-#: `kb_uploads.source_kind` — the same closed set the conversion port declares
-#: (`calevate_shared.kb_conversion.SourceKind`), imported rather than retyped so a kind the
-#: converter can serve and a kind this table can hold are one vocabulary.
-UPLOAD_KINDS: tuple[str, ...] = ("pdf", "url", "docx", "xlsx", "text", "image")
+#: `kb_uploads.source_kind`. The two kinds the ENGINE takes natively plus the conversion
+#: lane's own `CONVERTIBLE_KINDS`, derived from it rather than retyped so a kind a reader
+#: can serve and a kind this column can hold are one vocabulary — the drift that would
+#: otherwise show up as an upload accepted at the door and unreadable in a worker.
+UPLOAD_NATIVE_KINDS: tuple[str, ...] = ("pdf", "url")
+UPLOAD_KINDS: tuple[str, ...] = (*UPLOAD_NATIVE_KINDS, *sorted(CONVERTIBLE_KINDS))
 
 #: How far an upload has got. The last three are the VENDOR's own words for a knowledge
 #: base, spelled the same way on purpose — the value a client reads is the value the engine
@@ -274,10 +278,13 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     #: Hex SHA-256 of the document bytes — the publisher's re-upload guard, the same key
     #: `KBSourceRef.content_sha256` carries for a rendered document.
     document_sha256: Mapped[str | None] = mapped_column(Text)
-    #: Which `DocumentConverter` produced `document_key`, when one did. Provenance, the
-    #: argument `kb_documents.gloss_model` makes: "machine-generated" is worth nothing
-    #: unless the row says which machine.
-    converter: Mapped[str | None] = mapped_column(Text)
+    #: HOW the text was obtained (`parsed` / `ocr`) and BY WHAT — the reader's name, or
+    #: the model id when a model read a photograph. Provenance, the argument
+    #: `kb_documents.gloss_model` makes: "machine-generated" is worth nothing unless the
+    #: row says which machine. `ocr` is also a GATE and not only a label: text a model read
+    #: off a photograph is never auto-approved, whoever uploaded it.
+    text_provenance: Mapped[str | None] = mapped_column(Text)
+    extractor: Mapped[str | None] = mapped_column(Text)
     ingest_status: Mapped[str] = mapped_column(String, nullable=False, server_default=UPLOAD_RECEIVED)
     #: A sentence written for the CLIENT and rendered beside the row. Never a key, a path
     #: or a stack (hard rule 6).

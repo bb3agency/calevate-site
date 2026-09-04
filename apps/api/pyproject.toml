@@ -35,6 +35,24 @@ dependencies = [
     # fpdf2's optional text-shaping extra, is deliberately NOT installed: shaping
     # corrupts the extracted text layer, measured in `kb/pdf_render.py`.
     "fpdf2>=2.8.8",
+    # Multipart form parsing, for the ONE multipart route this API has: a client
+    # uploading a knowledge document (`kb/routes.py`). Starlette imports it lazily and
+    # raises at request time without it, so it is a declared dependency rather than an
+    # extra — a missing parser would be a 500 on a route that looks mounted.
+    #
+    # THE FLOOR IS A SECURITY FLOOR, NOT A FEATURE ONE. CVE-2024-53981 (GHSA-pp6c-gr5w-3c5g,
+    # "Denial of Service via deformed `multipart/form-data` boundary") is fixed in 0.0.18:
+    # the parser skipped bytes before the first boundary and after the last ONE AT A TIME,
+    # emitting a log event for each, so a body padded with junk stalls the event loop —
+    # and on an ASGI app that is every tenant's request, not just the uploader's. Read
+    # 4 Sep 2026 at github.com/Kludex/python-multipart/security/advisories/
+    # GHSA-pp6c-gr5w-3c5g (evidence class VENDOR-PUBLISHED). 0.0.20 is the floor rather
+    # than 0.0.18 so a resolver cannot pick the exact patch release and nothing since.
+    #
+    # Lockfile diff read before adding (hard rule 9): python-multipart resolves with NO
+    # transitive dependencies of its own and declares no build or install hook; Apache-2.0;
+    # latest release 0.0.32 (pypi.org/pypi/python-multipart/json, read 4 Sep 2026).
+    "python-multipart>=0.0.20",
 ]
 
 # Virtual member: run from the repo root as `apps.api.main:app`, never installed.
