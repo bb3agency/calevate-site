@@ -184,6 +184,32 @@ describe("the account's default model", () => {
     expect(container.textContent).not.toContain("does not change when you switch");
   });
 
+  it("keeps the explainer's links inside the sentence, not beside it", async () => {
+    // THE FLEX-ITEM DEFECT, pinned where it was screenshotted. Each `<li>` here is a flex
+    // row, so every child of it is laid out as its own ITEM: with the sentence left loose
+    // beside the `<Link>`, the link became a ragged column of its own with `gap-2` on both
+    // sides and the paragraph read as broken text. The fix is structural — icon, then ONE
+    // span holding the whole sentence — so it is asserted on the structure and not on a
+    // class name, which is what a restyle would legitimately change.
+    await renderClientPage(settingsPage, settingsRoutes());
+
+    for (const [name, rest] of [
+      ["Usage tab of Credits & billing", "What you are actually billed for the month"],
+      ["Agents", "One agent can be put on a different model"],
+    ] as const) {
+      const link = await screen.findByRole("link", { name });
+      const wrapper = link.parentElement;
+      expect(wrapper?.tagName).toBe("SPAN");
+      // The rest of the sentence is INSIDE that same span — the property that makes the
+      // link inline text again. A wrapper holding only the link would satisfy the tag
+      // check above and still leave the sentence split across flex items.
+      expect(wrapper?.textContent).toContain(rest);
+      // ...and the flex row itself is down to two children: the icon and that span.
+      expect(wrapper?.parentElement?.tagName).toBe("LI");
+      expect(wrapper?.parentElement?.childElementCount).toBe(2);
+    }
+  });
+
   it("is a skeleton while the read is in flight, and names no model", async () => {
     const { container } = await renderClientPage(
       settingsPage,
