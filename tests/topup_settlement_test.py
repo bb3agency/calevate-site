@@ -233,9 +233,7 @@ async def test_the_sweep_pages_once_and_returns_its_counts(
     job reads the same rows the scan does and raises exactly one page.
     """
     tenant_id = await _tenant()
-    await _attempt(
-        tenant_id, order_id="order_swept", age=timedelta(hours=2), now=datetime.now(UTC)
-    )
+    await _attempt(tenant_id, order_id="order_swept", age=timedelta(hours=2), now=datetime.now(UTC))
     raised: list[tuple[str, str]] = []
     monkeypatch.setattr(
         topup_settlement, "alert", lambda stage, code, **kw: raised.append((stage, code))
