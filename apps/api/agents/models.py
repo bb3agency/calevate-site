@@ -5,6 +5,7 @@ agents) use use_alter so Alembic emits them as separate ALTERs after both tables
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal, get_args
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -566,6 +568,22 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
     dlt_status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     purpose: Mapped[str | None] = mapped_column(Text)
+    # D-535, migration `d1e58c7a94f2`. Did WE buy this number from the voice engine, or is
+    # it the client's own connection on their own carrier account? The one column that
+    # separates the two commercial models, and the one every release path reads: releasing
+    # at the vendor stops a monthly charge for the first and does nothing for the second.
+    engine_owned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    # The VENDOR's own quote, in the vendor's own currency. The rupee lives in
+    # `usage_events.unit_cost_paid`, struck each month at that month's rate; storing a
+    # rupee here would freeze one exchange rate into a recurring charge. NUMERIC in both,
+    # never float (hard rule 7).
+    purchase_price_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    monthly_rental_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    # Given back to the vendor at this instant. The row SURVIVES a release — it is what a
+    # closed month's cost query still needs — and this is what stops the meter.
+    released_at: Mapped[datetime | None]
 
 
 class AgentHandoffMember(PKMixin, TimestampMixin, Base):
