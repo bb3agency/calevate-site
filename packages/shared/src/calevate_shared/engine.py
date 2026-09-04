@@ -3257,11 +3257,16 @@ class AvailableNumber(BaseModel):
 class NumberSpec(BaseModel):
     """WHICH number to buy — not "something like this" (D-535).
 
-    `e164` IS THE LOAD-BEARING FIELD AND IT IS OPTIONAL ONLY FOR ENGINES THAT ALLOCATE.
-    Bolna requires it (`buy.md:74-77`) and `BolnaEngine.provision_number` refuses a spec
-    without one, by name, rather than picking a number for us. It stays optional on the
-    model because the Protocol serves engines that hand out a number from a pool, and a
-    required field would make this type unusable for them.
+    **`e164` IS THE LOAD-BEARING FIELD, AND EVERY ADAPTER MUST REFUSE A SPEC WITHOUT ONE**
+    — the conformance suite has a clause for it. Bolna requires it (`buy.md:74-77`), and
+    an adapter that invented one would be this repository buying a number nobody chose,
+    with real money.
+
+    SO WHY IS IT OPTIONAL ON THE MODEL? Because the refusal has to be the ADAPTER's, in
+    its own words, with a remediation a person can act on ("search first, then buy the one
+    you picked"). A required Pydantic field would make the same mistake a 422 raised at
+    the type boundary, before any adapter is reached — a validation error naming a field,
+    on a request that spends money, where what the operator needs is the workflow.
 
     `series` remains the compliance-bearing field: it is what the campaign launch gate
     matches a campaign's classification against (DATA-MODEL §6), and an engine that

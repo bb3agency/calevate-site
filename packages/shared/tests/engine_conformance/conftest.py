@@ -253,6 +253,11 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     knowledge: dict[str, dict[str, Any]] = {}
     reads: dict[str, int] = {}
 
+    #: Numbers this stub has SOLD, `phone_number -> id`. Stateful for the reason the
+    #: agent map is: a stub that forgot a purchase could not fail a double-buy or an
+    #: unreleased rental, which are the two failures that cost money (D-535).
+    bought: dict[str, str] = {}
+
     def agent_id_for(body: dict[str, Any]) -> str:
         config = body.get("agent_config") or {}
         name = str(config.get("agent_name") or "")
@@ -430,6 +435,105 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                 assert caller_id.startswith("+"), "E.164 only"
                 dialled_from[execution_id] = caller_id
             return httpx.Response(200, json={"execution_id": execution_id})
+        if path == "/phone-numbers/search" and request.method == "GET":
+            # QUERY PARAMETERS, not path ones. Their own OpenAPI block declares all three
+            # `in: path` on a route with no path template (`search.md:38-70`), which is
+            # not expressible; the adapter sends them as query and says so. Asserted here
+            # so an adapter that silently stopped sending `country` — the one required
+            # parameter — cannot pass this suite.
+            assert request.url.params.get("country") in {"IN", "US"}, (
+                "`country` is required on the number search"
+            )
+            # A BARE ARRAY: `AvailablePhoneNumbersList` is `type: array` of
+            # `AvailablePhoneNumber` (`search.md:79-83`), which `_request` wraps.
+            # `price` is "in USD" HERE and "in cents" on buy — the three-unit fact the
+            # adapter reads at each documented site. A stub that used one unit everywhere
+            # would make the whole class of error invisible.
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "region": "Hyderabad",
+                        "friendly_name": None,
+                        "locality": None,
+                        "phone_number": f"+9180000000{index}",
+                        "provider": request.url.params.get("provider") or "plivo",
+                        "price": 5,
+                    }
+                    for index in (1, 2)
+                    if f"+9180000000{index}" not in bought
+                ],
+            )
+        if path == "/phone-numbers/buy" and request.method == "POST":
+            body = json.loads(request.content or b"{}")
+            # BOTH REQUIRED, by their own schema (`buy.md:74-77`). A stub that accepted a
+            # body without `phone_number` would let an adapter that "provisions something
+            # like this spec" pass — which is exactly the shape the port could not express
+            # before D-535.
+            assert body.get("country") in {"IN", "US"}, "`country` is required"
+            assert str(body.get("phone_number", "")).startswith("+"), (
+                "`phone_number` is required and is an exact E.164"
+            )
+            number = body["phone_number"]
+            # STATEFUL, so a second buy of the same number is observable — the vendor has
+            # no idempotency key and a repeat really would charge twice.
+            handle = f"{len(bought) + 1:032x}"
+            bought[number] = handle
+            return httpx.Response(
+                200,
+                json={
+                    # A DASHED UUID here and BARE HEX on `get_all` — the vendor's own
+                    # contradiction, reproduced rather than smoothed over, because the
+                    # adapter's contract is that it asserts nothing about this format.
+                    "id": handle,
+                    "agent_id": None,
+                    "bolna_owned": True,
+                    "deleted": False,
+                    "renewal": True,
+                    "payment_uuid": "de36c363-6a2d-4e83-ba5b-fbb8d0ac8c32",
+                    "phone_number": number,
+                    # "in cents" (`buy.md:113-117`). 500 cents = $5.
+                    "price": 500,
+                    "telephony_provider": "plivo",
+                    "telephony_sid": "1980000001",
+                    "created_at": "2026-09-04T20:51:49.468787",
+                    "updated_at": "2026-09-04T20:51:49.468796",
+                },
+            )
+        if path == "/phone-numbers/all" and request.method == "GET":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": handle,
+                        "phone_number": number,
+                        # A HUMAN-FORMATTED PRICE STRING, their third unit for one figure
+                        # (`get_all.md:103-106`).
+                        "price": "$5.0",
+                        "telephony_provider": "plivo",
+                        "rented": True,
+                        "created_at": "2026-09-04T20:51:49Z",
+                        "updated_at": "2026-09-04T20:51:49Z",
+                    }
+                    for number, handle in bought.items()
+                ],
+            )
+        if path.startswith("/phone-numbers/") and request.method == "DELETE":
+            handle = path.rsplit("/", 1)[-1]
+            # A 404 ON A REPEAT, for `DELETE /v2/agent/` reason: it proves OUR handling of
+            # absent-is-success and proves nothing about Bolna, whose docs describe 200
+            # and 400 and say nothing about a second delete.
+            for number, held in list(bought.items()):
+                if held == handle:
+                    del bought[number]
+                    return httpx.Response(
+                        200,
+                        json={
+                            "message": "The phone number has been removed from your account",
+                            "state": "deleted",
+                        },
+                    )
+            return httpx.Response(404, json={"error": "unknown phone number"})
         if path == "/inbound/setup" and request.method == "POST":
             # `{agent_id, phone_number_id}`, both required by their own OpenAPI block
             # (`api-reference/inbound/agent.md`). A missing key is a 400 here because it is

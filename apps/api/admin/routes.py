@@ -1351,6 +1351,21 @@ class ProvisionNumberIn(BaseModel):
     # record, never ours to choose: the account is theirs (Model B).
     provider: str | None = Field(default=None, max_length=60)
     purpose: str | None = Field(default=None, max_length=120)
+    # **THE FIELD WHOSE ABSENCE BROKE EVERY INBOUND PUBLISH (GAP-1, D-535).** The voice
+    # platform addresses a number by its OWN handle, not by the E.164, and
+    # `phone_numbers.engine_number_ref` had no writer anywhere in production code: this
+    # body is `extra="forbid"`, so an operator who knew the handle could not send it, and
+    # `route_inbound_numbers` then refused every bind with `engine_number_not_linked` —
+    # one CORE_LOGIC alarm per number, on a publish that reported success.
+    #
+    # OPTIONAL, because it is genuinely unknown when a client's own connection is first
+    # recorded: the handle exists only once the number has been introduced to the voice
+    # platform account, which is a later step. `POST /v1/admin/numbers/tenants/{tenant_id}
+    # /{number_id}/engine-ref` is where it lands then, and it routes in the same request.
+    #
+    # NOT VALIDATED beyond a length: the vendor types this field three different ways
+    # across its own pages, so a format check would refuse the value the vendor issued.
+    engine_number_ref: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class NumberCreatedOut(BaseModel):
@@ -1543,6 +1558,7 @@ async def provision_number(
             agent_id=payload.agent_id,
             provider=payload.provider,
             purpose=payload.purpose,
+            engine_number_ref=payload.engine_number_ref,
         )
     await write_audit(
         session,

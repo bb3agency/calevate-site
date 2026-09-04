@@ -443,6 +443,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "first_party_auth_enabled": AppliesRule(LIVE),
     "payment_provider": AppliesRule(LIVE),  # billing/payments.payment_capability()
     "number_provider": AppliesRule(LIVE),  # campaigns/provisioning, per call
+    # Read per request by `campaigns/provisioning.number_provisioning_capability()`;
+    # nothing caches it, so an operator who lands the VNO paperwork opens the path
+    # without a restart — and one who has to withdraw it closes it just as fast.
+    "number_resale_authorization": AppliesRule(LIVE),
     "razorpay_key_id": AppliesRule(LIVE),  # billing/payments, per capability read
     "gst_supplier_legal_name": AppliesRule(LIVE),  # billing/gst.supplier_identity()
     "gst_supplier_address": AppliesRule(LIVE),

@@ -345,10 +345,29 @@ class CampaignSummaryOut(Strict):
 
 
 class NumberOut(Strict):
+    """One number this account may dial from, or be answered on.
+
+    **`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-535).** A number we
+    bought for them is one they FORWARD their published number to — "point your existing
+    phone at this number" — and their own connection is one they already publish. Those
+    are opposite instructions, and a screen that cannot tell them apart gives the wrong
+    one to somebody about to reconfigure their clinic's phone.
+
+    NO COST FIELD, deliberately. What a number costs Calevate is on the admin-realm view
+    (`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed
+    through or an add-on is a pricing decision nobody has taken (OPERATIONS §2 gate 26),
+    and publishing our cost on a client's screen would take it for them.
+    """
+
     id: UUID
     e164: str
     series: str
     dlt_status: str
+    #: Did Calevate supply this number, or did the client bring their own connection?
+    supplied_by_us: bool = False
+    #: Can the voice platform actually route calls on this number to an agent? False means
+    #: an agent set to answer it will not — the state GAP-1 left every number in.
+    answerable: bool = False
 
 
 class TemplateOut(Strict):
@@ -391,10 +410,28 @@ async def list_numbers(
 ) -> list[NumberOut]:
     rows = (
         await session.execute(
-            text("SELECT id, e164, series, dlt_status FROM phone_numbers ORDER BY created_at")
+            text(
+                "SELECT id, e164, series, dlt_status, engine_owned, "
+                "engine_number_ref IS NOT NULL FROM phone_numbers "
+                # A released number is not one this account may dial from or be answered
+                # on: the vendor has it back. The ROW survives because a closed month's
+                # costs still refer to it, which is exactly why this list has to exclude
+                # it rather than relying on the row being gone.
+                "WHERE released_at IS NULL ORDER BY created_at"
+            )
         )
     ).all()
-    return [NumberOut(id=r[0], e164=r[1], series=r[2], dlt_status=r[3]) for r in rows]
+    return [
+        NumberOut(
+            id=r[0],
+            e164=r[1],
+            series=r[2],
+            dlt_status=r[3],
+            supplied_by_us=r[4],
+            answerable=r[5],
+        )
+        for r in rows
+    ]
 
 
 @router.get(

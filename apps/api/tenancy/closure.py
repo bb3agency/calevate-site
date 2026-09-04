@@ -112,13 +112,22 @@ THE UNDO, AND THE DECISION IT REVERSES
 ═══════════════════════════════════════════════════════════════════════════════════════
 
 `admin/routes.py::_LIFECYCLE_FROM` listed no source for `churned` and its docstring said
-re-opening a client is a new tenant and a new agreement. **D-536 reverses that for the
-grace window only**, and the reversal is not a softening — it is a relocation of the
+re-opening a client is a new tenant and a new agreement. **D-536 reverses that position for
+the grace window**, and the reversal is not a softening — it is a relocation of the
 irreversibility onto the act that actually destroys something. Before: an operator could
 end a client relationship with one click and could not take it back, while nothing had yet
 been deleted. After: the click is reversible for as long as nothing has been deleted, and
 becomes irreversible at the instant something has (`deleted_at IS NOT NULL`, refused by
 `restore_account` by name).
+
+**`_LIFECYCLE_FROM` ITSELF IS UNCHANGED, AND THAT IS PART OF THE DESIGN.** The manual
+status switch still cannot leave `churned`; `restore_account` is the only exit, and it
+clears all four closure columns in the same statement that moves the status. Widening that
+table instead would have let the status screen move a CLOSED account to `active` while
+`closed_at` was still set — a row the database refuses outright
+(`ck_organizations_closed_implies_churned`) — so the operator would be handed a 500 for
+pressing a button the console offered them. One exit, which cannot leave the row in a
+state the CHECKs forbid.
 
 `restore_account` therefore reads `deleted_at` and not a clock. A sweep that has already
 filed the erasure but not yet run it is the one genuinely racy state, and it is settled by

@@ -25,6 +25,7 @@ from calevate_shared.engine import (
     WEBHOOK_AUTH_BY_ENGINE,
     AgentConfig,
     AgentHosting,
+    AvailableNumber,
     CallContext,
     CostBreakdown,
     EngineCapabilities,
@@ -32,6 +33,7 @@ from calevate_shared.engine import (
     HandoffSpec,
     KBSourceRef,
     ModelConfig,
+    NumberSearch,
     NumberSeries,
     NumberSpec,
     PostureLeg,
@@ -1625,7 +1627,14 @@ async def test_number_provisioning_matches_the_declared_series(engine: VoiceEngi
     for series in NUMBER_SERIES_VALUES:
         outcome: Exception | ProvisionedNumber
         try:
-            outcome = await engine.provision_number(NumberSpec(series=series, purpose="probe"))
+            # THE EXACT NUMBER IS PART OF THE REQUEST NOW (D-535). The vendor's buy
+            # endpoint requires it and has no "one like this" mode, so a spec without one
+            # is a refusal on every real adapter — which is a different clause (below),
+            # not this one. Here the question is only whether the DECLARED series can be
+            # bought at all.
+            outcome = await engine.provision_number(
+                NumberSpec(series=series, e164="+918000000001", purpose="probe")
+            )
         except Exception as exc:
             outcome = exc
         if caps.provisions(series):
@@ -1642,6 +1651,79 @@ async def test_number_provisioning_matches_the_declared_series(engine: VoiceEngi
             f"this adapter declares it cannot provision the {series} series and returned "
             "a number anyway, which would be recorded as dialable"
         )
+
+
+async def test_a_purchase_without_a_chosen_number_is_refused(engine: VoiceEngine) -> None:
+    """search -> pick -> buy, and the middle step is not optional (D-535).
+
+    The vendor's own buy schema requires `phone_number` as well as `country`
+    (`bolna-findings/mirror/pages/api-reference/phone-numbers/buy.md:74-77`), so an
+    adapter handed a spec with no `e164` has exactly two honest options: refuse, or pick
+    a number for us. The second is this repository inventing a purchase nobody chose —
+    with real money — so the contract is that it refuses.
+
+    An adapter that provisions nothing refuses for its own reason and satisfies this
+    clause the same way; what must not happen is a `ProvisionedNumber` coming back.
+    """
+    outcome: Exception | ProvisionedNumber
+    try:
+        outcome = await engine.provision_number(NumberSpec(series="standard", purpose="probe"))
+    except Exception as exc:
+        outcome = exc
+    assert isinstance(outcome, Exception), (
+        "this adapter bought a number nobody named — the vendor requires the exact E.164 "
+        "and the only honest source of one is a search result somebody picked"
+    )
+
+
+async def test_searching_is_offered_exactly_where_buying_is(engine: VoiceEngine) -> None:
+    """A search that works beside a buy that refuses is a screen that teaches a lie.
+
+    Both hang off the same descriptor field (`number_series`), so an adapter cannot be
+    able to browse a vendor's inventory and unable to buy from it, or the other way round.
+    An engine that sells nothing must refuse the SEARCH by name too, rather than answering
+    an empty list — "no inventory today" and "this platform sells no numbers" send an
+    operator at completely different problems.
+    """
+    caps = engine.capabilities
+    outcome: Exception | list[AvailableNumber]
+    try:
+        outcome = list(await engine.search_numbers(NumberSearch(country="IN")))
+    except Exception as exc:
+        outcome = exc
+    if caps.number_series:
+        assert isinstance(outcome, list), (
+            "this adapter sells numbers and could not be asked what is available, so "
+            "nothing can ever name one to buy"
+        )
+        for offer in outcome:
+            assert offer.e164.startswith("+"), "E.164 only"
+        return
+    assert isinstance(outcome, Exception), (
+        "this adapter declares it sells no numbers and answered a search anyway — an "
+        "operator would be offered an inventory that cannot be bought from"
+    )
+
+
+async def test_a_bought_number_can_be_given_back(engine: VoiceEngine) -> None:
+    """The other end of a recurring cost, and absent-is-success on the second call.
+
+    A number bought and never released renews for ever against our wallet, so `release`
+    is not optional symmetry — it is what makes `provision_number` safe to call at all.
+    Releasing twice must succeed: the postcondition is "we are not billed for this", which
+    a number the engine no longer holds already satisfies, and an offboarding step that
+    raises on "there was nothing to undo" is one somebody abandons half done.
+    """
+    caps = engine.capabilities
+    if not caps.number_series:
+        with pytest.raises(Exception):  # noqa: B017 - any refusal; the clause above names it
+            await engine.release_number(LINKED_NUMBER)
+        return
+    bought = await engine.provision_number(
+        NumberSpec(series="standard", e164="+918000000002", purpose="release-probe")
+    )
+    await engine.release_number(bought)
+    await engine.release_number(bought)
 
 
 #: The header a conformance dial asks to present. A 160-series-shaped Indian number,

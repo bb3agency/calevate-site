@@ -1376,6 +1376,30 @@ class Settings(BaseSettings):
     # looking configured; that module's comment carries the evidence for each name,
     # including why `twilio` is deliberately not one of them.
     number_provider: str | None = Field(default=None, max_length=64)
+    # **THE GO-LIVE GATE ON MODEL A, AND IT IS NOT A FEATURE FLAG (D-535).**
+    #
+    # The founder decided on 4 Sep 2026 that Calevate buys Indian DIDs through the voice
+    # engine and a client forwards their own published number to one. The CODE for that is
+    # built. Whether it is LAWFUL for this business to do it is a different fact, and the
+    # playbook's condition on the decision is not waived, it is sequenced: "If you ever do
+    # it: incorporate first, get written VNO/reseller status from a licensed operator"
+    # (`docs/legal/LEGAL-OPS-PLAYBOOK.md:621`; stop-list items 1 and 10 at `:600-614`).
+    # Neither exists today.
+    #
+    # So this holds the REFERENCE of that written status — an authorisation number, an
+    # agreement id, whatever the licensed operator issues — and its presence is what opens
+    # the purchase path. It is deliberately a free-text reference and NOT a boolean: a
+    # `True` is a checkbox somebody ticks, and what an auditor and the next reader need to
+    # see is WHICH instrument was relied on. It is also deliberately not a secret: it names
+    # a document, it is printed back to an operator on the numbers screen, and
+    # `platform_config.is_secret_key` must not encrypt it out of view.
+    #
+    # UNSET IS THE ONLY SAFE DEFAULT and is the state of every deployment today: the
+    # purchase route refuses with `number_resale_not_authorized`, the search route refuses
+    # with it, and the screen says which document is missing. OPERATIONS §2 gate 45 is what
+    # fills it in. Nothing about a client's OWN connection (Model B) is affected — that
+    # path never touches this.
+    number_resale_authorization: str | None = Field(default=None, max_length=200)
     # The PUBLIC key id, handed to the browser's checkout. Unset = the top-up intent
     # answers "payments not configured" rather than returning an unusable intent.
     razorpay_key_id: str | None = Field(default=None, max_length=128)

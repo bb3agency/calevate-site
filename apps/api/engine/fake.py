@@ -765,17 +765,21 @@ class FakeEngine:
                     "does not supply them."
                 ),
             )
-        # THE NUMBER THE CALLER NAMED, WHERE THEY NAMED ONE (D-535). The real vendor's buy
-        # endpoint requires an exact E.164 and has no "give me one like this" mode, so a
-        # fake that always allocated its own would let an adapter that ignores `spec.e164`
-        # pass the conformance clause. The synthesised branch survives for engines that DO
-        # allocate from a pool, which the Protocol still serves.
-        if spec.e164:
-            e164 = spec.e164
-        else:
-            e164 = "+9111" + self._stable_id("n", spec.series, spec.purpose or "")[-8:].replace(
-                "abcdef", "123456"
+        # THE NUMBER THE CALLER NAMED, AND NOTHING ELSE (D-535). This used to synthesise
+        # one from the spec, which was the fake being CHEERFUL where the real adapter
+        # raises — the exact divergence `DEFAULT_FAKE_CAPABILITIES` exists to forbid. The
+        # vendor's buy endpoint requires an exact E.164 and has no "one like this" mode, so
+        # a purchase nobody chose is a purchase this platform invented, with real money.
+        if not spec.e164:
+            raise ProblemError.business_rule(
+                "number_not_chosen",
+                "A number must be chosen from the search results before it can be bought.",
+                remediation=(
+                    "Search for available numbers first, then buy the one you picked. The "
+                    "platform buys a named number, never 'one like this'."
+                ),
             )
+        e164 = spec.e164
         digits = "".join(c for c in e164 if c.isdigit())[:12].ljust(12, "0")
         bought = ProvisionedNumber(
             e164=f"+{digits}",

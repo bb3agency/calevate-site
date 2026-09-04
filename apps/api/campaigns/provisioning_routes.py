@@ -1,24 +1,33 @@
-"""Asking Calevate for a phone number — and the answer, which is always no.
+"""Asking Calevate for a phone number from the client console — still no, for a new reason.
 
-**We do not supply, sell, rent or provision telephone numbers** (Model B —
-`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9, published Terms clause 3, Acceptable Use §2.1).
-The client takes the connection on their own operator account, passes that operator's
-KYC, stays the subscriber of record, and hands us credentials they can withdraw. So this
-route refuses every request, and it exists anyway for two reasons: clients ask this
-question — it is the most common Model A request there is (`:266`) — and an API that
-answers it with a 404 teaches them nothing, while this one names the three carriers and
-says what to send back. The second reason is the KYC gate in front of it, which is a
-compliance control that must be live and exercised whichever way the number is bought.
+**MODEL A IS ADOPTED ON THE INBOUND LEG (D-535) AND THIS ROUTE STILL REFUSES.** Calevate
+now buys Indian DIDs through the voice engine and a client forwards their own published
+number to one — but that supply is **operator-led**, arranged during onboarding, and the
+playbook names the self-serve shape specifically as the unsafe one: *"A future 'we
+provision the number for self-serve' tier is Model A and is unsafe for a proprietor"*
+(`docs/legal/LEGAL-OPS-PLAYBOOK.md:621`). So the refusal survives the decision.
+
+**WHAT CHANGED IS THAT THE OLD COPY WAS NO LONGER TRUE.** It told the client "Calevate
+does not sell, rent or provision telephone numbers" and sent them to a carrier. Half of
+that is now false, and a false refusal is worse than a bare 404: a client repeats it to
+their own operator and to their accountant. The new answer names both real routes — their
+own connection, or ours arranged with their account manager — and promises no price and no
+timeline, because neither is a fact this repository holds.
+
+The KYC gate in front of it is unchanged and matters MORE under Model A, not less: the
+connection is taken in our name, so the subscriber of record is us.
 
 **POST rather than GET, and the request body carries the series and the city**, because
-those are the two facts that decide what the client must go and buy — the series decides
-what the connection may lawfully dial, and Exotel-class operators require the KYC address
-proof to match the city the number is issued in. `org:manage` is the permission because
-this is the shape of a request that spends money, which also makes D-22 refuse it to an
-impersonating admin.
+those are the two facts that decide what a client must go and buy if they take the
+self-supply route — the series decides what the connection may lawfully dial, and
+Exotel-class operators require the KYC address proof to match the city the number is
+issued in. `org:manage` is the permission because this is the shape of a request that
+spends money, which also makes D-22 refuse it to an impersonating admin.
 
 **It writes nothing on either refusal.** No allocation, no intent row, no reservation.
-There is no half-provisioned state to reconcile because there is no state.
+There is no half-provisioned state to reconcile because there is no state. The route that
+DOES spend money is admin-realm (`apps/api/admin/number_routes.py`) and takes the written
+authorisation gate.
 """
 
 from __future__ import annotations
@@ -31,8 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns.provisioning import (
     assert_kyc_verified_for_provisioning,
-    number_provisioning_capability,
-    provisioning_not_configured,
+    self_serve_purchase_refused,
 )
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
@@ -79,18 +87,18 @@ class NumberPurchaseIn(BaseModel):
     # without declaring what it is — and there is no self-serve success body to add.
     response_model=None,
     openapi_extra=permission_meta("org:manage"),
-    summary="Ask us for a phone number — always refused; Calevate does not supply numbers",
+    summary="Ask us for a phone number — always refused here; numbers are arranged by an operator",
     description=(
-        "Asks Calevate for a phone number, and is always refused, because Calevate "
-        "neither supplies nor resells telephone numbers: the client takes the connection "
-        "in their own name on their own account with an Indian operator (Exotel, Plivo "
-        "or Vobiz), remains the subscriber of record, and issues Calevate revocable API "
-        "credentials for it. Refused with `kyc_not_verified` until Calevate has verified "
-        "the business's identity — Indian telecom rules require the subscriber of a "
-        "connection to be identified, the operator will ask for the same documents, and "
-        "it applies to every account on every plan. A verified account is then refused "
-        "with `number_provisioning_not_configured`, whose remediation names the carriers "
-        "and what to send back. Neither refusal writes anything."
+        "Asks Calevate for a phone number, and is always refused from the client "
+        "console: a number is arranged with the account manager as part of setting an "
+        "agent up, never bought self-serve. Refused with `kyc_not_verified` until "
+        "Calevate has verified the business's identity — Indian telecom rules require "
+        "the subscriber of a connection to be identified, an operator will ask for the "
+        "same documents, and it applies to every account on every plan. A verified "
+        "account is then refused with `number_purchase_is_operator_led`, whose "
+        "remediation names both routes forward: talk to us, or bring a connection taken "
+        "in the client's own name with an Indian operator. Neither refusal writes "
+        "anything."
     ),
 )
 async def purchase_number(
@@ -110,10 +118,16 @@ async def purchase_number(
     because they are the two facts a client needs settled before they walk into an
     operator, and asking for them is what lets the refusal be specific; the response was
     never a real shape, which is why it is `NoReturn` (see the decorator).
+
+    **THE SECOND REFUSAL DOES NOT READ THE DEPLOYMENT'S CAPABILITY, AND THAT IS
+    DELIBERATE (D-535).** Whether this deployment has recorded a written reseller
+    authorisation is OUR legal state, and answering a client differently depending on it
+    would publish our paperwork through the shape of an error. The client-facing fact is
+    the same either way: a number is not bought from this screen.
     """
     assert principal.tenant_id is not None
     await assert_kyc_verified_for_provisioning(session, tenant_id=principal.tenant_id)
-    raise provisioning_not_configured(number_provisioning_capability().reason)
+    raise self_serve_purchase_refused()
 
 
 __all__ = ["router"]

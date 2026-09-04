@@ -69,6 +69,7 @@ install_error_handlers(app)
 def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
     from apps.api.actions.routes import router as actions_router
+    from apps.api.admin.closure_routes import router as tenant_closure_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
     from apps.api.admin.number_routes import router as number_supply_router
@@ -100,6 +101,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.billing.spend_routes import client_router as billing_spend_router
     from apps.api.billing.spend_routes import router as spend_admin_router
+    from apps.api.billing.trial_routes import router as trials_admin_router
     from apps.api.billing.wallet_routes import router as wallet_router
     from apps.api.callbacks.routes import router as callbacks_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
@@ -192,6 +194,10 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(client_health_router)
     application.include_router(billing_admin_router)
     application.include_router(credits_admin_router)
+    # Beside the wallet it deliberately does not touch (D-536): a trial bypasses the credit
+    # gate rather than granting credit, so these two routers share a tenant path prefix and
+    # nothing else.
+    application.include_router(trials_admin_router)
     application.include_router(prompt_admin_router)
     application.include_router(experiment_router)
     # BEFORE `agents_router`: FastAPI matches in declaration order, and
@@ -289,6 +295,10 @@ def _mount_routers(application: FastAPI) -> None:
     # The admin-realm twin: the END of an engagement rather than one data principal's
     # §12 request, and the only writer `organizations.deleted_at` has (FLOWS §9, D-120).
     application.include_router(tenant_erasure_router)
+    # D-536. Mounted beside the erasure router and after `admin_router` for the same
+    # reason that one is: `/v1/admin/tenants/{tenant_id}` on `admin_router` would swallow
+    # any literal segment declared later, and both of these name their tenant in the path.
+    application.include_router(tenant_closure_router)
     application.include_router(dlt_registration_router)
     application.include_router(kyc_router)
     # R-11's first-campaign hold: the client's view of it, and ops's release. The admin
