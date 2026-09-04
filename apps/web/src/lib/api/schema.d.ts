@@ -396,6 +396,12 @@ export interface paths {
          *     trim after the fact still pays for the read (`check_list_bounds`'s whole subject).
          *     Released numbers are INCLUDED — a closed month's cost still refers to them, and an
          *     operator asking "what have we paid for this client" needs the ones we gave back.
+         *
+         *     **AND IT RECORDS THE READ** (SEC-COMP §5, D-482 L-1). This is an admin-realm GET of one
+         *     client's tenant-scoped rows OUTSIDE impersonation, which is exactly the shape that has
+         *     to leave a trail: a client's telephone numbers are their business data, and "who looked
+         *     at this account and when" is not answerable afterwards unless the read says so itself.
+         *     Written LATE, in the same transaction, so the row and the read commit together.
          */
         get: operations["tenant_numbers_v1_admin_numbers_tenants__tenant_id__get"];
         put?: never;
@@ -745,7 +751,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Correct a client's name or the address their notices go to
+         * @description Edits the two details that are the client's own: the business name and the billing address notices are sent to. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity — the credential is the member's own address and this grants nobody access — but it IS where the account's notices go, so the PREVIOUS address is told that it changed and given a way to object. Refused for a client whose data has been erased. The business ADDRESS, plan tier, credits, lifecycle state, KYC and DLT registration each have their own screen; this route deliberately cannot reach them.
+         */
+        patch: operations["edit_tenant_v1_admin_tenants__tenant_id__patch"];
         trace?: never;
     };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/apply": {
@@ -8429,6 +8439,40 @@ export interface components {
             /** Spent Inr */
             spent_inr: string;
         };
+        /**
+         * EditTenantIn
+         * @description The client's OWN details, and nothing else on the row.
+         *
+         *     `extra="forbid"` and exactly two fields, matching `service.EDITABLE_TENANT_FIELDS`.
+         *     `status`, `plan_tier`, the closure columns and the model choice each have their own
+         *     route, their own permission and — for three of them — their own step-up; a
+         *     general-purpose PATCH over `organizations` would quietly become a second door to all of
+         *     them. `slug` is not offered because it is in client URLs and a trigger makes it
+         *     immutable.
+         *
+         *     The BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet
+         *     (`organizations.intake`, `admin/intake.Branch.address`) because a business can have
+         *     several branches and the agent quotes them on the call, and it is already editable from
+         *     the console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on
+         *     the organisation row would be a second answer to "where are you", and the one the agent
+         *     reads would not be the one the operator just typed.
+         */
+        EditTenantIn: {
+            /** Billing Email */
+            billing_email?: string | null;
+            /** Name */
+            name?: string | null;
+        };
+        /** EditTenantOut */
+        EditTenantOut: {
+            /** Changed */
+            changed: string[];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** EnableIn */
         EnableIn: {
             /** Enabled */
@@ -16059,6 +16103,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantSummary"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    edit_tenant_v1_admin_tenants__tenant_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditTenantIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditTenantOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

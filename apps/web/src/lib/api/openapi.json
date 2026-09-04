@@ -6144,6 +6144,62 @@
         "title": "DrawdownOut",
         "type": "object"
       },
+      "EditTenantIn": {
+        "additionalProperties": false,
+        "description": "The client's OWN details, and nothing else on the row.\n\n`extra=\"forbid\"` and exactly two fields, matching `service.EDITABLE_TENANT_FIELDS`.\n`status`, `plan_tier`, the closure columns and the model choice each have their own\nroute, their own permission and \u2014 for three of them \u2014 their own step-up; a\ngeneral-purpose PATCH over `organizations` would quietly become a second door to all of\nthem. `slug` is not offered because it is in client URLs and a trigger makes it\nimmutable.\n\nThe BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet\n(`organizations.intake`, `admin/intake.Branch.address`) because a business can have\nseveral branches and the agent quotes them on the call, and it is already editable from\nthe console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on\nthe organisation row would be a second answer to \"where are you\", and the one the agent\nreads would not be the one the operator just typed.",
+        "properties": {
+          "billing_email": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billing Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "EditTenantIn",
+        "type": "object"
+      },
+      "EditTenantOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "changed"
+        ],
+        "title": "EditTenantOut",
+        "type": "object"
+      },
       "EnableIn": {
         "additionalProperties": false,
         "properties": {
@@ -22189,7 +22245,7 @@
     },
     "/v1/admin/numbers/tenants/{tenant_id}": {
       "get": {
-        "description": "Read under the tenant's own RLS, so one client's numbers is exactly what comes back.\n\nTHE LIMIT IS IN THE QUERY, not applied to a full result in Python: a client with a\nthousand numbers is not a realistic account, but \"not realistic\" is not a bound, and a\ntrim after the fact still pays for the read (`check_list_bounds`'s whole subject).\nReleased numbers are INCLUDED \u2014 a closed month's cost still refers to them, and an\noperator asking \"what have we paid for this client\" needs the ones we gave back.",
+        "description": "Read under the tenant's own RLS, so one client's numbers is exactly what comes back.\n\nTHE LIMIT IS IN THE QUERY, not applied to a full result in Python: a client with a\nthousand numbers is not a realistic account, but \"not realistic\" is not a bound, and a\ntrim after the fact still pays for the read (`check_list_bounds`'s whole subject).\nReleased numbers are INCLUDED \u2014 a closed month's cost still refers to them, and an\noperator asking \"what have we paid for this client\" needs the ones we gave back.\n\n**AND IT RECORDS THE READ** (SEC-COMP \u00a75, D-482 L-1). This is an admin-realm GET of one\nclient's tenant-scoped rows OUTSIDE impersonation, which is exactly the shape that has\nto leave a trail: a client's telephone numbers are their business data, and \"who looked\nat this account and when\" is not answerable afterwards unless the read says so itself.\nWritten LATE, in the same transaction, so the row and the read commit together.",
         "operationId": "tenant_numbers_v1_admin_numbers_tenants__tenant_id__get",
         "parameters": [
           {
@@ -23115,6 +23171,55 @@
           }
         },
         "summary": "One client's directory record \u2014 the detail screen should not fetch the list",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "patch": {
+        "description": "Edits the two details that are the client's own: the business name and the billing address notices are sent to. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity \u2014 the credential is the member's own address and this grants nobody access \u2014 but it IS where the account's notices go, so the PREVIOUS address is told that it changed and given a way to object. Refused for a client whose data has been erased. The business ADDRESS, plan tier, credits, lifecycle state, KYC and DLT registration each have their own screen; this route deliberately cannot reach them.",
+        "operationId": "edit_tenant_v1_admin_tenants__tenant_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditTenantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditTenantOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Correct a client's name or the address their notices go to",
         "tags": [
           "admin"
         ],

@@ -79,10 +79,17 @@ NOTICE_JOB: Final = "notify_account_closed"
 #: the one message that cannot be actioned.
 NOTICE_CLOSED: Final = "closed"
 NOTICE_RESTORED: Final = "restored"
-NOTICE_EVENTS: Final = (NOTICE_CLOSED, NOTICE_RESTORED)
+#: THE ADDRESS THIS ACCOUNT'S NOTICES GO TO WAS CHANGED, told to the address being
+#: REPLACED. Not a closure, and it lives here anyway because it is the same act — an
+#: account-level notice, on the same channel, with the same ladder and the same "leave the
+#: client something they can keep" requirement. A second job would be a second mailer for
+#: one message class (CLAUDE.md: one way per problem).
+NOTICE_ADDRESS_CHANGED: Final = "notice_address_changed"
+NOTICE_EVENTS: Final = (NOTICE_CLOSED, NOTICE_RESTORED, NOTICE_ADDRESS_CHANGED)
 
 SUBJECT_CLOSED: Final = "Your Calevate account has been closed"
 SUBJECT_RESTORED: Final = "Your Calevate account has been reopened"
+SUBJECT_ADDRESS_CHANGED: Final = "The email address for your Calevate account was changed"
 
 #: Seconds before each retry, indexed by the attempt that just failed — one shorter than
 #: the budget, because the last attempt has nothing after it. Paced like the hot-lead
@@ -117,6 +124,21 @@ def _compose(*, event: str, business: str, erase_on: str | None, reason: str | N
     the only question this email raises, and a closure notice that will not say why is the
     ticket nobody can close.
     """
+    if event == NOTICE_ADDRESS_CHANGED:
+        # NO ADDRESSES IN THE BODY, neither the old nor the new. This message goes to the
+        # address being replaced, so it already knows which one it is; naming the NEW one
+        # would put a second mailbox into a message an attacker who caused the change
+        # would be trying to read, and would tell a compromised inbox where the account's
+        # notices now go. "Ring us" is the action, and it is the one that works whoever is
+        # reading.
+        return (
+            f"The email address that Calevate sends notices to for {business} has been "
+            "changed, so this address will stop receiving them.\n\n"
+            "If you asked for this, there is nothing to do.\n\n"
+            "IF YOU DID NOT, reply to this email or telephone us straight away — do not "
+            "wait. We will change it back and check who asked."
+        )
+
     if event == NOTICE_RESTORED:
         return (
             f"The Calevate account for {business} has been reopened.\n\n"
@@ -227,7 +249,11 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
     erase_on = payload.get("erase_on")
     reason = payload.get("reason")
     attempt = int(ctx.get("job_try", 1))
-    subject = SUBJECT_CLOSED if event == NOTICE_CLOSED else SUBJECT_RESTORED
+    subject = {
+        NOTICE_CLOSED: SUBJECT_CLOSED,
+        NOTICE_RESTORED: SUBJECT_RESTORED,
+        NOTICE_ADDRESS_CHANGED: SUBJECT_ADDRESS_CHANGED,
+    }[event]
 
     async with tenant_session(tenant_id) as session:
         business = (
@@ -247,7 +273,14 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
             )
             return "tenant_missing"
 
-        recipients = await _recipients(session, tenant_id=tenant_id)
+        # THE ADDRESS-CHANGE NOTICE GOES TO THE ADDRESS BEING REPLACED, which by the time
+        # this job runs is no longer on the row — so it is carried in the payload and is
+        # the ONE case that does not resolve its own recipients. Sending it to the CURRENT
+        # recipients would deliver "your address was changed" to the new address, which is
+        # the one place it has no value: the whole point is to reach the mailbox that is
+        # losing the account's notices, while it still can object.
+        explicit = str(payload.get("to") or "").strip()
+        recipients = [explicit] if explicit else await _recipients(session, tenant_id=tenant_id)
         if not recipients:
             alert(
                 "WORKER_TERMINAL",
@@ -432,6 +465,35 @@ async def _whatsapp_leg(
     return f"undelivered:{result.status}"
 
 
+async def enqueue_notice_address_changed(
+    session: AsyncSession, *, tenant_id: UUID, to: str
+) -> None:
+    """Tell the address being REPLACED that it will stop receiving this account's notices.
+
+    OWASP's control for changing a registered address is a notification-only message to the
+    still-current address beside the confirmation the new one must return
+    (`owasp.org/www-community/pages/controls/Changing_Registered_Email_Address_For_An_
+    Account`, read via the OWASP www-community repository on 4 Sep 2026; EVIDENCE CLASS:
+    VENDOR-PUBLISHED). This is the first half. The second half — the new address confirming
+    before the change takes effect — is NOT built, because this field is not a login
+    identity and there is no self-service edit of it: an operator changes it for a client
+    they have spoken to. D-538 records the client-realm flow, which would need both round
+    trips, as open rather than half-built.
+
+    Does not commit; the notice and the edit it announces share the caller's transaction.
+    """
+    await enqueue_outbox(
+        session,
+        job=NOTICE_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "event": NOTICE_ADDRESS_CHANGED,
+            # The recipient, because by delivery time the row no longer carries it.
+            "to": to,
+        },
+    )
+
+
 async def enqueue_closure_notice(
     session: AsyncSession,
     *,
@@ -543,12 +605,14 @@ async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
 
 
 __all__ = [
+    "NOTICE_ADDRESS_CHANGED",
     "NOTICE_CLOSED",
     "NOTICE_EVENTS",
     "NOTICE_JOB",
     "NOTICE_RESTORED",
     "SWEEP_BUDGET",
     "enqueue_closure_notice",
+    "enqueue_notice_address_changed",
     "notify_account_closed",
     "sweep_due_erasures",
 ]

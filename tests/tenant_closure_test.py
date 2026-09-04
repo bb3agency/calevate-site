@@ -734,3 +734,119 @@ async def test_the_pending_list_says_when_the_link_was_last_sent_and_how_many_ti
     row = next(item for item in listing.json() if item["id"] == str(invitation_id))
     assert row["send_count"] == 2
     assert row["last_sent_at"] > row["invited_at"]
+
+
+# --- editing the client's own details --------------------------------------------------
+
+
+async def _patch(token: str, tenant_id: UUID, body: dict[str, Any]) -> Any:
+    async with _client() as http:
+        return await http.patch(
+            f"/v1/admin/tenants/{tenant_id}",
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_editing_a_client_s_name_audits_the_field_under_its_own_action() -> None:
+    """One audit row PER FIELD, naming the field in the ACTION. `audit_log` has no payload
+    column, so a single `organization.updated` row carrying the change inside a summary
+    would put "who changed this client's details" outside the hash-chained record."""
+    token, tenant_id = await _admin(), await _tenant()
+
+    response = await _patch(token, tenant_id, {"name": "Renamed Clinic"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["changed"] == ["name"]
+    assert "organization.name_changed" in await _audit_actions(tenant_id)
+
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT name FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+    assert stored == "Renamed Clinic"
+
+
+@pytest.mark.asyncio
+async def test_saving_an_unchanged_value_changes_nothing_and_writes_no_audit_row() -> None:
+    """An operator opening a form and saving it must not grow the chain a row per click —
+    the same rule `LifecycleOut.changed` states for the status switch."""
+    token, tenant_id = await _admin(), await _tenant()
+
+    response = await _patch(token, tenant_id, {"name": "Closing Clinic"})
+
+    assert response.status_code == 200
+    assert response.json()["changed"] == []
+    assert "organization.name_changed" not in await _audit_actions(tenant_id)
+
+
+@pytest.mark.asyncio
+async def test_changing_the_notice_address_tells_the_address_being_replaced() -> None:
+    """Re-pointing where an account's notices go is the shape of a channel takeover even
+    though it grants nobody access — the credential is `users.email`, not this column. The
+    OLD address is told and given a way to object, and the message goes THERE rather than
+    to the new one, which is the only place it has no value."""
+    token, tenant_id = await _admin(), await _tenant()
+
+    response = await _patch(token, tenant_id, {"billing_email": "new-owner@clinic.example"})
+
+    assert response.status_code == 200
+    assert response.json()["changed"] == ["billing_email"]
+    queued = await _outbox_jobs(tenant_id)
+    assert [job["event"] for job in queued] == ["notice_address_changed"]
+    # The REPLACED address, not the new one.
+    assert queued[0]["to"] == "owner@clinic.example"
+    assert "organization.billing_email_changed" in await _audit_actions(tenant_id)
+
+
+@pytest.mark.asyncio
+async def test_the_edit_cannot_reach_a_field_with_its_own_screen() -> None:
+    """`extra="forbid"` and a two-field whitelist. A general-purpose PATCH over
+    `organizations` would quietly become a second door to the lifecycle switch, the plan
+    tier and the closure columns — each of which has its own permission and, for three of
+    them, its own step-up."""
+    token, tenant_id = await _admin(), await _tenant()
+
+    for body in ({"status": "churned"}, {"plan_tier": "managed"}, {"slug": "hijacked"}):
+        response = await _patch(token, tenant_id, body)
+        assert response.status_code == 422, body
+
+    async with tenant_session(tenant_id) as session:
+        assert await account_stopped_blocker(session, tenant_id=tenant_id) is None
+
+
+@pytest.mark.asyncio
+async def test_an_empty_edit_is_refused_rather_than_silently_succeeding() -> None:
+    token, tenant_id = await _admin(), await _tenant()
+    assert (await _patch(token, tenant_id, {})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_an_erased_client_s_details_cannot_be_edited() -> None:
+    """Editing the contact details of a record that no longer describes anything — the
+    certificate says the data is gone — is a change nobody can act on."""
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET erase_after = NULL, deleted_at = now() WHERE id = :t"),
+            {"t": tenant_id},
+        )
+
+    response = await _patch(token, tenant_id, {"name": "Ghost Clinic"})
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_a_closed_client_s_details_can_still_be_corrected() -> None:
+    """Deliberately allowed: an operator on the telephone with a departing client,
+    correcting the address their closure notice goes to, is exactly the case."""
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+
+    response = await _patch(token, tenant_id, {"billing_email": "accounts@clinic.example"})
+    assert response.status_code == 200
+    assert response.json()["changed"] == ["billing_email"]

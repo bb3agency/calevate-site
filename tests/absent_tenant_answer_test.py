@@ -105,6 +105,9 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # `_validate_fields` to the 404 this census is about.
     "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {"fields": []},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {},
+    # D-538. The edit demands at least one field, so an empty body would 422 and this
+    # census would stop measuring the 404 it is about.
+    "PATCH /v1/admin/tenants/{tenant_id}": {"name": "Census Clinic"},
     # D-538. The close demands a reason, so an empty body would 422 and this census would
     # stop measuring the 404 it is about. The undo and the read take no body at all.
     "POST /v1/admin/tenants/{tenant_id}/closure": {"reason": "Census"},

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
@@ -544,6 +544,114 @@ class ResentInvitation:
     send_count: int
 
 
+#: The fields an operator may edit on a client's own record, and NOTHING else on the row.
+#:
+#: A whitelist of two rather than "whatever the body carries", because `organizations` also
+#: holds `status`, `plan_tier`, `deleted_at`, the closure columns and `default_llm_model` —
+#: each of which has its own route, its own permission and, for three of them, its own
+#: step-up. A general-purpose PATCH over the table would quietly become a second door to
+#: all of them, and the first thing through it would be a lifecycle change with no reason
+#: and no confirmation.
+#:
+#: `slug` is absent and could not be added: it is in client URLs and a trigger makes it
+#: immutable (migration 05bba2f3c19c). `billing_email` IS here and is NOT a login
+#: identity — the credential is `users.email` and `apps/api/authn/` is the only thing that
+#: mints a session from it. What this column decides is where the account's NOTICES go
+#: (`workers/notifications`, `workers/account_closure`), which is why the caller notifies
+#: the old address as well as writing the new one.
+EDITABLE_TENANT_FIELDS: Final = ("name", "billing_email")
+
+
+@dataclass(frozen=True, slots=True)
+class TenantFieldEdit:
+    """One field an operator changed, with the value it replaced.
+
+    The OLD value is carried out of the statement that replaced it rather than read
+    beforehand, for `set_plan_tier`'s reason: a separate SELECT is a guess about a value
+    another operator may have changed between the two statements, and the audit row has to
+    name what this write actually replaced.
+    """
+
+    field: str
+    before: str | None
+    after: str | None
+
+
+_EDIT_TENANT = (
+    "UPDATE organizations o SET {assignments}, updated_at = now() "
+    "FROM organizations old "
+    "WHERE o.id = old.id AND o.id = :tid AND o.deleted_at IS NULL "
+    "RETURNING {returning}"
+)
+
+
+async def edit_tenant_profile(
+    session: AsyncSession, *, tenant_id: UUID, changes: Mapping[str, str]
+) -> list[TenantFieldEdit]:
+    """Change a client's own details. Returns ONLY the fields this call actually moved.
+
+    An unchanged field is not an edit and must not produce an audit row: an operator who
+    opens the form, changes the name and saves must leave one record saying the name
+    changed, not two saying the name changed and the address stayed the same. So the
+    comparison is done here, from the values the statement returned, rather than by
+    trusting that the caller sent only differences.
+
+    ONE STATEMENT, `FROM organizations old`, exactly as `set_plan_tier` does: the
+    pre-UPDATE snapshot of the same row comes back with the write, so the audit row names
+    the value this statement replaced instead of a value some other transaction may have
+    replaced in between.
+
+    `deleted_at IS NULL` in the WHERE clause and not merely in a preceding check: editing
+    the contact details of a client whose data has been erased is editing a record that no
+    longer describes anything, and the certificate says so. A closed-but-not-erased account
+    IS editable, deliberately — an operator on the telephone with a departing client
+    correcting the address their closure notice goes to is exactly the case.
+
+    Raises on a field outside `EDITABLE_TENANT_FIELDS`. That is a programming error rather
+    than an operator input — the route's schema is `extra="forbid"` and names the two — so
+    it raises rather than rendering a message, the shape `set_plan_tier` uses for the same
+    class of defence in depth.
+    """
+    unknown = sorted(set(changes) - set(EDITABLE_TENANT_FIELDS))
+    if unknown:
+        raise ValueError(f"{unknown} is not an editable tenant field")
+    if not changes:
+        return []
+
+    # Column names are interpolated, and they are safe BY CONSTRUCTION rather than by
+    # escaping: every one has just been proved a member of a module-level literal tuple.
+    # The VALUES are bound. This is the same construction `db/transition.py::_identifier`
+    # argues for its own `extra_set`.
+    fields = [field for field in EDITABLE_TENANT_FIELDS if field in changes]
+    assignments = ", ".join(f"{field} = :{field}" for field in fields)
+    returning = ", ".join(f"old.{field}, o.{field}" for field in fields)
+    row = (
+        await session.execute(
+            text(_EDIT_TENANT.format(assignments=assignments, returning=returning)),
+            {"tid": tenant_id, **{field: changes[field] for field in fields}},
+        )
+    ).first()
+    if row is None:
+        # No visible, un-erased row with that id. The caller owns the 404 for the reason
+        # `set_plan_tier` gives — `tenant_exists` is where "this client does not exist"
+        # is decided once for every surface.
+        raise ProblemError.not_found("Client")
+
+    values = tuple(row)
+    edits: list[TenantFieldEdit] = []
+    for index, field in enumerate(fields):
+        before, after = values[index * 2], values[index * 2 + 1]
+        if before != after:
+            edits.append(
+                TenantFieldEdit(
+                    field=field,
+                    before=str(before) if before is not None else None,
+                    after=str(after) if after is not None else None,
+                )
+            )
+    return edits
+
+
 async def resend_invitation(
     session: AsyncSession,
     *,
@@ -954,11 +1062,13 @@ async def set_plan_tier(session: AsyncSession, *, tenant_id: UUID, plan_tier: st
 __all__ = [
     "DEFAULT_PLAN_TIER",
     "DISCLOSURE_TEMPLATES",
+    "EDITABLE_TENANT_FIELDS",
     "INVITE_TTL",
     "OPERATOR_SETTABLE_PLAN_TIERS",
     "RESEND_MAX_SENDS",
     "RESEND_MIN_INTERVAL",
     "ResentInvitation",
+    "TenantFieldEdit",
     "TenantRootHook",
     "accept_invitation",
     "assert_account_open",
@@ -966,6 +1076,7 @@ __all__ = [
     "create_invitation",
     "create_organization",
     "derive_slug",
+    "edit_tenant_profile",
     "resend_invitation",
     "set_plan_tier",
     "slugify",

@@ -56,6 +56,7 @@ from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
+from apps.workers.account_closure import enqueue_notice_address_changed
 
 log = get_logger(__name__)
 
@@ -294,6 +295,134 @@ async def get_tenant(
         session, request=request, principal=principal, tenant_id=tenant_id
     )
     return TenantSummary.model_validate(rows[0])
+
+
+class EditTenantIn(BaseModel):
+    """The client's OWN details, and nothing else on the row.
+
+    `extra="forbid"` and exactly two fields, matching `service.EDITABLE_TENANT_FIELDS`.
+    `status`, `plan_tier`, the closure columns and the model choice each have their own
+    route, their own permission and — for three of them — their own step-up; a
+    general-purpose PATCH over `organizations` would quietly become a second door to all of
+    them. `slug` is not offered because it is in client URLs and a trigger makes it
+    immutable.
+
+    The BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet
+    (`organizations.intake`, `admin/intake.Branch.address`) because a business can have
+    several branches and the agent quotes them on the call, and it is already editable from
+    the console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on
+    the organisation row would be a second answer to "where are you", and the one the agent
+    reads would not be the one the operator just typed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    #: WHERE THE ACCOUNT'S NOTICES GO — the hot-lead alert, the closure notice, the
+    #: invoice. NOT a login identity: the credential is `users.email` and `apps/api/authn/`
+    #: is the only thing that mints a session from one, so changing this grants nobody
+    #: access to anything. It is still a channel change, which is why the OLD address is
+    #: told (see the route).
+    billing_email: EmailStr | None = None
+
+    @model_validator(mode="after")
+    def _something_must_change(self) -> EditTenantIn:
+        if self.name is None and self.billing_email is None:
+            raise ValueError("send at least one field to change")
+        return self
+
+
+class EditTenantOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    #: The fields this call actually MOVED, which is not the fields it was sent. Saving a
+    #: form unchanged returns `[]` — the honest result, and the one that keeps the audit
+    #: chain a record of changes rather than of clicks.
+    changed: list[str]
+
+
+@router.patch(
+    "/tenants/{tenant_id}",
+    response_model=EditTenantOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Correct a client's name or the address their notices go to",
+    description=(
+        "Edits the two details that are the client's own: the business name and the "
+        "billing address notices are sent to. Every changed field is audited under its own "
+        "action with the value it replaced. Saving unchanged values returns `changed: []` "
+        "and writes nothing. The billing address is NOT a login identity — the credential "
+        "is the member's own address and this grants nobody access — but it IS where the "
+        "account's notices go, so the PREVIOUS address is told that it changed and given a "
+        "way to object. Refused for a client whose data has been erased. The business "
+        "ADDRESS, plan tier, credits, lifecycle state, KYC and DLT registration each have "
+        "their own screen; this route deliberately cannot reach them."
+    ),
+)
+async def edit_tenant(
+    tenant_id: UUID,
+    payload: EditTenantIn,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> EditTenantOut:
+    """The edit, the notice to the OLD address and the audit rows, in one transaction.
+
+    ONE AUDIT ROW PER FIELD, each naming the field in its ACTION. `audit_log` has no
+    payload column — a `summary` goes to the log stream keyed by the entry id
+    (`compliance/audit.py` §7) — so a single `organization.updated` row carrying the
+    changes inside a summary would put the answer to "who changed this client's contact
+    address" outside the append-only, hash-chained record. `organization.name_changed` and
+    `organization.billing_email_changed` are stored, chained and queryable; the old and new
+    VALUES ride the summary into the log stream, which is where a value belongs and an
+    address in particular (hard rule 6 keeps addresses out of the durable trail).
+
+    **THE OLD ADDRESS IS TOLD.** Re-pointing where an account's notices go is the shape of
+    a channel takeover even when it grants nothing, and the standard response is to notify
+    the address being replaced so it can object — OWASP's control for a registered address
+    is a notification-only message to the still-current address alongside the confirmation
+    to the new one (owasp.org/www-community/pages/controls/
+    Changing_Registered_Email_Address_For_An_Account, read via the OWASP www-community
+    repository on 4 Sep 2026; EVIDENCE CLASS: VENDOR-PUBLISHED — the project's own page).
+    What is NOT built here is the other half of that control, the confirmation the NEW
+    address returns before the change takes effect: this is an operator acting on a client
+    they have spoken to, not a self-service change by whoever holds a session, and there is
+    no self-service edit of this field at all. The client-realm flow that would need both
+    round trips does not exist yet, and D-538 records it as open rather than half-built.
+    """
+    changes = {
+        field: value
+        for field, value in (("name", payload.name), ("billing_email", payload.billing_email))
+        if value is not None
+    }
+    async with tenant_session(tenant_id) as scoped:
+        previous_notice_address = (
+            await scoped.execute(
+                text("SELECT billing_email FROM organizations WHERE id = :tid"),
+                {"tid": tenant_id},
+            )
+        ).scalar()
+        edits = await service.edit_tenant_profile(
+            scoped, tenant_id=tenant_id, changes={k: str(v) for k, v in changes.items()}
+        )
+        for edit in edits:
+            await write_audit(
+                scoped,
+                action=f"organization.{edit.field}_changed",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="organization",
+                object_id=str(tenant_id),
+                ip=client_request_ip(request),
+                # Old -> new, to the log stream. The audit summary sanitizer redacts an
+                # address, which is the right trade: the CHANGE is in the chained action
+                # and the VALUE is in the operational record.
+                summary={"field": edit.field, "before": edit.before, "after": edit.after},
+            )
+        if any(edit.field == "billing_email" for edit in edits) and previous_notice_address:
+            await enqueue_notice_address_changed(
+                scoped, tenant_id=tenant_id, to=str(previous_notice_address)
+            )
+    return EditTenantOut(tenant_id=tenant_id, changed=[edit.field for edit in edits])
 
 
 @router.post(
