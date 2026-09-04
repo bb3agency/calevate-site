@@ -359,7 +359,7 @@ class PendingInvitation:
     role: str
     invited_at: datetime
     expires_at: datetime
-    #: WHEN THE LINK WAS LAST PUT IN THAT INBOX, and how many times it has been (D-536).
+    #: WHEN THE LINK WAS LAST PUT IN THAT INBOX, and how many times it has been (D-538).
     #:
     #: `invited_at` alone answered the wrong question once a resend existed: it is when the
     #: invitation was MINTED, and after a resend the link in the mailbox is younger than

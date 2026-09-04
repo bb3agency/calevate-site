@@ -1,7 +1,7 @@
 """Closing a client business — the founder's delete button, which deletes nothing today.
 
 *"the admins should be able to delete a clients business and it sends a respective alert
-also to that client"* (founder, 4 Sep 2026). The decision taken on that (D-536) is **close
+also to that client"* (founder, 4 Sep 2026). The decision taken on that (D-538) is **close
 now, erase after a grace period, undo during it**, and this module is the whole of the
 first two words and the whole of the undo.
 
@@ -86,7 +86,7 @@ client is told the date in the same message that tells them the account closed, 
 operator can bring the date forward but this module offers nobody a way to push it back.
 
 **THE FOUR LEGAL QUESTIONS THIS MODULE DOES NOT SETTLE** are named in
-`docs/ROADMAP.md` D-536 rather than answered in a docstring; the load-bearing one is that a
+`docs/ROADMAP.md` D-538 rather than answered in a docstring; the load-bearing one is that a
 clinic's PATIENTS cannot ask us to erase anything — they must ask the clinic — and closing
 the clinic's account does not extinguish the clinic's own duty to them.
 
@@ -99,8 +99,32 @@ the one filing point and `apps/workers/retention.py` owns every statement that d
 anything; the deadline this module sets is discharged by `workers/account_closure.
 sweep_due_erasures`, whose entire body is "for each account past its date, call that
 function". What is genuinely new here is the WINDOW and the UNDO, which did not exist:
-before D-536 an erasure was filed and executed within seconds of the click, and the only
+before D-538 an erasure was filed and executed within seconds of the click, and the only
 way to stop it was to be faster than a worker.
+
+**THE SECOND SCHEDULED ERASURE IN THIS TREE, AND HOW THE TWO ARE KEPT APART.** D-536
+landed `tenant_trials.erase_after` and `workers/trials.py` on the same day: a trial that
+ends without the client converting stamps a grace date on the TRIAL row and files the same
+`request_tenant_erasure` when it passes. That is a genuinely different subject — a trial
+lapsing is not an operator closing a business — and neither sweep is an eraser, so there
+are still exactly one filing point and one eraser. What there are two of is DEADLINES, and
+the boundary between them is structural rather than a convention:
+
+* This one is on `organizations` and requires `closed_at IS NOT NULL`, which the database
+  enforces. A trial-scheduled erasure never sets that column, so `due_erasures` cannot see
+  it.
+* The trials one is on `tenant_trials` and requires a trial row. A closure of an account
+  that never had a trial has none, so `workers/trials.py` cannot see it.
+* An account that is BOTH — a trial client an operator also closed — can be seen by both,
+  and that is safe rather than merely tolerable: `request_tenant_erasure` dedupes on the
+  open request under an advisory lock and a partial unique index, so the two converge on
+  one request and one certificate.
+
+Two columns answering "when is this account's data due" is still one more than a system
+should have, and the convergence — trials stamping `organizations.erase_after` through
+`close_account` instead of carrying its own date — is the next act rather than a taste
+question. It is NOT taken here because it means closing accounts from a nightly job, which
+`workers/trials.py` argues at length must stay a human act with a reason attached.
 
 The precondition ordering falls out of the same reuse. `assert_erasable` refuses a tenant
 that is not already `churned`; closing IS that transition; so the close must come first
@@ -112,7 +136,7 @@ THE UNDO, AND THE DECISION IT REVERSES
 ═══════════════════════════════════════════════════════════════════════════════════════
 
 `admin/routes.py::_LIFECYCLE_FROM` listed no source for `churned` and its docstring said
-re-opening a client is a new tenant and a new agreement. **D-536 reverses that position for
+re-opening a client is a new tenant and a new agreement. **D-538 reverses that position for
 the grace window**, and the reversal is not a softening — it is a relocation of the
 irreversibility onto the act that actually destroys something. Before: an operator could
 end a client relationship with one click and could not take it back, while nothing had yet
@@ -142,7 +166,7 @@ voice platform, so inbound calls still reach a live agent after a close. D-535 l
 `release_number` on the engine port THIS WEEK and the campaign provisioning path that owns
 number lifecycle is being changed by another lane in this same tree; wiring a release into
 the closure path across that seam would be two lanes writing one call site. It is recorded
-as the open half of D-536 with the act that closes it named, and the client's closure
+as the open half of D-538 with the act that closes it named, and the client's closure
 notice says it in their own words rather than letting them discover it from a caller.
 """
 

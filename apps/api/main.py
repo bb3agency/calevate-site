@@ -295,7 +295,7 @@ def _mount_routers(application: FastAPI) -> None:
     # The admin-realm twin: the END of an engagement rather than one data principal's
     # §12 request, and the only writer `organizations.deleted_at` has (FLOWS §9, D-120).
     application.include_router(tenant_erasure_router)
-    # D-536. Mounted beside the erasure router and after `admin_router` for the same
+    # D-538. Mounted beside the erasure router and after `admin_router` for the same
     # reason that one is: `/v1/admin/tenants/{tenant_id}` on `admin_router` would swallow
     # any literal segment declared later, and both of these name their tenant in the path.
     application.include_router(tenant_closure_router)

@@ -243,7 +243,7 @@ FUNCTIONS: list[Any] = [
         # and the client watches an upload sit at "received" for ever while every one of
         # our screens reports it as queued.
         ingest_kb_source,
-        # D-536. Queued in the SAME transaction as the closure it announces, so a client
+        # D-538. Queued in the SAME transaction as the closure it announces, so a client
         # is never told about a closure that rolled back and a closure never commits with
         # nobody told. Registered here because an unregistered job name is a DLQ
         # generator — `tests/job_registration_test.py` is what makes that a failing test
@@ -519,7 +519,7 @@ CRON_JOBS = [
     # gave up on its first transient error would leave a client's trial reading as running
     # for another day and an erasure that is due unfiled.
     cron(traced_job(sweep_trials), hour={2}, minute={25}, max_tries=WORKER_MAX_TRIES),
-    # D-536. HOURLY, at :25 so it does not land on the same minute as the fleet's other
+    # D-538. HOURLY, at :25 so it does not land on the same minute as the fleet's other
     # sweeps. The grace window is a PROMISE WITH A DATE ON IT and it has to hold in both
     # directions: an account must not be erased before the date the client was given, and
     # a client who asked us to erase now (`bring_erasure_forward`) must not wait until

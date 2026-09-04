@@ -155,7 +155,7 @@ class Organization(PKMixin, TimestampMixin, Base):
     )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
-    #: THE GRACE WINDOW BETWEEN "CLOSED" AND "ERASED" (D-536, migration e6c1a49d2f70).
+    #: THE GRACE WINDOW BETWEEN "CLOSED" AND "ERASED" (D-538, migration e6c1a49d2f70).
     #:
     #: The founder's delete button is *close now, erase after a grace period, undo during
     #: it*, so these four columns are the deadline that sits between `status = 'churned'`
@@ -248,7 +248,7 @@ class Invitation(PKMixin, TimestampMixin, Base):
     )
     used_at: Mapped[datetime | None]
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
-    #: WHEN THE LINK WAS LAST PUT IN SOMEBODY'S INBOX, and how many times (D-536).
+    #: WHEN THE LINK WAS LAST PUT IN SOMEBODY'S INBOX, and how many times (D-538).
     #:
     #: A resend ROTATES this row's token rather than minting a second invitation, so these
     #: two count sends of one key rather than keys. They are the rate limiter's clock and

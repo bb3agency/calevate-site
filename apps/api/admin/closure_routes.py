@@ -1,4 +1,4 @@
-"""Closing a client business from the console, and taking it back (D-536).
+"""Closing a client business from the console, and taking it back (D-538).
 
     GET    /v1/admin/tenants/{tenant_id}/closure   what state is this account in
     POST   /v1/admin/tenants/{tenant_id}/closure   close now, erase after the grace window

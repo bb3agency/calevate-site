@@ -1,4 +1,4 @@
-"""Telling a client their account closed, and erasing it when the window runs out (D-536).
+"""Telling a client their account closed, and erasing it when the window runs out (D-538).
 
 Two jobs, deliberately not one. `notify_account_closed` is what the founder asked for —
 *"it sends a respective alert also to that client via mail and number"* — and
@@ -202,7 +202,7 @@ async def notify_account_closed(ctx: dict[str, Any], payload: dict[str, Any]) ->
     it is evidence rather than a claim.
 
     **NO SMS**, deliberately and permanently: SMS would drag the whole DLT/TCCCPR
-    registration apparatus in front of a transactional account notice, and D-536 declines
+    registration apparatus in front of a transactional account notice, and D-538 declines
     it (the founder's own decision on the same question).
 
     Retried on a transport failure and alerted when the ladder is spent. NOT retried when

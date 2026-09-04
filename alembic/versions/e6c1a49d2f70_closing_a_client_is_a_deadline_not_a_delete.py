@@ -4,7 +4,7 @@ Revision ID: e6c1a49d2f70
 Revises: d1e58c7a94f2
 Create Date: 2026-09-04 00:00:00.000000
 
-D-536. The founder asked for a delete button on a client business in the admin console.
+D-538. The founder asked for a delete button on a client business in the admin console.
 The decision taken is *close now, erase after a grace period, undo during it* — so what
 the database needs is not a delete but a DEADLINE, and one that a human can call off.
 
@@ -66,7 +66,7 @@ that is said.
     THAT IT IS ═══
 
 `admin/routes.py::_LIFECYCLE_FROM` had no exit from `churned` and its docstring said
-re-opening is a new tenant. D-536 reverses that for the GRACE WINDOW only, and the
+re-opening is a new tenant. D-538 reverses that for the GRACE WINDOW only, and the
 reversal is safe precisely because of check 3 above: irreversibility now attaches to
 `deleted_at` — the erasure that actually destroyed something — rather than to a status
 flip that destroyed nothing. There is no schema change for it; the transition table is

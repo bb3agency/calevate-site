@@ -427,7 +427,7 @@ class PendingInviteOut(BaseModel):
     role: str
     invited_at: datetime
     expires_at: datetime
-    #: WHEN THE LINK WAS LAST SENT AND HOW MANY TIMES (D-536). The founder asked for both
+    #: WHEN THE LINK WAS LAST SENT AND HOW MANY TIMES (D-538). The founder asked for both
     #: on screen — "say when the last one was sent and to which address" — and they are
     #: the two facts that turn "they still have not signed up" into a decision: a link
     #: sent four minutes ago is not yet a problem, and one sent five times to an address
