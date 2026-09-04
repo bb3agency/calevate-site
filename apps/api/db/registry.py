@@ -211,6 +211,15 @@ TENANT_TABLES = [
     # (`scheduled -> dialing -> one of five endings`), which is what lets one promise stay
     # one row however many times a tick claims it.
     "scheduled_callbacks",
+    # WHO TAKES A CALL WHEN THE AGENT HANDS IT OVER, and every handover it fired (D-533,
+    # migration c4a91e60d7b3). The members table is a client's own staff on their own
+    # personal mobiles — the plainest PII this schema holds — and the attempts table names
+    # the caller's conversation and the number that rang. Both FORCE-RLS'd. NEITHER is
+    # append-only: the roster is edited by the client, and an attempt is a state machine
+    # (`started -> connected | unreached | unknown | abandoned`) that lets one handover
+    # stay one row from the mid-call notification to the post-call settlement.
+    "agent_handoff_members",
+    "handoff_attempts",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
     # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the

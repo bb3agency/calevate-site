@@ -14,10 +14,12 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -324,6 +326,16 @@ class Agent(PKMixin, TimestampMixin, Base):
     caller_memory_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
+    # DOES THIS AGENT HAND A LIVE CALLER TO A PERSON (D-533, migration c4a91e60d7b3)?
+    # FALSE for the reason the column above is: the posture a silence must not produce is
+    # "rings somebody's personal mobile". Read by `agents/handoff.py::on_duty`, which is
+    # the ONE place the destination for a publish is decided.
+    handoff_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # WHEN to hand over, in the client's own words, or NULL for the composed default
+    # (`agents/handoff.HANDOFF_TRIGGER_DEFAULT`). A TOOL DESCRIPTION, not a prompt:
+    # nothing written here reaches the system prompt, so nothing written here can touch
+    # the truthful-answer directive (hard rule 5).
+    handoff_trigger: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="draft")
     engine: Mapped[str] = mapped_column(String, nullable=False, server_default="fake")
     engine_agent_ref: Mapped[str | None] = mapped_column(Text)
@@ -554,3 +566,139 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
     engine_number_ref: Mapped[str | None] = mapped_column(Text)
     dlt_status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     purpose: Mapped[str | None] = mapped_column(Text)
+
+
+class AgentHandoffMember(PKMixin, TimestampMixin, Base):
+    """ONE person who can take a call from this agent (D-533, migration c4a91e60d7b3).
+
+    THE ROSTER IS ORDERED AND THE ORDER IS THE PRODUCT. The founder's brief asks for "an
+    ordered list of people who can take a call, tried in turn"; what this engine can
+    actually honour is the FIRST of them who is on duty, because it latches after one
+    handover (`HandoffSpec`, and the OSS line it cites). So the position is not decoration
+    — it is the whole of "who gets rung", and `agents/handoff.py` is the one module that
+    reads it.
+
+    DECLARED HERE AND QUERIED IN SQL, the seam this repo already uses: the model is what
+    puts the table in `Base.metadata`, which is what `check_rls_coverage` reads to prove
+    `tenant_id` and the FORCEd policy (hard rule 1), and what alembic autogenerate
+    compares against. The service writes the roster as one statement per edit.
+
+    **IT REPLACES `agents.escalation_config`**, which held the same list as an unreadable
+    JSONB blob with free-text hours and no reader. The migration argues the move.
+    """
+
+    __tablename__ = "agent_handoff_members"
+    __table_args__ = (
+        CheckConstraint("position >= 0", name="ck_agent_handoff_members_position"),
+        CheckConstraint("length(btrim(label)) > 0", name="ck_agent_handoff_members_label_nonempty"),
+        # E.164. Doubled with the Pydantic pattern at the boundary for the reason every
+        # floor in this schema is doubled: a restore or a hand-run UPDATE during an
+        # incident does not pass through a model, and this column is DIALLED.
+        CheckConstraint(
+            r"phone_e164 ~ '^\+[1-9][0-9]{7,18}$'",
+            name="ck_agent_handoff_members_phone_e164",
+        ),
+        # The order is a TOTAL order, per agent, per tenant — and it is the read path too.
+        Index(
+            "uq_agent_handoff_members_position",
+            "tenant_id",
+            "agent_id",
+            "position",
+            unique=True,
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # CASCADE: a roster member is a property OF an agent and has no meaning without one.
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    #: PII (hard rule 6): a member of the client's staff, on their personal mobile.
+    phone_e164: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `agents.business_hours`' shape, so ONE reader answers for both. NULL = inherit the
+    #: agent's own hours, which is what a three-person shop wants.
+    hours: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    note: Mapped[str | None] = mapped_column(Text)
+
+
+#: Every ending a handover can have. Spelled ONCE here rather than beside the CHECK and
+#: again in the service — `callbacks/models.STATUSES` establishes the pattern and the
+#: reason: the migration froze what the schema accepts, this is what the running code
+#: means by it.
+HANDOFF_OUTCOMES: tuple[str, ...] = (
+    "started",
+    "connected",
+    "unreached",
+    "unknown",
+    "abandoned",
+)
+
+
+class HandoffAttempt(PKMixin, TimestampMixin, Base):
+    """ONE handover the agent actually fired (D-533, migration c4a91e60d7b3).
+
+    Written by the mid-call notification, settled by the post-call pipeline. Keyed on the
+    ENGINE'S EXECUTION rather than on our call row, because the notification arrives while
+    the call is still in progress and the `calls` row may not exist yet — `scheduled_
+    callbacks` made the identical choice for the identical reason, and here there is a
+    second one: the engine allows exactly one handover per conversation, so the unique
+    index records a fact the platform will enforce whatever we do.
+    """
+
+    __tablename__ = "handoff_attempts"
+    __table_args__ = (
+        CheckConstraint("outcome IN " + str(HANDOFF_OUTCOMES), name="ck_handoff_attempts_outcome"),
+        CheckConstraint(
+            "(outcome = 'started') = (settled_at IS NULL)",
+            name="ck_handoff_attempts_settled",
+        ),
+        Index(
+            "uq_handoff_attempts_execution",
+            "tenant_id",
+            "source_execution_id",
+            unique=True,
+        ),
+        Index(
+            "ix_handoff_attempts_open",
+            "tenant_id",
+            "started_at",
+            postgresql_where=text("outcome = 'started'"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    source_execution_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("calls.id", ondelete="SET NULL"))
+    #: SET NULL: removing somebody from the roster must not rewrite the history of the
+    #: calls they took.
+    member_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agent_handoff_members.id", ondelete="SET NULL")
+    )
+    #: The number that actually rang, copied rather than only referenced — see the FK note
+    #: above and the migration.
+    destination_e164: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(nullable=False)
+    #: The model's own words about a live conversation, REDACTED before they get here.
+    reason: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False, server_default="started")
+    raw_status: Mapped[str | None] = mapped_column(Text)
+    leg_duration_s: Mapped[int | None] = mapped_column(Integer)
+    leg_recording_present: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    leg_cost_reported: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    callback_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("scheduled_callbacks.id", ondelete="SET NULL")
+    )
+    settled_at: Mapped[datetime | None]
