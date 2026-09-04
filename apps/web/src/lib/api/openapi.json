@@ -25502,7 +25502,7 @@
         "tags": [
           "agents"
         ],
-        "x-calevate-permission": "agents:write"
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/pending": {

@@ -17,10 +17,14 @@ reach a person: that depends on the master switch, on who is active, and on a cl
 the response carries `on_duty` and, when nobody is, the reason and the one sentence that
 fixes it — the shape `DispatchDecision` already uses on the dial path, for the same reason.
 
-PERMISSIONS. Reading is `agents:read` and writing is `agents:write`: this is agent
-configuration, it changes what a published agent does, and the person who may change an
-agent's script is the person who may change who its callers are handed to. It is
-deliberately NOT a `leads:` permission — nothing here is about a caller.
+PERMISSIONS. Reading is `agents:read`; writing is `org:manage`, which is what every
+CLIENT-REALM agent-configuration write in this product already declares (`POST /v1/agents`,
+the script builder, the notice toggles) — `agents:write` is an admin-realm permission no
+client role holds, so declaring it here would have made the screen unusable by the person
+it is for. It is the right permission substantively as well: putting a named person's
+personal mobile on a list that will be DIALLED is an owner's decision, not something a
+staff member who can edit leads should be able to do. It is deliberately not a `leads:`
+permission — nothing here is about a caller.
 
 **PUBLISHING IS SEPARATE, AND THE RESPONSE SAYS SO.** Editing the roster changes what the
 NEXT publish sends; it does not reach a live agent, because the destination is engine
@@ -62,7 +66,7 @@ router = APIRouter(prefix="/v1/agents/{agent_id}/handoff", tags=["agents"])
 
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("agents:read"))]
-Writer = Annotated[Principal, Depends(requires("agents:write"))]
+Writer = Annotated[Principal, Depends(requires("org:manage"))]
 
 
 class Strict(BaseModel):
@@ -340,7 +344,7 @@ async def get_handoff(agent_id: UUID, session: Session, principal: Reader) -> Ha
     "",
     response_model=HandoffOut,
     summary="Replace this agent's handover list, its switch and its trigger",
-    openapi_extra=permission_meta("agents:write"),
+    openapi_extra=permission_meta("org:manage"),
 )
 async def put_handoff(
     agent_id: UUID,
