@@ -183,6 +183,12 @@ async def available_numbers(
     country: Literal["IN", "US"] = Query("IN"),
     pattern: str | None = Query(None, min_length=1, max_length=8),
     provider: str | None = Query(None, max_length=32),
+    # BOUNDED HERE RATHER THAN AT THE VENDOR, because their search declares no page size
+    # at all (`search.md:38-70`) — so the size of this response is decided by how much
+    # inventory they happen to hold, which is exactly the "grows with somebody's data"
+    # shape `check_list_bounds` exists to refuse. Trimming is honest: an operator picks
+    # one number from a list, and a longer list does not make the choice better.
+    limit: int = Query(50, ge=1, le=200),
 ) -> list[AvailableNumberOut]:
     offers = await number_supply.search_numbers(
         get_engine(), country=country, pattern=pattern, provider=provider
@@ -197,7 +203,7 @@ async def available_numbers(
                 str(offer.monthly_price_usd) if offer.monthly_price_usd is not None else None
             ),
         )
-        for offer in offers
+        for offer in offers[:limit]
     ]
 
 
@@ -353,7 +359,7 @@ async def release_number(
 _TENANT_NUMBERS = (
     "SELECT id, e164, series, dlt_status, provider, engine_owned, "
     "engine_number_ref IS NOT NULL, monthly_rental_usd, released_at IS NOT NULL "
-    "FROM phone_numbers ORDER BY created_at, id"
+    "FROM phone_numbers ORDER BY created_at, id LIMIT :limit"
 )
 
 
@@ -366,15 +372,18 @@ _TENANT_NUMBERS = (
 async def tenant_numbers(
     tenant_id: UUID,
     _: NumberOperator,
+    limit: int = Query(100, ge=1, le=500),
 ) -> list[TenantNumberCostOut]:
     """Read under the tenant's own RLS, so one client's numbers is exactly what comes back.
 
-    UNBOUNDED BY DESIGN AND BOUNDED BY REALITY: a tenant's numbers are a handful, the row
-    is one line each, and there is no cursor a screen could page with that would not
-    also need a stable sort key it does not have. `check_list_bounds` reads this comment.
+    THE LIMIT IS IN THE QUERY, not applied to a full result in Python: a client with a
+    thousand numbers is not a realistic account, but "not realistic" is not a bound, and a
+    trim after the fact still pays for the read (`check_list_bounds`'s whole subject).
+    Released numbers are INCLUDED — a closed month's cost still refers to them, and an
+    operator asking "what have we paid for this client" needs the ones we gave back.
     """
     async with tenant_session(tenant_id) as scoped:
-        rows = (await scoped.execute(text(_TENANT_NUMBERS))).all()
+        rows = (await scoped.execute(text(_TENANT_NUMBERS), {"limit": limit})).all()
     return [
         TenantNumberCostOut(
             id=row[0],

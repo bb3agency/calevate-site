@@ -391,9 +391,11 @@ export interface paths {
          * This client's numbers, whether we bought them, and what each costs us
          * @description Read under the tenant's own RLS, so one client's numbers is exactly what comes back.
          *
-         *     UNBOUNDED BY DESIGN AND BOUNDED BY REALITY: a tenant's numbers are a handful, the row
-         *     is one line each, and there is no cursor a screen could page with that would not
-         *     also need a stable sort key it does not have. `check_list_bounds` reads this comment.
+         *     THE LIMIT IS IN THE QUERY, not applied to a full result in Python: a client with a
+         *     thousand numbers is not a realistic account, but "not realistic" is not a bound, and a
+         *     trim after the fact still pays for the read (`check_list_bounds`'s whole subject).
+         *     Released numbers are INCLUDED — a closed month's cost still refers to them, and an
+         *     operator asking "what have we paid for this client" needs the ones we gave back.
          */
         get: operations["tenant_numbers_v1_admin_numbers_tenants__tenant_id__get"];
         put?: never;
@@ -15412,6 +15414,7 @@ export interface operations {
                 country?: "IN" | "US";
                 pattern?: string | null;
                 provider?: string | null;
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -15441,7 +15444,9 @@ export interface operations {
     };
     tenant_numbers_v1_admin_numbers_tenants__tenant_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path: {
                 tenant_id: string;
