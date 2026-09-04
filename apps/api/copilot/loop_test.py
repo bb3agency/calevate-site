@@ -18,7 +18,7 @@ import httpx
 import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 
-from apps.api.copilot import service, write_tools
+from apps.api.copilot import navigation, service, write_tools
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.sanitize import has_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
@@ -412,6 +412,46 @@ async def test_azure_failing_before_a_single_fragment_falls_back_and_discloses(
     disclosure = service.disclosure_for(spend.capability)
     assert disclosure is not None
     assert disclosure.endswith(service.FALLBACK_NO_TOOLS_NOTE)
+
+
+async def test_the_fallback_leg_is_told_it_cannot_open_a_screen(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-524 GAVE THE PROMPT A CAPABILITY THE FALLBACK LEG DOES NOT HAVE.
+
+    `prompt.SYSTEM_PROMPT` job 5 and `screens.render_directory` tell the model — on EVERY
+    leg, because they are the cached prefix — that it can take somebody to another screen.
+    The fallback leg carries no tools at all, so without `open_screen` in the correction it
+    is the failure `_NO_TOOL_NOTE` exists to stop, one tool along: a model that says it has
+    opened a screen and opened nothing, or that refuses a screen the directory above it says
+    exists. The person-facing disclosure owes them the same fact.
+    """
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+
+    sent_messages: list[list[dict[str, Any]]] = []
+
+    async def _complete(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> chat.ChatOutcome:
+        sent_messages.append([dict(message) for message in messages])
+        return chat.ChatOutcome(content="Credits & billing is under Settings & account.")
+
+    monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
+    monkeypatch.setattr(chat, "complete", _complete)
+
+    events = await _drain()
+
+    correction = str(sent_messages[-1][-1]["content"])
+    assert navigation.OPEN_SCREEN_TOOL_NAME in correction
+    # Not merely "you have no tool" — the directory it read a moment ago is still true, and
+    # the one answer it must not give is that the screen does not exist.
+    assert "must not say the screen does not exist" in correction
+
+    spend = events[-1].spend
+    assert spend is not None
+    disclosure = service.disclosure_for(spend.capability)
+    assert disclosure is not None
+    assert "open another screen" in disclosure
 
 
 async def test_azure_failing_after_a_fragment_does_not_restart_on_the_fallback(

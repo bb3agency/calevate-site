@@ -263,25 +263,38 @@ MAX_STEP_CHARS: Final = 200
 
 #: Appended to `AssistCapability.disclosure` when the fallback leg answered.
 #:
-#: The fallback CANNOT FILL FIELDS (see `_answer_via_sarvam`), and a person who asked it to
-#: and got prose back is owed the reason. D-127 G-6's disclosure says which model wrote the
-#: answer; this says what that costs them, which is the part they can act on.
+#: The fallback CANNOT FILL FIELDS, LOOK ANYTHING UP, OR OPEN A SCREEN (see
+#: `_answer_via_sarvam`), and a person who asked it to and got prose back is owed the reason.
+#: D-127 G-6's disclosure says which model wrote the answer; this says what that costs them,
+#: which is the part they can act on.
+#:
+#: ⚠ NAVIGATION IS NAMED HERE BECAUSE D-524 ADDED A CAPABILITY AND THIS NOTE DID NOT MOVE.
+#: The static prompt tells the model, on every leg, that it can take somebody to another
+#: screen (`prompt.SYSTEM_PROMPT` job 5, `screens.render_directory`) — so on the one leg that
+#: has no tools at all, an unamended note left it either claiming a move that never happened
+#: or denying a screen that exists, which is the defect `screens.py` was written to end.
 FALLBACK_NO_TOOLS_NOTE: Final = (
-    " It can answer questions about this screen, but it cannot fill in fields or look up "
-    "your calls, leads, campaigns or agents."
+    " It can answer questions about this screen, but it cannot fill in fields, look up "
+    "your calls, leads, campaigns or agents, or open another screen for you."
 )
 
 
 #: Appended, last, on the fallback leg only. See `_answer_via_sarvam`.
 _NO_TOOL_NOTE: Final = (
     "CORRECTION for this turn only: the set_fields tool, every lookup tool (this "
-    "account's calls, leads, campaigns, agents and performance) and every tool that "
-    "proposes a change are NOT available to you right now. Do not call any of them, do not say you "
-    "have filled anything in, do not say you have looked anything up, and do not say you "
+    "account's calls, leads, campaigns, agents and performance), the "
+    f"{navigation.OPEN_SCREEN_TOOL_NAME} tool that opens another screen, and every tool "
+    "that proposes a change are NOT available to you right now. Do not call any of them, "
+    "do not say you "
+    "have filled anything in, do not say you have looked anything up, do not say you have "
+    "opened or are opening a screen, and do not say you "
     "have suggested a change. Answer the question in words from what you can already see. "
     "If the person asked you to fill a field or change something, tell them the value they "
     "should type or the button they should press, and that you cannot do it for them this "
-    "time. If they asked for a number about their business, say you cannot look it up "
+    "time. If they asked to be TAKEN to another screen, the list of screens above is still "
+    "correct and you must not say the screen does not exist: name it, say where it sits in "
+    "the sidebar, and say they will have to open it themselves this time. If they asked "
+    "for a number about their business, say you cannot look it up "
     "right now — do not estimate one."
 )
 
@@ -603,9 +616,9 @@ async def _answer_via_sarvam(
     session — and sending a parameter a provider does not support risks a 400, which would
     turn a working fallback into a refusal. So the fallback does the thing every
     OpenAI-compatible endpoint certainly does: one blocking completion, emitted as a single
-    text event. It answers questions and it cannot fill fields, and
-    `FALLBACK_NO_TOOLS_NOTE` is how the person is told that rather than left to discover
-    it.
+    text event. It answers questions and it cannot fill a field, look anything up or open a
+    screen, and `FALLBACK_NO_TOOLS_NOTE` is how the person is told that rather than left to
+    discover it.
 
     Metering is unaffected: D-36 prices this leg at zero, so `CopilotSpend.usage` stays
     None and `meter_assist`'s Sarvam branch records nothing — the same shape re-summarise
