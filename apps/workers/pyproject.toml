@@ -40,6 +40,7 @@ dependencies = [
     "opentelemetry-api>=1.30",
     "opentelemetry-sdk>=1.30",
     "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "openpyxl>=3.1",
 ]
 
 # Virtual member: run from the repo root as `apps.workers.settings.WorkerSettings`.

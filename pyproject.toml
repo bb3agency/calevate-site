@@ -217,6 +217,10 @@ module = [
     # back is held as `Any` behind this repo's own `span()`/`traced_job()` API.
     "opentelemetry.sdk.*",
     "opentelemetry.exporter.*",
+    # openpyxl ships no py.typed (checked in the installed 3.1.5). `document_text.py`
+    # touches four of its names and holds nothing it returns as `Any` beyond the cell
+    # values, which `_cell_text` narrows by isinstance before using.
+    "openpyxl.*",
 ]
 ignore_missing_imports = true
 
