@@ -157,7 +157,7 @@ from pydantic import ValidationError
 
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
-from apps.api.core.fx import current_fx_quote
+from apps.api.core.fx import usd_inr_rate_now
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import (
@@ -1112,13 +1112,6 @@ _PAISE = Decimal("0.0001")
 # and NOT confirmed against a live account — pilot gate 7 (OPERATIONS §2) is where it
 # stops being an assumption. `CostBreakdown.currency_stated` carries the difference into
 # every row, so a wrong guess is discoverable rather than baked in.
-#: What `CostBreakdown.fx_source` says when no published rate was in force and the
-#: conversion fell back to the operator's configured `USD_INR_RATE`. A NAMED constant
-#: because it is a value written into an append-only ledger and read back by whoever is
-#: reconciling it — a string spelled twice is a string that will eventually be spelled
-#: two ways.
-_CONFIGURED_FX_SOURCE = "configured:usd_inr_rate"
-
 _ASSUMED_CURRENCY = "USD"
 # Currencies this adapter can turn into INR. Anything else is refused rather than
 # converted at the wrong rate — see `_cost`.
@@ -3363,15 +3356,18 @@ class BolnaEngine:
           alarms on a rate past its ceiling and `workers/fx_pull` alarms on a puller that
           has gone quiet, so an operator hears about it before a month closes.
 
-        Reading `current_fx_quote()` rather than a database is what keeps this legal on
+        Reading the in-memory holder rather than a database is what keeps this legal on
         `parse_webhook`'s path (hard rule 3): it is one in-memory read and no IO.
         """
         if currency == "INR":
             return Decimal(1), None, None
-        quote = current_fx_quote()
-        if quote is None:
-            return self._fx_rate, _CONFIGURED_FX_SOURCE, None
-        return quote.rate, quote.source, quote.as_of
+        # The published-else-configured rule itself lives in `core/fx.usd_inr_rate_now`
+        # (D-535): it was spelled here and again in `billing/number_rental.py`, and two
+        # copies of a fallback is two places it can quietly stop happening. What stays
+        # here is the question only an adapter can answer — whether the vendor quoted in
+        # dollars at all.
+        resolved = usd_inr_rate_now(self._fx_rate)
+        return resolved.rate, resolved.source, resolved.as_of
 
     # --- plumbing ------------------------------------------------------------
 

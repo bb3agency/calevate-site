@@ -49,6 +49,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from typing import Final
 
 #: How old the SOURCE's own publication date may be before money stops using the pulled
 #: rate. Five days, and the number is a property of the source's cadence rather than a
@@ -103,6 +104,22 @@ class FxQuote:
         return self.age(now) <= MAX_QUOTE_AGE
 
 
+@dataclass(frozen=True, slots=True)
+class UsdInrRate:
+    """The rate one conversion used, with enough provenance to re-derive it later.
+
+    THREE FIELDS BECAUSE THE ROW NEEDS THREE. A rupee in an append-only ledger cannot be
+    corrected in place (hard rule 4), so the only way a wrong conversion is ever explained
+    is that the row says which rate and whose. `as_of` is None exactly when the configured
+    rate was used — a typed number has no publication date, and inventing today's would
+    make a stale fallback look like a fresh reading.
+    """
+
+    rate: Decimal
+    source: str
+    as_of: date | None
+
+
 #: What this process last installed, fresh or not. `None` = nothing has ever been pulled
 #: here, which is the honest cold-start state and the one every deployment is in until
 #: the first tick lands.
@@ -137,6 +154,37 @@ def current_fx_quote(now: datetime | None = None) -> FxQuote | None:
         return pin[0]
     quote = _installed
     return quote if quote is not None and quote.usable(now) else None
+
+
+#: What a converted figure records when nothing was published and the CONFIGURED rate was
+#: used instead. A source string rather than a null, because "we converted at the
+#: operator's typed rate" and "we do not know what we converted at" are different facts and
+#: only the first one is recoverable six months later.
+CONFIGURED_FX_SOURCE: Final = "configured:usd_inr_rate"
+
+
+def usd_inr_rate_now(configured: Decimal, now: datetime | None = None) -> UsdInrRate:
+    """The rate a dollar figure converts at RIGHT NOW, and where it came from.
+
+    **ONE SPELLING OF THE FALLBACK RULE, for every writer of money.** It was written twice
+    — once inside `engine/bolna.py::_conversion_rate` for a call's cost, and again the day
+    a recurring number rental needed converting (D-535) — and two copies of "use the
+    published rate while it is fresh, else the operator's typed one" is two places the
+    fallback can quietly stop happening. The engine adapter still owns the question this
+    does NOT answer: whether the vendor quoted in dollars at all.
+
+    Zero IO, so it stays legal on voice-runtime's request path (hard rule 3), and inside
+    `fx_scope()` it returns the quote that scope resolved — so a unit of work cannot
+    convert two figures at two rates.
+
+    The failure direction is "the platform converts as it did last release", never "the
+    platform stops converting". It is not silent: `ops/fx_rates.refresh_fx_snapshot`
+    alarms on a rate past its ceiling and `workers/fx_pull` alarms on a puller gone quiet.
+    """
+    quote = current_fx_quote(now)
+    if quote is None:
+        return UsdInrRate(rate=configured, source=CONFIGURED_FX_SOURCE, as_of=None)
+    return UsdInrRate(rate=quote.rate, source=quote.source, as_of=quote.as_of)
 
 
 @contextmanager
