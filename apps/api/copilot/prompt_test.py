@@ -567,13 +567,17 @@ def test_a_self_introduction_or_a_greeting_is_answered_rather_than_refused() -> 
 def test_the_framing_sits_between_the_job_list_and_the_chooser() -> None:
     """Position, for the reason the module docstring gives about every other block here.
 
-    The four-jobs list is the construction that taught the model every message is one of
-    four jobs; the counterweight has to be read immediately after it and before the chooser
-    that re-anchors on tool selection. This is an ORDERING assertion because "the string is
+    The job list is the construction that taught the model every message is one of its
+    jobs; the counterweight has to be read immediately after it and before the chooser that
+    re-anchors on tool selection. This is an ORDERING assertion because "the string is
     present somewhere" would pass with it parked under HOW TO WRITE, at the far end of a
-    13,000-character prompt."""
+    13,000-character prompt.
+
+    THE COUNT IS NOT SPELLED HERE (it was, it said FOUR, and D-524 added opening a screen):
+    the list's own heading is the anchor, and a test that has to be edited every time the
+    assistant learns something is a test that will be edited without being read."""
     prompt_text = prompt_module.SYSTEM_PROMPT
-    jobs = prompt_text.index("YOUR JOB IS FOUR THINGS")
+    jobs = prompt_text.index("YOUR JOB IS ")
     framing = prompt_text.index(prompt_module.CONVERSATIONAL_FRAMING)
     chooser = prompt_text.index("CHOOSING BETWEEN JOB 3 AND JOB 4")
     assert jobs < framing < chooser

@@ -68,14 +68,22 @@ facts already sit. The directory carries a `who` marker per screen — "everyone
 account owner" — and the viewer element carries the person's role and, by NAME, the screens
 their role cannot open. So the model has both halves and neither one moved the cache.
 
-═══ WHAT THIS DOES NOT DO: IT DOES NOT NAVIGATE ═══
+═══ IT NOW NAVIGATES TOO, AND THIS SECTION USED TO SAY IT COULD NOT (D-524) ═══
 
-There is no `navigate_to` tool and the copilot cannot move anybody (D-523). What it can now
-do is answer the question the client actually asked — name the screen and say where it sits
-in the sidebar — which is what the two of them were failing to communicate about. The
-route strings below are for MATCHING ONLY and are never spoken: `/c/{slug}/credits` is an
-internal address, and the prompt says so in the words the founder has banned across the
-product ("no route paths, no code identifiers").
+What it said, and what was true when it said it: there was no `navigate_to` tool and the
+copilot could not move anybody (D-523). The client's second message was *"take me to billing
+page"*, so the deferral was closed rather than kept: `copilot/navigation.py` is the one tool
+that opens a screen, and THIS FILE IS ITS INVENTORY — `find_screen` resolves a name or a
+client's own word to a `Screen`, `Screen.permission` is what refuses a destination the person
+would be turned away from, and `Screen.route` is the only thing that ever becomes a
+destination. A model-authored path is the open redirect that design exists to make
+impossible, which is why the tool takes a NAME.
+
+The route strings below are still for MATCHING ONLY and are never spoken: `/c/{slug}/credits`
+is an internal address, and the prompt says so in the words the founder has banned across the
+product ("no route paths, no code identifiers"). What changed is that one of them may now be
+COPIED — verbatim, by us, out of this tuple — onto the wire for a browser to act on. It is
+still never said out loud.
 """
 
 from __future__ import annotations
@@ -474,16 +482,21 @@ def render_directory() -> str:
         "prompt carries the address of the screen they are looking at, and the LIVE "
         "BUSINESS STATE names it. If it is the screen they are asking for, tell them they "
         "are already there and what to do on it.\n"
-        "- YOU CANNOT MOVE THEM. There is no tool that opens a screen, so say where it is "
-        "rather than promising to take them there — one sentence, not an apology.\n"
+        "- YOU CAN TAKE THEM THERE. When they ask to be taken, moved, or to have a screen "
+        'opened ("take me to billing", "open my leads"), call open_screen with the '
+        "screen's NAME from this list — it opens in their browser straight away. Say you "
+        "are opening it, not that they have arrived: if they have unsaved work on the "
+        "screen they are leaving, the console asks them first. When they only asked WHERE "
+        "something is, do NOT move them — say the name and where it sits.\n"
         "- NEVER SAY AN ADDRESS OUT LOUD. The bracketed address on each line is for "
         "matching only; it is not something a person is shown or told, and neither is any "
         "internal name. Screen names and sidebar groups are the only place vocabulary you "
         "use.\n"
         "- SOME SCREENS ARE THE OWNER'S ONLY. The LIVE BUSINESS STATE says who you are "
         "talking to and names any screen their role cannot open. Never send somebody to a "
-        "screen they will be refused from: say the screen exists, that it is the account "
-        "owner's, and what they can ask the owner to do.\n"
+        "screen they will be refused from — open_screen refuses one of those and tells you "
+        "so: say the screen exists, that it is the account owner's, and what they can ask "
+        "the owner to do.\n"
         "--- END SCREENS ---"
     )
 
