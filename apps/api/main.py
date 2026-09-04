@@ -71,6 +71,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.actions.routes import router as actions_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
+    from apps.api.admin.number_routes import router as number_supply_router
     from apps.api.admin.operator_routes import router as operator_router
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.experiment_routes import router as experiment_router
@@ -178,6 +179,13 @@ def _mount_routers(application: FastAPI) -> None:
     # segment under `/v1/admin/tenants/{tenant_id}`, which would swallow any literal
     # beside it, and it is about US rather than about a client.
     application.include_router(operator_router)
+    # Buying, linking and releasing a phone number (D-535). Its own
+    # `/v1/admin/numbers` prefix for the reason the three above have theirs:
+    # `/v1/admin/tenants/{tenant_id}` would swallow a literal `/numbers` beside it,
+    # and the inventory search is cross-tenant — it is about the vendor's stock, not
+    # about a client. The tenant-scoped operations carry the tenant in their path
+    # under this prefix instead.
+    application.include_router(number_supply_router)
     # The client health board, for the same reason and with the same hazard in mind: it
     # is a cross-tenant exception report, so it gets its own `/v1/admin/client-health`
     # prefix rather than a segment under `/v1/admin/tenants/{tenant_id}`.

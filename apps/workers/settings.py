@@ -124,6 +124,7 @@ from apps.workers.kb_ingest import ingest_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
+from apps.workers.number_rental import meter_number_rentals, reconcile_engine_numbers
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from apps.workers.pipeline import (
@@ -400,6 +401,37 @@ CRON_JOBS = [
     # other half of the retention obligation, on the same nightly cadence, with the same
     # "gone until tomorrow" failure mode and no next tick to self-heal on.
     cron(traced_job(sweep_expired), hour={3}, minute={17}, max_tries=WORKER_MAX_TRIES),
+    # THE RECURRING COST OF A PHONE NUMBER (D-535), and the only cost in this system that
+    # no event produces: the vendor debits its wallet on a renewal date we do not observe
+    # and issues nothing, so the only way a monthly rental enters the ledger is that we go
+    # and write it. Once per IST billing month, on the 1st, before anybody draws a
+    # statement for it — `record_number_rental` is idempotent in the database on
+    # `number_rental:<number_id>:<YYYY-MM>`, so a re-run costs nothing and a missed run is
+    # recovered by running it again inside the month.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. This one
+    # matters more than most — a failed attempt on a MONTHLY job is a whole month of a
+    # client's number costs missing from the margin, and there is no next tick to
+    # self-heal on until the 1st of the following month.
+    cron(
+        traced_job(meter_number_rentals),
+        day={1},
+        hour={2},
+        minute={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # The other half: a number bought at the vendor whose row never landed here is
+    # invisible to the meter above and renews every month for nobody. Daily, because the
+    # window between "the purchase succeeded and the INSERT did not" and somebody noticing
+    # should be measured in hours, and one small GET is not a load. Read-only; it alarms
+    # and changes nothing, deliberately (see the job).
+    cron(
+        traced_job(reconcile_engine_numbers),
+        hour={2},
+        minute={35},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE WEEKLY QA SPOT-CHECK (SURFACES §1): 5% of every client's calls, drawn so the
     # draw can be re-run and checked (`apps/api/quality/sampling.py`). Monday, early.
     #
