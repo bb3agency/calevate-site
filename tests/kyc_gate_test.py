@@ -318,10 +318,25 @@ async def test_buying_a_number_is_gated_for_a_managed_tenant_too() -> None:
     assert response.json()["type"].rsplit("/", 1)[-1] == "kyc_not_verified"
 
 
-async def test_a_verified_tenant_is_refused_by_the_seam_and_nothing_is_written() -> None:
-    """Past the client-side gate, the honest hole: no telephony credentials and no
-    provisioning adapter (D-05 is a decision, not a credential). The refusal is
-    problem+json and allocates nothing — no number row appears."""
+async def test_a_verified_tenant_is_refused_because_self_serve_is_not_the_shape() -> None:
+    """Past the client-side gate, the answer is still no — for a reason that CHANGED.
+
+    Model A is adopted on the inbound leg (D-537): Calevate does buy numbers now. What it
+    does not do is sell one from this screen, which is the shape the playbook names as
+    unsafe for a proprietor (§19, `:621`) — the supply is operator-led and arranged during
+    onboarding. So this route refuses as it always did, and the machine code moved from
+    `number_provisioning_not_configured` (a deployment capability) to
+    `number_purchase_is_operator_led` (a product decision), because the old one is no
+    longer true and a false refusal is repeated by a client to their own carrier.
+
+    **AND IT DOES NOT DEPEND ON OUR PAPERWORK.** Whether this deployment has recorded a
+    written reseller authorisation is our legal state; answering a client differently
+    depending on it would publish that through the shape of an error. Asserted here so the
+    refusal cannot quietly become capability-dependent later.
+
+    422 rather than 502: `business_rule` in the error ladder. It is not an upstream gap —
+    the platform works — it is a thing this screen does not do.
+    """
     org = await _tenant("self_serve")
     await _verify(org)
 
@@ -330,11 +345,8 @@ async def test_a_verified_tenant_is_refused_by_the_seam_and_nothing_is_written()
             PURCHASE_PATH, headers=await _headers(org), json={"series": "140", "city": "Hyderabad"}
         )
 
-    # 502: `kind="dependency"` in the error ladder, the same status the Razorpay seam's
-    # `payments_not_configured` answers with — a capability this deployment does not
-    # have is an upstream gap, not the client's mistake.
-    assert response.status_code == 502, response.text
-    assert response.json()["type"].rsplit("/", 1)[-1] == "number_provisioning_not_configured", (
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].rsplit("/", 1)[-1] == "number_purchase_is_operator_led", (
         response.text
     )
 
@@ -351,10 +363,22 @@ async def test_the_unimplemented_claim_is_a_constant_not_a_comment() -> None:
     from apps.api.campaigns import provisioning
 
     assert provisioning.PROVISIONING_IMPLEMENTED is False
+    # **STILL FALSE AFTER D-537, AND THE REASON IS WORTH PINNING.** It marks a
+    # CARRIER-DIRECT adapter — an Exotel or Plivo client holding that carrier's auth id
+    # and token — and none was written: the numbers this product now buys are bought
+    # THROUGH THE VOICE ENGINE, on the engine's own carrier account. Two other modules
+    # rest on "this repository holds no telephony credential of any kind" and stay true.
     assert provisioning.number_purchase_available() is False
     # ONE selector, and every caller shares it: a second read of settings cannot
     # disagree with the route, because there is no second read.
-    assert provisioning.number_provisioning_capability().available is False
+    capability = provisioning.number_provisioning_capability()
+    assert capability.available is False
+    # AND THE REASON IS THE LEGAL ONE, NOT A MISSING ADAPTER. The engine can sell a
+    # standard number; what is missing is the written VNO/reseller status the playbook
+    # makes the condition of Model A (`:621`), which no deployment has recorded. If this
+    # ever reads `engine_supplies_no_numbers` instead, somebody narrowed the engine
+    # descriptor and the gate stopped being the thing that holds the path shut.
+    assert capability.reason == provisioning.NOT_AUTHORIZED_REASON, capability.reason
 
 
 # ------------------------------------------------------- what the auditor and support ask
