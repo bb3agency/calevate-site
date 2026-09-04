@@ -1405,6 +1405,17 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <Hash className="h-3.5 w-3.5" />
             Numbers
+            {/* THE OTHER DOOR, and it is a different act (D-537). This form RECORDS a
+                connection the client already holds; the numbers screen BUYS one, links a
+                vendor handle to one that has none, and releases one — each of which
+                spends or stops money and each of which needs its own confirmation. They
+                are deliberately not one form. */}
+            <Link
+              href={`/admin/tenants/${tenantId}/numbers`}
+              className="ml-auto text-xs font-medium normal-case text-ink-muted underline underline-offset-2 hover:text-ink"
+            >
+              Buy, link or release a number
+            </Link>
           </h3>
           {provision.error && <ProblemNotice error={provision.error} />}
           {setDlt.error && <ProblemNotice error={setDlt.error} />}

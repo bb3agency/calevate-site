@@ -94,6 +94,7 @@ export function clientNavigation(slug: string): NavGroup[] {
         // record consulted when something goes wrong.
         { href: `/c/${slug}/callbacks`, label: "Call-backs", icon: PhoneForwarded },
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
+        { href: `/c/${slug}/phone-number`, label: "Your phone number", icon: PhoneForwarded },
         { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
       ],
     },

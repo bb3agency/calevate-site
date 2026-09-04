@@ -199,6 +199,22 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("knowledge", "faq", "training", "documents", "what the agent knows"),
     ),
     Screen(
+        route="/c/{slug}/phone-number",
+        name="Your phone number",
+        group=None,
+        summary=(
+            "The number to point your existing business phone at, and what to tell your operator."
+        ),
+        aliases=(
+            "phone number",
+            "my number",
+            "forwarding",
+            "divert",
+            "what number do i forward to",
+            "did",
+        ),
+    ),
+    Screen(
         route="/c/{slug}/performance",
         name="Performance",
         group=None,
