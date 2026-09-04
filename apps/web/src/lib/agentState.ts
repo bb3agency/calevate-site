@@ -41,6 +41,18 @@ import { lookup } from "@/lib/lookup";
  */
 export const ARCHIVED_STATUS = "archived";
 
+/**
+ * Has this agent been DELETED? The console's word for the archived state (D-527).
+ *
+ * One predicate rather than four spellings of `agent.status === ARCHIVED_STATUS`, for this
+ * file's own reason: every screen that shows an agent has to answer it, and the answer now
+ * decides whether a control is rendered at all rather than only how a badge reads. A
+ * comparison repeated at each call site is a rule nobody can find; this is the rule.
+ */
+export function isDeleted(agent: Agent): boolean {
+  return agent.status === ARCHIVED_STATUS;
+}
+
 /** The three buckets the roster groups by, in the order an owner cares about them. */
 export type AgentGroupKey = "active" | "inactive" | "archived";
 
@@ -52,7 +64,7 @@ export type AgentGroupKey = "active" | "inactive" | "archived";
  * and left switched off, and neither is answering a phone.
  */
 export function agentGroup(agent: Agent): AgentGroupKey {
-  if (agent.status === ARCHIVED_STATUS) return "archived";
+  if (isDeleted(agent)) return "archived";
   return agent.published && agent.status === "live" ? "active" : "inactive";
 }
 
@@ -193,5 +205,5 @@ export function movesFor(status: string): readonly LifecycleMove[] {
  * an archived one.
  */
 export function isAssignable(agent: Agent): boolean {
-  return agent.status !== ARCHIVED_STATUS;
+  return !isDeleted(agent);
 }

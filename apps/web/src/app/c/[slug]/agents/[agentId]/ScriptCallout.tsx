@@ -99,3 +99,56 @@ export function ScriptCallout({
     </section>
   );
 }
+
+/**
+ * THE SAME SLOT ON A DELETED AGENT — the script as a record, with no way in.
+ *
+ * A SEPARATE COMPONENT RATHER THAN A BRANCH INSIDE THE HERO, because almost nothing
+ * survives the branch: no brand border, no medallion, no `PRIMARY_BUTTON_LG`, and none of
+ * the four channels of primacy `ScriptCallout` spends on the one thing this screen is for.
+ * A deleted agent's screen is for READING what an agent used to do, and the hero's whole
+ * job — pulling the eye to the edit — is the thing that must not happen here.
+ *
+ * WHAT WAS WRONG BEFORE. This slot rendered the hero unconditionally: a green "Open the
+ * script builder" beside a header badge reading "Deleted", under the sentence "Write the
+ * script first — an agent with none cannot be switched on". That sentence is advice for a
+ * DRAFT and is simply false about a deleted agent, which has a script, cannot be switched
+ * on by writing one, and whose save the server now refuses (`agent_archived`). The founder's
+ * instruction was to make it impossible rather than merely unrewarding.
+ *
+ * IT NAMES THE ONE AVAILABLE ACTION and does not offer it here — "Bring it back" lives in
+ * the lifecycle panel directly below, which is the only place any move on this agent is
+ * made. Two buttons for one move is the drift this section of the app has already paid for
+ * once (`AgentLifecycle.MOVE_COPY` is shared with the roster for the same reason).
+ */
+export function DeletedScriptNote() {
+  return (
+    <section
+      aria-labelledby="script-deleted-heading"
+      className="rounded-card border border-line bg-surface p-4 sm:p-6"
+    >
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-app text-ink-muted"
+        >
+          <MessageSquareQuote className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id="script-deleted-heading" className="text-lg font-semibold text-ink">
+            What it said on a call
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm text-ink-muted">
+            Its script is kept exactly as it was — part of the record of what this agent
+            did — and it cannot be changed while the agent is deleted. Nothing is being
+            said to anyone: this agent answers no calls and makes none.
+          </p>
+          <p className="mt-2 max-w-2xl text-sm text-ink-muted">
+            Bringing it back is the one thing you can do to it from here. It comes back
+            switched off, and its script is then yours to edit again.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}

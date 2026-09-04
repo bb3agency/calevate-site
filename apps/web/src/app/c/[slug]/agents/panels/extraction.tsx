@@ -20,7 +20,7 @@ import {
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { useToast } from "@/components/interior/toaster";
-import { ARCHIVED_STATUS } from "@/lib/agentState";
+import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
@@ -50,7 +50,7 @@ import { useVerticalExamples } from "@/lib/useVerticalExamples";
  * record — so it gets the read-only list, mirroring `AgentIdentity` and `AgentModel`.
  */
 export function ExtractionList({ agent, leadsHref }: { agent: Agent; leadsHref: ReactNode }) {
-  if (agent.status === ARCHIVED_STATUS) {
+  if (isDeleted(agent)) {
     return <ArchivedExtractionList agent={agent} leadsHref={leadsHref} />;
   }
   return <ExtractionEditor agent={agent} leadsHref={leadsHref} />;
@@ -350,7 +350,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   );
 }
 
-/** An archived agent's columns, as the record they are — no editor, and a sentence saying why. */
+/** A deleted agent's columns, as the record they are — no editor, and a sentence saying why. */
 function ArchivedExtractionList({
   agent,
   leadsHref,
@@ -422,7 +422,7 @@ function ArchivedExtractionList({
         <p className="mt-2 text-sm text-ink-muted">This agent captured no extra columns.</p>
       )}
       <p className="mt-2 text-xs text-ink-muted">
-        This agent is archived, so its columns in your {leadsHref} table are kept exactly as
+        This agent is deleted, so its columns in your {leadsHref} table are kept exactly as
         they were — part of the record of what it did. Bring it back first to change them.
       </p>
     </section>

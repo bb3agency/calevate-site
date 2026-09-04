@@ -23,7 +23,7 @@
  *   moving a "both" agent to outbound genuinely stops it picking up. The hint says so,
  *   because a client who thinks this only changes a label will change it on a Friday.
  *
- * An ARCHIVED agent is refused by the server (`agent_archived`), on the grounds that
+ * A DELETED (archived) agent is refused by the server (`agent_archived`), on the grounds that
  * editing what a retired agent *is* changes a record somebody may be reading as evidence
  * of what it was. So the form is not rendered at all for one — a disabled form whose
  * every input is dead is worse than a sentence saying why there is none.
@@ -41,7 +41,7 @@ import {
   RestrictionNote,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
-import { ARCHIVED_STATUS, LANGUAGE_NAMES } from "@/lib/agentState";
+import { LANGUAGE_NAMES, isDeleted } from "@/lib/agentState";
 import {
   useUpdateAgent,
   type Agent,
@@ -76,10 +76,10 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
     hasKey(LANGUAGE_NAMES, agent.language_primary) ? agent.language_primary : null,
   );
 
-  if (agent.status === ARCHIVED_STATUS) {
+  if (isDeleted(agent)) {
     return (
       <p className="text-sm text-ink-muted">
-        This agent is archived, so its details are kept exactly as they were — they are part
+        This agent is deleted, so its details are kept exactly as they were — they are part
         of the record of what it did. Bring it back first if you want to change them.
       </p>
     );

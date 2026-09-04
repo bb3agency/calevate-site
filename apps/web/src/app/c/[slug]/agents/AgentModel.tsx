@@ -15,7 +15,7 @@ import {
   formatRupeeRate,
 } from "@/components/ui";
 import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
-import { ARCHIVED_STATUS } from "@/lib/agentState";
+import { isDeleted } from "@/lib/agentState";
 import { useUpdateAgent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
@@ -111,9 +111,9 @@ export function AgentModel({ agent, slug }: { agent: AgentWithLlm; slug: string 
           <ProblemNotice error={catalogue.error} onRetry={() => void catalogue.refetch()} />
         )}
 
-        {agent.status === ARCHIVED_STATUS ? (
+        {isDeleted(agent) ? (
           <p className="text-sm text-ink-muted">
-            This agent is archived, so its settings are kept exactly as they were — they are
+            This agent is deleted, so its settings are kept exactly as they were — they are
             part of the record of what it did. Bring it back first if you want to change
             them.
           </p>

@@ -15,7 +15,7 @@
  */
 
 import { NOTICE_TONES } from "@/components/ui";
-import { ARCHIVED_STATUS, humanise } from "@/lib/agentState";
+import { humanise, isDeleted } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 
 export interface LiveState {
@@ -41,7 +41,7 @@ export interface LiveState {
  * which is exactly what that tone already means everywhere else in this app.
  */
 export function liveState(agent: Agent): LiveState {
-  if (agent.status === ARCHIVED_STATUS) {
+  if (isDeleted(agent)) {
     return {
       // "Deleted", the console's word for this state since D-527 — the badge, the section
       // heading and the button that produced it have to be one word or an owner cannot

@@ -36,6 +36,8 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { applyByPaths } from "@/lib/copilot/paths";
 import { useClientSession } from "@/lib/api/session";
+import { isDeleted } from "@/lib/agentState";
+import { useAgent } from "@/lib/api/agents";
 import {
   EMPTY_SCRIPT,
   useApplyScript,
@@ -66,6 +68,18 @@ const CHAR_BUDGET = 9000;
 export function ScriptBuilder({ agentId }: { agentId: string }) {
   const session = useClientSession();
   const loaded = useScript(session, agentId);
+  /*
+   * WHOSE SCRIPT THIS IS, read for one question only: has the agent been deleted?
+   *
+   * The agent detail screen no longer links here for a deleted agent, but a URL is not a
+   * control — this route is bookmarkable, it is in a browser's history, and it is one back
+   * button away from the moment somebody pressed Delete. Every Save from here is now
+   * refused by the server (`agent_archived`), so rendering the editor would be an authoring
+   * surface whose only outcome is a 409 after the typing. `useAgent` is the same cached
+   * query the detail screen already made, so on the ordinary path this costs no request.
+   */
+  const agent = useAgent(session, agentId);
+  const deleted = agent.data !== undefined && isDeleted(agent.data);
 
   /*
    * THE LOADING AND FAILED SCREENS, DECLARED — and `null` the moment `Editor` mounts.
@@ -82,7 +96,7 @@ export function ScriptBuilder({ agentId }: { agentId: string }) {
    * script's own fields for the whole of the time they matter.
    */
   useCopilotSurface(
-    loaded.data
+    loaded.data && !deleted
       ? null
       : {
           route: "/c/{slug}/agents/{id}/script",
@@ -94,14 +108,29 @@ export function ScriptBuilder({ agentId }: { agentId: string }) {
             {
               key: "state",
               label: "What is on screen",
-              value: loaded.error
-                ? "the script failed to load, so nothing of it is on screen"
-                : "still loading",
+              value: deleted
+                ? "this agent is deleted, so its script is read-only and no editor is on screen"
+                : loaded.error
+                  ? "the script failed to load, so nothing of it is on screen"
+                  : "still loading",
             },
           ],
           apply: noFill,
         },
   );
+
+  if (deleted) {
+    /* A sentence, not a disabled editor. "A form whose every input is dead is worse than a
+       sentence saying why there is none" is the rule `AgentIdentity` already states, and a
+       500-line builder is the strongest case for it on this screen. */
+    return (
+      <NoticeBox tone="warn" title="This agent is deleted">
+        Its script is kept exactly as it was, and it cannot be edited while the agent is
+        deleted. Bring the agent back from its own screen — it returns switched off — and
+        the builder opens again.
+      </NoticeBox>
+    );
+  }
 
   return (
     <div className="space-y-5 pb-16">

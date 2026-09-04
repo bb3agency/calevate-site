@@ -58,7 +58,7 @@ import Link from "next/link";
 import { PlugZap, Settings2, ToggleLeft } from "lucide-react";
 
 import { Card, Disclosure, Fact, ProblemNotice, Skeleton } from "@/components/ui";
-import { STATUS_COPY, humanise } from "@/lib/agentState";
+import { STATUS_COPY, humanise, isDeleted } from "@/lib/agentState";
 import { useAgent, type Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -73,10 +73,11 @@ import { AgentLifecycle } from "../AgentLifecycle";
 import { AgentModel } from "../AgentModel";
 import { ExtractionList } from "../panels/extraction";
 import { CallerContinuity } from "../panels/callerContinuity";
+import { Handover } from "../panels/handover";
 import { OpeningNotices } from "../panels/openingNotices";
 import { PublishingPanel } from "../panels/publishing";
 import { TrainingPanel } from "../panels/training";
-import { ScriptCallout } from "./ScriptCallout";
+import { DeletedScriptNote, ScriptCallout } from "./ScriptCallout";
 
 /** The screen, from the route's params. §52: the three states are branches, not a ladder. */
 export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: string }) {
@@ -139,6 +140,65 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
   const { href } = useClientRealm();
   const session = useClientSession();
 
+  /*
+   * A DELETED AGENT IS A DIFFERENT SCREEN, and this branch is the whole of the fix the
+   * founder asked for: *"we shouldn't be able to tweak anything in deleted agents at all"*.
+   *
+   * WHY A BRANCH HERE RATHER THAN A GUARD IN EACH PANEL. Four panels already carried their
+   * own retired arm (identity, model, what it captures, what it knows) and five did not —
+   * the script hero, the two opening-notice switches, caller memory, the staged/apply
+   * controls, the mid-call actions and the teach-it-this form. Adding a fifth, sixth and
+   * seventh copy of one rule is how the first four came to disagree in the first place;
+   * one decision, taken once, in the component that decides what this screen IS, cannot.
+   * The panels keep their own arms because they are reached from elsewhere too.
+   *
+   * IT IS READ-ONLY, NOT HIDDEN. Deleting keeps the history — that is the entire reason
+   * the server archives instead of erasing — so the header, what it used to capture, what
+   * it was and which model it thought with all stay on the page, each already rendering
+   * itself as a record. What goes is every control that would write, and the copy that
+   * only makes sense on an agent somebody is still building.
+   *
+   * THE LIFECYCLE PANEL IS THE ONLY THING THAT ACTS, and it offers exactly one move:
+   * `movesFor("archived")` is `["restore"]`, mirrored from the server's own table. So the
+   * screen has one button and it is the one the copy above it names.
+   */
+  if (isDeleted(agent)) {
+    return (
+      <div className="space-y-5">
+        <AgentHeader agent={agent} />
+
+        <DeletedScriptNote />
+
+        <Card title="Bringing it back">
+          <AgentLifecycle agent={agent} />
+        </Card>
+
+        <Card title="What it captured">
+          <ExtractionList
+            agent={agent}
+            leadsHref={
+              <Link
+                href={href(`/c/${slug}/leads`)}
+                className="font-medium underline underline-offset-2 hover:text-ink"
+              >
+                Leads
+              </Link>
+            }
+          />
+        </Card>
+
+        {/* The same heading the working screen uses. Its panel already renders itself as a
+            record for a deleted agent, and renaming the card here would leave the existing
+            screen and this one with two names for one thing. */}
+        <Card title="What it is">
+          <AgentIdentity agent={agent} />
+        </Card>
+
+        <AgentModel agent={agent} slug={slug} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <AgentHeader agent={agent} />
@@ -168,6 +228,18 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
           Reversed or separated, the sentence reads as an unexplained third announcement. */}
       <Card title="Remembering callers">
         <CallerContinuity agent={agent} />
+      </Card>
+
+      {/* FOREGROUND rather than disclosed, and the test is the doctrine's own: FREQUENCY
+          x CONSEQUENCE. The frequency is low — a roster changes when somebody joins or
+          goes on holiday — and the consequence is the highest on this screen after the
+          script, because it is the only control here that makes a real telephone ring on a
+          named person's own handset. It also carries two limits the client would otherwise
+          assume away (nobody is briefed before they pick up; the list is not retried on the
+          same call), and doctrine §8 forbids putting a statement a client would sell to
+          their own callers behind a click. */}
+      <Card title="Putting a caller through to a person">
+        <Handover agent={agent} />
       </Card>
 
       <Card title="What it captures">

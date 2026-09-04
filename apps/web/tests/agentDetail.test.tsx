@@ -1030,7 +1030,10 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     );
 
     await screen.findByText("Reception");
-    const panel = card("Switching it on and off");
+    // "Bringing it back", not "Switching it on and off": on a deleted agent the only move
+    // there is is the restore, and a heading offering a switch it does not have is the
+    // same class of lie as the script button this screen used to show.
+    const panel = card("Bringing it back");
     expect(within(panel).getByRole("button", { name: /Bring it back/ })).toBeTruthy();
     expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Switch off/ })).toBeNull();
@@ -1148,6 +1151,72 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     // what the client can do about it. A refusal with no second line is a dead end.
     expect(alert.textContent).toContain("Nothing has been written for it to say.");
     expect(alert.textContent).toContain("Ask your account manager to write its script.");
+  });
+});
+
+describe("a deleted agent offers nothing to tweak (the founder's screenshot)", () => {
+  /*
+   * THE DEFECT, IN ONE SENTENCE: the header badge said "Deleted" and the page then offered
+   * a green "Open the script builder →" under the words "Write the script first — an agent
+   * with none cannot be switched on". A deleted agent has a script, cannot be switched on
+   * by writing one, and every save from that builder is refused by the server.
+   *
+   * The assertions are on the ABSENCE of controls rather than on their disabled state,
+   * because that is what was asked for and because a dead control is this repo's own
+   * defined worse option ("a button that would 403 is worse than no button at all").
+   */
+  const DELETED = {
+    "/v1/agents/agent-1": agent({
+      status: "archived",
+      archived_at: "2026-07-02T09:30:00Z",
+      published: false,
+    }),
+  };
+
+  it("offers no way into the script builder, and no draft-agent advice", async () => {
+    await renderClientPage(page, routes(DELETED));
+
+    await screen.findByText("Reception");
+    expect(screen.queryByRole("link", { name: /script builder/i })).toBeNull();
+    expect(document.body.textContent).not.toContain("Write the script first");
+    // And it says what IS true, in place of the sentence that was not.
+    expect(document.body.textContent).toContain("What it said on a call");
+    expect(document.body.textContent).toContain(
+      "cannot be changed while the agent is deleted",
+    );
+  });
+
+  it("renders no write control anywhere on the screen except the restore", async () => {
+    await renderClientPage(page, routes(DELETED));
+
+    await screen.findByText("Reception");
+    // The switches, the save buttons and the teach-it form are all gone, not disabled.
+    for (const name of [
+      /Save changes/,
+      /Submit for review/,
+      /Let AI draft/i,
+      /Switch off/,
+      /Switch on/,
+      /Delete/,
+    ]) {
+      expect(screen.queryByRole("button", { name }), String(name)).toBeNull();
+    }
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    // The one available action, named in the copy and present as the only button.
+    expect(screen.getByRole("button", { name: /Bring it back/ })).toBeTruthy();
+  });
+
+  it("still READS: the badge, what it captured and what it was are all on the page", async () => {
+    // Deleting keeps the history — that is the whole reason the server archives rather
+    // than erases — so a guard that hid the record would be a worse defect than the one
+    // this screen had.
+    await renderClientPage(page, routes(DELETED));
+
+    await screen.findByText("Reception");
+    expect(screen.getAllByText("Deleted").length).toBeGreaterThan(0);
+    expect(card("What it captured")).toBeTruthy();
+    expect(card("What it is").textContent).toContain("Bring it back first");
   });
 });
 

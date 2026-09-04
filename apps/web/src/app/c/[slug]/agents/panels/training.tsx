@@ -21,7 +21,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
-import { ARCHIVED_STATUS } from "@/lib/agentState";
+import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 import type { Agent } from "@/lib/api/agents";
@@ -93,9 +93,9 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
       {/* A retired agent answers nobody, so a form for teaching it one more thing is a
           control with no outcome. The list above stays, because what it knew is part of
           the record of what it did. */}
-      {agent.status === ARCHIVED_STATUS ? (
+      {isDeleted(agent) ? (
         <p className="mt-5 border-t border-line pt-5 text-sm text-ink-muted">
-          This agent is archived, so there is nothing to teach it. Bring it back first.
+          This agent is deleted, so there is nothing to teach it. Bring it back first.
         </p>
       ) : (
         <form
