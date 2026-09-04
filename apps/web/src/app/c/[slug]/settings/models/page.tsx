@@ -385,15 +385,15 @@ function OrganizationDefault({
                 price of a minute" would expect the wrong number on their statement. */}
             A model&apos;s figure is ADDED to your plan&apos;s per-minute rate, for the
             minutes your agents run it — your plan&apos;s own rate does not change. It
-            appears on your invoice as its own line, naming the model. What you are
-            actually billed for the month is on your{" "}
+            appears on your statement as its own line, naming the model. What you are
+            actually billed for the month is on the{" "}
             <Link
-              href={href(`/c/${slug}/usage`)}
+              href={href(`/c/${slug}/billing?tab=usage`)}
               className="font-medium underline underline-offset-2 hover:text-ink"
             >
-              Usage
-            </Link>{" "}
-            screen.
+              Usage tab of Credits &amp; billing
+            </Link>
+            .
           </li>
           <li className="flex gap-2">
             <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
