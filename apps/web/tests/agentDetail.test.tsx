@@ -983,18 +983,35 @@ function card(title: string): HTMLElement {
   return panel as HTMLElement;
 }
 
-describe("switching an agent on, off and into the archive (D-440)", () => {
+/** A paused agent, which since D-527 is the only state a delete is offered from. */
+const SWITCHED_OFF = { "/v1/agents/agent-1": agent({ status: "paused", published: true }) };
+
+describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
   it("offers a live agent only the moves the server's transition table allows", async () => {
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
-    // `live -> {paused, archived}` (lifecycle.AGENT_TRANSITIONS). "Switch on" is not one of
-    // them, and offering it is a click that could only ever be refused.
+    // `live -> {paused}` ONLY (lifecycle.AGENT_TRANSITIONS). "Switch on" was never one of
+    // them, and Delete stopped being one at D-527: a working agent is refused with
+    // `agent_is_live` until it is switched off, so offering it here would be a click that
+    // could only ever be refused.
     expect(within(panel).getByRole("button", { name: /Switch off/ })).toBeTruthy();
-    expect(within(panel).getByRole("button", { name: /Archive/ })).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Switch on/ })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Bring it back/ })).toBeNull();
+  });
+
+  it("offers a switched-off agent the delete the live one could not have", async () => {
+    // The other half of the rule, and the half that makes it a two-step rather than a
+    // wall: the move the live agent was refused is right there once it is switched off.
+    await renderClientPage(page, routes(SWITCHED_OFF));
+
+    await screen.findByText("Reception");
+    const panel = card("Switching it on and off");
+    expect(within(panel).getByRole("button", { name: /Switch on/ })).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: /Delete/ })).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: /Switch off/ })).toBeNull();
   });
 
   it("offers an archived agent a restore and nothing else, and says it comes back switched off", async () => {
@@ -1015,15 +1032,16 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
     expect(within(panel).getByRole("button", { name: /Bring it back/ })).toBeTruthy();
-    expect(within(panel).queryByRole("button", { name: /Archive/ })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Switch off/ })).toBeNull();
     expect(panel.textContent).toContain("comes back switched OFF");
   });
 
-  it("restates what archiving does before it does it, and only then posts", async () => {
+  it("restates what deleting does before it does it, and only then posts", async () => {
     const { calls } = await renderClientPage(
       page,
       routes({
+        ...SWITCHED_OFF,
         "POST /v1/agents/agent-1/archive": {
           agent_id: "agent-1",
           status: "archived",
@@ -1036,25 +1054,27 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
 
-    // FIRST PRESS: the consequences, no request. The one a client most needs is that
-    // nothing is deleted — an owner who believes archiving erases their call history will
-    // leave a dead agent switched off forever instead.
+    // FIRST PRESS: the consequences, no request. The one a client most needs is that the
+    // history survives — an owner who believes Delete erases their call log will leave a
+    // dead agent switched off forever instead, which is the reason the word "delete" is
+    // affordable at all (D-527).
     await act(async () => {
-      fireEvent.click(await pressable(panel, /^Archive…$/));
+      fireEvent.click(await pressable(panel, /^Delete…$/));
     });
-    expect(panel.textContent).toContain("Nothing is deleted");
+    expect(panel.textContent).toContain("stay in your call log");
     expect(panel.textContent).toContain("no longer be put on a campaign");
     expect(calls.some((call) => call.method === "POST")).toBe(false);
 
-    // SECOND PRESS: the move.
+    // SECOND PRESS: the move — still `POST /archive`, because the server's word for it
+    // has not changed and the client's label is a label.
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Archive this agent/));
+      fireEvent.click(await pressable(panel, /Delete this agent/));
     });
     const posted = calls.find((call) => call.method === "POST");
     expect(posted?.path).toBe("/v1/agents/agent-1/archive");
   });
 
-  it("announces the archive consequences and leaves the keyboard on the control", async () => {
+  it("announces the delete consequences and leaves the keyboard on the control", async () => {
     /**
      * The half `tests/a11y.ts` says out loud that the axe sweep cannot see: axe checks the
      * markup that exists, never an announcement that never happens or a Tab that goes
@@ -1072,11 +1092,11 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
      *    focus would fall to `<body>` and a keyboard-only owner would have to Tab back
      *    through the page to finish an action they had started.
      */
-    await renderClientPage(page, routes());
+    await renderClientPage(page, routes(SWITCHED_OFF));
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
 
-    const trigger = await pressable(panel, /^Archive…$/);
+    const trigger = await pressable(panel, /^Delete…$/);
     // Focused the way a keyboard user arrives at it, then activated. `fireEvent.click`
     // alone would prove nothing about focus: it does not move it.
     await act(async () => {
@@ -1085,9 +1105,9 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
     });
 
     const announced = within(panel).getByRole("status");
-    expect(announced.textContent).toContain("Nothing is deleted");
+    expect(announced.textContent).toContain("stay in your call log");
 
-    const armed = within(panel).getByRole("button", { name: /Archive this agent/ });
+    const armed = within(panel).getByRole("button", { name: /Delete this agent/ });
     expect(document.activeElement, "the keyboard was dropped by the confirm step").toBe(armed);
 
     // And the way out is reachable too — a confirmation a keyboard user can enter and not
@@ -1096,7 +1116,7 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
       fireEvent.click(within(panel).getByRole("button", { name: /Keep it/ }));
     });
     expect(within(panel).queryByRole("status")).toBeNull();
-    expect(within(panel).getByRole("button", { name: /^Archive…$/ })).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
   });
 
   it("renders the server's refusal when switching on is not possible yet", async () => {

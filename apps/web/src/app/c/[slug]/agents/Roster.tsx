@@ -360,9 +360,11 @@ function AgentRow({
                 )}
               </span>
             )}
+            {/* "Deleted", the console's word for what `archived_at` records (D-527) — a
+                row must not name the move by a word no button on this screen uses. */}
             {agent.archived_at !== null && (
               <span className="block text-xs text-ink-faint">
-                Retired {formatIST(agent.archived_at)}
+                Deleted {formatIST(agent.archived_at)}
               </span>
             )}
           </span>
