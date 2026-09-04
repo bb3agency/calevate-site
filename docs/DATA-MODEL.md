@@ -557,8 +557,25 @@ plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
   -- no fee, no included minutes, no rate, no ceiling — deliberately, and logs
   -- `plan_window_leaves_tenant_unpriced`; falling back to the expired row would charge a
   -- client at terms whose end date we were told.
-credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,refund],
+credit_ledger(id, tenant_id, delta NUMERIC,
+  reason ENUM[topup,usage,adjustment,refund,bonus,grant],
   ref, balance_after, occurred_at, meta JSONB)          -- INSERT-only (hard rule 4)
+-- `bonus` (c3a9f1e6b820) and `grant` (a71f3c9e5d84, D-535) are the two reasons that put
+--   credit on a wallet WITHOUT a client paying — `billing/models.GRANTED_CREDIT_REASONS`,
+--   against `PAID_CREDIT_REASONS` which is `topup` alone. `service.credit_totals` is the
+--   ONE definition of the split and both the operator's wallet panel and the client's own
+--   statement publish it: credit we GAVE reading as credit they BOUGHT would inflate the
+--   revenue side of our own margin figures, which is the lie D-39 refused when it declined
+--   to seed opening balances. `usage`/`adjustment`/`refund` are in NEITHER set — they are
+--   movements, not origins, and letting a correction subtract from `granted_inr` would
+--   understate what a client was actually given.
+-- INDEX ux_credit_ledger_grant_ref UNIQUE (tenant_id, ref) WHERE reason = 'grant'
+--   AND ref IS NOT NULL (a71f3c9e5d84). The `bonus` index's shape, for the same reason: a
+--   brand-new reason has no pre-fix duplicate residue, so it needs no cutoff and rebuilding
+--   f9c2b41a8e57 to fold it in would be heavier and riskier than a clean index. The key is
+--   an OPERATOR-SUPPLIED reference and NOT a content address over (amount, reason): two
+--   goodwill grants of the same size to one client two months apart are ordinary, and a
+--   content address would report the second as a replay of the first.
 -- INDEX ix_credit_ledger_tenant_recent (tenant_id, occurred_at DESC, id DESC)
 --   (migration a6f2e84b1d37). The balance is NOT an aggregate — that is why
 --   balance_after is denormalized — so every read is `ORDER BY occurred_at DESC,
@@ -591,6 +608,41 @@ credit_ledger(id, tenant_id, delta NUMERIC, reason ENUM[topup,usage,adjustment,r
 --   not by deleting money rows. Consequence for developers: a database carrying that
 --   residue cannot reach head — `runbooks/stale-dev-database.md`, and do not stamp past
 --   it.
+tenant_trials(id, tenant_id, days, started_at, ends_at,
+  status ENUM[active,converted,expired,stopped], ended_at NULL, ended_reason NULL,
+  erase_after NULL, erasure_filed_at NULL, started_by NULL)   -- NOT append-only (D-536)
+-- A time-boxed period a client is billed NOTHING for (migration a71f3c9e5d84). It is a
+--   STATE row, UPDATEd once from `active` to a terminal status and never summed into a
+--   balance, so it is deliberately absent from `db/registry.APPEND_ONLY_TABLES` and carries
+--   no immutability trigger — the reading `topup_attempts` gets, for the same reason. What
+--   a trial COSTS is still recorded where money facts live: `usage_events` meters every
+--   minute with our real `unit_cost_paid` throughout. What does NOT happen is a
+--   `credit_ledger` debit, and there is no `credit_ledger` row of any kind — the founder
+--   refused "grant them credit and let the normal gate honour it" precisely because the
+--   ledger would then assert they were given money nobody gave them.
+-- IT IS NOT `organizations.plan_tier = 'trial'`. That column answers two standing
+--   questions about a MOTION (does this account pay from a wallet; did a stranger open it
+--   unattended) and has no clock. A `managed` client can be given a trial and a
+--   `trial`-tier signup can be outside one.
+-- CHECK ck_tenant_trials_days_range (days BETWEEN 1 AND 365). The founder chose days with
+--   NO spend ceiling, so days are the only bound this arrangement has — bounded at the API
+--   boundary AND here, because a bound only a route enforces is not a bound against a
+--   script.
+-- CHECK ck_tenant_trials_ended_iff_not_active ((status='active') = (ended_at IS NULL)).
+--   "Open" is one fact stored once; a row reading `expired` with a NULL `ended_at` is one
+--   the erasure sweep would schedule from a NULL and skip for ever.
+-- INDEX ux_tenant_trials_active UNIQUE (tenant_id) WHERE status = 'active'. At most one
+--   open trial per client as a database fact rather than a reader's `if`: two operators
+--   starting one at the same moment would otherwise both read "none open" and both insert.
+-- INDEX ix_tenant_trials_tenant_recent (tenant_id, started_at DESC, id DESC). Every
+--   surface reads the NEWEST trial (a screen has to be able to say "their trial ended on
+--   the 3rd"), so the plan walks to one row instead of sorting the account's history.
+-- `erase_after` is the earliest instant a NON-CONVERTING client's personal data may be
+--   erased — the grace period the founder sets, frozen onto the row at start so a moved
+--   platform default cannot move the date of a client already inside their window. NULL
+--   for ever once the trial converted: their leads, calls and transcripts are the value
+--   they just built. `apps/workers/trials.py` FILES a tenant erasure through
+--   `compliance/tenant_erasure.py` when it falls due and erases nothing itself.
 one_time_charges(id, tenant_id, kind ENUM[setup_fee], ref, description, amount NUMERIC,
   billing_month, plan_id NULL, occurred_at)          -- INSERT-only (hard rule 4)
 -- INDEX ux_one_time_charges_tenant_kind_ref UNIQUE (tenant_id, kind, ref)
