@@ -129,6 +129,25 @@ class PublishVerification:
     #: Folding the two together would report that agent as fully applied.
     truthful_answer_applied: bool | None
     voice_applied: bool | None
+    #: **DOES THE ENGINE HAND CALLERS TO EXACTLY WHO WE PUBLISHED — AND NOBODY ELSE**
+    #: (D-533)? Scored as an equality of SETS, not a containment, and that is the whole
+    #: value of the check.
+    #:
+    #: Every other property here asks "did our write take effect". This one also asks "is
+    #: there something on the engine we did not write", because the failure it catches is
+    #: a number that rings. The vendor ships the transfer tool as a form in its own console
+    #: (`bolna-findings/mirror/pages/agent-setup/tools-tab.md`), so a client or an operator
+    #: with a login can point a published agent's escalation at anybody — and a containment
+    #: check would report that agent perfectly applied. The two directions of the equality
+    #: are both real: a MISSING destination is an agent that will tell a caller it is
+    #: putting them through to nobody, and an EXTRA one is a stranger receiving a
+    #: customer's business.
+    #:
+    #: It is in `checked`, so a mismatch REFUSES the publish. That is the strict reading
+    #: and it is the right one for this property: the alternative is an agent going live
+    #: while the number it dials is one nobody here chose. `None` where the engine cannot
+    #: report its handoff tools at all — never `False`, for `greeting_readable`'s reason.
+    handoff_applied: bool | None
     #: One operator-readable sentence. Never carries a prompt body (hard rule 6).
     detail: str
 
@@ -198,6 +217,30 @@ def _greeting_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
     return not (snapshot.greeting or "").strip()
 
 
+def _handoff_verdict(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
+    """Does the engine hand callers to exactly the person we published, and nobody else?
+
+    SET EQUALITY, both directions — see `PublishVerification.handoff_applied` for why the
+    "extra" direction is the one that matters most here.
+
+    `None` when the engine cannot report its handoff tools at all. That is not the same as
+    "it holds none", and conflating them would either refuse every publish on an engine
+    whose read path names the field differently, or let a console-added destination pass as
+    a clean agent. `AgentSnapshot.knowledge_base_refs_readable` draws the identical line
+    for the identical reason.
+    """
+    if not engine.capabilities.in_call_handoff:
+        # Nothing was asked of this engine and nothing could have been: `_agent_body`
+        # refuses a `handoff` on it one step earlier, so there is no claim to fail. True
+        # rather than None for `_voice_expected`'s reason — None means "we could not tell",
+        # and we can tell.
+        return True
+    if not snapshot.handoff_destinations_readable:
+        return None
+    expected = {cfg.handoff.destination_e164} if cfg.handoff is not None else set()
+    return set(snapshot.handoff_destinations) == expected
+
+
 def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> PublishVerification:
     """Score one read-back against the config it was supposed to apply.
 
@@ -247,6 +290,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # client's base script, and refusing it would be a refusal about translation rather
     # than about compliance. The FLOOR is ours and belongs in all of them.
     truthful = snapshot.every_prompt_carries(TRUTHFUL_ANSWER_MARKER)
+    handoff = _handoff_verdict(engine, cfg, snapshot)
     expected_voice = _voice_expected(engine, cfg)
     held_voice = snapshot.holds_speech("tts")
     voice: bool | None
@@ -270,6 +314,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         ("truthful-answer rule", truthful),
         ("script", prompt),
         ("voice", voice),
+        ("handover destination", handoff),
     )
     mismatched = [name for name, verdict in checked if verdict is False]
     if mismatched:
@@ -280,6 +325,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             prompt_disclosure_applied=prompt_disclosure,
             truthful_answer_applied=truthful,
             voice_applied=voice,
+            handoff_applied=handoff,
             detail=(
                 "The voice platform accepted the change and is not running it: "
                 + ", ".join(mismatched)
@@ -295,6 +341,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             prompt_disclosure_applied=prompt_disclosure,
             truthful_answer_applied=truthful,
             voice_applied=voice,
+            handoff_applied=handoff,
             detail=(
                 "The voice platform accepted the change; we could not confirm it is "
                 "running it (" + ", ".join(unread) + " could not be read back)."
@@ -310,6 +357,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         prompt_disclosure_applied=prompt_disclosure,
         truthful_answer_applied=True,
         voice_applied=True,
+        handoff_applied=True,
         detail=(
             "The voice platform was read back and is holding the published script, "
             "the truthful-answer rule and the voice."
@@ -356,6 +404,7 @@ async def verify_publish(
             prompt_disclosure_applied=None,
             truthful_answer_applied=None,
             voice_applied=None,
+            handoff_applied=None,
             detail=(
                 "The voice platform accepted the change and did not answer a read-back, "
                 "so we cannot confirm it is running it."
@@ -399,6 +448,14 @@ class EngineDrift:
     #: half-hourly sweep is the only thing that ever looks at that agent again.
     truthful_answer_applied: bool | None
     voice_applied: bool | None
+    #: WHO THE ENGINE WOULD HAND A CALLER TO (D-533), same set-equality meaning as on
+    #: `PublishVerification`. Carried on the DRIFT object for the reason the field above
+    #: is, and with a sharper edge: a transfer destination added in the vendor's own
+    #: console needs no publish of ours to take effect, so the half-hourly sweep is the
+    #: ONLY thing that will ever look at that agent again. Between it and this field, a
+    #: stranger's number pointed at a client's callers is caught within the sweep interval
+    #: instead of never.
+    handoff_applied: bool | None
     detail: str
 
     @property

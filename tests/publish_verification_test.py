@@ -874,6 +874,12 @@ def _snapshot(cfg: AgentConfig, **kw: Any) -> AgentSnapshot:
         "greeting_readable": True,
         "models": cfg.models,
         "models_readable": True,
+        # A `control_plane` engine's read-back CAN say who its agent hands callers to, and
+        # for an agent with no handover it says "nobody" (D-533). Readable-and-empty, never
+        # unreadable: the fixture has to describe the answer a real adapter gives for the
+        # ordinary agent, or every test here scores `unreadable` for a reason none of them
+        # is about.
+        "handoff_destinations_readable": True,
     }
     return AgentSnapshot(**{**base, **kw})
 

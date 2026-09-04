@@ -821,6 +821,7 @@ async def engine_drift_for(
     rendering of our intent, and the two would drift on the field nobody looks at — which
     is the defect `_variant_config` is built on `_to_config` to avoid.
     """
+    from apps.api.agents.handoff import spec_for
     from apps.api.agents.service import _load_agent, _to_config, _variant_config
 
     engine = get_engine()
@@ -830,6 +831,14 @@ async def engine_drift_for(
     # declined to pay.
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
+        # WHO A PUBLISH RIGHT NOW WOULD SEND (D-533), resolved through the ONE resolver
+        # the publish itself uses. Not optional and not a shortcut: the destination is a
+        # function of the clock, so a sweep that rebuilt it any other way — or skipped it —
+        # would score every agent published in the morning as drifted by nightfall, for the
+        # entirely correct reason that the roster has gone off duty. Same rule at both ends
+        # or this is a false-alarm generator, which is `_to_config`'s own argument about
+        # rebuilding a config here.
+        handoff, _duty = await spec_for(session, dict(row))
         ref = row["engine_agent_ref"]
         arm = None
         if engine_agent_ref is not None and engine_agent_ref != ref:
@@ -851,6 +860,7 @@ async def engine_drift_for(
                     str(arm[3]),
                     str(arm[2]),
                     engine=engine,
+                    handoff=handoff,
                 ),
             )
         else:
@@ -875,11 +885,12 @@ async def engine_drift_for(
                     prompt_disclosure_applied=None,
                     truthful_answer_applied=None,
                     voice_applied=None,
+                    handoff_applied=None,
                     detail=(
                         "This agent is not on the voice platform, so there is nothing to compare."
                     ),
                 )
-            target, config = ref, _to_config(tenant_id, row, engine=engine)
+            target, config = ref, _to_config(tenant_id, row, engine=engine, handoff=handoff)
 
     return await _drift_of(engine, agent_id, target, config)
 
@@ -918,6 +929,7 @@ async def _drift_of(
         prompt_disclosure_applied=verdict.prompt_disclosure_applied,
         truthful_answer_applied=verdict.truthful_answer_applied,
         voice_applied=verdict.voice_applied,
+        handoff_applied=verdict.handoff_applied,
         detail=(
             # `verify_publish`'s wording assumes a write just happened. Here nothing did,
             # so the one verdict whose sentence would be actively misleading is respelled.

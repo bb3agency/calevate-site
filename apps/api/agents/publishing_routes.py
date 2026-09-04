@@ -260,6 +260,13 @@ class EngineStateOut(Strict):
     #: breach rather than a configuration difference.
     truthful_answer_applied: bool | None
     voice_applied: bool | None
+    #: Is the voice platform handing callers to exactly the person this agent's handover
+    #: list puts on duty — and to nobody else (D-533)? `false` here means either that the
+    #: agent will tell a caller it is putting them through and reach nobody, or that a
+    #: destination nobody in this system chose is on the agent: the vendor's own console
+    #: offers the same control, and a number added there rings a real phone. Null where
+    #: the platform cannot report its handover tools.
+    handoff_applied: bool | None
     detail: str
 
 
@@ -446,6 +453,7 @@ async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineSta
         prompt_disclosure_applied=drift.prompt_disclosure_applied,
         truthful_answer_applied=drift.truthful_answer_applied,
         voice_applied=drift.voice_applied,
+        handoff_applied=drift.handoff_applied,
         detail=drift.detail,
     )
 

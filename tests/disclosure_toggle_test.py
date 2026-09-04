@@ -270,6 +270,9 @@ def _snapshot(
         greeting_readable=True,
         models=cfg.models,
         models_readable=True,
+        # Readable-and-empty: this agent hands nobody a call, and the engine can say so
+        # (`publish_verification_test._snapshot` carries the same line and the reason).
+        handoff_destinations_readable=True,
     )
 
 

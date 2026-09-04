@@ -2187,10 +2187,15 @@ def _agent_handoff_destinations(agent: dict[str, Any]) -> tuple[tuple[E164, ...]
     own `HANDOFF_TOOL_NAME` would make every foreign one invisible, which is precisely the
     case this exists for.
 
-    READABILITY IS ABOUT THE BLOCK, NOT THE RESULT. `True` with an empty tuple means "this
-    agent's tool params were read and none of them transfers anywhere", which is a fact worth
-    publishing on; `False` means the block was not found, and the sweep's verdict is then
-    `None` rather than a false clean.
+    READABILITY IS ABOUT THE AGENT'S TOOL CONFIG, NOT ABOUT FINDING A TRANSFER TOOL, and
+    getting that boundary wrong is the difference between a working gate and a broken one.
+    An agent with no actions and no handover sends NO `api_tools` KEY AT ALL — `_api_tools`
+    returns None for it deliberately — so requiring that block to exist would report
+    `readable=False` for the ordinary agent, which would make every publish in this system
+    "unreadable" and the verdict useless. What is read is `tools_config`, which every task
+    carries; the absence of a transfer tool inside it is a readable answer of "none".
+    `False` means the agent's task list could not be walked at all, and the sweep's verdict
+    is then `None` rather than a false clean.
 
     Hard rule 6: the numbers are returned to a caller that compares them. Nothing here logs.
     """
@@ -2202,13 +2207,16 @@ def _agent_handoff_destinations(agent: dict[str, Any]) -> tuple[tuple[E164, ...]
     found: list[E164] = []
     for task in tasks:
         tools = task.get("tools_config") if isinstance(task, dict) else None
-        block = tools.get("api_tools") if isinstance(tools, dict) else None
+        if not isinstance(tools, dict):
+            continue
+        # The task's tool config was found: whatever it holds, we can answer the question.
+        readable = True
+        block = tools.get("api_tools")
         if not isinstance(block, dict):
             continue
         params = block.get("tools_params")
         if not isinstance(params, dict):
             continue
-        readable = True
         for entry in params.values():
             number = _transfer_destination(entry)
             if number is not None:

@@ -76,7 +76,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import NotRequired, TypedDict, TypeGuard, cast
+from typing import Any, NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
 from calevate_shared.call_script import substitute_variables
@@ -87,6 +87,7 @@ from calevate_shared.engine import (
     AgentConfig,
     CallContext,
     DisclosurePosture,
+    HandoffSpec,
     LlmModelTrapName,
     LlmProvider,
     ModelConfig,
@@ -105,6 +106,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
+from apps.api.agents import handoff as handoff_module
 from apps.api.agents.llm_models import (
     ResolvedLlmModel,
     deployment_for,
@@ -340,6 +342,18 @@ class AgentRow(TypedDict):
     #: itself: it is spoken exactly when `caller_memory_enabled` is true.
     caller_memory_notice_line: str
     caller_memory_enabled: bool
+    #: DOES THIS AGENT HAND CALLERS TO A PERSON, and when should it (D-533)? Read on this
+    #: one path, beside the roster the publish resolves, so a publish and the drift read
+    #: cannot disagree about the posture — the same argument the four disclosure columns
+    #: above make.
+    handoff_enabled: bool
+    #: The client's own trigger wording, or NULL for `handoff.HANDOFF_TRIGGER_DEFAULT`.
+    handoff_trigger: str | None
+    #: WHEN THIS BUSINESS IS OPEN, in the shape `agents/business_hours.py` reads. Carried
+    #: here because "who is on duty" is answered from it and from the roster together, and
+    #: fetching it separately would let an hours edit land between the two reads — a
+    #: publish whose destination and whose hours came from different moments.
+    business_hours: dict[str, Any] | None
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -388,6 +402,9 @@ async def _load_agent(
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
                 "a.recording_notice_line, a.recording_notice_enabled, "
                 "a.caller_memory_notice_line, a.caller_memory_enabled, "
+                # The handover posture and the hours it is judged against (D-533), on the
+                # same statement for the four disclosure columns' reason.
+                "a.handoff_enabled, a.handoff_trigger, a.business_hours, "
                 # The ACCOUNT's model default, joined rather than fetched separately: the
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
@@ -452,7 +469,10 @@ async def _load_agent(
         "recording_notice_enabled": row[18],
         "caller_memory_notice_line": row[19],
         "caller_memory_enabled": row[20],
-        "organization_llm_model": row[21],
+        "handoff_enabled": row[21],
+        "handoff_trigger": row[22],
+        "business_hours": row[23],
+        "organization_llm_model": row[24],
     }
 
 
@@ -893,7 +913,13 @@ def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
     )
 
 
-def _to_config(tenant_id: UUID, agent: AgentRow, *, engine: VoiceEngine) -> AgentConfig:
+def _to_config(
+    tenant_id: UUID,
+    agent: AgentRow,
+    *,
+    engine: VoiceEngine,
+    handoff: HandoffSpec | None = None,
+) -> AgentConfig:
     settings = get_settings()
     return AgentConfig(
         tenant_id=str(tenant_id),
@@ -944,6 +970,24 @@ def _to_config(tenant_id: UUID, agent: AgentRow, *, engine: VoiceEngine) -> Agen
         # The cost-runaway guard. Resolved here rather than defaulted in the model, so
         # an agent that has never been given a cap is still published with one.
         max_call_duration_s=effective_call_cap(agent["max_call_duration_s"]),
+        # WHO THIS AGENT HANDS A CALLER TO RIGHT NOW (D-533) — a PARAMETER rather than a
+        # field read off the row, for the reason `vector_ids` is one in `bolna._agent_body`
+        # and for one more.
+        #
+        # It is not a column: it is the answer to "which member of the roster is on duty at
+        # this instant", which needs a second query and a clock. Reading it here would make
+        # this function async and would put a roster read on the prompt-composition path
+        # that does not want one.
+        #
+        # **AND `None` IS A VALID, COMMON, LOAD-BEARING ANSWER, NOT A MISSING VALUE.**
+        # Outside every roster member's hours, `agents/handoff.on_duty` returns nobody,
+        # this is None, the adapter emits no transfer tool at all, and the model has
+        # nothing to fire — which is the only way "never transfer outside business hours"
+        # can be enforced on an engine where the destination is fixed at publish time. A
+        # caller that forgets to pass this therefore publishes an agent that cannot
+        # escalate, which is the safe direction to be wrong in; `_variant_config` and the
+        # drift path both pass it deliberately rather than by default.
+        handoff=handoff,
     )
 
 
@@ -1291,7 +1335,23 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             "This agent is archived, so it cannot be published.",
             remediation="Restore the agent first, then try again.",
         )
-    config = _to_config(tenant_id, agent, engine=engine)
+    # WHO TAKES A CALL THIS AGENT HANDS OVER, right now (D-533). Resolved BEFORE the
+    # config is built rather than patched on afterwards like the action tools, because
+    # `None` is a real answer here — outside every roster member's hours the agent is
+    # published with no transfer tool at all, which is the only place "never transfer
+    # outside business hours" can be enforced (see `agents/handoff.py`).
+    handoff, duty = await handoff_module.spec_for(session, dict(agent))
+    if duty.member is None and agent["handoff_enabled"]:
+        # NOT A REFUSAL. An agent whose roster is closed for the night is a correctly
+        # configured agent, and refusing its publish would make a 9pm republish impossible
+        # for every client who has this feature on. It is logged so the reason a live agent
+        # is not escalating is answerable without opening a screen — ids and OUR own reason
+        # code, never the number (hard rule 6).
+        log.info(
+            "agent_publish_handoff_unavailable",
+            extra={"agent_id": str(agent_id), "reason": duty.reason},
+        )
+    config = _to_config(tenant_id, agent, engine=engine, handoff=handoff)
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
     # renders, so publish is where a tool change reaches live calls (the "Apply to live
     # calls" action, same mechanism as a voice or cap change). Empty tuple when the master
@@ -1333,6 +1393,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
                 "prompt_disclosure_applied": verdict.prompt_disclosure_applied,
                 "truthful_answer_applied": verdict.truthful_answer_applied,
                 "voice_applied": verdict.voice_applied,
+                "handoff_applied": verdict.handoff_applied,
             },
         )
         raise ProblemError(
@@ -1456,6 +1517,7 @@ def _variant_config(
     disclosure: str,
     *,
     engine: VoiceEngine,
+    handoff: HandoffSpec | None = None,
 ) -> AgentConfig:
     """The agent's own config with the arm's identity, script and disclosure substituted.
 
@@ -1475,7 +1537,7 @@ def _variant_config(
     `engine_agent_routes`, which is written below and is the only mapping any inbound
     path consults.
     """
-    return _to_config(tenant_id, agent, engine=engine).model_copy(
+    return _to_config(tenant_id, agent, engine=engine, handoff=handoff).model_copy(
         update={
             "agent_id": str(variant_id),
             "name": f"{agent['name']} [variant {label}]",
@@ -1533,8 +1595,21 @@ async def publish_variant(
     """
     agent = await _load_agent(session, tenant_id, agent_id)
     engine = get_engine()
+    # AN ARM ESCALATES TO THE SAME PEOPLE AS ITS AGENT (D-533). Resolved through the one
+    # resolver rather than left to default to None, and the reason is the same one
+    # `_variant_config` is built on `_to_config` at all: an arm that differs from its agent
+    # in a field nobody listed is a confound the experiment cannot survive — and here the
+    # confound would be that half the callers who ask for a person get one.
+    handoff, _duty = await handoff_module.spec_for(session, dict(agent))
     config = _variant_config(
-        tenant_id, agent, variant_id, label, body, disclosure_line, engine=engine
+        tenant_id,
+        agent,
+        variant_id,
+        label,
+        body,
+        disclosure_line,
+        engine=engine,
+        handoff=handoff,
     )
     if existing_ref:
         await engine.update_agent(existing_ref, config)
