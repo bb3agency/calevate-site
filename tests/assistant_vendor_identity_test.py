@@ -119,12 +119,20 @@ def person_facing_surfaces() -> dict[str, str]:
 def client_facing_disclosures() -> dict[str, str]:
     """The sentences shown BESIDE an answer when something other than the account's own
     model wrote it (D-127 G-6). Client-facing, canned, and the one place a provider name
-    legitimately appears — see the module docstring on Sarvam."""
-    from apps.workers.extraction import _FALLBACK_DISCLOSURE
+    legitimately appears — see the module docstring on Sarvam.
+
+    BOTH TABLES ARE SCANNED. `_PLATFORM_DEFAULT_DISCLOSURE` holds the same events worded for
+    an account that chose no model, and a sentence exempt from this guard because it lives in
+    the second table would be the drift a second table exists to be checked against."""
+    from apps.workers.extraction import _FALLBACK_DISCLOSURE, _PLATFORM_DEFAULT_DISCLOSURE
 
     return {
-        f"extraction._FALLBACK_DISCLOSURE[{provider},{reason}]": sentence
-        for (provider, reason), sentence in _FALLBACK_DISCLOSURE.items()
+        f"extraction.{name}[{provider},{reason}]": sentence
+        for name, table in (
+            ("_FALLBACK_DISCLOSURE", _FALLBACK_DISCLOSURE),
+            ("_PLATFORM_DEFAULT_DISCLOSURE", _PLATFORM_DEFAULT_DISCLOSURE),
+        )
+        for (provider, reason), sentence in table.items()
     }
 
 
