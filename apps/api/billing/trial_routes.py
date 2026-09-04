@@ -186,6 +186,11 @@ class TrialOut(Strict):
     #: Set once the tenant erasure has been FILED (`compliance/tenant_erasure.py` does the
     #: work; nothing here erases anything). What makes the sweep idempotent.
     erasure_filed_at: datetime | None
+    #: The operator who started it, or null once that person's user row is gone. On the
+    #: screen because "who agreed to carry this account for a month" is the first question
+    #: asked about a trial nobody remembers, and the `audit_log` row that records it durably
+    #: is not the screen an operator is looking at.
+    started_by: UUID | None
 
 
 class TrialStatusOut(TrialOut):
@@ -214,6 +219,7 @@ def _out(state: TrialState, *, at: datetime) -> TrialOut:
         ended_reason=state.ended_reason,
         erase_after=state.erase_after,
         erasure_filed_at=state.erasure_filed_at,
+        started_by=state.started_by,
     )
 
 

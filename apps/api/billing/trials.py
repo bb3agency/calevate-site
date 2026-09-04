@@ -187,7 +187,7 @@ EXPIRY_REASON: Final = "The trial ran to its end date."
 
 _SELECT = (
     "SELECT id, tenant_id, days, started_at, ends_at, status, ended_at, ended_reason, "
-    "erase_after, erasure_filed_at FROM tenant_trials"
+    "erase_after, erasure_filed_at, started_by FROM tenant_trials"
 )
 
 #: The newest trial for one tenant. `started_at DESC, id DESC` matches
@@ -210,6 +210,12 @@ class TrialState:
     ended_reason: str | None
     erase_after: datetime | None
     erasure_filed_at: datetime | None
+    #: WHO put this client on a trial. Published on the operator's read, because "who
+    #: agreed to carry this account for a month" is the first question asked about a trial
+    #: nobody remembers, and the `audit_log` row — the durable record — is not on the screen
+    #: an operator is looking at. NULL once that person's user row is removed (`SET NULL`):
+    #: a leaver must not pin a client's trial history, and the audit row survives them.
+    started_by: UUID | None
 
     def is_active(self, *, at: datetime) -> bool:
         """Is this client inside a funded period at `at`?
@@ -253,6 +259,7 @@ def _state(row: Any) -> TrialState:
         ended_reason=str(row[7]) if row[7] is not None else None,
         erase_after=row[8],
         erasure_filed_at=row[9],
+        started_by=UUID(str(row[10])) if row[10] is not None else None,
     )
 
 
@@ -443,7 +450,7 @@ async def start_trial(
                 "VALUES (:id, :tid, :days, :start, :end, 'active', :erase_after, :by, "
                 " :start, :start) "
                 "RETURNING id, tenant_id, days, started_at, ends_at, status, ended_at, "
-                "ended_reason, erase_after, erasure_filed_at"
+                "ended_reason, erase_after, erasure_filed_at, started_by"
             ),
             {
                 "id": trial_id,
@@ -558,6 +565,7 @@ async def end_trial(
         ended_reason=reason,
         erase_after=erase_after,
         erasure_filed_at=trial.erasure_filed_at,
+        started_by=trial.started_by,
     )
 
 
