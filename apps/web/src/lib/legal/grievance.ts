@@ -71,15 +71,22 @@ import type { LegalDocument } from "./types";
  * which steps are done by hand is our composition, not the complainant's remedy, and the
  * commitments in the middle column stand whatever it is (26 Aug 2026).
  *
- * ## There is no postal channel, and the address is still published
+ * ## There is no postal channel, and the LOCATION is still published
  *
  * Section 1 offered "By post — {{LEGAL_ENTITY_NAME}}, {{REGISTERED_ADDRESS}}" as a way to
  * complain. No postal correspondence is serviced, so that was a channel we would not have
  * answered on a page whose whole subject is answering. The channel is gone and the
- * ADDRESS is not: it is still printed, as the identification item the Consumer Protection
- * (E-Commerce) Rules 2020 want displayed and the address a legal notice is served at, and
- * `placeholders.ts` carries the same distinction so the next editor does not put the
- * postal line back.
+ * identification is not: `{{REGISTERED_ADDRESS}}` is still printed, because the display
+ * obligations behind it do not stop applying because we decline the post.
+ *
+ * ⚠ WHAT IT NO LONGER SAYS, AND WHY THE SENTENCE AROUND IT CHANGED (4 Sep 2026). The
+ * token used to render a street address and this section used to call it "where a legal
+ * notice is served". Both are gone: the value is now the city, state and country (see
+ * `placeholders.ts::REGISTERED_ADDRESS` for the founder's instruction and the statutory
+ * reading), and a city cannot be served on — so a page that said it could was making a
+ * promise the Terms already contradict, whose "Notices" clause routes service to email
+ * and warns that a posted notice may not reach us. Do not re-add either the street lines
+ * or the serving claim.
  *
  * ## The name is published, and what it still lacks is a surname
  *
@@ -155,8 +162,8 @@ export const GRIEVANCE: LegalDocument = {
             "us, and we would rather say so than offer a channel we do not service. " +
             "Calevate is operated by {{LEGAL_ENTITY_NAME}} (Udyam registration number " +
             "{{ENTITY_REGISTRATION_NUMBER}}), principal place of business " +
-            "{{REGISTERED_ADDRESS}}; that address identifies who you are dealing with " +
-            "and is where a legal notice is served, not a place to send a complaint to.",
+            "{{REGISTERED_ADDRESS}}; that tells you which business and which " +
+            "jurisdiction you are dealing with, and is not a place to send anything to.",
         },
         {
           kind: "callout",
