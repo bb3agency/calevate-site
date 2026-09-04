@@ -34,8 +34,8 @@ What is VERIFIED about it, with the evidence class each fact carries:
   and text output at **$2.50 / 1M**, and Gemini 2.5 Flash Lite at $0.10 / $0.40 — the
   same figures already in `calevate_shared.engine.LLM_MODELS`. The same page states the
   image tokenization: *"For an 1024x1024 image, it consumes 1290 tokens"*, and *"PDFs are
-  billed as image input, with one PDF page equivalent to one image."* See `_page_cost`
-  below for what that makes a page cost.
+  billed as image input, with one PDF page equivalent to one image."* See
+  `estimated_page_cost_usd` below for what that makes a page cost.
 * ⚠ **UNVERIFIED, and it is the wire shape:** whether the OpenAI-COMPATIBILITY surface
   accepts an image as an OpenAI `image_url` content part with a `data:` URI. Google's own
   page saying so (`ai.google.dev/gemini-api/docs/openai`) is EGRESS-BLOCKED from this
@@ -110,7 +110,7 @@ from calevate_shared.document_ingest import (
     OcrUnavailableError,
     OcrUnusableError,
 )
-from calevate_shared.engine import google_openai_compat_base_url
+from calevate_shared.engine import LLM_MODELS, google_openai_compat_base_url
 
 from apps.api.agents.llm_models import unofferable_reason
 from apps.api.core.logging import get_logger
@@ -124,7 +124,8 @@ log = get_logger(__name__)
 #: `gemini-2.5-flash` AND NOT THE PLATFORM DEFAULT `-flash-lite`, which is the cheaper
 #: sibling and would be the reflex choice. Reading unfamiliar script off a photograph
 #: taken by hand in a shop is a perception task at the hard end of what a small model
-#: does, and the difference in what it costs us is decided by `_page_cost`: at Google's
+#: does, and the difference in what it costs us is decided by `estimated_page_cost_usd`:
+#: at Google's
 #: published rates a page is a fraction of a rupee on EITHER model, so the saving is
 #: rounding and the risk is a client's price list transcribed wrongly. When the cheaper
 #: leg buys nothing measurable, buy the accuracy.
@@ -413,35 +414,49 @@ def _legibility_reason(text: str, *, finish_reason: str | None) -> str | None:
     return None
 
 
-def _page_cost(*, input_usd_per_mtok: Decimal, output_usd_per_mtok: Decimal) -> Decimal:
-    """USD for ONE page, from a model's published per-million rates. NEVER a float.
-
-    THE COST BOUND OF THIS LANE, WRITTEN AS ARITHMETIC SO IT CAN BE ARGUED WITH rather
-    than as a sentence in a commit message. Two inputs, both VENDOR-PUBLISHED from Google's
-    pricing page (read 4 Sep 2026, cited in the module docstring):
-
-    * a 1024x1024 image is **1,290 input tokens** — the page's own worked example, and an
-      A4 page photographed by a phone is larger, so this is a floor rather than a bound.
-      `_IMAGE_TOKENS` doubles it for the page sizes a real upload carries.
-    * output is the transcription itself: `_TRANSCRIPT_TOKENS`, a dense page of text.
-
-    At `gemini-2.5-flash`'s published $0.30/$2.50 that is roughly $0.0035 a page — under
-    ₹0.35 — so `MAX_OCR_IMAGES` (20) caps one source at well under ₹10. That is what makes
-    a page-count bound the right lever rather than a rupee budget: the ceiling exists to
-    stop an abusive upload, not to ration a cost that is already small.
-
-    ⚠ **THIS IS A CATALOGUE ESTIMATE AND IT MAY NOT REACH `unit_cost_paid`.** It exists to
-    size a bound and to answer "what will this cost us"; what a client is BILLED comes
-    from `billing/rates.llm_inr_per_ktok`, off an operator's attestation (hard rule 7).
-    """
-    return (
-        _IMAGE_TOKENS * input_usd_per_mtok + _TRANSCRIPT_TOKENS * output_usd_per_mtok
-    ) / Decimal(1_000_000)
-
-
 #: Input tokens for one photographed page. Twice the vendor's 1024x1024 worked figure,
 #: because a phone photograph of an A4 menu is bigger than 1024x1024 and the tiling grows
 #: with area. An ASSUMPTION, named so it can be replaced by a measurement.
 _IMAGE_TOKENS: Final = Decimal(2_580)
 #: Output tokens for a dense page of transcription. Also an assumption; a menu is shorter.
 _TRANSCRIPT_TOKENS: Final = Decimal(1_500)
+
+#: What ONE knowledge source's OCR may cost us, in USD, at catalogue list prices.
+#:
+#: **THE BOUND IS ASSERTED, NOT ASSUMED.** `tests/document_ocr_test.py` multiplies
+#: `estimated_page_cost_usd(OCR_MODEL)` by `MAX_OCR_IMAGES` and fails against this
+#: number — so raising the page cap, or swapping `OCR_MODEL` for something an order of
+#: magnitude dearer, turns CI red instead of turning up on an invoice. 12 cents is
+#: roughly ten rupees, which is the size of thing a client uploads without anyone
+#: needing to think about it; a source that would cost more than that is a product
+#: decision, not a constant to raise quietly.
+MAX_SOURCE_OCR_COST_USD: Final = Decimal("0.12")
+
+
+def estimated_page_cost_usd(model: str) -> Decimal:
+    """USD for ONE page on `model`, from its published per-million rates. NEVER a float.
+
+    THE COST OF THIS LANE, WRITTEN AS ARITHMETIC SO IT CAN BE ARGUED WITH rather than as
+    a sentence in a commit message. Two inputs, both VENDOR-PUBLISHED from Google's own
+    pricing page (read 4 Sep 2026, cited in the module docstring):
+
+    * a 1024x1024 image is **1,290 input tokens** — the page's own worked example. An A4
+      page photographed by a phone is bigger than that and the tiling grows with area, so
+      `_IMAGE_TOKENS` doubles it rather than taking the vendor's smallest case.
+    * output is the transcription itself: `_TRANSCRIPT_TOKENS`, a dense page of text.
+
+    At `gemini-2.5-flash`'s published $0.30 / $2.50 that is about half a US cent a page —
+    well under a rupee — so `MAX_OCR_IMAGES` caps a source an order of magnitude below
+    anything worth rationing. Which is the point of computing it: it says that a PAGE
+    COUNT is the right lever (it bounds abuse and worker time) and a rupee budget is not.
+
+    ⚠ **THIS IS A CATALOGUE ESTIMATE AND IT MAY NEVER REACH `unit_cost_paid`.** It sizes a
+    bound and answers "what will this cost us". What a client is BILLED comes from
+    `billing/rates.llm_inr_per_ktok`, off an operator's attestation of a real invoice, and
+    that function RAISES rather than falling back to a catalogue figure (hard rule 7).
+    Reads `LLM_MODELS` rather than re-typing the prices, so the two cannot drift.
+    """
+    price = LLM_MODELS[model].price
+    return (
+        _IMAGE_TOKENS * price.input_usd_per_mtok + _TRANSCRIPT_TOKENS * price.output_usd_per_mtok
+    ) / Decimal(1_000_000)
