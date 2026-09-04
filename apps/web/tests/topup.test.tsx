@@ -278,7 +278,17 @@ describe("the top-up panel", () => {
     // deployment as on a card one.
     expect(screen.getByText("Best value"), "the rate card is gone").toBeTruthy();
     expect(container.textContent).toContain("₹4.6296/min");
-    expect(container.textContent).toContain("+4,000 (8%)");
+    // The bonus, as the fact rather than as a column: this used to read "+4,000 (8%)" in
+    // a cell under a "FREE" heading, which is the number without the sentence it stood
+    // for. Both halves are asserted, because the count alone was already there.
+    expect(container.textContent).toContain("4,000 credits free");
+    expect(container.textContent).toContain("8% more calling for the same money");
+    // Talk time LEADS on a card, which is the whole reason the table went: it is the unit
+    // somebody running a phone line thinks in.
+    expect(container.textContent).toContain("10,800 min");
+    // And the button still names its amount even where it cannot pay — a grid of controls
+    // all called "Select" is a list of identical names in a screen reader.
+    expect(screen.getByRole("button", { name: "Select ₹50,000.00" })).toBeTruthy();
   });
 
   it("never names which of our secrets is missing", async () => {
@@ -399,7 +409,13 @@ describe("the top-up panel", () => {
     // rate and the bonus, neither computed in the browser.
     await screen.findByText("Best value");
     expect(container.textContent).toContain("₹4.6296/min"); // the max pack's effective rate
-    expect(container.textContent).toContain("+4,000 (8%)"); // its free bonus credits
+    expect(container.textContent).toContain("4,000 credits free"); // its bonus credits
+    expect(container.textContent).toContain("8% more calling for the same money");
+    // Talk time first, rupees second — the order this panel is built around.
+    expect(container.textContent).toContain("10,800 min");
+    expect(container.textContent).toContain("₹50,000.00");
+    // The zero-bonus pack says so rather than printing an em dash in a "Free" column.
+    expect(container.textContent).toContain("no bonus credit");
 
     // Selecting a pack posts its id — never an amount — so the catalogue is the price.
     // Named by AMOUNT, because six buttons reading "Pay" are six identical names to a
@@ -409,6 +425,57 @@ describe("the top-up panel", () => {
     await screen.findByText(/is ready/);
     const sent = calls.find((c) => c.path === "/v1/billing/topups/intent");
     expect(sent?.body).toBe(JSON.stringify({ pack_id: "max" }));
+  });
+
+  it("lands the reader on a pack from the minutes they call, without doing money arithmetic", async () => {
+    // THE QUESTION THE OLD TABLE MADE THE READER ANSWER THEMSELVES. Six columns of
+    // arithmetic on a phone is not how somebody decides how much to put on their phone
+    // system; "I call about this much" is. The recommendation is a comparison between two
+    // figures the SERVER sent (`talk_time_minutes`), and it prices nothing.
+    const { container } = await renderBillingHub(routes(), "Credits");
+
+    const field = await screen.findByLabelText(
+      "Roughly how many minutes do you call in a month?",
+    );
+
+    // 200 minutes fits inside the small pack — the SMALLEST that covers it, not the
+    // biggest that exists, which is the difference between a recommendation and an upsell.
+    fireEvent.change(field, { target: { value: "200" } });
+    const answer = await screen.findByRole("status");
+    expect(answer.textContent).toContain("₹1,499.00 covers it");
+    expect(answer.textContent).toContain("about 299 minutes");
+    // The matched card says so where the reader is looking, not only in the sentence.
+    expect(container.textContent).toContain("Covers your month");
+
+    // 300 minutes no longer fits the small pack, so the answer moves up one.
+    fireEvent.change(field, { target: { value: "300" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("₹50,000.00 covers it"),
+    );
+
+    // More than the whole catalogue can hold is answered honestly rather than by
+    // recommending a pack that does not cover it.
+    fireEvent.change(field, { target: { value: "40000" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("more than one pack"),
+    );
+
+    // Not a number: a sentence they can act on, and no recommendation invented from it.
+    fireEvent.change(field, { target: { value: "lots" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "Enter the number of minutes as digits",
+      ),
+    );
+    expect(container.textContent).not.toContain("Covers your month");
+
+    // NOTHING WAS BOUGHT AND NOTHING WAS ASKED OF THE SERVER. The matcher reads the
+    // catalogue already on screen; a click on a pack is still the only thing that prices
+    // anything.
+    expect(
+      screen.queryByRole("button", { name: /^Pay ₹2,500.10 now$/ }),
+      "the matcher must not start an order",
+    ).toBeNull();
   });
 });
 
