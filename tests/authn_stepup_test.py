@@ -318,7 +318,7 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
             ):
                 sites += 1
                 assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
-    # 23: the twenty-two dangerous mutations, plus D-210's door —
+    # 26: the twenty-five dangerous mutations, plus D-210's door —
     # `admin/routes.py::mint_impersonation_grant`, which is a step-up on ENTERING a
     # client account rather than on changing something. Counted the same way because the
     # census is about the pairing, not about the verb.
@@ -348,7 +348,25 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # outlives-the-session ground and a worse blast radius than a price — a false
     # attestation keeps routing other businesses' data to a provider on terms nobody
     # checked, and unlike a wrong price nothing downstream would ever notice.
-    assert sites == 23, f"found {sites} step-up call sites, expected 23; the census went stale"
+    # THE TWENTY-THIRD is `billing/credit_routes.py::grant_credit` (D-535): the founder
+    # puts credit on a client's wallet out of nothing. Its effect outlives the session for
+    # the same reason a price does — the client calls on that credit long after whoever
+    # granted it has signed out — and it is money, so hard rule 7's surface takes the
+    # composed gate like the two attestations above it.
+    #
+    # THE TWENTY-FOURTH is `billing/trial_routes.py::start_trial` (D-536): N days on us,
+    # double-keyed on the DAYS as well as the tenant, because the number is the whole
+    # liability and a confirmation captured for a week must not authorise a quarter.
+    #
+    # THE TWENTY-FIFTH is `admin/closure_routes.py::close` (D-538): closing a client and
+    # setting the date their records are destroyed. It is on this list rather than beside
+    # the plain status close because it does something that one does not — it starts a
+    # clock that ends in destruction — and its confirmation string is deliberately its own
+    # (`close_and_schedule_erasure:<id>`, not `close_account:<id>`), so a confirmation
+    # captured for ending a relationship cannot be replayed as an erasure. Its UNDO takes
+    # no step-up at all and is not on this list: it destroys nothing and is the recovery
+    # path from the exact mistake the gate is guarding against.
+    assert sites == 26, f"found {sites} step-up call sites, expected 26; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
