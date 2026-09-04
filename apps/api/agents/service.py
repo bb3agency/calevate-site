@@ -123,7 +123,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voices import speech_for_voice_id, voice_id_of
-from apps.api.agents.write_guard import archived_refusal
+from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.compliance.caller_memory import recall
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -2237,6 +2237,12 @@ async def provision_number(
     the ordinary onboarding order.
     """
     await assert_visible(session, "agent", agent_id)
+    if agent_id is not None:
+        # Binding a number to a DELETED agent would undo the one thing deleting does at the
+        # vendor: `lifecycle.archive_agent` RELEASES the agent's numbers, because inbound is
+        # answered by whatever the vendor has bound to a number and nothing in our database
+        # is consulted. The agent arrives in the body, so the route-level guard cannot see it.
+        await assert_agent_writable(session, agent_id, verb="given a phone number")
     declared = series_for_e164(e164)
     if declared is None:
         # 140 and 160 are Indian numbering series. A number outside +91 cannot be one,

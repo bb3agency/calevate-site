@@ -40,6 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import dispatch_call
+from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import record_speed_to_lead
 from apps.api.core.errors import ProblemError
@@ -702,6 +703,11 @@ async def create_lead_source(
     # tenancy — PostgreSQL checks it with row security bypassed — so without this a
     # config row could dispatch through another tenant's agent (`db/ownership.py`).
     await assert_visible(session, "agent", agent_id)
+    if agent_id is not None:
+        # A lead source dispatches through its agent, so pointing one at a deleted agent
+        # builds a delivery path that can never place a call. Body-carried id again, so the
+        # route-level guard cannot see it.
+        await assert_agent_writable(session, agent_id, verb="given a lead source")
 
     needs_supplied = source in CLIENT_SUPPLIED_SECRET_SOURCES
     if needs_supplied and not supplied_secret:

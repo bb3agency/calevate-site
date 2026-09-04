@@ -30,6 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.t0 import KnowledgeFact, recompile_t0
+from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -295,6 +296,12 @@ async def insert_source_version(
     # their own submission then fails on a constraint violation caused by a row they
     # cannot see, list or delete, and the error is an existence oracle besides.
     await assert_visible(session, "agent", agent_id)
+    # AND THE AGENT MUST STILL BE ONE. `assert_visible` answers "is it yours"; this answers
+    # "is it retired". Knowledge arrives with the agent named in the BODY rather than in the
+    # path, so `core/auth.requires()`'s guard cannot see it — this is the one place all
+    # three knowledge doors (`POST /v1/kb/sources`, `/uploads`, `/links`) pass through, so
+    # it is the one place the question is asked for them.
+    await assert_agent_writable(session, agent_id, verb="given new knowledge")
 
     # `MAX(version) + 1` under an advisory lock on the named source, not a read-then-write.
     # Two people submitting under the same name at the same instant — the shape a client's
