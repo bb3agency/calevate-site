@@ -2,8 +2,9 @@
 
 Symptom: a self-serve client says they cannot top up; a payment was taken and the wallet
 did not move; the alerts `razorpay_webhook_unconfigured`, `razorpay_webhook_bad_signature`,
-`razorpay_unknown_tenant` or `razorpay_money_unapplied` fire; or someone asks "can client
-#1 pay by card today?"
+`razorpay_unknown_tenant` or `razorpay_money_unapplied` fire; **`topup_settlement_silent`
+fires, which is the one that means no webhook arrived at all (§4a)**; or someone asks "can
+client #1 pay by card today?"
 
 **If you are here to SWITCH PAYMENTS ON with live keys, go straight to §0.** It is the
 only section written for that, it names the exact screens and fields, and it is the one
@@ -169,9 +170,33 @@ https://api.calevate.tech/hooks/v1/razorpay
 
 ⚠ **NOT `hooks.calevate.tech`.** That hostname exists, it is our other webhook receiver,
 and it is a DIFFERENT SERVICE: nginx sends it to voice-runtime, which has no Razorpay
-route, so every delivery would 404 into a retry loop while payments silently never credit
-(`infra/nginx/calevate.conf.template` — `hooks.` → `calevate_hooks` :8100; the API is
-`api.` → :8000, and `/hooks/v1/razorpay` is mounted on the API).
+route, so every delivery would 404 into a retry loop while payments silently never credit.
+
+Re-read out of the tree on 4 Sep 2026 rather than inherited: `infra/nginx/
+calevate.conf.template:579` is `server_name hooks.${ROOT_DOMAIN}` and its only proxying
+location is `location /` → `calevate_hooks`, which is `127.0.0.1:8100` (`:29`) — the
+voice-runtime container. `:516` is `server_name api.${ROOT_DOMAIN}` and its catch-all
+`location /` → `calevate_api`, `127.0.0.1:8000` (`:28`). `POST /hooks/v1/razorpay` is
+mounted on the API only (`apps/api/billing/payment_routes.py:119,728`); voice-runtime
+mounts `/hooks/v1/engine/{engine}` and nothing else under that prefix
+(`apps/voice-runtime/webhook_routes.py:79,641`).
+
+**What the wrong host actually does, MEASURED and not assumed** (a silent 200 would be far
+more dangerous than a 404, so it was checked rather than reasoned about): a `POST` to
+`/hooks/v1/razorpay` against the real voice-runtime app object answers **404
+`application/problem+json`** — `{"type": ".../problems/http_404", "title": "Nothing here",
+"status": 404, ...}`. Nothing is acked and nothing is swallowed, which is the safe shape;
+it is also completely invisible from inside this product, because the only trace is a line
+in an access log on the host. Both directions of that claim are now pinned by
+`tests/edge_route_policy_test.py::test_the_razorpay_webhook_is_served_by_the_api_and_not_by_voice_runtime`
+— the path must stay mounted on the API, and must NOT become a route voice-runtime serves,
+because a catch-all there would turn the wrong URL into a 200 that stops the provider
+retrying.
+
+**AND IF YOU GET IT WRONG ANYWAY, SOMETHING NOW SAYS SO.** `topup_settlement_silent`
+(§4a) pages within about an hour when an order has been created at Razorpay and the
+webhook leg has gone silent. It is the only alarm on this path that does not need the
+delivery to reach us first — check the URL when it fires.
 
 Into the webhook's **secret** field, type the value you installed as
 `razorpay_webhook_secret`. They must be the same string, character for character.
@@ -224,10 +249,14 @@ watch these in order. Anything that does not match, STOP — do not put a client
 5. **The webhook credited it.** The balance moves within a second or two. The log line is
    `razorpay_topup_recorded`; the record is ONE `credit_ledger` row with `reason='topup'`
    and `ref` = the provider's payment id (§5's first query).
-6. **No alarm fired.** In particular `razorpay_money_unapplied`, which is the alarm for
-   "the signature verified and we could not apply the money" — on a first live payment
-   that is our reading of their payload shape being wrong, and it is the failure this
-   whole runbook is most expecting.
+6. **No alarm fired.** Two of them, and they are the two halves of the same failure.
+   `razorpay_money_unapplied` is "the signature verified and we could not apply the
+   money" — on a first live payment that is our reading of their payload shape being
+   wrong, and it is the failure this whole runbook is most expecting.
+   `topup_settlement_silent` (§4a) is the other half: **nothing arrived at all.** If the
+   balance has not moved after a minute or two, do not wait for that alarm — go to §4a
+   now, because its whole subject is a URL, a secret or a subscription being wrong, and
+   all three are things you have just typed.
 7. **Click a pack twice, fast.** Their dashboard must show ONE order (§2a).
 8. **Then refund it**, while the money involved is still yours — it is the only chance
    to exercise the other direction on a payment nobody will complain about. **There is no
@@ -250,7 +279,8 @@ and each is recorded as such at the line in `apps/api/billing/payments.py`:
 - the refund request and response shapes, and the `X-Refund-Idempotency` header rules —
   REPORTED.
 
-**This is recorded as OPERATIONS §2 gate 41.** It closes with one attended payment on a
+**This is recorded as OPERATIONS §2 gate 44** (it said gate 41, which is the Gemini
+paid-tier question and nothing to do with payments). It closes with one attended payment on a
 real account, not with a test in this repository — no test here can verify a vendor's
 wire format, and none pretends to.
 
@@ -519,6 +549,57 @@ the provider retrying — authorized-but-not-captured is not money we hold.
   **payment id** as the reference (so a later redelivery dedupes rather than
   double-credits), then fix the extractor against a fixture captured from the real
   delivery — never by loosening the parser until something passes.
+
+## 4a. `topup_settlement_silent` — the webhook that never arrived
+
+**Every alarm in §4 fires from inside the receiver, so every one of them needs a delivery
+to reach us first.** A webhook posted to the wrong address, or an event nobody
+subscribed, or a delivery a firewall ate, trips none of them: nothing of ours is asked,
+so nothing of ours can complain. That was the hole this alarm closes, and before it the
+first notice anybody got was a client saying they had paid.
+
+**What it means.** An order was created at Razorpay, it is more than 30 minutes old,
+nothing has settled it — and **no attempt anywhere on this platform has been settled
+since it was created**, captured or failed. Both halves matter: an abandoned Checkout
+window leaves a byte-for-byte identical row, and the only thing that tells the two apart
+is whether the webhook leg has shown any sign of life at all. Raised twice hourly by
+`apps/workers/topup_settlement.py`; the alert body names up to five ORDER ids, which is
+what the Razorpay dashboard is searched by.
+
+**It does not claim money was taken, and it cannot.** Nothing in this repository can read
+an order's payments back from Razorpay — their host is egress-blocked here and no such
+endpoint has been read from their documentation by anybody (§0.7). Automatic
+reconciliation would mean inventing a wire format and then crediting a wallet from it.
+So this alarm's job is to put a person in front of the dashboard.
+
+**Work it in this order.**
+
+1. **The webhook URL.** `https://api.<domain>/hooks/v1/razorpay`. If it says
+   `hooks.<domain>`, that is the whole incident — §0.4, and every delivery so far is
+   lost. Fix it and check whether Razorpay redelivers; if not, work each order by hand
+   through step 4.
+2. **The events.** `payment.captured` must be subscribed (§0.4's table). Subscribed
+   `order.paid` only, or nothing at all, produces exactly this alarm.
+3. **The secret**, if step 1 and 2 are right — but note that a wrong secret raises
+   `razorpay_webhook_bad_signature` as well, so a silent alarm with no signature alarm
+   beside it points at the URL rather than the secret.
+4. **Each named order, in their dashboard.** Was it actually PAID? If it was not, this is
+   an abandoned window and there is nothing to do — the client's own credits screen already
+   says `unfinished`. If it was, it is money owed: credit it by hand on
+   `/admin/tenants/<tenantId>/credits` **using the payment id as the reference**. That is
+   the same `credit_ledger.ref` the webhook would have used, so a late redelivery dedupes
+   against it under `lock_tenant_credits` rather than double-crediting — §5's first query
+   is how you confirm exactly one row exists afterwards.
+
+**Do not silence it by widening the grace.** The two clocks are deliberately different:
+`SETTLEMENT_GRACE` (30 minutes) is the operator's, and `wallet.PENDING_GRACE_HOURS` (24
+hours) is the word the PAYER's screen uses. Sharing the payer's figure would mean a
+misdirected webhook installed at 09:00 goes unreported through a full day of payments.
+
+Its two companions: `topup_settlement_scan_incomplete` (the sweep ran out of walk budget
+and the verdict covers only the tenants it reached) and `topup_settlement_sweep_abandoned`
+(it failed for every tenant on every attempt — until it succeeds, this whole watch is
+off).
 
 ## 5. "The payment went through and the wallet did not move"
 

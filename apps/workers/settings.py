@@ -136,6 +136,7 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.tls_expiry import check_tls_expiry
+from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
 from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
@@ -621,6 +622,21 @@ CRON_JOBS = [
         traced_job(issue_one_time_charges),
         hour={2},
         minute={5},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE PAYMENT WEBHOOK THAT NEVER ARRIVES. Every other alarm on the top-up path fires
+    # from inside the webhook handler and therefore needs the delivery to reach us first;
+    # a webhook registered against the wrong hostname trips none of them, and the first
+    # notice was the client saying they had paid. This sweep is the only reader of
+    # `topup_attempts` that pages anybody (`apps/workers/topup_settlement.py` carries the
+    # whole argument, including why it cannot reconcile against the provider).
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1, and a
+    # money watch that gave up on its first database blip would leave every payment
+    # unwatched for the half-hour with every screen green.
+    cron(
+        traced_job(sweep_topup_settlement),
+        minute=set(SETTLEMENT_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
 ]
