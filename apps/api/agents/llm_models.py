@@ -9,16 +9,20 @@ acts differently on: one is a setting they can clear, the other is a default the
 override. So `resolve_llm_model` returns `ResolvedLlmModel`, never a bare `str`, and
 every response that carries the model carries the level it came from beside it.
 
-THE PLATFORM LEVEL IS `Settings.azure_openai_model`, NOT `AZURE_OPENAI_DEFAULT_MODEL`
--------------------------------------------------------------------------------------
-The constant is the DEFAULT OF that setting, not the platform's answer. `azure_openai_
-model` is `applies: live` (`core/platform_config.py`) — an operator flips it, points the
-deployment at a matching model, and from that moment the model this deployment actually
-runs is the setting's value. Reading the frozen constant here would report `gpt-4o-mini`
-to every client on a deployment running `gpt-4.1-mini`: the D-105 defect (an identifier
-changing under a constant nobody re-derived) on the surface that tells a client what
-their calls cost. On an unflipped deployment the two are the same string, which is why
-this is strictly more correct rather than differently correct.
+THE PLATFORM LEVEL IS `Settings.platform_llm_model`, NOT A CONSTANT
+-------------------------------------------------------------------
+`PLATFORM_DEFAULT_LLM_MODEL` is the DEFAULT OF that setting, not the platform's answer.
+The field is `applies: live` (`core/platform_config.py`) — an operator flips it and from
+that moment the model an un-chosen account runs is the setting's value. Reading the frozen
+constant here would report last quarter's model to every client on a deployment that has
+moved: the D-105 defect (an identifier changing under a constant nobody re-derived) on the
+surface that tells a client what their calls cost.
+
+⚠ **AND IT IS NOT `azure_openai_model`, WHICH IS WHAT IT USED TO READ.** That field answers
+a different question — which model the AZURE DEPLOYMENT was made from — and its type is the
+Azure Literal, so while this function read it the platform's own default could not be a
+model on either of the other two declared legs. The founder's answer is one of them
+(`gemini-2.5-flash-lite`), so the two facts now have two fields; `config.py` states both.
 
 THREE CONDITIONS DECIDE WHAT A CLIENT MAY PICK, AND ONLY ONE OF THEM IS IN SOURCE
 ---------------------------------------------------------------------------------
@@ -244,8 +248,16 @@ def selectable_models() -> tuple[str, ...]:
 
 def platform_default_model() -> str:
     """What an account runs when neither it nor its agent chose — see the module docstring
-    for why this is the live setting and not the frozen constant behind it."""
-    return get_settings().azure_openai_model
+    for why this is the live setting and not the frozen constant behind it.
+
+    ⚠ **`platform_llm_model`, NOT `azure_openai_model`, AND THE TWO ARE DIFFERENT FACTS.**
+    This read the Azure field while Azure was the only leg, which made the platform's own
+    default un-settable to anything the `AzureOpenAIModel` Literal does not hold — on a
+    product declaring three legs whose founder chose a Google model. `azure_openai_model`
+    keeps its own job: which model the Azure DEPLOYMENT was made from, priced by the cost
+    model and pushed to the engine's credential store. `config.py` states both at length.
+    """
+    return get_settings().platform_llm_model
 
 
 def _configured_deployments() -> dict[str, str]:
@@ -280,11 +292,20 @@ def deployment_for(model: str) -> str | None:
     THE ONE READER OF BOTH DEPLOYMENT FIELDS. `Settings.azure_openai_deployment` answers
     for `Settings.azure_openai_model` and `Settings.azure_openai_deployments` answers for
     everything else, so no model is named in two places and the two can never disagree
-    about one model. The order matters and is the whole rule: the singular field is what
-    `engine/bolna.py` pushes into the vendor's credential store as `AZURE_OPENAI_MODEL`,
-    so if a stray entry in the map ever named the platform's own model, letting the map
-    win would point published agents at one deployment and the credential store at
-    another. It is ignored instead.
+    about one model.
+
+    ⚠ **THE SINGULAR FIELD IS KEYED ON `azure_openai_model`, NOT ON `platform_default_
+    model()`.** They were the same string while the platform default WAS the Azure model,
+    and reading the platform default here would break the pairing the moment the two diverge
+    — which they now do: a Google platform default would leave `azure_openai_deployment`
+    answering for nothing while the map was asked for the Azure model the credential store is
+    actually populated with. The pairing this field belongs to is stated in `config.py`:
+    `azure_openai_model` and `azure_openai_deployment` move together.
+
+    The order matters and is the whole rule: the singular field is what `engine/bolna.py`
+    pushes into the vendor's credential store as `AZURE_OPENAI_MODEL`, so if a stray entry in
+    the map ever named that same model, letting the map win would point published agents at
+    one deployment and the credential store at another. It is ignored instead.
 
     ⚠ **ASK IT ONLY ABOUT AN AZURE MODEL.** Deployments are an Azure artefact; on the other
     two legs the API addresses the model's own published name and a deployment id has
@@ -297,7 +318,7 @@ def deployment_for(model: str) -> str | None:
     `str | None` and an operator clearing it in the console leaves `""`, which is not a
     deployment and must not be returned as one.
     """
-    if model == platform_default_model():
+    if model == get_settings().azure_openai_model:
         return (get_settings().azure_openai_deployment or "").strip() or None
     return (_configured_deployments().get(model) or "").strip() or None
 

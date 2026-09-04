@@ -64,6 +64,7 @@ from apps.api.engine import get_engine
 from apps.api.engine.fake import FakeEngine
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
+    PLATFORM_DEFAULT_LLM_MODEL,
     AZURE_OPENAI_MODELS,
     GOOGLE_DIRECT_MODELS,
     LLM_MODEL_NAMES,
@@ -71,6 +72,7 @@ from calevate_shared.engine import (
     OPENAI_DIRECT_MODELS,
     SELECTABLE_LLM_MODELS,
     AgentConfig,
+    ModelConfig,
 )
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -117,6 +119,12 @@ def _azure(monkeypatch: pytest.MonkeyPatch, *, deployments: str = "") -> None:
         ("azure_openai_api_key", API_KEY),
         ("azure_openai_deployment", DEFAULT_DEPLOYMENT),
         ("azure_openai_model", AZURE_OPENAI_DEFAULT_MODEL),
+        # THE PLATFORM'S OWN DEFAULT IS ITS OWN SETTING NOW, and on this fixture it is the
+        # Azure one: these cases are about the Azure leg, and the shipped default
+        # (`PLATFORM_DEFAULT_LLM_MODEL`, a Google model) would put the platform rung on a leg
+        # this fixture installs no key for. `azure_openai_model` no longer answers for it —
+        # that field says which model the DEPLOYMENT was made from and nothing else.
+        ("platform_llm_model", AZURE_OPENAI_DEFAULT_MODEL),
         ("azure_openai_deployments", deployments),
     ):
         monkeypatch.setattr(settings, field, value, raising=False)
@@ -158,17 +166,87 @@ def test_the_account_default_answers_when_the_agent_has_not_chosen() -> None:
     assert (resolved.model, resolved.source) == (ALTERNATE_MODEL, "organization")
 
 
+def test_the_shipped_platform_default_is_the_founders_model_and_is_safe_to_send() -> None:
+    """**THE FOUNDER'S DECISION (4 Sep 2026), AND THE TWO THINGS THAT MAKE IT SAFE.**
+
+    1. It is a model this repository permits on merit. A default that is `selectable=False`
+       would be refused at every publish by the same predicate that offers the picker.
+    2. Its trap is the one the ENGINE eliminates. `THINKING_TOKENS_SHARE_THE_REPLY_BUDGET` is
+       unmitigable on `gemini-3.*` — the engine's own terminal branch logs "Dead turn
+       detected" and yields nothing, which on a phone call is silence — and is eliminated on
+       exactly the 2.5 flash pair, where the engine sends `thinking_budget=0` itself. So the
+       mitigation is to send NOTHING, and `engine/bolna.py::_llm_trap_settings` renders it as
+       a deliberate empty arm: the default cannot 400 at agent-create and cannot go quiet.
+
+    ⚠ IT IS NOT AN ASSERTION THAT ANY DEPLOYMENT CAN RUN IT. Offerability is live — a Google
+    key and an attested price — and `PLATFORM_DEFAULT_LLM_MODEL`'s own comment says so.
+    """
+    assert PLATFORM_DEFAULT_LLM_MODEL == "gemini-2.5-flash-lite"
+    spec = LLM_MODELS[PLATFORM_DEFAULT_LLM_MODEL]
+    assert spec.selectable and PLATFORM_DEFAULT_LLM_MODEL in SELECTABLE_LLM_MODELS
+    assert spec.provider == "google"
+    # The wire settings for this model's traps add nothing — no `thinking_budget` of ours,
+    # which would switch thinking back ON through the engine's first branch.
+    from apps.api.engine.bolna import _llm_trap_settings
+
+    plain = _llm_trap_settings(
+        ModelConfig(llm_model=None, llm_traps=())
+    )
+    defaulted = _llm_trap_settings(
+        ModelConfig(llm_model=None, llm_traps=tuple(trap.name for trap in spec.traps))
+    )
+    assert defaulted == plain
+
+
+def test_the_platform_default_and_the_azure_deployments_model_are_two_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """They were ONE field, and the founder's answer is a model the Azure Literal cannot hold.
+
+    `azure_openai_model` keeps its own job — which model the DEPLOYMENT was made from, hence
+    which deployment `deployment_for` returns from the singular field — and must not follow
+    the platform default anywhere.
+    """
+    _azure(monkeypatch)
+    monkeypatch.setattr(
+        get_settings(), "platform_llm_model", "gemini-2.5-flash-lite", raising=False
+    )
+    assert llm_models.platform_default_model() == "gemini-2.5-flash-lite"
+    # The singular deployment field still answers for the AZURE model, not for the platform's.
+    assert deployment_for(AZURE_OPENAI_DEFAULT_MODEL) == DEFAULT_DEPLOYMENT
+    assert deployment_for("gemini-2.5-flash-lite") is None
+
+
+def test_a_platform_default_on_a_leg_with_no_key_publishes_on_the_engines_own_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The state every unconfigured deployment is in, including CI and every local run, and
+    the state the founder's is in until the Google key and the price attestation land.
+
+    Nobody chose, and we hold no credential for the leg the platform default runs on: the
+    engine answers from its OWN default rather than the publish refusing. A CHOICE we cannot
+    address is still the loud refusal — that half is asserted in
+    `tests/in_call_llm_provider_test.py`.
+    """
+    _no_azure(monkeypatch)
+    monkeypatch.setattr(
+        get_settings(), "platform_llm_model", "gemini-2.5-flash-lite", raising=False
+    )
+    from apps.api.agents import service
+
+    assert service.in_call_llm(None) == {"llm_model": None}
+
+
 def test_the_platform_answers_last_and_is_the_live_setting_not_the_frozen_constant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """THE ONE PLACE THIS DEPARTS FROM "fall back to `AZURE_OPENAI_DEFAULT_MODEL`", and
     the reason is D-105's shape: `azure_openai_model` is `applies: live`, so an operator
-    who flips it and points the deployment at a matching model has changed which model
-    every un-chosen account runs. Reporting the frozen constant then would tell every
+    who flips it has changed which model every un-chosen account runs. Reporting the frozen constant then would tell every
     client on that deployment the wrong model — and price it wrong. On a deployment nobody
     has flipped the two are the same string, which is why this is strictly more correct
     rather than differently correct."""
-    monkeypatch.setattr(get_settings(), "azure_openai_model", ALTERNATE_MODEL, raising=False)
+    monkeypatch.setattr(get_settings(), "platform_llm_model", ALTERNATE_MODEL, raising=False)
     resolved = resolve_llm_model(agent_model=None, organization_model=None)
     assert (resolved.model, resolved.source) == (ALTERNATE_MODEL, "platform")
 
@@ -539,7 +617,7 @@ async def test_an_agent_reports_its_model_and_which_level_chose_it(
         first = await client.get(f"/v1/agents/{agent_id}", headers=headers)
         assert first.status_code == 200, first.text
         assert first.json()["llm_model"] is None
-        assert first.json()["llm_model_effective"] == get_settings().azure_openai_model
+        assert first.json()["llm_model_effective"] == get_settings().platform_llm_model
         assert first.json()["llm_model_source"] == "platform"
 
         # The account chooses: every agent that has not chosen follows it.
@@ -628,7 +706,7 @@ async def test_the_roster_carries_the_same_three_facts(monkeypatch: pytest.Monke
     assert rows.status_code == 200, rows.text
     row = next(r for r in rows.json() if r["id"] == str(agent_id))
     assert row["llm_model_source"] == "platform"
-    assert row["llm_model_effective"] == get_settings().azure_openai_model
+    assert row["llm_model_effective"] == get_settings().platform_llm_model
 
 
 async def test_choosing_a_model_this_platform_cannot_run_is_refused_at_both_doors(
