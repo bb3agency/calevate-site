@@ -212,6 +212,20 @@ function OrganizationDefault({
   const changed = selected !== defaults.default_llm_model;
 
   const platformDefault = platformDefaultOption(defaults.available);
+  /*
+   * IS THE MODEL IN FORCE ONE THIS PLATFORM CAN ACTUALLY RUN RIGHT NOW?
+   *
+   * A real state and not a defensive one: the platform default is a live setting and its
+   * leg's credential and price are live properties of the deployment (server-side,
+   * `agents/llm_models.offerable_models()`), so a default can be named on this screen
+   * before the key that runs it is installed. When that happens the inherit row's
+   * "Today that is X" and the panel's "In force now: X" are both TRUE about which model we
+   * intend and FALSE about which one answers the call — the account falls back to our
+   * standard model until the leg is switched on. Saying so is the whole point of this
+   * screen; the alternative is a client reading a model name their calls are not running.
+   */
+  const inForceOption = modelOption(defaults.available, defaults.effective_default);
+  const inForceBlocked = inForceOption ? unavailableReason(inForceOption) !== null : false;
   // WHAT THE MODEL IN FORCE ACTUALLY ADDS, which is not the same as what its catalogue
   // row would cost to choose: an account following the platform default is never
   // surcharged (`lib/api/llmModels.ts::inForceSurcharge` holds the rule once).
@@ -248,9 +262,11 @@ function OrganizationDefault({
     {
       value: null,
       label: "Use the Calevate default",
-      detail: platformDefault
-        ? `Today that is ${platformDefault.model}. If we change it, your agents follow.`
-        : "Whatever model we run by default, including after we change it.",
+      detail: !platformDefault
+        ? "Whatever model we run by default, including after we change it."
+        : unavailableReason(platformDefault) !== null
+          ? `Today that is ${platformDefault.model}, and it is not switched on for your account yet — your agents run our standard model until it is.`
+          : `Today that is ${platformDefault.model}. If we change it, your agents follow.`,
       // FOLLOWING THE PLATFORM DEFAULT IS NEVER SURCHARGED, whatever model it resolves
       // to today or tomorrow: a surcharge is the price of an upgrade the client asked
       // for, and this row is the client asking for nothing (the server's own rule —
@@ -304,6 +320,13 @@ function OrganizationDefault({
               {defaults.default_llm_model === null
                 ? "You have not picked a model, so your agents run on the one Calevate uses by default."
                 : "You picked this model for your account."}
+              {/* The model named above is the one we INTEND to run; this says when it is
+                  not the one answering yet. Same sentence the picker's rows carry, because
+                  it is the same fact and the same one action. */}
+              {inForceBlocked && (
+                <> It is not switched on for your account yet, so your calls run our
+                standard model until it is — ask your Calevate team to enable it.</>
+              )}
               {inForceSurchargeInr !== null ? (
                 // WHAT IT ADDS TO THEIR BILL, in words for the zero case, because "₹0.00
                 // a minute" is a rupee amount of nothing and "no extra charge" is the

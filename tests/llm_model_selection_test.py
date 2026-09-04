@@ -64,12 +64,12 @@ from apps.api.engine import get_engine
 from apps.api.engine.fake import FakeEngine
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
-    PLATFORM_DEFAULT_LLM_MODEL,
     AZURE_OPENAI_MODELS,
     GOOGLE_DIRECT_MODELS,
     LLM_MODEL_NAMES,
     LLM_MODELS,
     OPENAI_DIRECT_MODELS,
+    PLATFORM_DEFAULT_LLM_MODEL,
     SELECTABLE_LLM_MODELS,
     AgentConfig,
     ModelConfig,
@@ -189,9 +189,7 @@ def test_the_shipped_platform_default_is_the_founders_model_and_is_safe_to_send(
     # which would switch thinking back ON through the engine's first branch.
     from apps.api.engine.bolna import _llm_trap_settings
 
-    plain = _llm_trap_settings(
-        ModelConfig(llm_model=None, llm_traps=())
-    )
+    plain = _llm_trap_settings(ModelConfig(llm_model=None, llm_traps=()))
     defaulted = _llm_trap_settings(
         ModelConfig(llm_model=None, llm_traps=tuple(trap.name for trap in spec.traps))
     )
@@ -240,12 +238,12 @@ def test_a_platform_default_on_a_leg_with_no_key_publishes_on_the_engines_own_de
 def test_the_platform_answers_last_and_is_the_live_setting_not_the_frozen_constant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """THE ONE PLACE THIS DEPARTS FROM "fall back to `AZURE_OPENAI_DEFAULT_MODEL`", and
-    the reason is D-105's shape: `azure_openai_model` is `applies: live`, so an operator
-    who flips it has changed which model every un-chosen account runs. Reporting the frozen constant then would tell every
-    client on that deployment the wrong model — and price it wrong. On a deployment nobody
-    has flipped the two are the same string, which is why this is strictly more correct
-    rather than differently correct."""
+    """THE ONE PLACE THIS DEPARTS FROM "fall back to `PLATFORM_DEFAULT_LLM_MODEL`", and the
+    reason is D-105's shape: `platform_llm_model` is `applies: live`, so an operator who
+    flips it has changed which model every un-chosen account runs. Reporting the frozen
+    constant then would tell every client on that deployment the wrong model — and price it
+    wrong. On a deployment nobody has flipped the two are the same string, which is why this
+    is strictly more correct rather than differently correct."""
     monkeypatch.setattr(get_settings(), "platform_llm_model", ALTERNATE_MODEL, raising=False)
     resolved = resolve_llm_model(agent_model=None, organization_model=None)
     assert (resolved.model, resolved.source) == (ALTERNATE_MODEL, "platform")
