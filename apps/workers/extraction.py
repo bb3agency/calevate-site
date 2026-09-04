@@ -1441,7 +1441,11 @@ def assist_capability(
        substitute a model.
     4. **Refuse**, with the reason that stopped everything, when there is no Sarvam key
        either. `assist_unavailable()` turns that into a message with a remediation — one for
-       a client, one for an operator, because the two can act on different things.
+       a client, one for an operator, because the two can act on different things. ⚠ On this
+       rung the reason is `no_credential` even for an account whose own provider could not
+       have served the leg: with nothing left to answer, the operative fact is that this
+       platform holds no assistant leg, and blaming the account's model would be a platform
+       fact reported as a fact about their account (see the branch that decides it).
 
     `tenant_leg`, `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than
     reads, and for one reason: none is knowable from configuration. The first is a row this
@@ -1512,7 +1516,27 @@ def assist_capability(
         # NO AZURE LEG. Which refusal this becomes is the falsehood the reported defect was:
         # an account with a working provider is NOT an account with no AI configured, and the
         # two states get different codes and different sentences.
-        blocked = TENANT_PROVIDER_UNSUPPORTED_REASON if substituted else NO_CREDENTIAL_REASON
+        #
+        # ⚠ **AND "SUBSTITUTED" IS ONLY SAYABLE WHEN A SUBSTITUTE EXISTS**, which is the
+        # second half of the same rule and was missing. `substituted` says the account's own
+        # provider may not serve this leg; on its own it does NOT say we could have served it
+        # either. With no Azure leg AND no Sarvam key this platform has no assistant at all,
+        # so `tenant_provider_unsupported` would tell a client their model CHOICE is why they
+        # cannot have an assistant — when the truth is that we have configured nothing and a
+        # client on any provider would be refused identically. That is the exact
+        # misreporting `NO_CREDENTIAL_REASON`'s note exists to prevent, pointing the other
+        # way, and it is the state a deployment is in before its keys are installed.
+        #
+        # The Sarvam arm below is unchanged and is where `tenant_provider_unsupported` stays
+        # right: something DID answer, the client is owed the more specific sentence about
+        # whose answer it is, and `_FALLBACK_DISCLOSURE` has it. `operator_detail` carries the
+        # tenant leg's own ground either way, so nothing an operator needs is lost by naming
+        # the platform's gap first.
+        blocked = (
+            TENANT_PROVIDER_UNSUPPORTED_REASON
+            if substituted and settings.sarvam_api_key
+            else NO_CREDENTIAL_REASON
+        )
 
     if settings.sarvam_api_key:
         return AssistCapability(

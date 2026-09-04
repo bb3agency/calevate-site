@@ -300,23 +300,69 @@ def test_with_no_platform_leg_a_blocked_tenant_falls_to_sarvam_and_is_told(
     assert "Sarvam" in capability.disclosure
 
 
-def test_the_refusal_distinguishes_a_blocked_provider_from_no_provider(
+def test_the_refusal_with_no_leg_at_all_names_the_platform_gap_not_the_tenants_provider(
     unconfigured: Any,
 ) -> None:
-    """RUNG 4, AND THE SPECIFIC FALSEHOOD FIXED. Two different states, two codes, two
-    sentences. "You have no AI" and "your AI cannot do this one thing" are not the same
-    claim, and the first one was a lie told to a paying client."""
+    """RUNG 4, AND THE FALSEHOOD THAT REPLACED THE ONE IT FIXED.
+
+    ⚠ **THIS TEST USED TO ASSERT THE OPPOSITE**, on the reasoning that "you have no AI" and
+    "your AI cannot do this one thing" are different claims and the first was a lie told to a
+    paying client. That reasoning is still right and is still pinned — one test down, on the
+    rung where a substitute actually answers. It does not survive to a deployment holding NO
+    assistant leg at all, and the argument is causal rather than editorial: with neither an
+    Azure leg nor a Sarvam key, the tenant's provider is not a CAUSE of this refusal in any
+    counterfactual sense. An account on the best-supported provider in the catalogue is
+    refused identically. Naming their model therefore points them at a choice that would
+    change nothing — "your model cannot do this" invites them to switch models, and switching
+    models does not produce an assistant — while the operative fact, the one somebody can act
+    on, is that this platform has configured no assistant. That is the same shape of error
+    `NO_CREDENTIAL_REASON`'s own note exists to prevent, pointing the other way: a PLATFORM
+    fact reported as a fact about the client's account.
+
+    WHAT PROTECTS THE ORIGINAL FINDING NOW, so it is not traded away: the client's
+    `no_credential` sentence says in its own words that their phone agents are unaffected and
+    running normally — the reassurance that did not exist when that defect was found — and
+    the tenant ground survives wherever it is causal, which is asserted directly below.
+    """
     blocked = assist_capability(tenant_leg=BLOCKED_LEG)
     none_at_all = assist_capability(tenant_leg=None)
 
-    assert blocked.reason == TENANT_PROVIDER_UNSUPPORTED_REASON
+    assert blocked.reason == NO_CREDENTIAL_REASON
     assert none_at_all.reason == NO_CREDENTIAL_REASON
 
-    blocked_problem = assist_unavailable(blocked)
-    none_problem = assist_unavailable(none_at_all)
-    assert blocked_problem.code == f"assist_{TENANT_PROVIDER_UNSUPPORTED_REASON}"
-    assert blocked_problem.remediation != none_problem.remediation
-    assert "runs your phone agents" in (blocked_problem.remediation or "")
+    problem = assist_unavailable(blocked)
+    assert problem.code == f"assist_{NO_CREDENTIAL_REASON}"
+    # It must not claim the client has no AI, which is the D-127 falsehood, and it must not
+    # blame a model choice that is not the cause.
+    assert "phone agents are not affected" in (problem.remediation or "")
+    assert "you chose" not in (problem.remediation or "")
+    # THE OPERATOR STILL SEES BOTH FACTS. The tenant leg's own ground rides along in
+    # `operator_detail`, so nobody debugging loses the second half of the picture.
+    assert blocked.operator_detail == NO_DATA_USE_ATTESTATION_REASON
+
+
+def test_the_tenant_ground_survives_wherever_it_is_the_actual_cause(
+    monkeypatch: pytest.MonkeyPatch, unconfigured: Any
+) -> None:
+    """The other side of the precedence rule, and the reason it is a rule rather than a
+    deletion.
+
+    With a Sarvam key installed, something DOES answer — and the reason it is Sarvam rather
+    than the account's own model IS the account's provider. The counterfactual holds: an
+    account on a supported provider would have been answered by their own model. So the
+    specific sentence is the true one there, and the client is owed it under G-7.
+    """
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+
+    served = assist_capability(tenant_leg=BLOCKED_LEG)
+
+    assert served.available is True
+    assert served.fallback_reason == TENANT_PROVIDER_UNSUPPORTED_REASON
+    assert "the AI model you chose" in (served.disclosure or "")
+    # ONE LADDER, TWO GROUNDS, NEITHER HIDING THE OTHER: on the same deployment an account
+    # whose provider WOULD have served this leg is told the platform's gap instead, because
+    # for them that is the whole cause.
+    assert assist_capability(tenant_leg=AZURE_LEG).fallback_reason == NO_CREDENTIAL_REASON
 
 
 def test_omitting_the_tenant_leg_behaves_exactly_as_the_ladder_did_before(
