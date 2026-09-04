@@ -254,6 +254,13 @@ async def close(
     step_up.require(x_confirm_action, close_account_confirmation(tenant_id))
 
     async with tenant_session(tenant_id) as scoped:
+        # READ FIRST, so the notice and the audit row describe a TRANSITION rather than a
+        # click. `close_account` is idempotent and returns the first closure unchanged, so
+        # without this a refreshed screen would mail the client a second "your account has
+        # been closed" and grow the audit chain a row per press — the same rule
+        # `LifecycleOut.changed` states next door, and the same reason the restore below
+        # reads its own `before`.
+        before = await closure.read_closure(scoped, tenant_id=tenant_id)
         record = await closure.close_account(
             scoped,
             tenant_id=tenant_id,
@@ -261,6 +268,8 @@ async def close(
             closed_by=principal.user_id,
             grace_days=payload.grace_days,
         )
+        if before.is_closed:
+            return _out(record, now=datetime.now(UTC))
         await enqueue_outbox(
             scoped,
             job=NOTICE_JOB,

@@ -652,22 +652,33 @@ async def resend_tenant_invitation(
         await enqueue_invitation_email(scoped, to=resent.email, token=resent.token)
         await write_audit(
             scoped,
-            action="admin.invitation_resent",
+            # TWO ACTIONS, NOT ONE WITH A FLAG, AND THAT IS WHERE THE ATTESTATION LIVES.
+            # `audit_log` has no `summary` column — the summary is hashed into nothing and
+            # goes to the log stream keyed by the entry id (`compliance/audit.py` §7) — so
+            # a `{"address_changed": true}` inside it would NOT be in the append-only,
+            # hash-chained record that an operator or a regulator later queries. The
+            # ACTION is a stored column and is covered by the chain, so the distinction
+            # that matters rides there: `readdressed` says a person re-pointed an
+            # invitation at an address nothing verified, on their own word. It is
+            # queryable, unforgeable and impossible to confuse with an address the
+            # invitee proved (which is `users.email_verified_at`, and which this does not
+            # set — D-185).
+            action=(
+                "admin.invitation_readdressed"
+                if payload.email is not None
+                else "admin.invitation_resent"
+            ),
             actor=principal,
             tenant_id=tenant_id,
             object_type="invitation",
             object_id=str(invitation_id),
             ip=client_request_ip(request),
+            # The operator's stated GROUND, to the log stream. Not the address: the
+            # summary sanitizer redacts it, and the address is on the invitation and on
+            # the screen already.
             summary={
                 "send_count": resent.send_count,
                 "role": resent.role,
-                # THE ATTESTATION, DISTINGUISHABLE FROM A VERIFICATION. `address_changed`
-                # says an operator re-pointed the invitation; `attested_by_operator` says
-                # nothing checked the mailbox and a person vouched for it; `attestation`
-                # is their stated ground. A later reader can tell this apart from an
-                # address the invitee proved, which is the whole point of recording it.
-                "address_changed": payload.email is not None,
-                "attested_by_operator": payload.email is not None,
                 "attestation": payload.attestation,
             },
         )
