@@ -117,6 +117,7 @@ WHAT IS DELIBERATELY NOT HERE
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
 
@@ -127,6 +128,7 @@ from calevate_shared.engine import (
     AccountKBObject,
     AgentConfig,
     AgentSnapshot,
+    AvailableNumber,
     CallContext,
     CallHandle,
     CostBreakdown,
@@ -139,6 +141,7 @@ from calevate_shared.engine import (
     ListingIncompleteReason,
     LlmCredentialPlacement,
     LlmProvider,
+    NumberSearch,
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
@@ -858,6 +861,34 @@ class CartesiaEngine:
                 "connected to the platform; nothing here buys one."
             ),
         )
+
+    async def search_numbers(self, query: NumberSearch) -> Sequence[AvailableNumber]:
+        """Refuses by name, from the same descriptor `provision_number` refuses from.
+
+        `number_series` is empty, so there is nothing to sell and nothing to search. The
+        refusal is `require_capability` rather than an empty list DELIBERATELY: an empty
+        result reads as "no inventory today" and would put an operator on a screen that
+        looks like it works and never will, which is the precise failure D-535 added this
+        method to avoid on the engine that CAN sell (see `BolnaEngine.search_numbers`).
+        """
+        require_capability("numbers", engine=self)
+        raise AssertionError("unreachable while `number_series` is empty")  # pragma: no cover
+
+    async def release_number(self, number: ProvisionedNumber) -> None:
+        """Refuses by name. Nothing here was ever bought, so nothing here can be released.
+
+        NOT "absent is success". The Protocol's absent-is-success clause is about a number
+        this ENGINE does not hold; this engine holds none of ours by capability, and
+        answering a release with silence would let an offboarding record a rental as
+        stopped that no vendor ever started or will stop charging.
+        """
+        require_capability("numbers", engine=self)
+        raise AssertionError("unreachable while `number_series` is empty")  # pragma: no cover
+
+    async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
+        """Refuses by name — an empty list would be a claim that we checked."""
+        require_capability("numbers", engine=self)
+        raise AssertionError("unreachable while `number_series` is empty")  # pragma: no cover
 
     async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
         """Refuses by name — there is no agent object of ours to answer a number (D-420).

@@ -3188,18 +3188,118 @@ class CallContext(BaseModel):
     system_prompt: str | None = None
 
 
+class NumberSearch(BaseModel):
+    """What a number SEARCH asks an engine, and why the port grew one at all (D-535).
+
+    **`NumberSpec` COULD NOT EXPRESS THE VENDOR'S REQUEST, AND THAT WAS THE FINDING.**
+    Our port modelled "provision me something matching this spec"; the engine we run
+    models "here is the exact E.164 I want". Bolna's `POST /phone-numbers/buy` requires
+    BOTH `country` (`US|IN`) and `phone_number` — an E.164 the caller must already know
+    (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/phone-numbers/
+    buy.md:54-77`). So the real flow is **search -> pick -> buy -> bind**, and the search
+    half had no method on this Protocol at all. Inventing the picked number inside an
+    adapter would have been this repository guessing at a vendor's inventory.
+
+    `country` is the vendor's own two-value enum, not a general ISO field, because that
+    is the whole of what their search and buy accept (`search.md:47-53`, `buy.md:56-61`).
+    An engine that sells numbers somewhere else declares its own answer by refusing a
+    country it does not serve, by name.
+
+    `pattern` is THEIR unit: "3-character prefix for the phone number to search with"
+    (`search.md:56-61`). It is not a regex and not a locality, and it is passed through
+    rather than interpreted.
+
+    ⚠ **THE VENDOR'S OWN DOCUMENT SAYS `in: path` FOR ALL THREE PARAMETERS ON A ROUTE
+    THAT DECLARES NO PATH TEMPLATE** (`search.md:38-70`: `GET /phone-numbers/search`,
+    parameters `country`, `pattern`, `provider`, each `in: path`). A path parameter that
+    appears nowhere in the path is not expressible, so the adapter sends them as QUERY
+    parameters and says so at the call site. That reading is UNVERIFIED against a live
+    account — OPERATIONS §2 gate 25b.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    country: Literal["IN", "US"] = "IN"
+    pattern: str | None = Field(default=None, min_length=1, max_length=8)
+    provider: str | None = Field(default=None, max_length=32)
+
+
+class AvailableNumber(BaseModel):
+    """One number an engine says it could sell us, at the price it says (D-535).
+
+    NOT A `ProvisionedNumber`. Nothing has been bought, nothing is ours, and the only
+    thing that may be done with this object is show it to an operator and hand its
+    `e164` straight back to `provision_number`. Keeping the two types apart is what
+    stops a screen recording an offer as an asset.
+
+    **`monthly_price_usd` IS THE VENDOR'S NUMBER, IN THE VENDOR'S UNIT, UNCONVERTED.**
+    Their search prices "in USD" (`search.md:126-133`) while their buy prices the same
+    resource "in cents" (`buy.md:113-117`) and their listing prices it as the STRING
+    `"$5.0"` (`get_all.md:103-106`). Three units for one price is a fact about the
+    vendor, so each is read where it is documented and converted exactly once, in
+    `billing`, at a named exchange rate — never here (hard rule 7: a rupee this product
+    records is NUMERIC INR and is never a float, and an adapter that converted would be
+    a second place the rate lives).
+
+    `Decimal | None` and never a float: the JSON number is parsed through `str` at the
+    adapter boundary.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    e164: E164
+    provider: str | None = None
+    region: str | None = None
+    locality: str | None = None
+    monthly_price_usd: Decimal | None = None
+
+
 class NumberSpec(BaseModel):
+    """WHICH number to buy — not "something like this" (D-535).
+
+    `e164` IS THE LOAD-BEARING FIELD AND IT IS OPTIONAL ONLY FOR ENGINES THAT ALLOCATE.
+    Bolna requires it (`buy.md:74-77`) and `BolnaEngine.provision_number` refuses a spec
+    without one, by name, rather than picking a number for us. It stays optional on the
+    model because the Protocol serves engines that hand out a number from a pool, and a
+    required field would make this type unusable for them.
+
+    `series` remains the compliance-bearing field: it is what the campaign launch gate
+    matches a campaign's classification against (DATA-MODEL §6), and an engine that
+    cannot prove which series it is selling must not claim one — `EngineCapabilities.
+    number_series` is the descriptor half of the same statement.
+    """
+
     series: NumberSeries = "standard"
+    country: Literal["IN", "US"] = "IN"
+    e164: E164 | None = None
     provider: str | None = None
     region: str | None = None
     purpose: str | None = None
 
 
 class ProvisionedNumber(BaseModel):
+    """A number that exists at the engine — bought by us, or recorded from elsewhere.
+
+    THE PRICE FIELDS ARE THE VENDOR'S OWN, IN USD, AND MAY BE `None`. They are `None` for
+    every number that reached this product any way other than a purchase we made — which
+    is every number recorded under Model B — and populated from the buy response for one
+    we bought. `billing` is the only place they become rupees. Hard rule 7 governs what is
+    STORED and what is BILLED; this is neither, it is the vendor's quote in transit.
+    """
+
     e164: E164
     provider: str | None = None
     engine_number_ref: str | None = None
     series: NumberSeries = "standard"
+    #: The one-off purchase price the engine charged, in USD.
+    purchase_price_usd: Decimal | None = None
+    #: The RECURRING monthly rental the engine will charge, in USD. This is the figure
+    #: that compounds silently if nothing meters it (`billing/number_rental.py`).
+    monthly_rental_usd: Decimal | None = None
+    #: Does the ENGINE hold this number (Bolna's `bolna_owned` / `rented`), i.e. did we
+    #: buy it through them? False/None means the number came from somewhere else and
+    #: releasing it at the engine would release nothing.
+    engine_owned: bool | None = None
 
 
 class KBSourceRef(BaseModel):
@@ -4384,7 +4484,79 @@ class VoiceEngine(Protocol):
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None: ...
 
-    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber: ...
+    async def search_numbers(self, query: NumberSearch) -> Sequence[AvailableNumber]:
+        """What could this engine sell us right now (D-535)?
+
+        **THE METHOD THE PORT WAS MISSING, AND WITHOUT IT `provision_number` COULD NOT BE
+        CALLED AT ALL** on the engine we actually run: their buy endpoint requires the
+        exact E.164 (`buy.md:74-77`), which only their search can tell us. A port with a
+        buy and no search is a port that can only be used by somebody who already has a
+        number, i.e. by nobody.
+
+        READ-ONLY AND SPENDS NOTHING. An adapter must never buy from here, and a caller
+        may show the result to a person and do nothing else with it.
+
+        REFUSES BY NAME where `capabilities.number_series` is empty, through
+        `require_capability("numbers")` — the same refusal `provision_number` gives, from
+        the same descriptor, so a screen that asks the descriptor first cannot offer a
+        search the buy will refuse.
+
+        An empty sequence is a legitimate answer and is NOT an error: the vendor has no
+        matching inventory today. A caller must say that to a person rather than retrying.
+        """
+        ...
+
+    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
+        """Buy `spec` from the engine, and return what it actually sold us.
+
+        **THIS SPENDS REAL MONEY AT A VENDOR AND IS NOT IDEMPOTENT**, which is the one
+        thing about it a caller must design around: there is no client-supplied key on
+        Bolna's buy endpoint, so a retried call buys a SECOND number and charges a second
+        rental. `campaigns/number_supply.py` is the only caller and takes an advisory lock
+        plus a pre-check for exactly that reason.
+
+        RETURNS WHAT THE VENDOR SAID, NOT WHAT WAS ASKED FOR. The returned `e164` is the
+        authority — an engine that sold us a different number than we named must be
+        recorded as having done so, not silently trusted to have obeyed — and
+        `engine_number_ref` is the handle `bind_inbound_number` needs, so an adapter that
+        cannot produce one has not finished the purchase.
+        """
+        ...
+
+    async def release_number(self, number: ProvisionedNumber) -> None:
+        """Give the number back to the engine and stop being billed for it (D-535).
+
+        **THE OTHER END OF A RECURRING COST.** A number bought and never released renews
+        every month for ever, against our wallet, for a client who has left — the margin
+        leak that has no incident, no alarm and no bound. So this is not optional
+        symmetry: it is the only thing that makes `provision_number` a safe thing to call.
+
+        UNBIND FIRST IS THE CALLER'S JOB, not this method's. Deleting a number that is
+        still routed is the vendor's business to reject or accept and we do not depend on
+        either; `numbers.release_number` unbinds, then releases, and records the release
+        even if the unbind was a no-op.
+
+        **ABSENT IS SUCCESS**, for `unbind_inbound_number`'s reason: the postcondition is
+        "we are not being billed for this number", and a number the engine does not hold
+        already satisfies it. A release path that raises on "there was nothing to undo" is
+        a path that blocks an offboarding.
+
+        REFUSES a number we did not buy (`engine_owned` false): releasing at the engine a
+        number the CLIENT holds on their own carrier account would do nothing there and
+        would delete our only record of it here.
+        """
+        ...
+
+    async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
+        """Every number the engine currently holds for this account (D-535).
+
+        FOR RECONCILIATION, and for one question no other method can answer: is there a
+        number we are paying for that our database has forgotten? A purchase that
+        succeeded at the vendor and failed to commit here is invisible to every query we
+        own, and it renews monthly. `workers/number_reconciliation.py` walks this against
+        `phone_numbers` and alarms on either direction.
+        """
+        ...
 
     async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
         """Make agent `ref` the one that ANSWERS `number` — at the engine (D-420).
@@ -4667,6 +4839,7 @@ __all__ = [
     "AgentConfig",
     "AgentHosting",
     "AgentSnapshot",
+    "AvailableNumber",
     "CallContext",
     "CallHandle",
     "CostBreakdown",
@@ -4691,6 +4864,7 @@ __all__ = [
     "LlmProvider",
     "ModelBinding",
     "ModelConfig",
+    "NumberSearch",
     "NumberSeries",
     "NumberSpec",
     "PostureLeg",

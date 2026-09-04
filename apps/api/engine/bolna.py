@@ -124,6 +124,7 @@ from calevate_shared.engine import (
     ActionToolSpec,
     AgentConfig,
     AgentSnapshot,
+    AvailableNumber,
     CallContext,
     CallHandle,
     CallLatency,
@@ -141,6 +142,7 @@ from calevate_shared.engine import (
     LlmCredentialPlacement,
     LlmProvider,
     ModelConfig,
+    NumberSearch,
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
@@ -1818,6 +1820,34 @@ class _AgentRoster(NamedTuple):
     incomplete_reason: ListingIncompleteReason | None
 
 
+def _optional_text(value: Any) -> str | None:
+    """A vendor string field as a non-blank `str`, or None — never `"None"`, never `""`.
+
+    Every number route on this vendor declares fields `nullable` and then also omits them
+    (`search.md`'s `friendly_name`/`locality`), so "absent", "null" and "empty string" all
+    reach us and all mean the same thing. Folding them here rather than at eight call
+    sites is what keeps `provider=""` out of a column an operator reads as a carrier name.
+    A non-string is stringified rather than refused: `id` is documented as a uuid on one
+    page and bare hex on another, and this adapter deliberately asserts nothing about it.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    text_value = str(value).strip()
+    return text_value or None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    """A vendor boolean, or None when it said nothing.
+
+    THREE-VALUED ON PURPOSE. `bolna_owned` / `rented` decide whether releasing a number at
+    the vendor does anything at all, so "the vendor did not tell us" must not collapse
+    into "no" — that reading would silently skip the release of a number we are paying
+    for. Only a real JSON boolean answers; anything else is None and the caller treats it
+    as unknown.
+    """
+    return value if isinstance(value, bool) else None
+
+
 def _listing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """The execution rows in one listing response.
 
@@ -3169,10 +3199,25 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   can be trusted to run (hard rule 5 forbids a bypass). So the honest value of this
 #   field, whose meaning is "is there an engine-side campaign object OUR code depends
 #   on", is False. If that ever changes it is a decision-log entry, not a flag flip.
-# * `number_series=frozenset()`. Nobody buys a number through this product: the client
-#   holds the connection on their own carrier account (Model B — `campaigns/
-#   provisioning.py`, `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). This adapter's
-#   `provision_number` has always raised; now it says so before being called.
+# * `number_series=frozenset({"standard"})` — **CHANGED BY D-535, AND ONLY BY ONE
+#   MEMBER.** The founder adopted Model A for the inbound leg: we buy Indian DIDs through
+#   this engine and the client forwards their own published number to one. So the
+#   capability that was empty because nothing was WANTED now names exactly what this
+#   vendor can be shown to sell — an ordinary number — and nothing else.
+#   **140 AND 160 STAY OUT, AND THAT IS A MEASUREMENT, NOT CAUTION.** Their buy endpoint
+#   takes `country: US|IN` and a provider from `twilio|plivo|vobiz` and says nothing
+#   whatever about India's DLT number classes (`bolna-findings/mirror/pages/api-reference/
+#   phone-numbers/buy.md:54-77`); their regulated-numbers guide maps 140→Vobiz and
+#   160→Plivo in a table about obtaining them, not about this API
+#   (`.../guides/inbound/obtaining-regulated-phone-numbers.md:15-16`). Declaring either
+#   here would let the campaign launch gate pass a promotional campaign on a header this
+#   product cannot prove it can buy. An ordinary 10-digit DID is also exactly what the
+#   playbook makes the default for reception (`docs/legal/LEGAL-OPS-PLAYBOOK.md:287`), and
+#   inbound answering needs no series at all.
+#   ⚠ **THE DESCRIPTOR IS NOT THE PERMISSION.** This says the ENGINE can sell us a number;
+#   whether it is lawful for Calevate to hold one and put a client's traffic on it is a
+#   different fact, held by `campaigns/provisioning.py::number_resale_authorization` and
+#   OPERATIONS §2 gate 45. Nothing in this file may be read as answering it.
 # * `transfer=False`. **The reason changed and the value did not (D-262).** This used to
 #   say "Bolna may well support it; nobody has run the pilot gate". Bolna DOES support it,
 #   read at source: `bolna/agent_manager/task_manager.py` (bolna-ai/bolna@cd2e192)
@@ -3259,7 +3304,7 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=True,
-    number_series=frozenset(),
+    number_series=frozenset({"standard"}),
     caller_id=True,
     inbound_binding=True,
     transfer=False,
@@ -4075,26 +4120,262 @@ class BolnaEngine:
         # this method cannot disagree.
         require_capability("transfer", engine=self)
 
-    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
-        # Nobody buys a number through this product. Model B: the CLIENT holds the
-        # connection on their own Exotel / Plivo / Vobiz account and we connect it
-        # (`campaigns/provisioning.py`; `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9).
-        # `BOLNA_CAPABILITIES.number_series` is empty, so this refuses every series
-        # rather than only the DLT ones.
+    # --- numbers: search, buy, release, reconcile (D-535) ---------------------
+    #
+    # THE VENDOR'S FOUR ROUTES, IN ONE PLACE (`bolna-findings/mirror/pages/api-reference/
+    # phone-numbers/overview.md:11-16`):
+    #
+    #     GET    /phone-numbers/all
+    #     GET    /phone-numbers/search
+    #     POST   /phone-numbers/buy
+    #     DELETE /phone-numbers/{phone_number_id}
+    #
+    # ⚠ **ONE PRICE, THREE UNITS, AND EVERY ONE OF THEM IS READ WHERE IT IS DOCUMENTED.**
+    # `search.md:126-133` prices a number "in USD" as a number (`example: 5`);
+    # `buy.md:113-117` prices the same resource "in cents" (`example: 500`); and
+    # `get_all.md:103-106` returns `price` as the STRING `"$5.0"`, described as the
+    # "Monthly rental price". They reconcile only under "cents = USD minor units, divisor
+    # 100" — which is this vendor's convention on the NEIGHBOURING execution resource
+    # (`_MINOR_UNITS_PER_MAJOR`) and is therefore a reading, not a proof. So: nothing here
+    # converts to rupees (that happens once, in `billing/number_rental.py`, at the named
+    # exchange rate), every figure is carried in USD in a `Decimal` built from `str`, and
+    # OPERATIONS §2 gate 26 settles the unit against one real wallet debit.
+    #
+    # ⚠ **`vobiz` IS IN THE BUY REQUEST ENUM AND NOT IN THE BUY RESPONSE ENUM.** The
+    # request accepts `twilio|plivo|vobiz` (`buy.md:67-73`); the response's
+    # `telephony_provider` is declared `twilio|plivo|vonage|telnyx` (`buy.md:118-124`),
+    # and `get_all.md:107-113` declares a third set (`twilio|plivo|vonage`). Three
+    # disagreeing enums for one field is a fact about the vendor's document, so this
+    # adapter VALIDATES NONE OF THEM: whatever string comes back is recorded verbatim, and
+    # when the field is absent the provider we ASKED for is recorded instead with no claim
+    # that the vendor confirmed it. Refusing an unexpected value here would reject the very
+    # purchase the vendor had already charged us for — the one failure mode that costs
+    # money and cannot be retried. OPERATIONS §2 gate 25c.
+
+    @staticmethod
+    def _usd_from_cents(amount: Any) -> Decimal | None:
+        """A `buy` price ("in cents") as USD, or None if it is not a number.
+
+        `str()` first, always: a float here would put a binary fraction on the path to
+        `usage_events.unit_cost_paid` (hard rule 7). None rather than zero for an
+        unreadable figure — a zero price is a claim that the number is free, and the
+        caller refuses a purchase whose price it could not read rather than recording one.
+        """
+        if amount is None or isinstance(amount, bool):
+            return None
+        try:
+            return Decimal(str(amount)) / _ASSUMED_MINOR_UNITS_PER_MAJOR
+        except (ArithmeticError, ValueError):
+            return None
+
+    @staticmethod
+    def _usd_from_quoted(amount: Any) -> Decimal | None:
+        """A price the vendor wrote for a human — `"$5.0"` (`get_all.md:103-106`) — as USD.
+
+        Strips the currency ornament and nothing else. A value carrying any symbol other
+        than `$` is REFUSED (None) rather than assumed to be dollars: this figure becomes a
+        rupee in a ledger, and "the vendor started billing in another currency" must
+        surface as a missing price an operator is alerted about, never as a wrong one.
+        """
+        if amount is None or isinstance(amount, bool):
+            return None
+        text_value = str(amount).strip().removeprefix("$").strip()
+        try:
+            return Decimal(text_value)
+        except (ArithmeticError, ValueError):
+            return None
+
+    async def search_numbers(self, query: NumberSearch) -> Sequence[AvailableNumber]:
+        """`GET /phone-numbers/search` — what could we buy right now.
+
+        **SENT AS QUERY PARAMETERS, AGAINST WHAT THE DOCUMENT LITERALLY SAYS.** Their
+        OpenAPI block declares `country`, `pattern` and `provider` as `in: path` on a
+        route whose path is the constant `/phone-numbers/search` with no template segment
+        (`search.md:38-70`). A path parameter that appears nowhere in the path cannot be
+        sent at all, so the only expressible reading is `in: query` — the shape every
+        other listing route on this API uses (`pagination.md:9`). This is a READING of a
+        self-contradictory document and it is marked as one: OPERATIONS §2 gate 25b runs
+        it against a live account, and a 4xx surfaces as `engine_rejected` rather than as
+        an empty result set, so the wrong reading fails loudly.
+
+        An empty array is a legitimate answer (no inventory today) and reaches the caller
+        as an empty sequence, never as an error.
+        """
         require_capability("numbers", engine=self)
-        # Unreachable while `number_series` is empty. Kept as a real refusal rather than
-        # an `assert`, because the way this line gets reached is somebody widening the
-        # descriptor without writing the client — and that must fail loudly here rather
-        # than fall off the end of the function returning None.
-        raise ProblemError(
-            kind="dependency",
-            code="engine_capability_unverified",
-            title="The voice platform does not supply numbers",
-            detail=(
-                "The client's calling number is taken on their own operator account and "
-                "connected to the platform; nothing here buys one."
-            ),
+        params: dict[str, str] = {"country": query.country}
+        if query.pattern:
+            params["pattern"] = query.pattern
+        if query.provider:
+            params["provider"] = query.provider
+        payload = await self._request("GET", "/phone-numbers/search", params=params)
+        offers: list[AvailableNumber] = []
+        for row in _listing_rows(payload):
+            e164 = str(row.get("phone_number") or "").strip()
+            # A row with no dialable number is not an offer. Skipped rather than raised:
+            # one malformed row must not deny an operator the rest of the inventory.
+            if not e164.startswith("+"):
+                continue
+            offers.append(
+                AvailableNumber(
+                    e164=e164,
+                    provider=_optional_text(row.get("provider")),
+                    region=_optional_text(row.get("region")),
+                    locality=_optional_text(row.get("locality")),
+                    # "Price of the number in USD" (`search.md:126-133`) — already a
+                    # major unit here, unlike `buy`. Read at the unit its own page states.
+                    monthly_price_usd=self._usd_from_quoted(row.get("price")),
+                )
+            )
+        return offers
+
+    async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
+        """`POST /phone-numbers/buy` — **this spends money and cannot be undone by a retry.**
+
+        THE EXACT NUMBER IS REQUIRED AND IS NOT INVENTED HERE. `PurchasePhoneNumberRequest`
+        makes `country` and `phone_number` both required (`buy.md:54-77`), so a spec with
+        no `e164` is refused by name: the only honest source of that value is a
+        `search_numbers` result an operator picked, and an adapter that made one up would
+        be buying a number nobody chose.
+
+        THE RESPONSE IS THE AUTHORITY ON WHAT WE BOUGHT. The returned `phone_number` is
+        recorded even if it differs from the one asked for, and a response with no `id` is
+        a REFUSAL rather than a `ProvisionedNumber` with a null handle: without
+        `phone_number_id` nothing can ever bind this number to an agent
+        (`_inbound_number_id`), and recording it would create exactly the unbindable row
+        that made every inbound publish alarm before this decision.
+
+        **A REFUSAL AFTER A 200 STILL MEANS WE OWE THE VENDOR MONEY.** That is why the
+        raise below names the vendor's own `phone_number` back to the operator through the
+        problem's remediation-free detail and why `campaigns/number_supply.py` alarms on
+        it: the number exists at Bolna, our database does not know it, and the monthly
+        rental has started. `list_engine_numbers` is what finds it again.
+        """
+        require_capability("numbers", engine=self)
+        if not self.capabilities.provisions(spec.series):
+            raise ProblemError(
+                kind="dependency",
+                code="engine_capability_absent",
+                title="The voice platform cannot supply that class of number",
+                detail=(
+                    f"The voice platform does not sell {spec.series}-series numbers, so "
+                    "one cannot be bought here."
+                ),
+                remediation=(
+                    "The 140 and 160 series are taken on an Indian operator's own account "
+                    "against a registered Principal Entity. Record that number instead of "
+                    "buying one here."
+                ),
+            )
+        if not spec.e164:
+            raise ProblemError.business_rule(
+                "number_not_chosen",
+                "A number must be chosen from the search results before it can be bought.",
+                remediation=(
+                    "Search for available numbers first, then buy the one you picked. The "
+                    "platform buys a named number, never 'one like this'."
+                ),
+            )
+        body: dict[str, Any] = {"country": spec.country, "phone_number": spec.e164}
+        if spec.provider:
+            body["provider"] = spec.provider
+        payload = await self._request("POST", "/phone-numbers/buy", json=body)
+        ref = _optional_text(payload.get("id"))
+        bought = _optional_text(payload.get("phone_number")) or spec.e164
+        if ref is None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_number_purchase_unusable",
+                title="The number was bought and cannot be used",
+                detail=(
+                    "The voice platform confirmed a purchase but returned no identifier "
+                    "for it, so no agent can be set to answer the number."
+                ),
+                remediation=(
+                    "Do not retry — a retry buys a second number. Check the voice "
+                    "platform's own number list and record the identifier by hand."
+                ),
+            )
+        return ProvisionedNumber(
+            e164=bought,
+            # The response's own provider where it has one, else the provider we asked
+            # for, recorded with no claim the vendor agreed (see the enum note above).
+            provider=_optional_text(payload.get("telephony_provider")) or spec.provider,
+            engine_number_ref=ref,
+            series=spec.series,
+            purchase_price_usd=self._usd_from_cents(payload.get("price")),
+            # THE BUY RESPONSE CARRIES NO RECURRING PRICE. `PurchasePhoneNumberResponse`
+            # has `price` ("in cents") and `renewal` (a boolean) and no monthly figure at
+            # all (`buy.md:78-135`), so this is deliberately None here and is filled from
+            # the SEARCH quote the operator accepted. Inventing "the purchase price is
+            # also the rental" would put an unsourced number into a recurring charge.
+            monthly_rental_usd=None,
+            engine_owned=_optional_bool(payload.get("bolna_owned")),
         )
+
+    async def release_number(self, number: ProvisionedNumber) -> None:
+        """`DELETE /phone-numbers/{phone_number_id}` — stop the rental.
+
+        `absent_is_success=True`, for `delete_agent`'s reason and one of its own: the
+        postcondition is "we are no longer billed for this number", which a number the
+        vendor does not hold already satisfies. An offboarding path that raises on "there
+        was nothing to undo" is a path that leaves a paid asset behind.
+
+        A number with no `engine_number_ref` is refused by NAME rather than treated as
+        already released — under this product's history most numbers are the client's own
+        connection, and "released" is a claim we must not make about a number we never
+        held.
+        """
+        require_capability("numbers", engine=self)
+        await self._request(
+            "DELETE",
+            f"/phone-numbers/{self._inbound_number_id(number)}",
+            absent_is_success=True,
+        )
+
+    async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
+        """`GET /phone-numbers/all` — every number this Bolna account is paying for.
+
+        THE ACCOUNT, NOT THE TENANT, exactly as `_agent_refs` is: one Bolna account holds
+        every tenant's numbers, and the whole purpose of this read is to find a number our
+        database has forgotten while the vendor keeps renewing it monthly.
+
+        NO PAGINATION IS SENT, and that is a deliberate difference from `_agent_refs`.
+        That route has two first-party pages documenting `page_number`/`page_size`; this
+        one's OpenAPI block declares no parameters and answers a bare array
+        (`get_all.md:29-51`), and the pagination page names no route list. Sending an
+        undocumented parameter to a route that may ignore it would produce a walk that
+        looks complete and is not. The reconciliation job therefore treats this listing as
+        POSSIBLY PARTIAL and alarms on numbers it cannot explain in one direction only —
+        see `workers/number_reconciliation.py`. OPERATIONS §2 gate 25d.
+
+        `rented` is their name here for what `buy` calls `bolna_owned` ("If the phone
+        number was bought from Bolna", `get_all.md:115-118`); both are read into
+        `engine_owned` because they are the same question and only that question decides
+        whether releasing at the vendor does anything.
+        """
+        require_capability("numbers", engine=self)
+        payload = await self._request("GET", "/phone-numbers/all")
+        held: list[ProvisionedNumber] = []
+        for row in _listing_rows(payload):
+            e164 = str(row.get("phone_number") or "").strip()
+            ref = _optional_text(row.get("id"))
+            if not e164.startswith("+") or ref is None:
+                continue
+            held.append(
+                ProvisionedNumber(
+                    e164=e164,
+                    provider=_optional_text(row.get("telephony_provider")),
+                    engine_number_ref=ref,
+                    # NOT DERIVED FROM THE NUMBER. This listing says nothing about DLT
+                    # classes and our own `series_for_e164` is the authority on our side;
+                    # claiming a series from a vendor row would put an unchecked
+                    # compliance field into a reconciliation result.
+                    series="standard",
+                    monthly_rental_usd=self._usd_from_quoted(row.get("price")),
+                    engine_owned=_optional_bool(row.get("rented")),
+                )
+            )
+        return held
 
     # --- inbound routing (D-420) ---------------------------------------------
     #

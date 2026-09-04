@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, NotRequired, TypedDict, get_args
@@ -29,6 +30,7 @@ from calevate_shared.engine import (
     AccountKBObject,
     AgentConfig,
     AgentSnapshot,
+    AvailableNumber,
     CallContext,
     CallHandle,
     CallLatency,
@@ -42,6 +44,7 @@ from calevate_shared.engine import (
     LlmCredentialPlacement,
     LlmProvider,
     ModelConfig,
+    NumberSearch,
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
@@ -189,10 +192,19 @@ _COST_PER_MIN = {
 # diverged from the primary would make local development exercise a system we do not
 # ship. Where it differs from Bolna it differs HONESTLY rather than aspirationally:
 # `campaigns=False` because our dispatch is ours (see the field's docstring), and
-# `number_series=frozenset()`/`transfer=False` because the fake used to answer both of
-# those with a cheerful success while Bolna raised — two adapters disagreeing about what
-# the platform can do, with nothing able to detect it. That divergence is the single
-# clearest piece of evidence that this descriptor needed to exist.
+# `transfer=False` because the fake used to answer it with a cheerful success while Bolna
+# raised — two adapters disagreeing about what the platform can do, with nothing able to
+# detect it. That divergence is the single clearest piece of evidence that this descriptor
+# needed to exist.
+#
+# **`number_series` MOVED WITH BOLNA'S (D-535), AND THAT IS THE RULE ABOVE BEING
+# FOLLOWED, NOT BROKEN.** It was `frozenset()` for exactly as long as Bolna's was, for
+# exactly that reason. The founder adopted Model A on the inbound leg, Bolna's descriptor
+# now names the one class that vendor can be shown to sell, and a default fake left empty
+# would make every local run and every offline test exercise the refusal path of a
+# capability the product now ships — the divergence this comment exists to forbid, in the
+# other direction. The three RESTRICTED profiles below stay empty on purpose: they are
+# what keeps the refusal path executable offline.
 DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     stt="ours",
     tts="ours",
@@ -202,7 +214,7 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=True,
-    number_series=frozenset(),
+    number_series=frozenset({"standard"}),
     # Bolna's shape again: the caller ID is a per-call field and inbound routing is an API
     # call, so the default fake is what exercises both halves of D-420 offline.
     caller_id=True,
@@ -376,6 +388,11 @@ class FakeEngine:
         self._account_kb: dict[EngineKBRef, AccountKBObject] = {}
         #: `engine_number_ref → agent ref` — the engine's inbound routing table (D-420).
         self._inbound: dict[str, EngineAgentRef] = {}
+        #: Numbers this engine has SOLD us, by its own handle (D-535). Stateful for
+        #: `_inbound`'s reason: a fake that forgot a purchase could not fail a
+        #: double-buy or an unreleased rental, which are the two defects that
+        #: cost money.
+        self._numbers: dict[str, ProvisionedNumber] = {}
         #: The rotating LLM credential (D-404), modelled as REPLACE-IN-PLACE — one slot,
         #: last write wins. That is the semantics the real store is hoped to have and the
         #: one a caller may rely on; the append case is a vendor defect the Bolna adapter
@@ -748,16 +765,73 @@ class FakeEngine:
                     "does not supply them."
                 ),
             )
-        e164 = "+9111" + self._stable_id("n", spec.series, spec.purpose or "")[-8:].replace(
-            "abcdef", "123456"
-        )
+        # THE NUMBER THE CALLER NAMED, WHERE THEY NAMED ONE (D-535). The real vendor's buy
+        # endpoint requires an exact E.164 and has no "give me one like this" mode, so a
+        # fake that always allocated its own would let an adapter that ignores `spec.e164`
+        # pass the conformance clause. The synthesised branch survives for engines that DO
+        # allocate from a pool, which the Protocol still serves.
+        if spec.e164:
+            e164 = spec.e164
+        else:
+            e164 = "+9111" + self._stable_id("n", spec.series, spec.purpose or "")[-8:].replace(
+                "abcdef", "123456"
+            )
         digits = "".join(c for c in e164 if c.isdigit())[:12].ljust(12, "0")
-        return ProvisionedNumber(
+        bought = ProvisionedNumber(
             e164=f"+{digits}",
             provider=spec.provider or "fake-telco",
             engine_number_ref=self._stable_id("fakenum", digits),
             series=spec.series,
+            # A PRICE, BECAUSE A PRICELESS PURCHASE IS UNTESTABLE OFFLINE. The billing
+            # seam refuses to record a purchase whose price it could not read, so a fake
+            # that returned None would make the happy path unreachable without a vendor.
+            # USD, like the real adapter's; rupees happen once, in `billing`.
+            purchase_price_usd=Decimal("5.00"),
+            monthly_rental_usd=Decimal("5.00"),
+            engine_owned=True,
         )
+        self._numbers[bought.engine_number_ref or ""] = bought
+        return bought
+
+    async def search_numbers(self, query: NumberSearch) -> Sequence[AvailableNumber]:
+        """Three offers, deterministic in the country and pattern asked for.
+
+        STATEFUL ONLY IN THE SENSE THAT IT EXCLUDES WHAT WAS ALREADY BOUGHT: an offer
+        list that keeps returning a number this engine has already sold is the one shape
+        that would let a double-purchase pass unnoticed offline.
+        """
+        require_capability("numbers", engine=self)
+        prefix = "+91" if query.country == "IN" else "+1"
+        held = {number.e164 for number in self._numbers.values()}
+        offers = []
+        for index in range(3):
+            digits = self._stable_id("avail", query.country, query.pattern or "", str(index))
+            e164 = prefix + "".join(c for c in digits if c.isdigit()).ljust(10, "0")[:10]
+            if e164 in held:
+                continue
+            offers.append(
+                AvailableNumber(
+                    e164=e164,
+                    provider=query.provider or "fake-telco",
+                    region="Fakeland",
+                    locality=None,
+                    monthly_price_usd=Decimal("5.00"),
+                )
+            )
+        return offers
+
+    async def release_number(self, number: ProvisionedNumber) -> None:
+        """Absent is success — the postcondition is "we are not billed for this"."""
+        require_capability("numbers", engine=self)
+        key = self._number_key(number)
+        self._numbers.pop(key, None)
+        # A released number must stop answering too, or this fake would model a state the
+        # real vendor cannot be in: a deleted number still bound to an agent.
+        self._inbound.pop(key, None)
+
+    async def list_engine_numbers(self) -> Sequence[ProvisionedNumber]:
+        require_capability("numbers", engine=self)
+        return list(self._numbers.values())
 
     # --- inbound routing (D-420) ---------------------------------------------
     #
