@@ -192,6 +192,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "banner came off. Non-material — nothing anybody agreed to changed "
                 "meaning, and the review-state flip re-demands the set on its own.",
             ),
+            Revision(
+                "5",
+                False,
+                "The published principal place of business was reduced to the city, "
+                "state and country: the street lines were the founder's home address "
+                "and no identification duty asks for them. Non-material — the "
+                "identification is narrower, and nothing anybody agreed to changed "
+                "meaning.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -226,6 +235,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "internal blocker names came out of the prose, and the pending-review "
                 "banner came off. Non-material — nothing anybody agreed to changed "
                 "meaning, and the review-state flip re-demands the set on its own.",
+            ),
+            Revision(
+                "5",
+                False,
+                "The published principal place of business was reduced to the city, "
+                "state and country: the street lines were the founder's home address "
+                "and no identification duty asks for them. Non-material — the "
+                "identification is narrower, and nothing anybody agreed to changed "
+                "meaning.",
             ),
         ),
         effective_date="2026-09-02",
@@ -280,6 +298,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "banner came off. Non-material — nothing anybody agreed to changed "
                 "meaning, and the review-state flip re-demands the set on its own.",
             ),
+            Revision(
+                "5",
+                False,
+                "The published principal place of business was reduced to the city, "
+                "state and country: the street lines were the founder's home address "
+                "and no identification duty asks for them. Non-material — the "
+                "identification is narrower, and nothing anybody agreed to changed "
+                "meaning.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -324,6 +351,15 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "banner came off. Non-material — nothing anybody agreed to changed "
                 "meaning, and the review-state flip re-demands the set on its own.",
             ),
+            Revision(
+                "3",
+                False,
+                "The published principal place of business was reduced to the city, "
+                "state and country: the street lines were the founder's home address "
+                "and no identification duty asks for them. Non-material — the "
+                "identification is narrower, and nothing anybody agreed to changed "
+                "meaning.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -341,6 +377,17 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "internal blocker names came out of the prose, and the pending-review "
                 "banner came off. Non-material — nothing anybody agreed to changed "
                 "meaning, and the review-state flip re-demands the set on its own.",
+            ),
+            Revision(
+                "3",
+                False,
+                "The published principal place of business was reduced to the city, "
+                "state and country: the street lines were the founder's home address "
+                "and no identification duty asks for them. Section 1 also stopped "
+                "calling that address the place a legal notice is served — a city "
+                "cannot be served on, and the Terms already route service to email. "
+                "Non-material — the identification is narrower and the serving claim "
+                "was one the Terms contradicted.",
             ),
         ),
         effective_date="2026-09-02",
