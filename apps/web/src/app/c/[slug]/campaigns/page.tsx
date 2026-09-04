@@ -1952,7 +1952,7 @@ export default function CampaignsPage() {
                   {blockedOnCredits && (
                     <p className="text-sm">
                       <Link
-                        href={href(`/c/${session.orgSlug}/credits`)}
+                        href={href(`/c/${session.orgSlug}/billing?tab=credits`)}
                         className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
                       >
                         Add calling credit
@@ -1969,7 +1969,7 @@ export default function CampaignsPage() {
                   {blockedOnSpendCap && (
                     <p className="text-sm">
                       <Link
-                        href={href(`/c/${session.orgSlug}/usage`)}
+                        href={href(`/c/${session.orgSlug}/billing?tab=usage`)}
                         className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
                       >
                         See your monthly spending limit

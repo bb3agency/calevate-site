@@ -259,7 +259,7 @@ describe("the launch panel with blockers outstanding", () => {
     expect(text).toContain("You can fix this");
     expect(text).not.toContain("We handle this");
     const link = screen.getByRole("link", { name: /Add calling credit/ });
-    expect(link.getAttribute("href")).toContain("/credits");
+    expect(link.getAttribute("href")).toContain("/billing?tab=credits");
     // And the gate's own name is not what the client reads.
     expect(text).not.toContain("no_credits");
   });
@@ -274,7 +274,7 @@ describe("the launch panel with blockers outstanding", () => {
     expect(text).toContain("People ringing you still get through");
     // The limit is the client's own (D-34 R-11), so the destination is their screen.
     expect(screen.getByRole("link", { name: /monthly spending limit/ }).getAttribute("href"))
-      .toContain("/usage");
+      .toContain("/billing?tab=usage");
     expect(text).not.toContain("spend_cap");
   });
 

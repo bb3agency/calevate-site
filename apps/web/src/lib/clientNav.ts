@@ -24,7 +24,6 @@
 import type { ComponentType } from "react";
 
 import {
-  Activity,
   BarChart3,
   BellRing,
   Blocks,
@@ -32,7 +31,6 @@ import {
   BookOpen,
   Bot,
   BrainCircuit,
-  Coins,
   FileSignature,
   FileText,
   GitMerge,
@@ -42,7 +40,6 @@ import {
   PhoneCall,
   PhoneForwarded,
   PhoneOff,
-  ReceiptIndianRupee,
   ScrollText,
   ShieldCheck,
   Sparkles,
@@ -147,36 +144,24 @@ export function clientNavigation(slug: string): NavGroup[] {
         // its own model, and that control is on the agent.
         { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
-        // CALLING CREDIT — the wallet, its history, and the one place a client buys more.
-        // It sits beside Usage rather than inside it because it answers a different
-        // question: Usage is "what has this month cost", this is "how much is left, how
-        // long does it last, and how do I add more". It is also the ONE screen in this
-        // group that `staff` can read (`wallet:read`), because the thing that stops a
-        // staff member dialling is an empty wallet.
+        // CREDITS & BILLING — ONE hub, four tabs (D-525). It used to be four sidebar
+        // entries: Calling credit, Usage, Spend and Invoice. Every one of them answered a
+        // piece of "what am I paying?", and a client asking that question had to already
+        // know which piece lived where — which is also how the assistant came to look
+        // foolish when a client asked it for "the billing page" and it had four candidates
+        // and no hub. Overview / Credits / Transactions / Usage are tabs inside this
+        // screen now, and the four old routes redirect into the tab that answers them.
         //
-        // AHEAD OF Usage, and that ordering changed with the billing motion. It sat
-        // seventh in this group while every account was invoiced and the wallet was a
-        // screen almost nobody had a reason to open. Prepaid is now what an account gets
-        // unless an operator deliberately puts it on a retainer, which makes this the
-        // screen a client comes looking for when their campaigns have stopped — and the
-        // one they must be able to find from a phone, in a hurry, without reading nine
-        // labels first.
-        { href: `/c/${slug}/credits`, label: "Calling credit", icon: Wallet },
-        { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
-        // WHERE the Usage number came from, one screen over. Usage answers "how much and
-        // how much is left"; this answers "which agent and which call", which is the
-        // question an owner asks the moment the first one has a figure in it. Its own
-        // entry rather than a panel on Usage because it is a per-call table that grows
-        // with the month, and because a client following up on a bill is looking for the
-        // word "Spend" rather than scrolling a summary screen.
-        { href: `/c/${slug}/spend`, label: "Spend", icon: Coins },
-        // What the console's AI help has used against the allowance the plan includes,
-        // and the one place a person can agree to spend money on more (D-127 G-5). It
-        // sits beside Usage rather than inside it because it is a different wallet
-        // question: Usage is what the CLIENT is billed for, this is what CALEVATE
-        // absorbs until a ceiling.
+        // It reads on `wallet:read`, which `staff` HOLDS: the thing that stops a staff
+        // member dialling is an empty wallet, and a refusal whose explanation only the
+        // owner can see is a refusal with no words in it. The figures that are the
+        // owner's business (`billing:read`) are refused per TAB, inside the screen, so a
+        // staff member still gets the balance, the runway and the reason.
+        //
+        // AHEAD OF "AI help", which is a different wallet question: this is what the
+        // CLIENT is billed for, that is what Calevate absorbs until a ceiling.
+        { href: `/c/${slug}/billing`, label: "Credits & billing", icon: Wallet },
         { href: `/c/${slug}/ai-assist`, label: "AI help", icon: Sparkles },
-        { href: `/c/${slug}/invoice`, label: "Invoice", icon: ReceiptIndianRupee },
       ],
     },
   ];

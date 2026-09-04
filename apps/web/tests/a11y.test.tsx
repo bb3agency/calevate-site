@@ -48,8 +48,6 @@ import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
-import ClientInvoicePage from "@/app/c/[slug]/invoice/page";
-import ClientSpendPage from "@/app/c/[slug]/spend/page";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
@@ -67,8 +65,7 @@ import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
-import CreditsPage from "@/app/c/[slug]/credits/page";
-import UsagePage from "@/app/c/[slug]/usage/page";
+import BillingPage from "@/app/c/[slug]/billing/page";
 import AgreementsPage from "@/app/c/[slug]/agreements/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
 import InvitePage from "@/app/invite/page";
@@ -2078,30 +2075,17 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    file: "c/[slug]/usage/page.tsx",
+    // CREDITS & BILLING — the hub the four money screens folded into (D-525). Swept on
+    // its OVERVIEW tab and in the state that renders the most and is the most dangerous
+    // to get wrong: STOPPED (the alert banner), with an unfinished payment above
+    // everything, a full drawdown and the "what calls cost" explainer. The other three
+    // tabs need a CLICK and this sweep renders rather than drives, so each is swept in
+    // the file that drives it — `credits.test.tsx` (the receipt dialog and Transactions),
+    // `usage.test.tsx` and `spend.test.tsx` (Usage), `clientInvoice.test.tsx` (the
+    // statement).
+    file: "c/[slug]/billing/page.tsx",
     realm: "client",
-    element: () => <UsagePage />,
-    routes: {
-      "/v1/me": ME,
-      "/v1/usage": USAGE,
-      "/v1/billing/caps": {
-        cap_minutes: null,
-        cap_inr: null,
-        notify_at_pct: 80,
-        capped: false,
-        updated_at: null,
-      },
-    },
-  },
-  {
-    // Calling credit. Swept in the state that renders the MOST and is the most dangerous
-    // to get wrong: STOPPED (the alert banner), with an unfinished payment above the
-    // top-up controls, a full drawdown and a ledger row carrying a receipt button. The
-    // receipt DIALOG is not in this sweep — opening it needs a click and this sweep
-    // renders rather than drives — so `credits.test.tsx` sweeps it there.
-    file: "c/[slug]/credits/page.tsx",
-    realm: "client",
-    element: () => <CreditsPage />,
+    element: () => <BillingPage params={slug} />,
     routes: {
       "/v1/me": ME,
       "/v1/billing/wallet": WALLET_STOPPED,
@@ -2124,26 +2108,6 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <AiAssistPage />,
     routes: { "/v1/me": ME, "/v1/billing/ai-quota": AI_QUOTA_AT_CEILING },
-  },
-  {
-    // Per-rupee attribution, the client's half. Swept with a NON-ZERO residual so the
-    // explanation panel is in the scan — it is the one block on this screen that renders
-    // conditionally on something the server says rather than on a request landing.
-    file: "c/[slug]/spend/page.tsx",
-    realm: "client",
-    element: () => <ClientSpendPage params={slug} />,
-    routes: { "/v1/me": ME, [`/v1/billing/spend?month=${IST_MONTH}`]: SPEND },
-  },
-  {
-    // The client's own invoice — the same sheet the admin entry below renders, from the
-    // same fixture, because it is the same document (SLICE AL).
-    file: "c/[slug]/invoice/page.tsx",
-    realm: "client",
-    element: () => <ClientInvoicePage />,
-    routes: {
-      "/v1/me": ME,
-      [`/v1/billing/invoice?month=${IST_MONTH}`]: INVOICE,
-    },
   },
   {
     // Agreements & readiness. Fixtured in the state with the MOST markup and the most to
