@@ -147,7 +147,22 @@ prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_con
   -- reserved by D-39 for the T0 compiler.
 extraction_schemas(id, tenant_id, agent_id, version INT, fields JSONB, published_at)
 phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard],
-  provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT)
+  provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT,
+  engine_owned BOOL NOT NULL DEFAULT false, purchase_price_usd NUMERIC(12,4),
+  monthly_rental_usd NUMERIC(12,4), released_at TIMESTAMPTZ)
+  -- D-537, migration d1e58c7a94f2. `engine_owned` is the one column that separates the two
+  -- commercial models: a number WE bought through the voice engine (Model A, the inbound
+  -- leg) from a connection the CLIENT holds on their own carrier account (Model B, still
+  -- half the product). Releasing at the vendor stops a monthly charge for the first and
+  -- does nothing for the second, and before this column they were the same row.
+  -- THE TWO PRICES ARE THE VENDOR'S OWN QUOTE IN THE VENDOR'S OWN CURRENCY, and hard rule 7
+  -- is honoured by both halves: NUMERIC never float, and the RUPEE lives in
+  -- `usage_events.unit_cost_paid`, struck each month at that month's rate. Storing a rupee
+  -- here would freeze one exchange rate into a recurring charge that is re-struck monthly.
+  -- `released_at` is what stops the meter; the ROW survives a release because a closed
+  -- month's cost query still refers to it.
+  -- `engine_number_ref` HAD NO WRITER until D-537 and every inbound publish alarmed while
+  -- reporting success — see `agents/service.provision_number` and `set_number_engine_ref`.
   -- KNOWN UNMODELLED STATE, recorded rather than added: a Truecaller-verified number can
   -- enter "Delisting Pending" for 1-3 business days, during which "outbound and inbound
   -- calls on this number will be blocked"
@@ -525,6 +540,14 @@ usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_c
 --   PARTIAL because `number_rental` and the `ai_assist_*` units carry no call — and a partial
 --   index still serves the FK check, since `call_id = $1` under a strict operator proves the
 --   predicate.
+-- `number_rental` FINALLY HAS A WRITER (D-537): `apps/api/billing/number_rental.py`, one row
+--   per bought number per IST billing month, idempotent in the DATABASE on the ref
+--   `number_rental:<number_id>:<YYYY-MM>` against `ux_usage_events_tenant_unit_ref`. `qty` is
+--   1 — ONE MONTH, never thirty days and never a proration, because the vendor charges a
+--   whole month on a renewal date. It is the only cost in this system no event produces, so
+--   `workers/number_rental.meter_number_rentals` is a cron rather than a handler, and
+--   `attribution.UnattributedCost` — built for exactly this callless row and never populated
+--   until now — is what keeps every total that claims to be a partition one.
 -- INDEX ix_usage_events_tenant_occurred (tenant_id, occurred_at) (c9e2a7b41d63). Every money
 --   rollup is "this tenant, this month" (33.788 ms / 3,822 buffers → 2.058 ms / 74). It is
 --   also what made the month predicate indexable AT ALL: `to_char(... ) = :month` is STABLE,
