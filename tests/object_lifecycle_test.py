@@ -49,7 +49,7 @@ from uuid import uuid4
 
 import pytest
 from apps.workers.retention import RECORDING_FLOOR_DAYS
-from apps.workers.storage import delivery_body_key, payload_key, recording_key
+from apps.workers.storage import delivery_body_key, kb_object_key, payload_key, recording_key
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -200,6 +200,14 @@ def test_rule_prefixes_match_the_keys_storage_actually_writes(policy: dict) -> N
     assert applier.RECORDINGS_PREFIX in prefixes
     assert applier.PAYLOADS_PREFIX in prefixes
     assert applier.BODIES_PREFIX in prefixes
+    assert applier.UPLOADS_PREFIX in prefixes
+    written_upload = kb_object_key(
+        tenant_id=uuid4(), upload_id=uuid4(), slot="original", suffix="pdf"
+    )
+    assert written_upload.startswith(applier.UPLOADS_PREFIX), (
+        f"kb_object_key() now writes {written_upload!r}, which no lifecycle rule matches — "
+        "a client's uploaded document would accumulate under a prefix nothing bounds"
+    )
 
     assert written_body.startswith(applier.BODIES_PREFIX), (
         f"delivery_body_key() now writes {written_body!r}, which no lifecycle rule "
@@ -232,6 +240,7 @@ def test_every_written_prefix_is_covered_by_some_rule(policy: dict) -> None:
     for written in (
         recording_key(uuid4(), uuid4()),
         payload_key(tenant_id=uuid4(), call_id=uuid4(), engine="bolna", execution_id="exec-1"),
+        kb_object_key(tenant_id=uuid4(), upload_id=uuid4(), slot="original", suffix="pdf"),
     ):
         assert any(written.startswith(prefix) for prefix in covered), (
             f"nothing expires {written!r} — it accumulates forever"

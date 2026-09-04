@@ -238,11 +238,12 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     it is, where the bytes are, what the engine was handed, and how far it got. The review
     state, the submitter and the live flag are `kb_sources`' columns and are NOT copied.
 
-    **NO `rag_id` COLUMN.** The vendor mints two identifiers and only the one an agent
-    references (`vector_id`) is stored, in `engine_kb_routes.engine_kb_ref` — migration
-    `f1c9e0a73b46` took that decision and its reason holds here: a second vendor identifier
-    above the adapter is a vendor payload shape crossing hard rule 2's wall, and it is
-    recoverable at the one call site that needs it.
+    **NO SECOND ENGINE IDENTIFIER.** The engine mints more than one id for one knowledge
+    base, and only the handle an AGENT references is stored — under the neutral name, on
+    `engine_kb_routes.engine_kb_ref`, where migration `f1c9e0a73b46` put it. Its reason
+    holds here: a second vendor identifier above the adapter is a vendor payload shape
+    crossing hard rule 2's wall, and the adapter can recover it at the one call site that
+    needs it. `tests/kb_boundaries_test.py` is what keeps that true as text.
     """
 
     __tablename__ = "kb_uploads"

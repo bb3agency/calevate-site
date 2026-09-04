@@ -65,6 +65,16 @@ PAYLOADS_PREFIX = "engine-payloads/"
 # those (it enumerates by subject prefix); this rule is what bounds one that no erasure
 # request ever names.
 BODIES_PREFIX = "webhook-bodies/"
+# A client's own uploaded knowledge — the PDF, the spreadsheet, the photograph of a price
+# list (D-532, `storage.kb_object_key`). A CEILING and nothing else, and the number is
+# `webhook-bodies/`': these objects are the LIVE artefact behind a published knowledge
+# source, so an expiry short enough to be a retention mechanism would delete the document a
+# client's agent answers from and the file a reviewer opens. They are removed on purpose in
+# two ways instead — a client deleting the upload (`kb/uploads.remove_upload`, by prefix)
+# and a tenant erasure or offboarding (by the same tenant prefix every other object uses).
+# What this rule bounds is the residue neither of those names: an object stored by a
+# request whose transaction then rolled back.
+UPLOADS_PREFIX = "kb-uploads/"
 
 
 class PolicyError(Exception):

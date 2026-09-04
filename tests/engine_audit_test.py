@@ -1834,6 +1834,14 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "languages",
         "content",
         "context_note",
+        # THE FORM FIELD A KNOWLEDGE BASE IS BUILT FROM WHEN IT IS A WEB PAGE (D-532). The
+        # adapter sends `url` as one half of the vendor's "provide either `file` or `url`"
+        # multipart route — and `url` is our word at least as much as theirs: it is a
+        # column on `outbound_webhooks`, a field on half the models in this repo, and the
+        # thing a client types into the Knowledge screen. Banning it outside the adapter
+        # would fire on the whole platform's own vocabulary, which is exactly what puts it
+        # in this list rather than the one above.
+        "url",
         # OURS AS MUCH AS THEIRS — the whole test for this list rather than the one above.
         # `cost` is read off the transfer leg, but it is also our own word in 102 shipped
         # modules (`unit_cost_paid`, `CostBreakdown`, `billing/cost_unit.py`), so finding it

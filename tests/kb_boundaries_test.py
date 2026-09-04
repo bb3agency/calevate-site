@@ -22,7 +22,9 @@ says what to do about it.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from uuid import uuid4
 
 from apps.workers import storage
 
@@ -96,44 +98,51 @@ def test_the_kb_path_reaches_the_engine_only_through_the_protocol() -> None:
 # --- The object-store lifecycle rule -------------------------------------------------
 
 
-def test_the_kb_path_writes_no_object_storage_blob() -> None:
-    """Today's honest answer to "do KB uploads participate in the lifecycle rule".
+def test_every_object_key_the_kb_path_writes_is_covered_by_a_lifecycle_rule() -> None:
+    """The KB path DOES write to the bucket now (D-532), so the tripwire becomes the check
+    it was a placeholder for.
 
-    They do not participate because they do not exist: a KB source's content is chunked
-    into `kb_documents.content` in Postgres and nothing in `apps/api/kb` ever touches a
-    bucket. That is worth an assertion rather than a sentence, because the day it stops
-    being true is the day a client's uploaded PDF starts accumulating under a prefix no
-    expiry rule matches — and `tests/object_lifecycle_test.py` would not notice, since
-    it only checks the keys it already knows about.
+    THIS TEST USED TO ASSERT THE OPPOSITE — that `apps/api/kb` touches no bucket at all —
+    and its docstring named the day it would stop being true: *"the day a client's uploaded
+    PDF starts accumulating under a prefix no expiry rule matches"*. That day is this one,
+    so the assertion moves from "nothing is written" to "everything written is bounded",
+    which is the property the old one was standing in for.
+
+    WHY IT MATTERS MORE HERE THAN FOR THE OTHER PREFIXES. A recording and a raw vendor
+    payload are BY-PRODUCTS of a call; a knowledge upload is the client's own document, and
+    it is the LIVE artefact behind a published source — the file a reviewer opens and the
+    bytes a republish re-reads. So the rule that covers it is a growth ceiling and must
+    never be short enough to act as retention (`infra/object-lifecycle/apply_lifecycle.py`
+    carries that argument beside the constant).
+
+    The keys themselves are built in `apps/workers/storage.py` — this path calls that
+    module rather than reaching for a bucket of its own, which is what keeps every object
+    this platform stores inside one key vocabulary and one lifecycle document.
     """
-    for filename, body in _kb_sources().items():
-        assert "workers.storage" not in body and "put_object" not in body, (
-            f"{filename} now writes to object storage: give the new key its own prefix "
-            "in infra/object-lifecycle/policy.json and add it to the coverage check in "
-            "tests/object_lifecycle_test.py, or the bytes expire by nothing"
-        )
-
-
-def test_every_object_key_function_is_one_the_lifecycle_policy_knows_about() -> None:
-    """The tripwire the existing lifecycle tests cannot arm for themselves.
-
-    `object_lifecycle_test` asserts that `recording_key()` and `payload_key()` land under
-    a covered prefix. A THIRD key function — kb uploads, exports, parsed documents —
-    would sail past it: nothing enumerates the key functions, so nothing notices a new
-    one. This does, and it fails closed. Adding a key function is allowed; adding one
-    without a lifecycle rule is what this refuses.
-    """
-    key_functions = {name for name in storage.__all__ if name.endswith("_key")}
-    # `delivery_body_key` (D-23) joined the set with its own rule
-    # (`webhook-bodies-growth-ceiling-not-retention`) and its own coverage assertion in
-    # `object_lifecycle_test`. It is the first key whose bytes are ALSO expired per
-    # tenant, by the retention sweep — the bucket rule is its orphan backstop, not its
-    # retention mechanism.
-    assert key_functions == {"recording_key", "payload_key", "delivery_body_key"}, (
-        f"apps/workers/storage.py exports new object key function(s) "
-        f"{sorted(key_functions - {'recording_key', 'payload_key', 'delivery_body_key'})}. "
-        "Every prefix we "
-        "write must be covered by an enabled expiry rule in "
-        "infra/object-lifecycle/policy.json — add the rule, extend the coverage "
-        "assertions in tests/object_lifecycle_test.py, then update this set."
+    policy = json.loads(
+        (REPO_ROOT / "infra" / "object-lifecycle" / "policy.json").read_text(encoding="utf-8")
     )
+    bounded = {
+        rule.get("Filter", {}).get("Prefix", "")
+        for rule in policy["Rules"]
+        if rule["Status"] == "Enabled" and rule.get("Expiration", {}).get("Days") is not None
+    }
+    written = storage.kb_object_key(
+        tenant_id=uuid4(), upload_id=uuid4(), slot="original", suffix="pdf"
+    )
+    assert any(written.startswith(prefix) for prefix in bounded), (
+        f"nothing expires {written!r} — a client's uploaded document would accumulate "
+        "under a prefix no lifecycle rule matches"
+    )
+
+    # And the KB path may only reach the bucket through that module: an S3 CLIENT here
+    # would be a key layout no lifecycle rule and no erasure sweep knows about. The two
+    # spellings checked are the ones that would appear — building a client, or calling one.
+    # (`boto3` appears in this path as a WORD, in the comments explaining why the imports of
+    # `workers.storage` are deferred, so the token itself is not the test.)
+    for filename, body in _kb_sources().items():
+        assert "put_object(" not in body and "import boto3" not in body, (
+            f"{filename} reaches object storage directly — every object this platform "
+            "stores goes through apps/workers/storage.py, which is where the key layout "
+            "and the lifecycle prefixes live"
+        )

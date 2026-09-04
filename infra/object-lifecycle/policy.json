@@ -31,6 +31,16 @@
       }
     },
     {
+      "ID": "kb-uploads-growth-ceiling-not-retention",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "kb-uploads/"
+      },
+      "Expiration": {
+        "Days": 2555
+      }
+    },
+    {
       "ID": "abort-incomplete-multipart-uploads",
       "Status": "Enabled",
       "Filter": {
