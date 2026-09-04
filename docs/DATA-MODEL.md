@@ -34,7 +34,27 @@ organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE
     -- `prepaid` (D-521) is what every new account gets and what every existing account
     -- was migrated to (a8d3f61c04e7); `managed` is invoiced on a retainer and is set
     -- deliberately by an operator (POST /v1/admin/tenants/{id}/plan-tier).
-  billing_email, created_by, deleted_at)
+  billing_email, created_by, deleted_at,
+  closed_at, erase_after, closure_reason, closed_by FK admin_users ON DELETE SET NULL)
+    -- D-538, migration e6c1a49d2f70. THE GRACE WINDOW between "closed" and "erased":
+    -- an admin closes a client, the client is emailed, and the tenant erasure is FILED
+    -- (never executed here) by `workers/account_closure.sweep_due_erasures` when
+    -- `erase_after` passes. `tenancy/closure.py` is the only writer of all four.
+    -- THE THREE FACTS NEST, and three CHECKs hold it so the readers of these columns
+    -- cannot disagree about whether a business exists:
+    --   ck_organizations_deleted_implies_no_deadline  deleted_at  => erase_after IS NULL
+    --   ck_organizations_erase_after_implies_closed   erase_after => closed_at
+    --   ck_organizations_closed_implies_churned       closed_at   => status = 'churned'
+    -- `erase_after` NULL on a closed account is intended: it is what an UNDO leaves, and
+    -- it is how an account closes with its records KEPT. Deliberately NOT added:
+    -- "churned implies closed_at" — churned predates this and existing rows carry no
+    -- closure instant, so the CHECK would be a backfill of a date nobody observed.
+    -- ON `organizations` rather than in a table because the sweep is CROSS-TENANT and
+    -- `admin_session()` widens USING on exactly this table (b57e2f9c4a13); a tenant-RLS'd
+    -- one would be invisible to the cron (§9a states the same rule from the other side).
+    -- A SECOND scheduled-erasure deadline exists on `tenant_trials` (D-536, §8); the two
+    -- sets are disjoint by construction and `request_tenant_erasure` dedupes an account
+    -- that is in both.
   -- NOBODY HARD-DELETES THIS ROW, and since migration d1b8f30c94a7 the table says so.
   -- `tenant_isolation` is FOR ALL and `WITH CHECK` is not consulted on DELETE, so `USING`
   -- alone decided and it admitted the session's own org: a tenant could destroy the anchor
@@ -63,7 +83,21 @@ memberships(id, tenant_id, user_id, role ENUM[owner,staff], UNIQUE(tenant_id,use
   -- staff: no billing.*, no org settings, no raw (unredacted) transcripts, and no
   -- recording audio (D-181: the audio is the source of the text that rule protects)
 invitations(id, tenant_id, email, role, token_hash UNIQUE, expires_at DEFAULT now()+'72h',
-  used_at, created_by)               -- single-use; hash only; burned on accept
+  used_at, created_by, last_sent_at NOT NULL DEFAULT now(), send_count NOT NULL DEFAULT 1)
+                                     -- single-use; hash only; burned on accept
+  -- D-538, migration e6c1a49d2f70. A RESEND ROTATES THIS ROW rather than minting a second
+  -- invitation: `token_hash` is replaced, `expires_at` restarts, `email` may be corrected,
+  -- and `send_count`/`last_sent_at` count sends of ONE key. So the previous link dies in
+  -- the same statement that mints the new one and two live keys to one account cannot
+  -- exist by construction (`create_invitation`'s `invitation_already_pending` refusal
+  -- stays, guarding a door nobody needs). The pair is the rate limiter's clock AND the
+  -- console's "last sent 4 minutes ago, 3 times" line — one fact, because a screen reading
+  -- a different value from the limiter tells an operator to wait when they need not.
+  -- A CORRECTED ADDRESS IS AN OPERATOR ATTESTATION, audited as
+  -- `admin.invitation_readdressed` (the ACTION, because audit_log has no summary column)
+  -- and NEVER a verification: `users.email_verified_at` stays NULL and D-185's
+  -- `email_verify` round trip is still what proves a mailbox. It is only reachable while
+  -- `used_at IS NULL` — after redemption the address is a login identity.
 admin_users(id, clerk_user_id UNIQUE, email, name, role ENUM[superadmin,operator],
   deactivated_at)                                                     -- separate realm
   -- Same two-step deprecation on its clerk_user_id, and the same DROP owed. This table is
