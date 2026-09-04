@@ -414,22 +414,20 @@ async def _plan_agent_publish(
 ) -> Plan:
     """READ ONLY, and the status read is what makes the card honest rather than a label.
 
-    An ARCHIVED agent is refused here rather than at execute, because `activate_agent`'s
-    refusal for it is correct but arrives after somebody has clicked Confirm on a card that
-    implied it would work. Everything else — no script, a closed account, an engine that
-    cannot host agents, a read-back that proves the engine did not take the change — is left
-    to `publish_agent`, deliberately: those are conditions that can change between the card
-    being drawn and the button being pressed, and the gate that decides them must be the one
-    holding the row.
+    A DELETED (archived) agent never reaches this planner: `write_tools.
+    _refuse_a_deleted_agent` refuses every agent-subject write tool before its plan runs, so
+    the person is not shown a card for a change that would be refused at Confirm. This
+    function used to carry that check itself, and a second copy is exactly the drift that
+    would let the assistant and the API disagree about what "deleted" forbids.
+
+    Everything else — no script, a closed account, an engine that cannot host agents, a
+    read-back that proves the engine did not take the change — is left to `publish_agent`,
+    deliberately: those are conditions that can change between the card being drawn and the
+    button being pressed, and the gate that decides them must be the one holding the row.
     """
     del actor
     parsed = parse_args(_AgentPublishArgs, args)
     name, status = await _agent_name_and_status(session, parsed.agent_id)
-    if status == "archived":
-        raise WriteRefusedError(
-            "that agent is archived, so it cannot be published — tell the person to restore "
-            "it first from the Agents screen"
-        )
     return Plan(
         object_id=str(parsed.agent_id),
         title="Put this agent on the phone",

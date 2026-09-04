@@ -97,6 +97,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
@@ -926,6 +927,46 @@ def immediate_tool_names() -> frozenset[str]:
 # --- proposing ---------------------------------------------------------------------------
 
 
+async def _refuse_a_deleted_agent(
+    session: AsyncSession, tool: WriteTool, args: Mapping[str, Any]
+) -> None:
+    """The assistant's half of the one refusal: no write tool acts on a DELETED agent.
+
+    THE SAME RULE AS THE API'S, AT THE SAME KIND OF CHOKE POINT. `core/auth.requires()`
+    refuses a mutating HTTP request whose path names a retired agent; this is the copilot's
+    equivalent, because the assistant does not go through a route — it calls the service
+    functions directly, so it would otherwise inherit only whatever check each of those
+    happens to make. `agent_rename` had none: `lifecycle.update_agent` refused it, but only
+    AFTER the person had been shown a card describing the rename and had pressed Confirm.
+
+    IT RUNS AT PLAN TIME (and at claim time for Tier 1), which is what stops the assistant
+    OFFERING the edit. A refusal at execute is a correct answer to the wrong question.
+
+    Keyed on the tool's declared `object_type` plus an `agent_id` argument, so `agent_create`
+    — which has no subject yet — is untouched and a future agent tool is covered the day it
+    is registered. A `WriteRefusedError` rather than a `ProblemError`: this is something the
+    model must relay in words, not retry around.
+    """
+    if tool.object_type != "agent":
+        return
+    raw = args.get("agent_id")
+    if not isinstance(raw, str):
+        return
+    try:
+        agent_id = UUID(raw)
+    except ValueError:
+        # A malformed id is the planner's own refusal to make, with a better message.
+        return
+    try:
+        await assert_agent_writable(session, agent_id)
+    except ProblemError as exc:
+        raise WriteRefusedError(
+            "that agent has been deleted, so nothing about it can be changed — tell the "
+            "person it is deleted and that restoring it from the Agents screen is the one "
+            "thing that would let it be edited again, and do not offer to change it"
+        ) from exc
+
+
 async def plan_write(
     name: str, raw_arguments: str, *, actor: ToolActor | None
 ) -> CopilotProposalEvent:
@@ -973,6 +1014,7 @@ async def plan_write(
             raise WriteRefusedError(
                 f"this person's role may not do what `{name}` proposes, so do not offer it"
             )
+        await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         plan = await tool.plan(session, actor, parsed_arguments)
 
     issued_at = datetime.now(UTC)
@@ -1176,6 +1218,7 @@ async def run_immediate(
                 f"this person's role may not do what `{name}` does, so tell them rather "
                 "than trying it another way"
             )
+        await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         # THE CLAIM COMES FIRST, BEFORE THE PLANNER READS ANYTHING. See `_action_key`: a
         # planner's read can itself be a duplicate check that the first attempt's own row
         # would fail, so planning ahead of the claim makes the replay path unreachable.

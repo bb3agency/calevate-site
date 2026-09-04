@@ -123,6 +123,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voices import speech_for_voice_id, voice_id_of
+from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.caller_memory import recall
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -1330,11 +1331,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # it closed. This one exists so the common case gets a sentence a client can act on
     # rather than a bare conflict.
     if agent["status"] == "archived":
-        raise ProblemError.conflict(
-            "agent_archived",
-            "This agent is archived, so it cannot be published.",
-            remediation="Restore the agent first, then try again.",
-        )
+        raise archived_refusal("published")
     # WHO TAKES A CALL THIS AGENT HANDS OVER, right now (D-533). Resolved BEFORE the
     # config is built rather than patched on afterwards like the action tools, because
     # `None` is a real answer here — outside every roster member's hours the agent is

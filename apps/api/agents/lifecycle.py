@@ -71,6 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus
 from apps.api.agents.service import publish_agent, route_inbound_numbers
+from apps.api.agents.write_guard import archived_refusal
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
     bundled_disclosure_line,
@@ -438,7 +439,7 @@ async def update_agent(
     if row is None:
         raise ProblemError.not_found("Agent")
     if str(row[0]) == "archived":
-        raise _archived_refusal("edited")
+        raise archived_refusal("edited")
 
     # ONE STATEMENT WITH `coalesce`, NOT AN ASSEMBLED ASSIGNMENT LIST. Building
     # `SET name = :name, ...` from the fields that were supplied is the obvious shape and
@@ -513,7 +514,7 @@ async def activate_agent(
     """
     status = await _locked_status(session, agent_id)
     if status == "archived":
-        raise _archived_refusal("activated")
+        raise archived_refusal("activated")
     if status == "live":
         return LifecycleResult(agent_id=agent_id, status="live", changed=False, numbers_released=0)
     # `draft` and `paused` are what is left, and `AGENT_TRANSITIONS` says both may go live.
@@ -553,7 +554,7 @@ async def deactivate_agent(
     # move from archived to paused", which is both the wrong action to offer and the
     # wording every OTHER archived refusal in this module deliberately does not use.
     if await _locked_status(session, agent_id) == "archived":
-        raise _archived_refusal("deactivated")
+        raise archived_refusal("deactivated")
     moved = await transition_status(
         session,
         table="agents",
@@ -742,7 +743,7 @@ async def assert_assignable(session: AsyncSession, agent_id: UUID) -> None:
     if status is None:
         raise ProblemError.not_found("Agent")
     if str(status) not in ASSIGNABLE_STATUSES:
-        raise _archived_refusal("used by a campaign")
+        raise archived_refusal("used by a campaign")
 
 
 async def hold_agent_for_campaign_start(session: AsyncSession, agent_id: UUID) -> None:
@@ -868,19 +869,6 @@ async def _release_inbound_numbers(session: AsyncSession, *, agent_id: UUID) -> 
         session, get_engine(), agent_id=agent_id, ref=str(ref), answers=False
     )
     return routing.released
-
-
-def _archived_refusal(verb: str) -> ProblemError:
-    """One wording for every place an archived agent is refused.
-
-    Deliberately not a count: the number has already changed once (D-440's deactivate arm),
-    and a count in prose is the defect class D-103/D-105 exist for.
-    """
-    return ProblemError.conflict(
-        "agent_archived",
-        f"This agent is archived, so it cannot be {verb}.",
-        remediation="Restore the agent first, then try again.",
-    )
 
 
 __all__ = [

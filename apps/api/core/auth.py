@@ -66,6 +66,7 @@ from fastapi import Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.write_guard import guard_agent_write
 from apps.api.authn.cookies import read_token
 from apps.api.authn.sessions import verify_session
 from apps.api.authn.subjects import load_subject
@@ -1061,6 +1062,14 @@ def requires(
             raise ProblemError.forbidden(
                 "Impersonation is read-only. Perform this action from the admin console."
             )
+        if permission in MUTATING_PERMISSIONS:
+            # THE ONE PLACE A WRITE TO A DELETED AGENT IS REFUSED (D-527's archive, the
+            # console's Delete). This dependency is the only way a non-public route is
+            # authorised — `rbac.assert_policy_registry_complete` refuses to boot a process
+            # where that is not true — so putting the check here gives every agent endpoint
+            # the same refusal, in both realms, including the ones nobody has written yet.
+            # It costs three in-memory tests on a request whose path names no agent.
+            await guard_agent_write(request, tenant_id=principal.tenant_id)
         return principal
 
     dep = cast(PermissionDependency, _dep)
