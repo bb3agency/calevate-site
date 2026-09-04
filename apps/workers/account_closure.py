@@ -57,6 +57,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.closure import due_erasures
 from apps.workers.email_render import from_text
 from apps.workers.transport import _domain, get_transport
@@ -397,7 +398,6 @@ async def _whatsapp_leg(
         # approved, and the email above is the whole notice — which is exactly why the
         # email is unconditional and this is not.
         return "disabled"
-    transport = get_whatsapp_transport()
     destination = await resolve_destination(session, tenant_id)
     if destination is None:
         return "no_recipient"
@@ -406,6 +406,13 @@ async def _whatsapp_leg(
         # ledger will be just as silent in two minutes, so this is reported and not
         # retried.
         return "not_opted_in"
+    # THE TRANSPORT IS BUILT AFTER THE OPT-IN IS ESTABLISHED, and the order is
+    # load-bearing rather than stylistic: `scripts/check_compliance_invariants.
+    # unevidenced_messages` reads the enclosing function and requires the `opt_in_at`
+    # guard to sit ABOVE the call that produces a sender. A send site that acquires its
+    # transport first reads, to that check and to a person, as one that could message
+    # before it asked.
+    transport = get_whatsapp_transport()
     # AWAITED, not `to_thread`: `WhatsAppTransport.send` is async by design (it talks
     # HTTP to Meta from inside an already-async worker), unlike the SMTP transport above.
     result = await transport.send(
@@ -423,6 +430,41 @@ async def _whatsapp_leg(
     # ladder for the nudge would double the failure surface of a message whose whole job
     # is to make somebody open the first one.
     return f"undelivered:{result.status}"
+
+
+async def enqueue_closure_notice(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    event: str,
+    erase_on: str | None = None,
+    reason: str | None = None,
+) -> None:
+    """Promise the client's notice, in the caller's transaction.
+
+    THE PRODUCER LIVES BESIDE THE JOB, which is the shape `whatsapp.
+    enqueue_hot_lead_whatsapp` and `deletion.request_erasure` already use, and here it is
+    also what keeps the job name checkable: `scripts/check_job_wiring` resolves an enqueue
+    argument through module-level constants IN THE CALLING FILE, so a route importing
+    `NOTICE_JOB` and passing the alias is a name that script cannot read — and an
+    unresolvable job name is exactly the hole it exists to find. One enqueue site, in the
+    module that owns the literal, and the console just says what happened.
+
+    Does not commit. The outbox row and the closure it announces must share one
+    transaction (BACKEND-PATTERNS §4): a closure with no notice is a client who finds out
+    from a caller, and a notice with no closure is a client told their business was shut
+    down when it was not.
+    """
+    await enqueue_outbox(
+        session,
+        job=NOTICE_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "event": event,
+            "erase_on": erase_on,
+            "reason": reason,
+        },
+    )
 
 
 async def sweep_due_erasures(ctx: dict[str, Any]) -> str:
@@ -506,6 +548,7 @@ __all__ = [
     "NOTICE_JOB",
     "NOTICE_RESTORED",
     "SWEEP_BUDGET",
+    "enqueue_closure_notice",
     "notify_account_closed",
     "sweep_due_erasures",
 ]

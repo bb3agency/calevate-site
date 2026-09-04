@@ -360,6 +360,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/numbers/available": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the voice platform could sell us — read-only, spends nothing
+         * @description Searches the voice platform's own inventory. Read-only: nothing is reserved and nothing is charged. Refused with `number_resale_not_authorized` until a written reseller authorisation is recorded for this deployment, and with `number_provisioning_not_configured` on a voice platform that sells no numbers. Prices are the vendor's own, in USD; the rupee is struck when the rental is metered, at that month's published rate.
+         */
+        get: operations["available_numbers_v1_admin_numbers_available_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/numbers/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This client's numbers, whether we bought them, and what each costs us
+         * @description Read under the tenant's own RLS, so one client's numbers is exactly what comes back.
+         *
+         *     UNBOUNDED BY DESIGN AND BOUNDED BY REALITY: a tenant's numbers are a handful, the row
+         *     is one line each, and there is no cursor a screen could page with that would not
+         *     also need a stable sort key it does not have. `check_list_bounds` reads this comment.
+         */
+        get: operations["tenant_numbers_v1_admin_numbers_tenants__tenant_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/numbers/tenants/{tenant_id}/buy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Buy a number for this client — spends money, and is not retryable
+         * @description Buys the named number at the voice platform and records it against this client. **This spends money and cannot be undone by retrying**: the vendor's purchase endpoint takes no idempotency key, so a repeat buys a second number and starts a second monthly rental. Refused with `number_taken` if the platform already holds the number, and with `number_series_not_purchasable` for a 140 or 160 series connection, which is taken on an Indian operator's own account and recorded here afterwards. The monthly rental is metered from the price accepted here.
+         */
+        post: operations["buy_number_v1_admin_numbers_tenants__tenant_id__buy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/numbers/tenants/{tenant_id}/{number_id}/engine-ref": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the voice platform's handle for a number, and start it answering
+         * @description Records the identifier the voice platform uses for a number the client brought on their own operator account, which is the one fact that lets an agent be set to answer it. Without it every publish of the agent answering this number reports success and the phone does not ring. If the number is attached to a live agent, the routing happens in this request rather than waiting for the next publish; the counts say what the voice platform was told.
+         */
+        post: operations["set_engine_ref_v1_admin_numbers_tenants__tenant_id___number_id__engine_ref_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/numbers/tenants/{tenant_id}/{number_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give a bought number back to the vendor and stop the monthly rental
+         * @description Stops any agent answering the number, gives it back to the voice platform and stops the monthly charge. The record survives, marked released, because a closed month's costs still refer to it. Refused with `number_not_ours_to_release` for a connection the client holds in their own name — they cancel that with their own operator. Releasing an already-released number succeeds and changes nothing.
+         */
+        post: operations["release_number_v1_admin_numbers_tenants__tenant_id___number_id__release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/onboarding/unfinished": {
         parameters: {
             query?: never;
@@ -917,6 +1021,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/closure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Is this client closed, and when do their records go?
+         * @description The closure state of one client: whether the account is closed, why, when, by whom, the date the erasure becomes due and how many days are left. Reads after the erasure too — it is the screen that explains what happened to an account that is no longer anywhere else in the console.
+         */
+        get: operations["read_closure_v1_admin_tenants__tenant_id__closure_get"];
+        put?: never;
+        /**
+         * Close this client now and schedule the erasure of their records
+         * @description Stops the account immediately — nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed — and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. It does NOT take the client's telephone number out of service — a caller dialling it may still reach an answering agent until that is arranged with the telephony provider.
+         */
+        post: operations["close_v1_admin_tenants__tenant_id__closure_post"];
+        /**
+         * Undo a closure — reopen the account and cancel the scheduled erasure
+         * @description Reverses a close while nothing has been deleted: the account goes back to `active`, the scheduled erasure is cancelled, and the client is emailed to say so. Refused with 409 `tenant_already_erased` once the erasure has RUN — that is the only refusal, and it is a fact about the data rather than a clock, so a deadline that has passed while the sweep was behind is still reversible. Reopening an account that is not closed returns its current state unchanged.
+         */
+        delete: operations["restore_v1_admin_tenants__tenant_id__closure_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/commercial-terms": {
         parameters: {
             query?: never;
@@ -976,6 +1108,26 @@ export interface paths {
          * @description The ledger is append-only, so a wrong entry is never edited or removed — it stays where it is, because it is the evidence, and a new entry with the opposite sign cancels it. Name the entry to correct and how much of it to take back (a positive amount; the direction is derived from that entry). Sending the same correction again returns the entry that already exists and moves nothing. Taking credit AWAY additionally needs the header `X-Confirm-Action: adjust_credits:<corrects_entry_id>`; crediting back does not. The balance MAY go negative — a wrong credit that was partly spent cannot be fully reversed otherwise — and `stops_dialling` says whether that has blocked this client's outbound calling.
          */
         post: operations["record_adjustment_v1_admin_tenants__tenant_id__credits_adjustments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/credits/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grant credit out of nothing — no payment, audited, shown separately from paid
+         * @description Puts goodwill credit on a client's wallet with no payment behind it. It is NOT a top-up (no bank moved money) and NOT an adjustment (it corrects no entry), so it lands under its own ledger reason and every statement reports it separately from credit the client bought. Requires the header `X-Confirm-Action: grant_credits:<amount_inr to two decimals>` on every call, and one grant is capped so a mistyped figure is refused rather than posted. Sending the same `grant_ref` again returns the existing entry and moves nothing; the same reference with a different amount is a conflict.
+         */
+        post: operations["grant_credits_v1_admin_tenants__tenant_id__credits_grants_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1269,6 +1421,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/invitations/{invitation_id}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send the invite link again — same invitation, new link, old one dead
+         * @description Re-cuts the key for an invitation nobody has redeemed and mails it. The PREVIOUS link stops working immediately: this rotates the token on the same row rather than minting a second invitation, so two live keys to one account cannot exist. The 72-hour clock restarts with the link. Optionally corrects the address, which is the path for a client who mistyped it at signup and can therefore receive nothing — that is recorded as an OPERATOR ATTESTATION, not as a verified address, and it needs a note saying how the new address was established. Rate-limited to one send every two minutes and ten sends in total; past that, telephone the client and issue a fresh invitation. 404 if the invitation has been redeemed, revoked or has expired.
+         */
+        post: operations["resend_tenant_invitation_v1_admin_tenants__tenant_id__invitations__invitation_id__resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/invoice": {
         parameters: {
             query?: never;
@@ -1516,6 +1688,50 @@ export interface paths {
          * @description Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected — the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it — `churned` is terminal. 404 means no such client.
          */
         post: operations["set_tenant_status_v1_admin_tenants__tenant_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/trial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This client's newest trial, and what it has cost us
+         * @description `null` for a client who has never been given a trial. The newest one otherwise, open or closed — a screen has to be able to say 'their trial ended on the 3rd', which a reader that could only see open trials could not.
+         */
+        get: operations["read_trial_status_v1_admin_tenants__tenant_id__trial_get"];
+        put?: never;
+        /**
+         * Put a client on a trial — N days billed to nobody
+         * @description For the length of the trial this client's outbound calling is not stopped by an empty wallet and nothing is debited from it. Every minute is still METERED, and every other gate — KYC, the agreements, the spend cap, calling hours, do-not-call, consent, the DLT chain — still applies: a trial is a billing state, never a compliance exemption. There is deliberately NO spend ceiling, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.
+         */
+        post: operations["open_trial_v1_admin_tenants__tenant_id__trial_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/trial/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a trial — converted, or stopped by Calevate
+         * @description Closes the trial and starts a fresh counting period: from this instant the client's own usage figures count from zero, exactly as they do on the 1st of a month. NOTHING IS DELETED — every ledger keeps every row (hard rule 4); what moves is the window their screens count over. `converted` keeps this client's data for good. `stopped` schedules a tenant erasure for the end of the grace period agreed when the trial was opened.
+         */
+        post: operations["close_trial_v1_admin_tenants__tenant_id__trial_end_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4972,8 +5188,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask us for a phone number — always refused; Calevate does not supply numbers
-         * @description Asks Calevate for a phone number, and is always refused, because Calevate neither supplies nor resells telephone numbers: the client takes the connection in their own name on their own account with an Indian operator (Exotel, Plivo or Vobiz), remains the subscriber of record, and issues Calevate revocable API credentials for it. Refused with `kyc_not_verified` until Calevate has verified the business's identity — Indian telecom rules require the subscriber of a connection to be identified, the operator will ask for the same documents, and it applies to every account on every plan. A verified account is then refused with `number_provisioning_not_configured`, whose remediation names the carriers and what to send back. Neither refusal writes anything.
+         * Ask us for a phone number — always refused here; numbers are arranged by an operator
+         * @description Asks Calevate for a phone number, and is always refused from the client console: a number is arranged with the account manager as part of setting an agent up, never bought self-serve. Refused with `kyc_not_verified` until Calevate has verified the business's identity — Indian telecom rules require the subscriber of a connection to be identified, an operator will ask for the same documents, and it applies to every account on every plan. A verified account is then refused with `number_purchase_is_operator_led`, whose remediation names both routes forward: talk to us, or bring a connection taken in the client's own name with an Indian operator. Neither refusal writes anything.
          */
         post: operations["purchase_number_v1_numbers_purchase_post"];
         delete?: never;
@@ -6175,6 +6391,33 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * AvailableNumberOut
+         * @description One number the voice platform says it could sell us, at the price it said.
+         *
+         *     **THE PRICE IS PUBLISHED IN USD, NOT RUPEES, AND THAT IS DELIBERATE.** It is the
+         *     vendor's own quote in the vendor's own currency; the rupee is struck once, monthly,
+         *     when the rental is metered, at that month's rate (`billing/number_rental.py`).
+         *     Converting here would put a second exchange rate on a screen that would not match the
+         *     ledger, and a screen that disagrees with the ledger about money is worse than one that
+         *     shows the source figure.
+         *
+         *     `monthly_price_usd` may be `None` — the vendor's row carried no readable price — and
+         *     such a number CANNOT be bought: a number with no rental on file would never be metered.
+         *     The screen says so rather than offering a button that refuses.
+         */
+        AvailableNumberOut: {
+            /** E164 */
+            e164: string;
+            /** Locality */
+            locality: string | null;
+            /** Monthly Price Usd */
+            monthly_price_usd: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Region */
+            region: string | null;
+        };
         /** BlockerOut */
         BlockerOut: {
             /** Reason */
@@ -6227,12 +6470,61 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /**
+         * BoughtNumberOut
+         * @description What was bought, and what it will cost every month until it is given back.
+         */
+        BoughtNumberOut: {
+            /** E164 */
+            e164: string;
+            /** Engine Number Ref */
+            engine_number_ref: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Monthly Rental Usd */
+            monthly_rental_usd: string;
+            /** Provider */
+            provider: string | null;
+            /** Purchase Price Usd */
+            purchase_price_usd: string | null;
+        };
         /** Branch */
         Branch: {
             /** Address */
             address: string;
             /** Label */
             label: string;
+        };
+        /**
+         * BuyNumberIn
+         * @description The exact number to buy, and the quote the operator accepted for it.
+         *
+         *     `monthly_price_usd` IS ECHOED BACK FROM THE SEARCH RESULT rather than re-fetched, and
+         *     that is what makes the recurring cost real: the purchase response carries a one-off
+         *     price and a renewal boolean and no recurring figure at all
+         *     (`bolna-findings/mirror/pages/api-reference/phone-numbers/buy.md:78-135`). It is the
+         *     operator's acceptance of a quoted price, which is also what an audit row should say.
+         */
+        BuyNumberIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Country
+             * @default IN
+             * @enum {string}
+             */
+            country: "IN" | "US";
+            /** E164 */
+            e164: string;
+            /** Monthly Price Usd */
+            monthly_price_usd: number | string;
+            /** Provider */
+            provider?: string | null;
+            /** Purpose */
+            purpose?: string | null;
         };
         /** CalendarCallbackIn */
         CalendarCallbackIn: {
@@ -6924,6 +7216,52 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** CloseIn */
+        CloseIn: {
+            /**
+             * Grace Days
+             * @default 30
+             */
+            grace_days: number;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ClosureOut
+         * @description One account's closure state, as the console renders it.
+         *
+         *     No personal data by construction: an organisation id, three instants, the operator's
+         *     own recorded words and the id of the operator.
+         *
+         *     `days_remaining` is computed SERVER-SIDE and shipped, rather than left to the browser
+         *     to derive from `erase_after`. The countdown and the deadline it counts down to must be
+         *     read off one clock — a number computed from the viewer's laptop disagrees with the
+         *     sweep by whatever that laptop's clock is wrong by, and this is a countdown to
+         *     destruction.
+         */
+        ClosureOut: {
+            /** Closed At */
+            closed_at: string | null;
+            /** Closed By */
+            closed_by: string | null;
+            /** Days Remaining */
+            days_remaining: number | null;
+            /** Erase After */
+            erase_after: string | null;
+            /** Erased At */
+            erased_at: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Restorable */
+            restorable: boolean;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /** CollectedItemOut */
         CollectedItemOut: {
             /** What */
@@ -7565,10 +7903,14 @@ export interface components {
             balance_inr: string;
             /** Entries */
             entries: components["schemas"]["LedgerEntryOut"][];
+            /** Granted Inr */
+            granted_inr: string;
             /** Is Low */
             is_low: boolean;
             /** Low Balance Threshold Inr */
             low_balance_threshold_inr: string;
+            /** Paid Inr */
+            paid_inr: string;
             /** Payments */
             payments: components["schemas"]["PaymentOut"][];
             /**
@@ -8229,6 +8571,35 @@ export interface components {
             window_days: number;
         };
         /**
+         * EngineRefIn
+         * @description The voice platform's own handle for a number we did NOT buy.
+         *
+         *     NOT VALIDATED BEYOND BEING NON-BLANK, and that is documented at the adapter: the
+         *     vendor's own pages type this field three different ways (a dashed uuid, bare hex, and
+         *     a ULID-looking string), so a format check here would refuse the very value the vendor
+         *     issued.
+         */
+        EngineRefIn: {
+            /** Engine Number Ref */
+            engine_number_ref: string;
+        };
+        /**
+         * EngineRefOut
+         * @description What linking the number achieved at the voice platform, right now.
+         */
+        EngineRefOut: {
+            /** Bound */
+            bound: number;
+            /** Engine Number Ref */
+            engine_number_ref: string;
+            /** Failed */
+            failed: number;
+            /** Released */
+            released: number;
+            /** Unsupported */
+            unsupported: number;
+        };
+        /**
          * EngineStateOut
          * @description The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.
          *
@@ -8882,6 +9253,53 @@ export interface components {
             already_suppressed: number;
             /** Malformed */
             malformed: number;
+        };
+        /**
+         * GrantIn
+         * @description Credit the founder is GIVING this client, out of nothing (D-535).
+         *
+         *     The founder: *"the admin should be able to add any no.of credits without any payments
+         *     record to any client but it is audited"*. Neither of the two writes above can do it —
+         *     `/adjustments` must name a wrong entry and is bounded by that entry's magnitude, and
+         *     `POST .../credits` would put a payment reference on the ledger for a bank transfer that
+         *     never happened.
+         */
+        GrantIn: {
+            /** Amount Inr */
+            amount_inr: number | string;
+            /** Grant Ref */
+            grant_ref: string;
+            /** Reason */
+            reason: string;
+        };
+        /** GrantOut */
+        GrantOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Balance Inr */
+            balance_inr: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Grant Ref */
+            grant_ref: string;
+            /** Granted Inr */
+            granted_inr: string;
+            /** Is Low */
+            is_low: boolean;
+            /** Paid Inr */
+            paid_inr: string;
+            /** Recorded */
+            recorded: boolean;
+            /** Ref */
+            ref: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
         };
         /**
          * HandoffAttemptOut
@@ -10933,8 +11351,27 @@ export interface components {
              */
             dlt_status: "pending" | "registered" | "blocked";
         };
-        /** NumberOut */
+        /**
+         * NumberOut
+         * @description One number this account may dial from, or be answered on.
+         *
+         *     **`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-537).** A number we
+         *     bought for them is one they FORWARD their published number to — "point your existing
+         *     phone at this number" — and their own connection is one they already publish. Those
+         *     are opposite instructions, and a screen that cannot tell them apart gives the wrong
+         *     one to somebody about to reconfigure their clinic's phone.
+         *
+         *     NO COST FIELD, deliberately. What a number costs Calevate is on the admin-realm view
+         *     (`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed
+         *     through or an add-on is a pricing decision nobody has taken (OPERATIONS §2 gate 26),
+         *     and publishing our cost on a client's screen would take it for them.
+         */
         NumberOut: {
+            /**
+             * Answerable
+             * @default false
+             */
+            answerable: boolean;
             /** Dlt Status */
             dlt_status: string;
             /** E164 */
@@ -10946,6 +11383,11 @@ export interface components {
             id: string;
             /** Series */
             series: string;
+            /**
+             * Supplied By Us
+             * @default false
+             */
+            supplied_by_us: boolean;
         };
         /**
          * NumberPurchaseIn
@@ -11208,8 +11650,15 @@ export interface components {
              * Format: date-time
              */
             invited_at: string;
+            /**
+             * Last Sent At
+             * Format: date-time
+             */
+            last_sent_at: string;
             /** Role */
             role: string;
+            /** Send Count */
+            send_count: number;
         };
         /** PendingOut */
         PendingOut: {
@@ -11507,6 +11956,8 @@ export interface components {
             agent_id?: string | null;
             /** E164 */
             e164: string;
+            /** Engine Number Ref */
+            engine_number_ref?: string | null;
             /** Provider */
             provider?: string | null;
             /** Purpose */
@@ -11958,6 +12409,43 @@ export interface components {
             job: string | null;
             /** Replayed */
             replayed: number;
+        };
+        /** ResendInviteIn */
+        ResendInviteIn: {
+            /** Attestation */
+            attestation?: string | null;
+            /** Email */
+            email?: string | null;
+        };
+        /**
+         * ResendInviteOut
+         * @description What the resend did. The TOKEN IS NOT HERE — see `invite_member` and D-198.
+         */
+        ResendInviteOut: {
+            /**
+             * Delivery
+             * @constant
+             */
+            delivery: "queued";
+            /** Email */
+            email: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Last Sent At
+             * Format: date-time
+             */
+            last_sent_at: string;
+            /** Send Count */
+            send_count: number;
         };
         /** ResetConfirmIn */
         ResetConfirmIn: {
@@ -13290,6 +13778,39 @@ export interface components {
             webhook_bodies_erased: number | null;
         };
         /**
+         * TenantNumberCostOut
+         * @description One number and what it costs US — the admin-only view of a client's numbers.
+         *
+         *     SEPARATE FROM `GET /v1/campaigns/numbers`, which a client also reads. Our cost of
+         *     holding a number is not a figure a client is shown: whether the rental is absorbed,
+         *     passed through at cost, or a priced add-on is a founder pricing decision that has not
+         *     been taken (OPERATIONS §2 gate 26), and publishing our cost before it is taken would
+         *     make the decision for them.
+         */
+        TenantNumberCostOut: {
+            /** Dlt Status */
+            dlt_status: string;
+            /** E164 */
+            e164: string;
+            /** Engine Linked */
+            engine_linked: boolean;
+            /** Engine Owned */
+            engine_owned: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Monthly Rental Usd */
+            monthly_rental_usd: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Released */
+            released: boolean;
+            /** Series */
+            series: string;
+        };
+        /**
          * TenantSpendOut
          * @description GET /v1/admin/tenants/{tenant_id}/spend — one client's month, both directions.
          *
@@ -13688,6 +14209,122 @@ export interface components {
             text: string;
         };
         /**
+         * TrialEndIn
+         * @description Why it is ending, and which of the two endings it is.
+         */
+        TrialEndIn: {
+            /** Outcome */
+            outcome: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * TrialOut
+         * @description One trial. No personal data by construction — dates, a count and an operator's
+         *     words.
+         */
+        TrialOut: {
+            /** Active */
+            active: boolean;
+            /** Days */
+            days: number;
+            /** Days Remaining */
+            days_remaining: number | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Ended Reason */
+            ended_reason: string | null;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Erase After */
+            erase_after: string | null;
+            /** Erasure Filed At */
+            erasure_filed_at: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Started By */
+            started_by: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Trial Id
+             * Format: uuid
+             */
+            trial_id: string;
+        };
+        /**
+         * TrialStartIn
+         * @description How long, and why.
+         */
+        TrialStartIn: {
+            /** Days */
+            days: number;
+            /**
+             * Erasure Grace Days
+             * @default 30
+             */
+            erasure_grace_days: number;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * TrialStatusOut
+         * @description The read, which is the same facts plus the one an operator actually opened it for.
+         */
+        TrialStatusOut: {
+            /** Active */
+            active: boolean;
+            /** Cost To Us Inr */
+            cost_to_us_inr: string;
+            /** Days */
+            days: number;
+            /** Days Remaining */
+            days_remaining: number | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Ended Reason */
+            ended_reason: string | null;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Erase After */
+            erase_after: string | null;
+            /** Erasure Filed At */
+            erasure_filed_at: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Started By */
+            started_by: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /**
+             * Trial Id
+             * Format: uuid
+             */
+            trial_id: string;
+        };
+        /**
          * UnattributedSpendOut
          * @description Cost this month that belongs to no call.
          *
@@ -13883,6 +14520,26 @@ export interface components {
             plan_tier: string;
             /** Spend Used Inr */
             spend_used_inr: string;
+            trial: components["schemas"]["UsageTrialOut"];
+            /** Trial Absorbed Inr */
+            trial_absorbed_inr: string;
+        };
+        /**
+         * UsageTrialOut
+         * @description Whether this client's calling is on us, and until when (D-536).
+         *
+         *     The CLIENT's view of a trial. It carries no cost figure of any kind — what this trial
+         *     costs Calevate is our supplier price and lives on the operator's own read
+         *     (`billing/trial_routes.TrialStatusOut.cost_to_us_inr`); what the client is being given
+         *     is `trial_absorbed_inr` beside this block, at their own rate.
+         */
+        UsageTrialOut: {
+            /** Active */
+            active: boolean;
+            /** Days Remaining */
+            days_remaining: number | null;
+            /** Ends At */
+            ends_at: string | null;
         };
         /** VariableSuggestion */
         VariableSuggestion: {
@@ -14100,6 +14757,8 @@ export interface components {
             /** Balance Inr */
             balance_inr: string;
             drawdown: components["schemas"]["DrawdownOut"];
+            /** Granted Inr */
+            granted_inr: string;
             /** Is Low */
             is_low: boolean;
             /** Low Balance Threshold Inr */
@@ -14108,6 +14767,8 @@ export interface components {
             minutes_left: number | null;
             /** Outbound Stopped */
             outbound_stopped: boolean;
+            /** Paid Inr */
+            paid_inr: string;
             /** Prepaid */
             prepaid: boolean;
             runway: components["schemas"]["RunwayOut"];
@@ -14116,6 +14777,7 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+            trial: components["schemas"]["WalletTrialOut"] | null;
         };
         /**
          * WalletPaymentOut
@@ -14133,6 +14795,38 @@ export interface components {
             first_at: string;
             /** Payment Ref */
             payment_ref: string;
+        };
+        /**
+         * WalletTrialOut
+         * @description The trial, as its own client reads it. Dates and a count; no cost, ever.
+         *
+         *     What an OPERATOR sees on the same trial includes `cost_to_us_inr` — our real supplier
+         *     cost — and that figure is commercially ours and has never appeared on a client panel
+         *     (`billing/trial_routes.TrialStatusOut`). The client's equivalent is
+         *     `usage_summary`'s `trial_absorbed_inr`, which is priced at the CLIENT'S OWN rate: what
+         *     the service they are using is worth to them, not what it costs us to provide.
+         */
+        WalletTrialOut: {
+            /** Active */
+            active: boolean;
+            /** Days */
+            days: number;
+            /** Days Remaining */
+            days_remaining: number | null;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Status */
+            status: string;
         };
         /** WebhookAck */
         WebhookAck: {
@@ -14700,6 +15394,171 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdminMeOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    available_numbers_v1_admin_numbers_available_get: {
+        parameters: {
+            query?: {
+                country?: "IN" | "US";
+                pattern?: string | null;
+                provider?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvailableNumberOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    tenant_numbers_v1_admin_numbers_tenants__tenant_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantNumberCostOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    buy_number_v1_admin_numbers_tenants__tenant_id__buy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuyNumberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoughtNumberOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_engine_ref_v1_admin_numbers_tenants__tenant_id___number_id__engine_ref_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EngineRefIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineRefOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    release_number_v1_admin_numbers_tenants__tenant_id___number_id__release_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -15736,6 +16595,105 @@ export interface operations {
             };
         };
     };
+    read_closure_v1_admin_tenants__tenant_id__closure_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClosureOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    close_v1_admin_tenants__tenant_id__closure_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClosureOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_v1_admin_tenants__tenant_id__closure_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClosureOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_commercial_terms_v1_admin_tenants__tenant_id__commercial_terms_get: {
         parameters: {
             query?: never;
@@ -15896,6 +16854,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdjustmentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    grant_credits_v1_admin_tenants__tenant_id__credits_grants_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GrantIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -16354,6 +17349,42 @@ export interface operations {
             };
         };
     };
+    resend_tenant_invitation_v1_admin_tenants__tenant_id__invitations__invitation_id__resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                invitation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendInviteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResendInviteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     tenant_invoice_v1_admin_tenants__tenant_id__invoice_get: {
         parameters: {
             query?: {
@@ -16754,6 +17785,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LifecycleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_trial_status_v1_admin_tenants__tenant_id__trial_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialStatusOut"] | null;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    open_trial_v1_admin_tenants__tenant_id__trial_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrialStartIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    close_trial_v1_admin_tenants__tenant_id__trial_end_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrialEndIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrialOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

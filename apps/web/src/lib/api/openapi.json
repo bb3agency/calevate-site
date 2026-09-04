@@ -1339,6 +1339,69 @@
         "title": "AttentionOut",
         "type": "object"
       },
+      "AvailableNumberOut": {
+        "additionalProperties": false,
+        "description": "One number the voice platform says it could sell us, at the price it said.\n\n**THE PRICE IS PUBLISHED IN USD, NOT RUPEES, AND THAT IS DELIBERATE.** It is the\nvendor's own quote in the vendor's own currency; the rupee is struck once, monthly,\nwhen the rental is metered, at that month's rate (`billing/number_rental.py`).\nConverting here would put a second exchange rate on a screen that would not match the\nledger, and a screen that disagrees with the ledger about money is worse than one that\nshows the source figure.\n\n`monthly_price_usd` may be `None` \u2014 the vendor's row carried no readable price \u2014 and\nsuch a number CANNOT be bought: a number with no rental on file would never be metered.\nThe screen says so rather than offering a button that refuses.",
+        "properties": {
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "locality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locality"
+          },
+          "monthly_price_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Price Usd"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          }
+        },
+        "required": [
+          "e164",
+          "provider",
+          "region",
+          "locality",
+          "monthly_price_usd"
+        ],
+        "title": "AvailableNumberOut",
+        "type": "object"
+      },
       "BlockerOut": {
         "additionalProperties": false,
         "properties": {
@@ -1442,6 +1505,61 @@
         "title": "BootstrapKeyOut",
         "type": "object"
       },
+      "BoughtNumberOut": {
+        "additionalProperties": false,
+        "description": "What was bought, and what it will cost every month until it is given back.",
+        "properties": {
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "engine_number_ref": {
+            "title": "Engine Number Ref",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "monthly_rental_usd": {
+            "title": "Monthly Rental Usd",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "purchase_price_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Price Usd"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "engine_number_ref",
+          "provider",
+          "purchase_price_usd",
+          "monthly_rental_usd"
+        ],
+        "title": "BoughtNumberOut",
+        "type": "object"
+      },
       "Branch": {
         "additionalProperties": false,
         "properties": {
@@ -1463,6 +1581,84 @@
           "address"
         ],
         "title": "Branch",
+        "type": "object"
+      },
+      "BuyNumberIn": {
+        "additionalProperties": false,
+        "description": "The exact number to buy, and the quote the operator accepted for it.\n\n`monthly_price_usd` IS ECHOED BACK FROM THE SEARCH RESULT rather than re-fetched, and\nthat is what makes the recurring cost real: the purchase response carries a one-off\nprice and a renewal boolean and no recurring figure at all\n(`bolna-findings/mirror/pages/api-reference/phone-numbers/buy.md:78-135`). It is the\noperator's acceptance of a quoted price, which is also what an audit row should say.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "country": {
+            "default": "IN",
+            "enum": [
+              "IN",
+              "US"
+            ],
+            "title": "Country",
+            "type": "string"
+          },
+          "e164": {
+            "maxLength": 20,
+            "minLength": 8,
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "E164",
+            "type": "string"
+          },
+          "monthly_price_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Monthly Price Usd"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          }
+        },
+        "required": [
+          "e164",
+          "monthly_price_usd"
+        ],
+        "title": "BuyNumberIn",
         "type": "object"
       },
       "CalendarCallbackIn": {
@@ -3144,6 +3340,131 @@
         "title": "ClientHealthOut",
         "type": "object"
       },
+      "CloseIn": {
+        "additionalProperties": false,
+        "properties": {
+          "grace_days": {
+            "default": 30,
+            "maximum": 35.0,
+            "minimum": 0.0,
+            "title": "Grace Days",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "CloseIn",
+        "type": "object"
+      },
+      "ClosureOut": {
+        "additionalProperties": false,
+        "description": "One account's closure state, as the console renders it.\n\nNo personal data by construction: an organisation id, three instants, the operator's\nown recorded words and the id of the operator.\n\n`days_remaining` is computed SERVER-SIDE and shipped, rather than left to the browser\nto derive from `erase_after`. The countdown and the deadline it counts down to must be\nread off one clock \u2014 a number computed from the viewer's laptop disagrees with the\nsweep by whatever that laptop's clock is wrong by, and this is a countdown to\ndestruction.",
+        "properties": {
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "closed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed By"
+          },
+          "days_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Remaining"
+          },
+          "erase_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erase After"
+          },
+          "erased_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erased At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "restorable": {
+            "title": "Restorable",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "closed_at",
+          "erase_after",
+          "reason",
+          "closed_by",
+          "erased_at",
+          "restorable",
+          "days_remaining"
+        ],
+        "title": "ClosureOut",
+        "type": "object"
+      },
       "CollectedItemOut": {
         "additionalProperties": false,
         "properties": {
@@ -4722,6 +5043,11 @@
             "title": "Entries",
             "type": "array"
           },
+          "granted_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Granted Inr",
+            "type": "string"
+          },
           "is_low": {
             "title": "Is Low",
             "type": "boolean"
@@ -4729,6 +5055,11 @@
           "low_balance_threshold_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Low Balance Threshold Inr",
+            "type": "string"
+          },
+          "paid_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid Inr",
             "type": "string"
           },
           "payments": {
@@ -4749,6 +5080,8 @@
           "balance_inr",
           "is_low",
           "low_balance_threshold_inr",
+          "paid_inr",
+          "granted_inr",
           "entries",
           "payments"
         ],
@@ -6031,6 +6364,58 @@
           "groups"
         ],
         "title": "EngineLatencyReport",
+        "type": "object"
+      },
+      "EngineRefIn": {
+        "additionalProperties": false,
+        "description": "The voice platform's own handle for a number we did NOT buy.\n\nNOT VALIDATED BEYOND BEING NON-BLANK, and that is documented at the adapter: the\nvendor's own pages type this field three different ways (a dashed uuid, bare hex, and\na ULID-looking string), so a format check here would refuse the very value the vendor\nissued.",
+        "properties": {
+          "engine_number_ref": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Engine Number Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "engine_number_ref"
+        ],
+        "title": "EngineRefIn",
+        "type": "object"
+      },
+      "EngineRefOut": {
+        "additionalProperties": false,
+        "description": "What linking the number achieved at the voice platform, right now.",
+        "properties": {
+          "bound": {
+            "title": "Bound",
+            "type": "integer"
+          },
+          "engine_number_ref": {
+            "title": "Engine Number Ref",
+            "type": "string"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "released": {
+            "title": "Released",
+            "type": "integer"
+          },
+          "unsupported": {
+            "title": "Unsupported",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engine_number_ref",
+          "bound",
+          "released",
+          "failed",
+          "unsupported"
+        ],
+        "title": "EngineRefOut",
         "type": "object"
       },
       "EngineStateOut": {
@@ -7649,6 +8034,108 @@
           "malformed"
         ],
         "title": "GlobalSuppressOut",
+        "type": "object"
+      },
+      "GrantIn": {
+        "additionalProperties": false,
+        "description": "Credit the founder is GIVING this client, out of nothing (D-535).\n\nThe founder: *\"the admin should be able to add any no.of credits without any payments\nrecord to any client but it is audited\"*. Neither of the two writes above can do it \u2014\n`/adjustments` must name a wrong entry and is bounded by that entry's magnitude, and\n`POST .../credits` would put a payment reference on the ledger for a bank transfer that\nnever happened.",
+        "properties": {
+          "amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,11}0*$)\\d{0,8}\\.\\d{0,2}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount Inr"
+          },
+          "grant_ref": {
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Grant Ref",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount_inr",
+          "grant_ref",
+          "reason"
+        ],
+        "title": "GrantIn",
+        "type": "object"
+      },
+      "GrantOut": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "balance_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance Inr",
+            "type": "string"
+          },
+          "entry_id": {
+            "format": "uuid",
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "grant_ref": {
+            "title": "Grant Ref",
+            "type": "string"
+          },
+          "granted_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Granted Inr",
+            "type": "string"
+          },
+          "is_low": {
+            "title": "Is Low",
+            "type": "boolean"
+          },
+          "paid_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid Inr",
+            "type": "string"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "entry_id",
+          "grant_ref",
+          "ref",
+          "amount_inr",
+          "balance_inr",
+          "is_low",
+          "paid_inr",
+          "granted_inr",
+          "recorded"
+        ],
+        "title": "GrantOut",
         "type": "object"
       },
       "HandoffAttemptOut": {
@@ -12328,7 +12815,13 @@
       },
       "NumberOut": {
         "additionalProperties": false,
+        "description": "One number this account may dial from, or be answered on.\n\n**`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-537).** A number we\nbought for them is one they FORWARD their published number to \u2014 \"point your existing\nphone at this number\" \u2014 and their own connection is one they already publish. Those\nare opposite instructions, and a screen that cannot tell them apart gives the wrong\none to somebody about to reconfigure their clinic's phone.\n\nNO COST FIELD, deliberately. What a number costs Calevate is on the admin-realm view\n(`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed\nthrough or an add-on is a pricing decision nobody has taken (OPERATIONS \u00a72 gate 26),\nand publishing our cost on a client's screen would take it for them.",
         "properties": {
+          "answerable": {
+            "default": false,
+            "title": "Answerable",
+            "type": "boolean"
+          },
           "dlt_status": {
             "title": "Dlt Status",
             "type": "string"
@@ -12345,6 +12838,11 @@
           "series": {
             "title": "Series",
             "type": "string"
+          },
+          "supplied_by_us": {
+            "default": false,
+            "title": "Supplied By Us",
+            "type": "boolean"
           }
         },
         "required": [
@@ -12903,9 +13401,18 @@
             "title": "Invited At",
             "type": "string"
           },
+          "last_sent_at": {
+            "format": "date-time",
+            "title": "Last Sent At",
+            "type": "string"
+          },
           "role": {
             "title": "Role",
             "type": "string"
+          },
+          "send_count": {
+            "title": "Send Count",
+            "type": "integer"
           }
         },
         "required": [
@@ -12913,7 +13420,9 @@
           "email",
           "role",
           "invited_at",
-          "expires_at"
+          "expires_at",
+          "last_sent_at",
+          "send_count"
         ],
         "title": "PendingInviteOut",
         "type": "object"
@@ -13858,6 +14367,19 @@
             "pattern": "^\\+[1-9]\\d{7,18}$",
             "title": "E164",
             "type": "string"
+          },
+          "engine_number_ref": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Number Ref"
           },
           "provider": {
             "anyOf": [
@@ -14928,6 +15450,82 @@
           "job"
         ],
         "title": "ReplayOut",
+        "type": "object"
+      },
+      "ResendInviteIn": {
+        "additionalProperties": false,
+        "properties": {
+          "attestation": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "title": "ResendInviteIn",
+        "type": "object"
+      },
+      "ResendInviteOut": {
+        "additionalProperties": false,
+        "description": "What the resend did. The TOKEN IS NOT HERE \u2014 see `invite_member` and D-198.",
+        "properties": {
+          "delivery": {
+            "const": "queued",
+            "title": "Delivery",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_sent_at": {
+            "format": "date-time",
+            "title": "Last Sent At",
+            "type": "string"
+          },
+          "send_count": {
+            "title": "Send Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "delivery",
+          "expires_at",
+          "last_sent_at",
+          "send_count"
+        ],
+        "title": "ResendInviteOut",
         "type": "object"
       },
       "ResetConfirmIn": {
@@ -18035,6 +18633,76 @@
         "title": "TenantErasureScopeOut",
         "type": "object"
       },
+      "TenantNumberCostOut": {
+        "additionalProperties": false,
+        "description": "One number and what it costs US \u2014 the admin-only view of a client's numbers.\n\nSEPARATE FROM `GET /v1/campaigns/numbers`, which a client also reads. Our cost of\nholding a number is not a figure a client is shown: whether the rental is absorbed,\npassed through at cost, or a priced add-on is a founder pricing decision that has not\nbeen taken (OPERATIONS \u00a72 gate 26), and publishing our cost before it is taken would\nmake the decision for them.",
+        "properties": {
+          "dlt_status": {
+            "title": "Dlt Status",
+            "type": "string"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "engine_linked": {
+            "title": "Engine Linked",
+            "type": "boolean"
+          },
+          "engine_owned": {
+            "title": "Engine Owned",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "monthly_rental_usd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Rental Usd"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "released": {
+            "title": "Released",
+            "type": "boolean"
+          },
+          "series": {
+            "title": "Series",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "e164",
+          "series",
+          "dlt_status",
+          "provider",
+          "engine_owned",
+          "engine_linked",
+          "monthly_rental_usd",
+          "released"
+        ],
+        "title": "TenantNumberCostOut",
+        "type": "object"
+      },
       "TenantSpendOut": {
         "additionalProperties": false,
         "description": "GET /v1/admin/tenants/{tenant_id}/spend \u2014 one client's month, both directions.\n\nThe four header figures are D-12's margin, in D-12's OWN definitions \u2014 the retainer\nplus `calling_revenue_inr` against the sum of `_ROW_COST_SQL`, with `margin_pct` the\none shared function `margin_for_tenant` and the fleet board both call. They are folded\nout of `period_attribution`'s single scan rather than read from a second\n`margin_for_tenant` call, and that is a partition fix rather than a shortcut: a second\ncall is a second statement at a second instant over an append-only table the meter\nwrites to all month, so on an open month the header's `cost_inr` could exceed the\n`by_unit` lines beneath it by one completing call \u2014 the parts silently not adding up,\non the page whose whole promise is that they do. Same rows, same expressions, so on a\nmonth nobody is dialling in this is `margin_for_tenant` to the paisa, which is the\nidentity `tests/spend_attribution_test.py` pins.",
@@ -19016,6 +19684,315 @@
         "title": "TranscriptTurnOut",
         "type": "object"
       },
+      "TrialEndIn": {
+        "additionalProperties": false,
+        "description": "Why it is ending, and which of the two endings it is.",
+        "properties": {
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "reason"
+        ],
+        "title": "TrialEndIn",
+        "type": "object"
+      },
+      "TrialOut": {
+        "additionalProperties": false,
+        "description": "One trial. No personal data by construction \u2014 dates, a count and an operator's\nwords.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "days_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Remaining"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "ended_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended Reason"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "erase_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erase After"
+          },
+          "erasure_filed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erasure Filed At"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "started_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started By"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "trial_id": {
+            "format": "uuid",
+            "title": "Trial Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "trial_id",
+          "status",
+          "active",
+          "days",
+          "started_at",
+          "ends_at",
+          "days_remaining",
+          "ended_at",
+          "ended_reason",
+          "erase_after",
+          "erasure_filed_at",
+          "started_by"
+        ],
+        "title": "TrialOut",
+        "type": "object"
+      },
+      "TrialStartIn": {
+        "additionalProperties": false,
+        "description": "How long, and why.",
+        "properties": {
+          "days": {
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Days",
+            "type": "integer"
+          },
+          "erasure_grace_days": {
+            "default": 30,
+            "maximum": 180.0,
+            "minimum": 1.0,
+            "title": "Erasure Grace Days",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "days",
+          "reason"
+        ],
+        "title": "TrialStartIn",
+        "type": "object"
+      },
+      "TrialStatusOut": {
+        "additionalProperties": false,
+        "description": "The read, which is the same facts plus the one an operator actually opened it for.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "cost_to_us_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cost To Us Inr",
+            "type": "string"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "days_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Remaining"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "ended_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended Reason"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "erase_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erase After"
+          },
+          "erasure_filed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erasure Filed At"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "started_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started By"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "trial_id": {
+            "format": "uuid",
+            "title": "Trial Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "trial_id",
+          "status",
+          "active",
+          "days",
+          "started_at",
+          "ends_at",
+          "days_remaining",
+          "ended_at",
+          "ended_reason",
+          "erase_after",
+          "erasure_filed_at",
+          "started_by",
+          "cost_to_us_inr"
+        ],
+        "title": "TrialStatusOut",
+        "type": "object"
+      },
       "UnattributedSpendOut": {
         "additionalProperties": false,
         "description": "Cost this month that belongs to no call.\n\n`number_rental` is the only unit that can land here and nothing writes one: under\nModel B a client rents their number from their own operator, not from us\n(`campaigns/provisioning.py`). Kept because a total that claims to be a partition\nmust not silently stop being one if a callless unit is ever metered.",
@@ -19492,6 +20469,13 @@
           "spend_used_inr": {
             "title": "Spend Used Inr",
             "type": "string"
+          },
+          "trial": {
+            "$ref": "#/components/schemas/UsageTrialOut"
+          },
+          "trial_absorbed_inr": {
+            "title": "Trial Absorbed Inr",
+            "type": "string"
           }
         },
         "required": [
@@ -19516,9 +20500,51 @@
           "capped",
           "spend_used_inr",
           "plan_tier",
-          "credit_balance_inr"
+          "credit_balance_inr",
+          "trial",
+          "trial_absorbed_inr"
         ],
         "title": "UsagePanelOut",
+        "type": "object"
+      },
+      "UsageTrialOut": {
+        "additionalProperties": false,
+        "description": "Whether this client's calling is on us, and until when (D-536).\n\nThe CLIENT's view of a trial. It carries no cost figure of any kind \u2014 what this trial\ncosts Calevate is our supplier price and lives on the operator's own read\n(`billing/trial_routes.TrialStatusOut.cost_to_us_inr`); what the client is being given\nis `trial_absorbed_inr` beside this block, at their own rate.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "days_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Remaining"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          }
+        },
+        "required": [
+          "active",
+          "days_remaining",
+          "ends_at"
+        ],
+        "title": "UsageTrialOut",
         "type": "object"
       },
       "VariableSuggestion": {
@@ -19952,6 +20978,11 @@
           "drawdown": {
             "$ref": "#/components/schemas/DrawdownOut"
           },
+          "granted_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Granted Inr",
+            "type": "string"
+          },
           "is_low": {
             "title": "Is Low",
             "type": "boolean"
@@ -19976,6 +21007,11 @@
             "title": "Outbound Stopped",
             "type": "boolean"
           },
+          "paid_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid Inr",
+            "type": "string"
+          },
           "prepaid": {
             "title": "Prepaid",
             "type": "boolean"
@@ -19987,6 +21023,16 @@
             "format": "uuid",
             "title": "Tenant Id",
             "type": "string"
+          },
+          "trial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WalletTrialOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -19998,7 +21044,10 @@
           "outbound_stopped",
           "runway",
           "minutes_left",
-          "drawdown"
+          "drawdown",
+          "paid_inr",
+          "granted_inr",
+          "trial"
         ],
         "title": "WalletOut",
         "type": "object"
@@ -20033,6 +21082,68 @@
           "first_at"
         ],
         "title": "WalletPaymentOut",
+        "type": "object"
+      },
+      "WalletTrialOut": {
+        "additionalProperties": false,
+        "description": "The trial, as its own client reads it. Dates and a count; no cost, ever.\n\nWhat an OPERATOR sees on the same trial includes `cost_to_us_inr` \u2014 our real supplier\ncost \u2014 and that figure is commercially ours and has never appeared on a client panel\n(`billing/trial_routes.TrialStatusOut`). The client's equivalent is\n`usage_summary`'s `trial_absorbed_inr`, which is priced at the CLIENT'S OWN rate: what\nthe service they are using is worth to them, not what it costs us to provide.",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "days_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Remaining"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "active",
+          "status",
+          "days",
+          "started_at",
+          "ends_at",
+          "days_remaining",
+          "ended_at"
+        ],
+        "title": "WalletTrialOut",
         "type": "object"
       },
       "WebhookAck": {
@@ -20978,6 +22089,291 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/numbers/available": {
+      "get": {
+        "description": "Searches the voice platform's own inventory. Read-only: nothing is reserved and nothing is charged. Refused with `number_resale_not_authorized` until a written reseller authorisation is recorded for this deployment, and with `number_provisioning_not_configured` on a voice platform that sells no numbers. Prices are the vendor's own, in USD; the rupee is struck when the rental is metered, at that month's published rate.",
+        "operationId": "available_numbers_v1_admin_numbers_available_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "country",
+            "required": false,
+            "schema": {
+              "default": "IN",
+              "enum": [
+                "IN",
+                "US"
+              ],
+              "title": "Country",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pattern",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pattern"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AvailableNumberOut"
+                  },
+                  "title": "Response Available Numbers V1 Admin Numbers Available Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the voice platform could sell us \u2014 read-only, spends nothing",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/numbers/tenants/{tenant_id}": {
+      "get": {
+        "description": "Read under the tenant's own RLS, so one client's numbers is exactly what comes back.\n\nUNBOUNDED BY DESIGN AND BOUNDED BY REALITY: a tenant's numbers are a handful, the row\nis one line each, and there is no cursor a screen could page with that would not\nalso need a stable sort key it does not have. `check_list_bounds` reads this comment.",
+        "operationId": "tenant_numbers_v1_admin_numbers_tenants__tenant_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TenantNumberCostOut"
+                  },
+                  "title": "Response Tenant Numbers V1 Admin Numbers Tenants  Tenant Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This client's numbers, whether we bought them, and what each costs us",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/numbers/tenants/{tenant_id}/buy": {
+      "post": {
+        "description": "Buys the named number at the voice platform and records it against this client. **This spends money and cannot be undone by retrying**: the vendor's purchase endpoint takes no idempotency key, so a repeat buys a second number and starts a second monthly rental. Refused with `number_taken` if the platform already holds the number, and with `number_series_not_purchasable` for a 140 or 160 series connection, which is taken on an Indian operator's own account and recorded here afterwards. The monthly rental is metered from the price accepted here.",
+        "operationId": "buy_number_v1_admin_numbers_tenants__tenant_id__buy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuyNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoughtNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Buy a number for this client \u2014 spends money, and is not retryable",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/numbers/tenants/{tenant_id}/{number_id}/engine-ref": {
+      "post": {
+        "description": "Records the identifier the voice platform uses for a number the client brought on their own operator account, which is the one fact that lets an agent be set to answer it. Without it every publish of the agent answering this number reports success and the phone does not ring. If the number is attached to a live agent, the routing happens in this request rather than waiting for the next publish; the counts say what the voice platform was told.",
+        "operationId": "set_engine_ref_v1_admin_numbers_tenants__tenant_id___number_id__engine_ref_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EngineRefIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineRefOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record the voice platform's handle for a number, and start it answering",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/numbers/tenants/{tenant_id}/{number_id}/release": {
+      "post": {
+        "description": "Stops any agent answering the number, gives it back to the voice platform and stops the monthly charge. The record survives, marked released, because a closed month's costs still refer to it. Refused with `number_not_ours_to_release` for a connection the client holds in their own name \u2014 they cancel that with their own operator. Releasing an already-released number succeeds and changes nothing.",
+        "operationId": "release_number_v1_admin_numbers_tenants__tenant_id___number_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Give a bought number back to the vendor and stop the monthly rental",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/onboarding/unfinished": {
@@ -22609,6 +24005,151 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/closure": {
+      "delete": {
+        "description": "Reverses a close while nothing has been deleted: the account goes back to `active`, the scheduled erasure is cancelled, and the client is emailed to say so. Refused with 409 `tenant_already_erased` once the erasure has RUN \u2014 that is the only refusal, and it is a fact about the data rather than a clock, so a deadline that has passed while the sweep was behind is still reversible. Reopening an account that is not closed returns its current state unchanged.",
+        "operationId": "restore_v1_admin_tenants__tenant_id__closure_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosureOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Undo a closure \u2014 reopen the account and cancel the scheduled erasure",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "get": {
+        "description": "The closure state of one client: whether the account is closed, why, when, by whom, the date the erasure becomes due and how many days are left. Reads after the erasure too \u2014 it is the screen that explains what happened to an account that is no longer anywhere else in the console.",
+        "operationId": "read_closure_v1_admin_tenants__tenant_id__closure_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosureOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Is this client closed, and when do their records go?",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Stops the account immediately \u2014 nobody at the client can sign in, no outbound call or campaign runs, no agent can be published, no invitation can be issued or redeemed \u2014 and sets the date their call records, transcripts and leads are permanently erased. The client is emailed, and messaged on WhatsApp where they have opted in. NOTHING IS DELETED BY THIS CALL: until the date passes the closure can be undone with DELETE on this same path. Needs the header `X-Confirm-Action: close_and_schedule_erasure:<tenant_id>`. Closing an already-closed account returns its FIRST closure unchanged rather than restarting the clock. It does NOT take the client's telephone number out of service \u2014 a caller dialling it may still reach an answering agent until that is arranged with the telephony provider.",
+        "operationId": "close_v1_admin_tenants__tenant_id__closure_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosureOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Close this client now and schedule the erasure of their records",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/commercial-terms": {
       "get": {
         "description": "The `plans` rows for one client, newest agreement first by valid time, with the one in effect now resolved by the same expression the invoice uses. `state` names what an operator is looking at: `none` (no terms have ever been set \u2014 the state every new tenant is in), `unpriced` (a row is in effect but states no price), `lapsed` (rows exist and none is in effect, which is a misconfiguration), or `set`.",
@@ -22877,6 +24418,73 @@
           }
         },
         "summary": "Correct a wrong ledger entry by APPENDING a compensating adjustment",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/credits/grants": {
+      "post": {
+        "description": "Puts goodwill credit on a client's wallet with no payment behind it. It is NOT a top-up (no bank moved money) and NOT an adjustment (it corrects no entry), so it lands under its own ledger reason and every statement reports it separately from credit the client bought. Requires the header `X-Confirm-Action: grant_credits:<amount_inr to two decimals>` on every call, and one grant is capped so a mistyped figure is refused rather than posted. Sending the same `grant_ref` again returns the existing entry and moves nothing; the same reference with a different amount is a conflict.",
+        "operationId": "grant_credits_v1_admin_tenants__tenant_id__credits_grants_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Grant credit out of nothing \u2014 no payment, audited, shown separately from paid",
         "tags": [
           "admin"
         ],
@@ -23590,6 +25198,67 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/invitations/{invitation_id}/resend": {
+      "post": {
+        "description": "Re-cuts the key for an invitation nobody has redeemed and mails it. The PREVIOUS link stops working immediately: this rotates the token on the same row rather than minting a second invitation, so two live keys to one account cannot exist. The 72-hour clock restarts with the link. Optionally corrects the address, which is the path for a client who mistyped it at signup and can therefore receive nothing \u2014 that is recorded as an OPERATOR ATTESTATION, not as a verified address, and it needs a note saying how the new address was established. Rate-limited to one send every two minutes and ten sends in total; past that, telephone the client and issue a fresh invitation. 404 if the invitation has been redeemed, revoked or has expired.",
+        "operationId": "resend_tenant_invitation_v1_admin_tenants__tenant_id__invitations__invitation_id__resend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "invitation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Invitation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendInviteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResendInviteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send the invite link again \u2014 same invitation, new link, old one dead",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/invoice": {
       "get": {
         "operationId": "tenant_invoice_v1_admin_tenants__tenant_id__invoice_get",
@@ -24260,6 +25929,171 @@
           }
         },
         "summary": "Suspend, reactivate or close a client account \u2014 the switch that stops dialling",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/trial": {
+      "get": {
+        "description": "`null` for a client who has never been given a trial. The newest one otherwise, open or closed \u2014 a screen has to be able to say 'their trial ended on the 3rd', which a reader that could only see open trials could not.",
+        "operationId": "read_trial_status_v1_admin_tenants__tenant_id__trial_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TrialStatusOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Read Trial Status V1 Admin Tenants  Tenant Id  Trial Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This client's newest trial, and what it has cost us",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      },
+      "post": {
+        "description": "For the length of the trial this client's outbound calling is not stopped by an empty wallet and nothing is debited from it. Every minute is still METERED, and every other gate \u2014 KYC, the agreements, the spend cap, calling hours, do-not-call, consent, the DLT chain \u2014 still applies: a trial is a billing state, never a compliance exemption. There is deliberately NO spend ceiling, so the header `X-Confirm-Action: start_trial:<tenant_id>:<days>` is required on every call and the read publishes what the trial is costing us.",
+        "operationId": "open_trial_v1_admin_tenants__tenant_id__trial_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put a client on a trial \u2014 N days billed to nobody",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/trial/end": {
+      "post": {
+        "description": "Closes the trial and starts a fresh counting period: from this instant the client's own usage figures count from zero, exactly as they do on the 1st of a month. NOTHING IS DELETED \u2014 every ledger keeps every row (hard rule 4); what moves is the window their screens count over. `converted` keeps this client's data for good. `stopped` schedules a tenant erasure for the end of the grace period agreed when the trial was opened.",
+        "operationId": "close_trial_v1_admin_tenants__tenant_id__trial_end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialEndIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End a trial \u2014 converted, or stopped by Calevate",
         "tags": [
           "admin"
         ],
@@ -31951,7 +33785,7 @@
     },
     "/v1/numbers/purchase": {
       "post": {
-        "description": "Asks Calevate for a phone number, and is always refused, because Calevate neither supplies nor resells telephone numbers: the client takes the connection in their own name on their own account with an Indian operator (Exotel, Plivo or Vobiz), remains the subscriber of record, and issues Calevate revocable API credentials for it. Refused with `kyc_not_verified` until Calevate has verified the business's identity \u2014 Indian telecom rules require the subscriber of a connection to be identified, the operator will ask for the same documents, and it applies to every account on every plan. A verified account is then refused with `number_provisioning_not_configured`, whose remediation names the carriers and what to send back. Neither refusal writes anything.",
+        "description": "Asks Calevate for a phone number, and is always refused from the client console: a number is arranged with the account manager as part of setting an agent up, never bought self-serve. Refused with `kyc_not_verified` until Calevate has verified the business's identity \u2014 Indian telecom rules require the subscriber of a connection to be identified, an operator will ask for the same documents, and it applies to every account on every plan. A verified account is then refused with `number_purchase_is_operator_led`, whose remediation names both routes forward: talk to us, or bring a connection taken in the client's own name with an Indian operator. Neither refusal writes anything.",
         "operationId": "purchase_number_v1_numbers_purchase_post",
         "requestBody": {
           "content": {
@@ -31979,7 +33813,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Ask us for a phone number \u2014 always refused; Calevate does not supply numbers",
+        "summary": "Ask us for a phone number \u2014 always refused here; numbers are arranged by an operator",
         "tags": [
           "campaigns"
         ],

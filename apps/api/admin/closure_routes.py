@@ -79,9 +79,8 @@ from apps.api.core.context import Principal
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
-from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy import closure
-from apps.workers.account_closure import NOTICE_CLOSED, NOTICE_JOB, NOTICE_RESTORED
+from apps.workers.account_closure import NOTICE_CLOSED, NOTICE_RESTORED, enqueue_closure_notice
 
 router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/closure", tags=["admin"])
 
@@ -270,18 +269,15 @@ async def close(
         )
         if before.is_closed:
             return _out(record, now=datetime.now(UTC))
-        await enqueue_outbox(
+        await enqueue_closure_notice(
             scoped,
-            job=NOTICE_JOB,
-            payload={
-                "tenant_id": str(tenant_id),
-                "event": NOTICE_CLOSED,
-                # ISO, and DATE-only: the client is being told which day their records
-                # go, and a timestamp to the microsecond in an email reads as machine
-                # output rather than a deadline a person can act on.
-                "erase_on": record.erase_after.date().isoformat() if record.erase_after else None,
-                "reason": record.reason,
-            },
+            tenant_id=tenant_id,
+            event=NOTICE_CLOSED,
+            # ISO, and DATE-ONLY: the client is being told which day their records go, and
+            # a timestamp to the microsecond in an email reads as machine output rather
+            # than a deadline a person can act on.
+            erase_on=record.erase_after.date().isoformat() if record.erase_after else None,
+            reason=record.reason,
         )
         await write_audit(
             scoped,
@@ -326,11 +322,7 @@ async def restore(tenant_id: UUID, request: Request, principal: Closer) -> Closu
         before = await closure.read_closure(scoped, tenant_id=tenant_id)
         record = await closure.restore_account(scoped, tenant_id=tenant_id)
         if before.is_closed:
-            await enqueue_outbox(
-                scoped,
-                job=NOTICE_JOB,
-                payload={"tenant_id": str(tenant_id), "event": NOTICE_RESTORED},
-            )
+            await enqueue_closure_notice(scoped, tenant_id=tenant_id, event=NOTICE_RESTORED)
             await write_audit(
                 scoped,
                 action="tenant.closure_reversed",
