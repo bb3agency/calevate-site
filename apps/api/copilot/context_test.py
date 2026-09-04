@@ -163,6 +163,11 @@ def test_the_block_is_small_by_construction() -> None:
     names or campaign names to this block moves it by an order of magnitude and fails
     here.
 
+    ⚠ **RAISED AGAIN, 1,000 → 1,100 BY D-522**, for the `<viewer>` element: a role, the
+    name of the screen the person is on, and the names of the screens their role cannot
+    open. Every one of those strings comes from `screens.CLIENT_SCREENS`, so the growth is
+    bounded by the console's own size and not by anything a tenant can type.
+
     ⚠ **RAISED FROM 800 BY D-497, WHICH IS THE ONLY LEGITIMATE WAY TO MOVE THIS NUMBER:
     for scalars.** The lead total, the leads-this-week count and the three agent-status
     counts are five more integers, and the maximal render went 771 → 882 bytes. They are
@@ -194,8 +199,14 @@ def test_the_block_is_small_by_construction() -> None:
             "national_dnd_scrub_missing",
             "big_red_switch",
         ),
+        # THE WORST VIEWER TOO (D-522): the longest screen location this console can
+        # produce, and every screen a role can be shut out of. Both are bounded by
+        # `screens.CLIENT_SCREENS` — the element carries NAMES, never routes and never a
+        # tenant string — which is why it is allowed in a block whose whole discipline is
+        # that its size cannot be moved by data.
+        viewer=context.viewer_for(role="staff", route="/c/{slug}/settings/models"),
     )
-    assert len(context.render_live(worst).encode("utf-8")) < 1_000
+    assert len(context.render_live(worst).encode("utf-8")) < 1_100
 
 
 # --- what it must never say -----------------------------------------------------------

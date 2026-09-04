@@ -48,6 +48,15 @@ FOUR PROPERTIES, EACH OF WHICH IS A CONSTRAINT ON WHAT MAY GO IN HERE.
    reads are the honest price of that, and they are ordinary local statements measured
    against a model round trip of seconds.
 
+5. **ONE THING IN HERE IS NOT ABOUT THE BUSINESS AT ALL: `<viewer>` (D-522).** Who is
+   asking, the screen they are looking at (named, from `screens.py`) and the screens their
+   role may not open. It is here because it is VOLATILE and this is the volatile block —
+   the console's screen DIRECTORY, which does not vary by request, sits in the cacheable
+   static prefix instead. It costs no round trip: the role and the route come from the
+   request, the closed list from `core/rbac.ROLE_PERMISSIONS`, and nothing reads a row for
+   it. It is also the one part of this block that survives an unreadable database, for the
+   reason `live_state_block` gives.
+
 WHAT "BLOCKED" MEANS HERE, said plainly because the word is doing work. `campaigns.status`
 has no `blocked` value (`campaigns/models.CAMPAIGN_STATUSES`): a campaign is draft,
 scheduled, running, paused, completed or cancelled. What blocks an account's outbound is
@@ -62,7 +71,7 @@ per campaign, and the campaign's own screen is where they are answered.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Final
 from uuid import UUID
@@ -73,7 +82,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_hours import BUSINESS_HOURS_TZ
 from apps.api.copilot.prompt import xml_attr
+from apps.api.copilot.screens import match_route, screens_closed_to, where_is
 from apps.api.core.logging import get_logger
+from apps.api.core.rbac import ROLE_PERMISSIONS
 from apps.api.crm.performance import IST_DAY_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import LeadStatus
 from apps.api.db.session import tenant_session
@@ -193,6 +204,37 @@ class LiveCounts:
 
 
 @dataclass(frozen=True, slots=True)
+class Viewer:
+    """WHO IS ASKING, and which screens are shut to them (D-522).
+
+    THE VOLATILE HALF OF THE SCREEN DIRECTORY. The directory itself — every screen, its
+    name, its group, the words clients use for it — is the same for every account and lives
+    in the cacheable static prefix (`screens.py`, `prompt.SYSTEM_PROMPT`). These three facts
+    are not: they are about the one person on the other end of this one request, and putting
+    them in the prefix would move the byte at which the cache stops matching to the front of
+    it.
+
+    `closed` is computed from `core/rbac.ROLE_PERMISSIONS` at request time rather than from
+    a role name written into a prompt, so the sentence the copilot says to a staff member —
+    "Invoice is the account owner's" — is derived from the same table the API refuses them
+    with. It carries NAMES, not routes: a name is what they will look for in the sidebar.
+    """
+
+    #: The client role as the verified principal carries it (`owner`, `staff`, or an admin
+    #: role for a D-22 view-as session). Never read from the request body.
+    role: str
+    #: `where_is()` for the screen they are looking at, or `None` when the route belongs to
+    #: no screen in the inventory (an admin-realm page, or one nobody has added yet).
+    #:
+    #: THE FIRST OF THE THREE FAILURES THIS FIXES: the copilot denied the billing page to a
+    #: person standing on it, because "the address bar says /c/x/credits" and "this screen
+    #: is called Calling credit" were two facts nothing in the prompt joined up.
+    on_screen: str | None
+    #: The screens this role may not open, by NAME, in sidebar order. Empty for an owner.
+    closed: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LiveState:
     """Everything the block can carry. Either half may be `None` — see property 3."""
 
@@ -204,6 +246,10 @@ class LiveState:
     #: Organisation-level outbound blocker rule names, in the gates' own order. `()` means
     #: "read, and nothing is blocking"; `None` means "could not read".
     blocker_rules: tuple[str, ...] | None
+    #: Who is asking and what is shut to them, or `None` when the caller did not say —
+    #: the admin realm composes this block for a TENANT's business state and has its own
+    #: console, so it passes no viewer and gets no `<viewer>` element.
+    viewer: Viewer | None = None
 
     @property
     def partial(self) -> bool:
@@ -342,12 +388,48 @@ def render_live(state: LiveState) -> str:
         parts.append(f"<outbound_blockers>{rules}</outbound_blockers>")
     else:
         parts.append("<outbound_blockers/>")
+    if state.viewer is not None:
+        viewer = state.viewer
+        # NAMES, NOT ROUTES, AND NEVER AN EMPTY ATTRIBUTE. `screens_you_cannot_open` is
+        # omitted rather than rendered blank for an owner: an attribute reading `""` is a
+        # thing a model paraphrases ("you cannot open: nothing"), and absence is what every
+        # other element here already uses to mean "does not apply".
+        attributes = [f"role={xml_attr(viewer.role)}"]
+        if viewer.on_screen is not None:
+            attributes.append(f"looking_at={xml_attr(viewer.on_screen)}")
+        if viewer.closed:
+            attributes.append(f"screens_you_cannot_open={xml_attr(', '.join(viewer.closed))}")
+        parts.append(f"<viewer {' '.join(attributes)}/>")
     parts.append("</live>")
     parts.append(LIVE_CLOSE)
     return "\n".join(parts)
 
 
-async def live_state_block(tenant_id: UUID) -> str:
+def viewer_for(*, role: str, route: str) -> Viewer:
+    """The `<viewer>` facts for one request — one place, so the rule is spelled once.
+
+    The role is turned into PERMISSIONS here, against `core/rbac.ROLE_PERMISSIONS`, which
+    is the table the API itself refuses with: the sentence a staff member is told ("Invoice
+    is the account owner's") is then derived from the same fact as the 403 they would have
+    collected, rather than from a role list this module would have to keep in step. An
+    unknown role holds nothing, which closes every gated screen — the safe direction, and
+    unreachable from the route in any case (`requires()` resolved the role a line earlier).
+
+    A route that belongs to no screen yields `on_screen=None` rather than a guess: "I could
+    not tell which screen this is" is a fact, and inventing a name for it is the defect this
+    whole change exists to remove.
+    """
+    here = match_route(route)
+    return Viewer(
+        role=role,
+        on_screen=None if here is None else where_is(here),
+        closed=tuple(
+            screen.name for screen in screens_closed_to(ROLE_PERMISSIONS.get(role, frozenset()))
+        ),
+    )
+
+
+async def live_state_block(tenant_id: UUID, viewer: Viewer | None = None) -> str:
     """The whole thing, from a tenant id, in ONE short-lived session. NEVER RAISES.
 
     **ITS OWN SESSION, NOT THE GATE'S, AND THAT IS THE ONE COST PAID ON PURPOSE.** The
@@ -360,9 +442,16 @@ async def live_state_block(tenant_id: UUID) -> str:
     so the rule this route exists to keep — no pooled connection held across a model round
     trip (`routes.py`, "NO `Depends(db)`") — is untouched.
 
-    Returns `""` when the session itself cannot be opened, which is the one failure
-    `read_live_state` cannot absorb. The copilot then runs with the screen block alone,
-    exactly as it did before this module existed.
+    Returns `""` when the session itself cannot be opened AND there is nothing else to
+    say, which is the one failure `read_live_state` cannot absorb. The copilot then runs
+    with the screen block alone, exactly as it did before this module existed.
+
+    **THE VIEWER SURVIVES THAT FAILURE, AND THAT IS THE ONE ASYMMETRY HERE.** Who is asking,
+    which screen they are on and what their role may not open are computed from the verified
+    principal and the screen inventory — no database is involved in any of the three — so a
+    dead pool has no business taking them with it. Dropping them would put the copilot back
+    in exactly the state that produced D-522: unable to name the screen the person is
+    standing on, at the moment everything else is already degraded.
     """
     try:
         async with tenant_session(tenant_id) as session:
@@ -372,8 +461,17 @@ async def live_state_block(tenant_id: UUID) -> str:
             "copilot_live_state_unavailable",
             extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
         )
-        return ""
-    return render_live(state)
+        if viewer is None:
+            return ""
+        return render_live(
+            LiveState(
+                now_ist=datetime.now(BUSINESS_HOURS_TZ),
+                counts=None,
+                blocker_rules=None,
+                viewer=viewer,
+            )
+        )
+    return render_live(replace(state, viewer=viewer))
 
 
 __all__ = [
@@ -384,7 +482,9 @@ __all__ = [
     "WAITING_STATUSES",
     "LiveCounts",
     "LiveState",
+    "Viewer",
     "live_state_block",
     "read_live_state",
     "render_live",
+    "viewer_for",
 ]

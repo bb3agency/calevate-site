@@ -11,6 +11,13 @@ THE ORDER IS THE DESIGN, and every part of it is measured guidance rather than t
    destroys it, which is why the tool takes an opaque `value` and the enums are stated in
    the SCREEN block instead. See `set_fields_tool`.
 
+1b. **THE CONSOLE'S SCREEN DIRECTORY IS PART OF THAT STATIC PREFIX** (`screens.py`, D-522).
+   Every client sees the same console, so the list of what exists and what it is called is
+   the same bytes for every request and belongs where it is paid for once. What is NOT the
+   same for every request is WHO is asking, so the person's role and the screens their role
+   cannot open are rendered beside the live state instead (`context.render_live`,
+   `<viewer>`) — the same split, for the same reason, as every other volatile fact here.
+
 2. **The screen state comes LAST, as XML.** OpenAI's GPT-4.1 prompting guide reports that
    in their long-context testing "JSON performed particularly poorly" while "XML performed
    well in our long context testing" (openai/openai-cookbook,
@@ -75,6 +82,7 @@ from xml.sax.saxutils import escape, quoteattr
 
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotField
+from apps.api.copilot.screens import render_directory
 from apps.api.core.errors import ProblemError
 
 #: The name the tool travels under. ONE tool, and it is the whole state-change surface.
@@ -478,6 +486,8 @@ SYSTEM_PROMPT: Final = (
     "suggested when it has already happened. Each tool's description says which it is; "
     "believe the description, not your memory of it.\n"
     "\n"
+    f"{render_directory()}\n"
+    "\n"
     "HOW TO WRITE: short, plain sentences. This product is Telugu-first — answer in the "
     "language the person wrote to you in, and Tenglish code-switching is normal and fine. "
     "No markdown headings, no bullet-point walls; a couple of sentences is usually the "
@@ -503,7 +513,11 @@ CLOSING_RULES: Final = (
     "actions work from any screen — and if there is no tool for what they asked and no "
     "field on this screen for it, say so rather than filling in something else. An action "
     "that the platform refuses is an answer to relay, never something to try again another "
-    "way. For anything about this account's own calls, leads, campaigns or agents, "
+    "way. THE LIST OF SCREENS ABOVE IS COMPLETE AND CORRECT: never tell somebody a screen does "
+    "not exist because they called it something else, never name a screen that is not on "
+    "it, and when they ask where something is, give its name and where it sits in the "
+    "sidebar — you cannot open it for them, and saying where it is is the answer. "
+    "For anything about this account's own calls, leads, campaigns or agents, "
     "CALL A READ TOOL rather than guessing a number — and rather than saying you cannot "
     "see it. A number missing from the LIVE BUSINESS STATE is one to look up, never one "
     "to report as invisible. Do not fabricate a real-world fact (a real "
