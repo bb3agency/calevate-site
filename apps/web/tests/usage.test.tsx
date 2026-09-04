@@ -1,12 +1,12 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import UsagePage from "@/app/c/[slug]/usage/page";
 import type { Me } from "@/lib/api/client";
 import type { Caps } from "@/lib/api/caps";
 import type { UsagePanel } from "@/lib/api/hooks";
 
-import { problem, renderClientPage } from "./harness";
+import { renderBillingHub } from "./billingHub";
+import { problem } from "./harness";
 
 /**
  * The usage panel — the screen a client checks against their own books, which makes it
@@ -32,7 +32,7 @@ const ME: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["billing:read", "org:manage"],
+  permissions: ["wallet:read", "billing:read", "org:manage"],
   impersonating: false,
   organization: {
     id: "o1",
@@ -42,10 +42,13 @@ const ME: Me = {
   },
 };
 
+/* STAFF holds `wallet:read` and NOT `billing:read` (`core/rbac.py`), which is exactly the
+   split the hub is built around: they reach the screen, they see the balance, and this tab
+   tells them in a sentence why the month's figures are not theirs to see. */
 const STAFF: Me = {
   ...ME,
   role: "staff",
-  permissions: ["calls:read", "leads:read"],
+  permissions: ["calls:read", "leads:read", "wallet:read"],
 };
 
 const CAPS: Caps = {
@@ -114,20 +117,88 @@ function surchargedUsage(): UsagePanel {
   });
 }
 
+/**
+ * WHAT THE HUB AROUND THIS TAB READS, at its emptiest honest value.
+ *
+ * Usage is a tab of `/c/{slug}/billing` now (D-525) and the hub reads the wallet on mount
+ * whatever tab is open. This account is INVOICED (`prepaid: false`), which is the state
+ * that makes the wallet irrelevant to what this file is about — the month's figures — and
+ * keeps a balance out of every assertion below.
+ */
+const HUB_WALLET = {
+  tenant_id: "o1",
+  prepaid: false,
+  balance_inr: "0.00",
+  is_low: false,
+  low_balance_threshold_inr: "200.00",
+  outbound_stopped: false,
+  runway: {
+    basis: "empty",
+    days: null,
+    daily_burn_inr: null,
+    history_days: 0,
+    beyond_horizon: false,
+    window_days: 30,
+    min_history_days: 7,
+    max_days: 365,
+  },
+  minutes_left: null,
+  drawdown: {
+    calls_inr: "0.00",
+    ai_assist_inr: "0.00",
+    adjustments_inr: "0.00",
+    spent_inr: "0.00",
+    added_inr: "0.00",
+    refunded_inr: "0.00",
+  },
+};
+
+/**
+ * The per-agent breakdown that now sits under the month's totals on this tab. EMPTY on
+ * purpose: `tests/spend.test.tsx` owns its assertions, and repeating them here would be
+ * two files that have to be corrected together.
+ */
+const IST_MONTH = new Date()
+  .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+  .slice(0, 7);
+const SPEND_ROUTE = `/v1/billing/spend?month=${encodeURIComponent(IST_MONTH)}`;
+const EMPTY_SPEND = {
+  month: IST_MONTH,
+  charge_basis: "allocated",
+  calls: 0,
+  minutes_used: "0.0000",
+  retainer_inr: "4999.00",
+  period_charge_inr: "4999.00",
+  itemised_charge_inr: "0.00",
+  itemisation_residual_inr: "0.00",
+  residual_reason: null,
+  by_agent: [],
+  top_calls: [],
+  top_calls_truncated: false,
+};
+
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
     "/v1/usage": usage(),
     "/v1/billing/caps": CAPS,
+    // WHAT THE HUB AROUND THIS TAB READS. Usage is a tab of `/c/{slug}/billing` now
+    // (D-525): the screen reads the wallet, its history and the pack rate card on mount
+    // whatever tab is open, and the tab itself reads the per-agent breakdown under the
+    // month's totals. Routed with the emptiest honest answer, because an unrouted request
+    // throws in this harness — a hole in a test's premise should say so rather than render
+    // an error state that happens to contain the string it was looking for.
+    "/v1/billing/wallet": HUB_WALLET,
+    "/v1/billing/wallet/ledger?limit=50": { entries: [], payments: [] },
+    "/v1/billing/topups/packs": { list_rate_inr_per_min: "8.00", packs: [] },
+    [SPEND_ROUTE]: EMPTY_SPEND,
     ...over,
   };
 }
 
-const page = <UsagePage />;
-
 describe("the usage panel", () => {
   it("prints rupees from the string the API sent, without going through a float", async () => {
-    const { container } = await renderClientPage(page, routes());
+    const { container } = await renderBillingHub(routes(), "Usage");
 
     await screen.findByText("Extra charges");
     // Grouped the Indian way, paise intact, and identical on the tile and in the table —
@@ -149,9 +220,9 @@ describe("the usage panel", () => {
     // their agents onto the dearer model would have read a total ₹60 below the statement
     // they were sent. A screen showing one number while the invoice charges another is
     // exactly what this whole slice exists to remove.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ "/v1/usage": surchargedUsage() }),
+      "Usage",
     );
 
     await screen.findByText("Extra charges");
@@ -178,9 +249,9 @@ describe("the usage panel", () => {
    * heading about a bill.
    */
   it("sends an owner from the upgrade charge to the setting that causes it", async () => {
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ "/v1/usage": surchargedUsage() }),
+      "Usage",
     );
 
     await screen.findByText("Extra charges");
@@ -190,7 +261,7 @@ describe("the usage panel", () => {
   });
 
   it("does not offer the model picker from a month nothing was surcharged", async () => {
-    await renderClientPage(page, routes());
+    await renderBillingHub(routes(), "Usage");
 
     await screen.findByText("Extra charges");
     expect(screen.queryByRole("link", { name: "AI model" })).toBeNull();
@@ -199,7 +270,7 @@ describe("the usage panel", () => {
   it("prints no upgrade line on a month nothing was surcharged", async () => {
     // Every plan today quotes no surcharge, so this is the shipped shape: a ₹0.00 row
     // invites a question about nothing, and the total is what it always was.
-    const { container } = await renderClientPage(page, routes());
+    const { container } = await renderBillingHub(routes(), "Usage");
 
     await screen.findByText("Extra charges");
     expect(container.textContent).not.toContain("AI model upgrade");
@@ -211,9 +282,9 @@ describe("the usage panel", () => {
     // prints ₹6.50 for a ₹6.5000 rate — harmless here — and ₹7.12 for ₹7.1250, which is
     // 0.4% of every extra minute and makes the invoice line fail the client's own
     // multiplication.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ "/v1/usage": usage({ overage_rate_inr: "7.1250" }) }),
+      "Usage",
     );
 
     // Wait on the panel, then judge the rate — so a rounded rate fails on the assertion
@@ -231,7 +302,7 @@ describe("the usage panel", () => {
   it("prints the metered minutes exactly as sent, trailing zero and all", async () => {
     // `minutes_used` is a decimal string too. `Number("120.50")` renders "120.5", and a
     // client comparing the screen to the invoice finds two different figures.
-    const { container } = await renderClientPage(page, routes());
+    const { container } = await renderBillingHub(routes(), "Usage");
 
     await screen.findByText("Minutes used");
     expect(container.textContent).toContain("120.50");
@@ -242,11 +313,11 @@ describe("the usage panel", () => {
     // do not hold (SEC-COMP §5). Before the gate, a staff user reached this screen from
     // the nav and was shown a red alert — a refusal we could see coming, delivered as a
     // fault.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       // The usage request still goes out and is still refused; the screen must answer
       // with the sentence, not with the 403.
       { "/v1/me": STAFF, "/v1/usage": problem(403, { title: "Forbidden" }) },
+      "Usage",
     );
 
     await screen.findByText(/limited to the account owner/);
@@ -261,14 +332,14 @@ describe("the usage panel", () => {
   });
 
   it("shows a refusal instead of figures when the request fails", async () => {
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         "/v1/usage": problem(503, {
           title: "Service unavailable",
           detail: "We could not read this month's usage.",
         }),
       }),
+      "Usage",
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -281,9 +352,9 @@ describe("the usage panel", () => {
   });
 
   it("says a cap has stopped outgoing calls, and that incoming ones still get through", async () => {
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ "/v1/usage": usage({ capped: true, minutes_left: 0 }) }),
+      "Usage",
     );
 
     await screen.findByText(/Outgoing calls are paused for this month/);
@@ -298,7 +369,7 @@ describe("the usage panel", () => {
   it("offers no runway figure when the server did not compute one", async () => {
     // `minutes_left` is null for a managed plan with no cap. "About 0 minutes left" would
     // read as an account about to stop dialling.
-    const { container } = await renderClientPage(page, routes());
+    const { container } = await renderBillingHub(routes(), "Usage");
 
     await screen.findByText("Minutes used");
     expect(container.textContent).not.toContain("of calling left this month");

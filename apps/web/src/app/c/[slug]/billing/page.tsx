@@ -1,9 +1,9 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { use, useState } from "react";
+import { use, useState, type ReactNode } from "react";
 
-import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, ScrollRegion, Skeleton } from "@/components/ui";
 import { useCreditPacks } from "@/lib/api/billing";
 import { useMe } from "@/lib/api/hooks";
 import { currentISTMonth } from "@/lib/api/invoice";
@@ -11,7 +11,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { runwaySentence, useWallet, useWalletLedger, walletState } from "@/lib/api/wallet";
 import { useTabs } from "@/components/interior/tabs";
 import { useCopilotSurface } from "@/lib/copilot/registry";
-import { noFill } from "@/lib/copilot/types";
+import { asText } from "@/lib/copilot/types";
 
 import { CreditsTab } from "./CreditsTab";
 import { InvoicedAccount } from "./InvoicedAccount";
@@ -252,7 +252,7 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
     ],
     apply: (items) => {
       for (const item of items) {
-        const wanted = typeof item.value === "string" ? item.value : String(item.value);
+        const wanted = asText(item.value);
         if (item.field_id === "billing-tab" && isBillingTab(wanted)) selectTab(wanted);
         if (item.field_id === "billing-month" && /^\d{4}-(0[1-9]|1[0-2])$/.test(wanted)) {
           setMonth(wanted);
@@ -274,32 +274,41 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
   }
   const billingRefused = me.data !== undefined && !me.data.permissions.includes("billing:read");
 
-  /* §52, all three arms. A skeleton while it is in flight, the server's own refusal when
-     it failed, and — for the case neither arm catches — a refusal rather than a blank:
-     TanStack PARKS a query while the browser is offline (`fetchStatus: "paused"`), which
-     reports `isLoading === false` AND `error === null` with `data === undefined`. A
-     `return null` there is a screen that says a wallet has nothing in it. */
-  if (wallet.isLoading) return <Skeleton rows={6} label="Loading your billing" />;
-  if (wallet.error || !wallet.data) {
-    return <ProblemNotice error={wallet.error} onRetry={() => void wallet.refetch()} />;
-  }
-
-  const notPrepaid = walletState(wallet.data) === "not-prepaid";
   const listRate = packs.data?.list_rate_inr_per_min ?? null;
+
+  /**
+   * The wallet, for the two tabs that cannot be rendered without it — §52, all three arms.
+   * A skeleton while it is in flight, the server's own refusal when it failed, and — for
+   * the case neither arm catches — a refusal rather than a blank: TanStack PARKS a query
+   * while the browser is offline (`fetchStatus: "paused"`), which reports
+   * `isLoading === false` AND `error === null` with `data === undefined`. A `return null`
+   * there is a screen that says a wallet has nothing in it.
+   *
+   * IT IS SCOPED TO THE PANEL, NOT THE SCREEN, and that is a deliberate change from the
+   * wallet screen this replaced. Transactions and Usage do not read the wallet at all, so
+   * a failed balance read must not take the statement and the month's figures down with
+   * it — and the TAB STRIP stays on screen either way, because a client whose balance
+   * failed to load still has to be able to reach the other three answers.
+   */
+  const withWallet = (render: (data: NonNullable<typeof wallet.data>) => ReactNode) => {
+    if (wallet.isLoading) return <Skeleton rows={6} label="Loading your balance" />;
+    if (wallet.error || !wallet.data) {
+      return <ProblemNotice error={wallet.error} onRetry={() => void wallet.refetch()} />;
+    }
+    /* AN INVOICED ACCOUNT HAS NO WALLET, and this is not an empty state — it is a
+       different panel. The tab is not HIDDEN: a client told "top up your credit" by
+       somebody who assumed wrong has to be able to find out why they cannot, and a tab
+       that is missing explains nothing. */
+    if (walletState(wallet.data) === "not-prepaid") return <InvoicedAccount onGoTo={selectTab} />;
+    return render(wallet.data);
+  };
 
   const panel = () => {
     switch (tab) {
       case "credits":
-        /* AN INVOICED ACCOUNT HAS NO WALLET, so there is nothing to buy — and the Credits
-           tab says that rather than offering a form whose click earns a
-           `topup_not_available` refusal. The tab is not HIDDEN: a client told "top up your
-           credit" by somebody who assumed wrong has to be able to find out why they
-           cannot, and a tab that is missing explains nothing. */
-        return notPrepaid ? (
-          <InvoicedAccount onGoTo={selectTab} />
-        ) : (
+        return withWallet(() => (
           <CreditsTab session={session} listRate={listRate} billingRefused={billingRefused} />
-        );
+        ));
       case "transactions":
         return (
           <TransactionsTab
@@ -320,16 +329,9 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
           />
         );
       default:
-        return notPrepaid ? (
-          <InvoicedAccount onGoTo={selectTab} />
-        ) : (
-          <OverviewTab
-            session={session}
-            wallet={wallet.data}
-            funded={funded}
-            listRate={listRate}
-          />
-        );
+        return withWallet((data) => (
+          <OverviewTab session={session} wallet={data} funded={funded} listRate={listRate} />
+        ));
     }
   };
 
@@ -337,11 +339,22 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
     <div className="space-y-5 pb-12">
       {/* The strip is ONE tab stop (roving `tabIndex`); Left/Right/Home/End move the
           selection. `aria-label` names it, because a page can hold more than one tablist
-          and "Tabs" tells a screen-reader user nothing. */}
+          and "Tabs" tells a screen-reader user nothing.
+
+          THE SCROLLER IS A `ScrollRegion`, not a bare `overflow-x-auto` div: at 360px the
+          four tabs overflow, and a container that scrolls but takes no focus cannot be
+          scrolled from a keyboard at all (`tests/responsive.test.ts` enforces it, and it
+          caught this). `ScrollRegion` carries role=region + tabIndex + a name; the
+          tablist inside it stays `w-max` so it can exceed the region rather than wrapping
+          — the same shape `components/interior/tabs.tsx` settled on. */}
+      <ScrollRegion
+        label="Billing sections"
+        className="-mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
       <div
         {...tabs.tabListProps}
         aria-label="Billing sections"
-        className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex w-max gap-1 pb-px"
       >
         {BILLING_TABS.map((item, index) => {
           const selected = item.value === tab;
@@ -359,7 +372,8 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
             </button>
           );
         })}
-      </div>
+        </div>
+      </ScrollRegion>
 
       <div {...tabs.getPanelProps(tab)} className="outline-none">
         {panel()}

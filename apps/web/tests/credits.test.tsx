@@ -1,12 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import CreditsPage from "@/app/c/[slug]/credits/page";
 import type { Me } from "@/lib/api/client";
+import type { Invoice } from "@/lib/api/invoice";
 import type { Wallet, WalletLedger } from "@/lib/api/wallet";
 
 import { expectNoA11yViolations } from "./a11y";
-import { problem, renderClientPage, stillLoading } from "./harness";
+import { renderBillingHub } from "./billingHub";
+import { problem, stillLoading } from "./harness";
 
 /**
  * Calling credit (`/c/<slug>/credits`) — the screen a client opens to answer three
@@ -124,6 +125,60 @@ const PACK_CARD = {
   ],
 };
 
+/**
+ * THE STATEMENT THE TRANSACTIONS TAB ASKS FOR, as this deployment actually issues it: a
+ * BILL OF SUPPLY. Calevate is not registered for GST (`billing/gst.py`), so CGST s.32
+ * forbids collecting tax, Rule 49 makes this the document, and `gst_inr` is ₹0.00 with the
+ * `estimated_*` fields carrying what 18% WOULD add once registered — labelled an estimate
+ * so nothing renders it as due.
+ */
+const INVOICE_MONTH = new Date()
+  .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+  .slice(0, 7);
+const INVOICE_ROUTE = `/v1/billing/invoice?month=${encodeURIComponent(INVOICE_MONTH)}`;
+const BILL_OF_SUPPLY: Invoice = {
+  invoice_number: "CAL2608000192f0aa",
+  month: INVOICE_MONTH,
+  generated_at: "2026-09-01T04:30:00Z",
+  document_type: "bill_of_supply",
+  document_blockers: ["GST_SUPPLIER_GSTIN"],
+  estimated_gst_inr: "180.00",
+  estimated_gst_rate_pct: "18",
+  estimated_total_inr: "1180.00",
+  tax_note:
+    "Bill of supply. Calevate is not registered for GST, so no tax is charged on this " +
+    "document and no input tax credit is available (CGST Act s.32; CGST Rules r.49).",
+  supplier: {
+    legal_name: "Calevate",
+    address: "Hyderabad",
+    gstin: null,
+    state_name: "Telangana",
+    sac: null,
+  },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    billing_email: "owner@sriclinic.example",
+    gstin: null,
+    state_name: "Telangana",
+  },
+  place_of_supply: {
+    state_code: "36",
+    state_name: "Telangana",
+    supply_type: "intrastate",
+    basis: "Address on record (IGST Act s.12(2)(b)).",
+  },
+  line_items: [
+    { description: "Calling", qty: "125", unit_inr: "8.0000", amount_inr: "1000.00", sac: null },
+  ],
+  subtotal_inr: "1000.00",
+  gst_rate_pct: "0",
+  gst_inr: "0.00",
+  tax_components: [],
+  total_inr: "1000.00",
+  usage: { minutes_used: "125", calls: 12, included_minutes: 0 },
+};
+
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
@@ -132,15 +187,15 @@ function routes(over: Record<string, unknown> = {}) {
     [ATTEMPTS]: [],
     [CAPABILITY]: { online_payments_available: true, provider_orders_available: true },
     [PACKS]: PACK_CARD,
+    [INVOICE_ROUTE]: BILL_OF_SUPPLY,
     ...over,
   };
 }
 
-const page = <CreditsPage />;
 
 describe("the hero: how much, and how long it lasts", () => {
   it("puts the balance and the runway together, and shows the working behind the days", async () => {
-    const { container } = await renderClientPage(page, routes());
+    const { container } = await renderBillingHub(routes());
 
     // The digits the server sent, grouped the Indian way — never a parsed number. Scoped
     // to the balance tile: the same figure is the "balance after" of a ledger row, and
@@ -158,8 +213,7 @@ describe("the hero: how much, and how long it lasts", () => {
 
   it("refuses to project from an account too new to divide, and says how much is needed", async () => {
     // DAY ONE — the first thing every client ever sees on this screen.
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [WALLET]: wallet({
           balance_inr: "1000.00",
@@ -186,8 +240,7 @@ describe("the hero: how much, and how long it lasts", () => {
   });
 
   it("says a wallet that is not being spent is not being spent, rather than nothing", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [WALLET]: wallet({
           runway: {
@@ -207,8 +260,7 @@ describe("the hero: how much, and how long it lasts", () => {
   });
 
   it("caps an idle account at 'more than a year' instead of a true, useless number", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [WALLET]: wallet({
           runway: {
@@ -230,8 +282,7 @@ describe("the hero: how much, and how long it lasts", () => {
 
 describe("an empty wallet: what stopped, and what emphatically did not", () => {
   it("leads with 'people calling you still get through' before naming what stopped", async () => {
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [WALLET]: wallet({
           balance_inr: "0.00",
@@ -269,8 +320,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     // unless an operator says otherwise, is what nearly every client meets first. The
     // server says `outbound_stopped` for this wallet and for a spent one identically, so
     // the only thing that tells them apart is that nothing has ever moved on the ledger.
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [WALLET]: wallet({
           balance_inr: "0.00",
@@ -311,8 +361,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
   });
 
   it("warns at the low band without claiming anything has stopped yet", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({ [WALLET]: wallet({ balance_inr: "150.00", is_low: true, minutes_left: 18 }) }),
     );
     // NOT `findByRole("status")`: `Skeleton` is a live region too (it announces the
@@ -326,7 +375,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
 
 describe("where the money went", () => {
   it("names the three things that draw the wallet down and never invents a fourth", async () => {
-    const { container } = await renderClientPage(page, routes());
+    const { container } = await renderBillingHub(routes());
 
     // SCOPED TO THE CARD. "Calls" is also a ledger row's label now that this realm words
     // an entry for the person whose money it is rather than for an operator, and an
@@ -346,8 +395,7 @@ describe("where the money went", () => {
   });
 
   it("designs the day-one empty state rather than showing headers over nothing", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [WALLET]: wallet({
           drawdown: {
@@ -363,19 +411,23 @@ describe("where the money went", () => {
       }),
     );
 
-    // Two empty states, and both SAY what will appear rather than rendering a blank.
-    // `waitFor` on the COUNT, not `findAllByText`: that resolves as soon as ONE match
-    // exists, so it would pass while the second panel was still loading.
+    // ONE empty state per tab, and both SAY what will appear rather than rendering a
+    // blank. They are on different tabs now (D-525), so the count is asserted per tab:
+    // "where it went" is Overview's and the history is Transactions'.
     await waitFor(() =>
-      expect(screen.getAllByText(/Nothing has moved on your credit yet/)).toHaveLength(2),
+      expect(screen.getAllByText(/Nothing has moved on your credit yet/)).toHaveLength(1),
     );
+    fireEvent.click(await screen.findByRole("tab", { name: "Transactions" }));
     await screen.findByText(/Payments you make and calls your agents handle/);
+    // And the export offers nothing to download rather than a file with a header row
+    // and no rows.
+    await screen.findByText(/There is nothing to download yet/);
   });
 });
 
 describe("the ledger and its receipts", () => {
   it("lists newest first and offers a receipt only against a payment", async () => {
-    await renderClientPage(page, routes());
+    await renderBillingHub(routes(), "Transactions");
 
     const table = await screen.findByRole("table", { name: /credit history/i });
     const rows = within(table).getAllByRole("row");
@@ -394,8 +446,7 @@ describe("the ledger and its receipts", () => {
   });
 
   it("names a refund and a correction in words a client uses, not in ours", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [WALLET]: wallet({
           drawdown: {
@@ -433,6 +484,11 @@ describe("the ledger and its receipts", () => {
       }),
     );
 
+    // Money that went back to the client is named for its direction below the total on
+    // OVERVIEW, rather than being buried in the spend it is not part of.
+    await screen.findByText("Refunded to you", { selector: "dt" });
+
+    fireEvent.click(await screen.findByRole("tab", { name: "Transactions" }));
     const table = await screen.findByRole("table", { name: /credit history/i });
     const rows = within(table).getAllByRole("row");
     // "Compensating adjustment" is what the admin console calls this row. Nobody outside
@@ -440,14 +496,10 @@ describe("the ledger and its receipts", () => {
     expect(within(rows[1]).getByText("Refunded to you")).toBeTruthy();
     expect(within(rows[2]).getByText("Correction we made")).toBeTruthy();
     expect(table.textContent).not.toContain("Compensating");
-    // Money that went back to the client is named for its direction below the total,
-    // rather than being buried in the spend it is not part of.
-    await screen.findByText("Refunded to you", { selector: "dt" });
   });
 
   it("opens a receipt that calls itself a receipt and never a tax invoice", async () => {
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         "/v1/billing/wallet/receipts/pay_a1b2c3": {
           document_type: "receipt",
@@ -464,6 +516,7 @@ describe("the ledger and its receipts", () => {
             "charged on it. It is not a tax invoice.",
         },
       }),
+      "Transactions",
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /receipt for the payment/i }));
@@ -481,8 +534,7 @@ describe("the ledger and its receipts", () => {
 
 describe("payments that did not finish", () => {
   it("shows a failed payment, says no money moved, and does not offer a second control", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [ATTEMPTS]: [
           {
@@ -503,8 +555,7 @@ describe("payments that did not finish", () => {
   });
 
   it("tells a client who closed the tab that their credit lands without this page", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [ATTEMPTS]: [
           {
@@ -528,7 +579,7 @@ describe("payments that did not finish", () => {
   });
 
   it("says nothing at all when no payment is outstanding", async () => {
-    await renderClientPage(page, routes());
+    await renderBillingHub(routes());
     // A card headed "payments that did not finish" reading "none" on every visit is a
     // permanent invitation to worry.
     expect(screen.queryByText(/Payments that have not finished/)).toBeNull();
@@ -537,20 +588,18 @@ describe("payments that did not finish", () => {
 
 describe("the states that are not a balance", () => {
   it("shows a skeleton while the wallet is in flight, never a zero", async () => {
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ [WALLET]: stillLoading() }),
     );
     // The skeleton is ANNOUNCED as well as drawn (`components/ui.Skeleton`), which is the
     // half a screen-reader user would otherwise get nothing from.
-    await screen.findByText("Loading your calling credit");
+    await screen.findByText("Loading your balance");
     expect(container.querySelector("[role=status][aria-live=polite]")).toBeTruthy();
     expect(container.textContent).not.toContain("₹0.00");
   });
 
   it("refuses rather than rendering an empty wallet when the read fails", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         [WALLET]: problem(503, {
           title: "We could not load your credit",
@@ -567,8 +616,7 @@ describe("the states that are not a balance", () => {
   });
 
   it("gives an invoiced account a screen of its own rather than a dead end", async () => {
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ [WALLET]: wallet({ prepaid: false, balance_inr: "0.00", minutes_left: null }) }),
     );
     await screen.findByText("This account is billed on a monthly invoice");
@@ -577,9 +625,8 @@ describe("the states that are not a balance", () => {
     // offer nothing; now the three money questions each have a link, because an invoiced
     // client who lands here has usually been sent by somebody who assumed they had a
     // balance and needs to be told where theirs actually is.
-    expect(screen.getByRole("link", { name: /Usage/ })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Spend/ })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Invoice/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Usage/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Transactions/ })).toBeTruthy();
     // Prepaid is what an account gets unless an operator says otherwise, so this screen
     // says so — a client reading it who expected a wallet is reading OUR misconfiguration.
     await screen.findByText(/Most accounts pay as they go/);
@@ -589,13 +636,12 @@ describe("the states that are not a balance", () => {
   });
 
   it("gives a session without the permission a sentence, not a red 403", async () => {
-    await renderClientPage(
-      page,
+    await renderBillingHub(
       routes({
         "/v1/me": { ...ME, role: "staff", permissions: ["calls:read"] },
       }),
     );
-    await screen.findByText(/limited to people with access to this account's billing/);
+    await screen.findByText(/limited to people with access to it/);
     expect(screen.queryByText("₹3,400.00")).toBeNull();
   });
 });

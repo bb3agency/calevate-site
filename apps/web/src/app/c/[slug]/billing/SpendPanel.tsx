@@ -115,14 +115,19 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
               : "Buys the account rather than any particular call, so it is not split across the calls below."
           }
         />
+        {/* THE MONTH IS IN THE LABEL, and that is not decoration. This panel sits under
+            the month's own totals on the Usage tab (D-525), which report the OPEN month
+            and cannot look back; this one has a picker. Two tiles both reading "Minutes
+            used" with two different figures is the kind of screen a client screenshots
+            and asks us to explain, so each says which month it means. */}
         <StatTile
-          label="Minutes used"
+          label={`Minutes used · ${data.month}`}
           value={data.minutes_used}
           icon={<Timer className="h-5 w-5" />}
-          hint="Metered to the same precision your invoice bills."
+          hint="Metered to the same precision your statement bills."
         />
         <StatTile
-          label="Calls"
+          label={`Calls · ${data.month}`}
           value={formatCount(data.calls)}
           icon={<PhoneCall className="h-5 w-5" />}
         />

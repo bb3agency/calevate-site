@@ -534,7 +534,7 @@ describe("the calling credit tile", () => {
     const tile = (await screen.findByText("Calling credit left")).parentElement;
     expect(tile?.textContent).toContain("₹3,400.00");
     const link = within(tile as HTMLElement).getByRole("link");
-    expect(link.getAttribute("href")).toContain("/c/acme/credits");
+    expect(link.getAttribute("href")).toContain("/c/acme/billing?tab=credits");
   });
 
   it("says what stopped and what did not when the wallet is empty", async () => {

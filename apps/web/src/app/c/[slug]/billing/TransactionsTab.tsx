@@ -102,7 +102,17 @@ export function TransactionsTab({
  */
 function WalletExport({ session }: { session: Session }) {
   const ledger = useWalletLedger(session);
-  const entries = ledger.data?.entries ?? [];
+
+  /* §52, and the two arms are deliberately different shapes. IN FLIGHT: nothing at all,
+     because the panel below is already announcing its own skeleton and a second live
+     region saying the same thing is noise to a screen reader. FAILED: also nothing —
+     `WalletLedgerPanel` renders the server's refusal directly underneath, and a second
+     copy of it would tell a client their history failed to load twice. What must NOT
+     happen is the third thing, which is what the guard caught: `?? []` here would have
+     printed "there is nothing to download" over a read that FAILED, which is a claim
+     about an account rather than about a request. */
+  if (ledger.isPending || ledger.isError) return null;
+  const entries = ledger.data.entries;
 
   const download = () => {
     /* The BOM is not decoration: Excel does not sniff UTF-8, and without U+FEFF a rupee
@@ -123,7 +133,7 @@ function WalletExport({ session }: { session: Session }) {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm text-ink-muted">
         {entries.length === 0
-          ? "Nothing has moved on your credit yet."
+          ? "There is nothing to download yet."
           : `The ${formatCount(entries.length)} most recent movements on your credit, newest first.`}
       </p>
       <button
