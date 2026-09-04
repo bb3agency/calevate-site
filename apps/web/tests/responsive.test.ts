@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { relPosix } from "./repoPaths";
 
 import { describe, expect, it } from "vitest";
+import { blankComments } from "./sourceScan";
 
 /**
  * The mobile-layout gate: the rules a responsive sweep established, pinned so they cannot
@@ -183,31 +184,6 @@ describe("tap targets", () => {
   });
 });
 
-
-/**
- * Blank every comment line, keeping the array length so indices stay meaningful.
- *
- * Handles the two shapes this codebase uses: `//` line comments (including the
- * `// eslint-disable-next-line` directives that sit between a wrapper and its child) and
- * `/* ... *\/` blocks, whether one line or many. Deliberately NOT a parser — a regex that
- * understood JSX would be a bigger thing to trust than the rule it serves.
- */
-function blankComments(lines: string[]): string[] {
-  let inBlock = false;
-  return lines.map((line) => {
-    const trimmed = line.trim();
-    if (inBlock) {
-      if (trimmed.includes("*/")) inBlock = false;
-      return "";
-    }
-    if (trimmed.startsWith("/*") || trimmed.startsWith("{/*")) {
-      if (!trimmed.includes("*/")) inBlock = true;
-      return "";
-    }
-    if (trimmed.startsWith("//")) return "";
-    return line;
-  });
-}
 
 /** The nearest `count` non-blank lines above `index`, closest first. */
 function previousCodeLines(code: string[], index: number, count: number): string[] {

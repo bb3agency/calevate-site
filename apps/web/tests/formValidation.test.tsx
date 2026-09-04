@@ -14,6 +14,7 @@ import { fieldProblem } from "@/components/formValidation";
 import type { Me } from "@/lib/api/client";
 
 import { renderAdminPage, renderClientPage } from "./harness";
+import { codeOnly } from "./sourceScan";
 
 /**
  * The forms answer in OUR words now, and the browser answers in none.
@@ -235,7 +236,12 @@ describe("no form in either realm leaves its refusals to the browser", () => {
     const offenders: string[] = [];
     let seen = 0;
     for (const file of files) {
-      for (const { line, tag } of formTags(readFileSync(file, "utf8"))) {
+      // `codeOnly`, NOT the raw source: a comment that NAMES a form is not a form, and
+      // this guard flagged `TopUp.tsx` for the line "Not a `<form>`: there is nothing to
+      // submit" — the comment written to explain that the element deliberately is not
+      // one. Blanked in place, so the reported line still points at the real line. See
+      // `tests/sourceScan.ts` for why that helper is shared rather than copied.
+      for (const { line, tag } of formTags(codeOnly(readFileSync(file, "utf8")))) {
         seen += 1;
         if (!/noValidate/.test(tag)) offenders.push(`${relPosix(process.cwd(), file)}:${line}`);
       }
