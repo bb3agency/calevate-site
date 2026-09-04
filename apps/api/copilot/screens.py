@@ -83,7 +83,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from apps.api.core.rbac import Permission
+from apps.api.core.rbac import ROLE_PERMISSIONS, Permission
 
 #: The heading a group carries in the sidebar. `None` is the primary group, which is
 #: rendered with no heading at all — so a screen in it is described as "in the left
@@ -409,6 +409,23 @@ def screens_closed_to(permissions: frozenset[str]) -> tuple[Screen, ...]:
     )
 
 
+def _open_to_staff(screen: Screen) -> bool:
+    """May a member of staff open this screen? Read off `core/rbac.ROLE_PERMISSIONS`.
+
+    **NOT "does it declare a permission at all", WHICH IS WHAT THIS LINE SAID FIRST AND WAS
+    WRONG ON THE ONE SCREEN THE WHOLE CHANGE IS ABOUT.** Calling credit declares
+    `wallet:read`, and `wallet:read` is a permission STAFF HOLD — the founder's 2 Sep 2026
+    decision that everyone on a client's team can see why dialling stopped, while only the
+    owner may buy. A directory that read "declares a permission" as "owner only" would have
+    told a staff member that the screen they can open is shut to them: the same lie this
+    module exists to stop, in the other direction, on the same screen.
+
+    `ROLE_PERMISSIONS` is a module constant, so this stays a pure function of the source and
+    the rendered directory remains byte-identical between requests.
+    """
+    return screen.permission is None or screen.permission in ROLE_PERMISSIONS["staff"]
+
+
 def _directory_line(screen: Screen) -> str:
     """One screen, as one line of the static directory block.
 
@@ -419,7 +436,7 @@ def _directory_line(screen: Screen) -> str:
     place, purpose, words — never has it in.
     """
     place = "in the left sidebar" if screen.group is None else f"under {screen.group}"
-    who = "everyone on the team" if screen.permission is None else "the account owner only"
+    who = "everyone on the team" if _open_to_staff(screen) else "the account owner only"
     return (
         f"- {screen.name} ({place}) — {screen.summary} "
         f"Also asked for as: {', '.join(screen.aliases)}. Open to: {who}. "

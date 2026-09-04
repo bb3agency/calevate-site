@@ -232,6 +232,29 @@ def test_the_directory_is_in_the_static_prefix_and_names_every_screen() -> None:
     assert "Also asked for as: billing" in prompt_module.SYSTEM_PROMPT
 
 
+def test_the_directory_says_owner_only_for_exactly_the_screens_rbac_shuts() -> None:
+    """THE LINE THAT WAS WRONG FIRST, AND ON THE ONE SCREEN THE DEFECT WAS ABOUT.
+
+    "declares a permission" is not "owner only": Calling credit declares `wallet:read`,
+    which STAFF HOLD (2 Sep 2026), so a directory keyed on "has a permission" told a staff
+    member the screen they can open is shut to them — the same lie, in the other
+    direction, on the same screen. So the marker is derived from `ROLE_PERMISSIONS` and
+    asserted here against `screens_closed_to`, which is what the `<viewer>` element uses:
+    the static half and the per-request half cannot disagree about who may open what.
+    """
+    directory = screens_module.render_directory()
+    shut = {screen.name for screen in screens_module.screens_closed_to(ROLE_PERMISSIONS["staff"])}
+    for screen in screens_module.CLIENT_SCREENS:
+        line = next(row for row in directory.splitlines() if row.startswith(f"- {screen.name} ("))
+        expected = (
+            "Open to: the account owner only."
+            if screen.name in shut
+            else ("Open to: everyone on the team.")
+        )
+        assert expected in line, screen.name
+    assert "Calling credit" not in shut
+
+
 def test_the_prompt_never_offers_a_screen_name_the_console_does_not_have() -> None:
     """The second failure in the transcript: it named a capitalised "Billing page" that is
     not a screen. Nothing in the directory may read as one."""
