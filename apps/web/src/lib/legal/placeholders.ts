@@ -139,27 +139,60 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
   },
   REGISTERED_ADDRESS: {
     describes:
-      "The principal place of business, with state and PIN code. IT IS PUBLISHED AS AN " +
-      "IDENTIFICATION ITEM AND NOT AS A CONTACT CHANNEL, and that distinction is the " +
-      "whole entry: it is the address a legal notice is served at, one of the items " +
-      "the Consumer Protection (E-Commerce) Rules 2020 require to be displayed, and " +
-      "half of what `docs/legal/LEGAL-OPS-PLAYBOOK.md:469` calls the minimum credible " +
-      "bar (\"Contact (Indian phone + address + email)\") — so the token stays and the " +
-      "documents declare the address. What no document offers any more is a POSTAL " +
-      "ROUTE: no postal correspondence is serviced, so every \"write to us at\" is an " +
-      "email address and a termination notice is an email too (26 Aug 2026). Do not " +
-      "re-add a \"By post\" line anywhere — a channel nobody services is worse than no " +
-      "channel — and do not answer that by deleting the token, because the display " +
-      "obligation is unchanged. The value is the address alone: every use site already " +
-      "writes \"principal place of business\" around it, so repeating those words here " +
-      "would print them twice.",
+      "WHERE the business is, at the CITY level — locality, state and country, and " +
+      "deliberately no street lines. IT IS PUBLISHED AS AN IDENTIFICATION ITEM AND NOT " +
+      "AS A CONTACT CHANNEL, and that distinction is the whole entry: it says which " +
+      "business and which jurisdiction a reader is dealing with, and it offers no route " +
+      "to send anything to. Half of what `docs/legal/LEGAL-OPS-PLAYBOOK.md:469` calls " +
+      "the minimum credible bar (\"Contact (Indian phone + address + email)\") is met by " +
+      "it together with `CONTACT_PHONE` and `SUPPORT_EMAIL`, and " +
+      "`JURISDICTION_CITY` — the arbitral seat and the courts clause in the Terms — " +
+      "names the same city, so the two agree by reading rather than by coincidence.\n\n" +
+      "⚠ THE STREET LINES WERE REMOVED ON 4 SEPTEMBER 2026 AND MUST NOT COME BACK. " +
+      "The value used to be the Udyam certificate's address in full — flat, building, " +
+      "lane, colony, PIN. That is the FOUNDER'S HOME, and this repository was " +
+      "publishing it on eight pages open to the internet, in a product whose own " +
+      "privacy notice is about not over-collecting. The founder asked for it gone " +
+      "(\"in our docs we still have my full address please fix that\"). Deleting the " +
+      "token instead would have traded a privacy problem for a compliance one, which " +
+      "is why the entry survives with less in it rather than not at all. The PIN code " +
+      "went with the street lines on purpose: 522007 narrows to a sub-locality of " +
+      "Guntur, so keeping it would have kept most of what was being removed.\n\n" +
+      "WHAT THE REDUCED VALUE STILL SATISFIES, AND THE ONE DUTY IT MAY NOT. The " +
+      "instruments that make us publish an identity at all are satisfied by name, " +
+      "registration number, city, telephone and a monitored mailbox, and none of them " +
+      "asks for a street: rule 5(9) of the SPDI Rules 2011 wants the Grievance " +
+      "Officer's NAME and contact details; rule 9 of the DPDP Rules 2025 wants the " +
+      "BUSINESS CONTACT INFORMATION of the person who answers a Data Principal's " +
+      "questions; the telecom framework takes our address on DLT registration through " +
+      "the access provider and publishes nothing. The one that is NOT clearly " +
+      "satisfied is rule 4(2)(b) of the Consumer Protection (E-Commerce) Rules 2020, " +
+      "which asks an e-commerce entity to display \"the principal geographic address " +
+      "of its headquarters and all branches\" — a phrase that reads like a servable " +
+      "address, not a city. Two things keep that from being a reason to republish a " +
+      "home address, and NEITHER is a finding this file may state as fact: the Rules " +
+      "hang off the Consumer Protection Act 2019, whose s.2(7) definition of " +
+      "\"consumer\" excludes a person availing a service \"for any commercial " +
+      "purpose\", and every client of this product is a business buying it for one; " +
+      "and the duty is a WEBSITE display duty on the entity, not a clause any of these " +
+      "eight documents owes. The real answer is a business address that is not " +
+      "somebody's home, which is a thing to obtain and not a thing to draft — it is on " +
+      "the founder (see D-532), and this value moves the day one exists.",
     source:
-      "PRIMARY SOURCE — the Udyam Registration Certificate, printed from " +
-      "udyamregistration.gov.in on 25 Aug 2026 and read by the founder. The " +
-      "certificate's address fields, with capitalisation normalised for prose.",
-    value:
-      "Flat 2B, Sri Vishnu Nilayam, Vishnunagar 2nd Lane, Kommineni Nagar, Guntur, " +
-      "Andhra Pradesh 522007, India",
+      "PRIMARY SOURCE for the value — the Udyam Registration Certificate, printed from " +
+      "udyamregistration.gov.in on 25 Aug 2026 and read by the founder: the city, " +
+      "state and country fields of its address, and nothing else from them. The " +
+      "founder confirmed the reduction to city level, and that \"Guntur is fine\", on " +
+      "4 Sep 2026.\n" +
+      "EVIDENCE CLASS FOR THE STATUTORY READING ABOVE: WEB-SEARCH RELAY, NOT PRIMARY. " +
+      "Every host carrying the instruments — indiacode.nic.in, consumeraffairs.nic.in, " +
+      "trai.gov.in, wipo.int — is egress-blocked from this container, so the rule text " +
+      "was read through search-engine extracts on 4 Sep 2026 and no page was fetched. " +
+      "That is good enough to REDUCE what we publish, because nothing above claims a " +
+      "duty is discharged that was not discharged before; it is NOT good enough to " +
+      "close rule 4(2)(b), which is why D-532 routes that to a human with the " +
+      "instrument in front of them rather than settling it here.",
+    value: "Guntur, Andhra Pradesh, India",
   },
   CONTACT_PHONE: {
     describes:
