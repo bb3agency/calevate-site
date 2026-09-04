@@ -337,9 +337,9 @@ async def create_upload(
         text(
             "INSERT INTO kb_uploads (id, tenant_id, agent_id, source_id, source_kind, "
             "original_key, original_filename, original_bytes, original_sha256, "
-            "content_type, document_key, document_bytes, document_sha256, ingest_status, "
-            "created_at, updated_at) VALUES (:id, :tid, :aid, :sid, :kind, :key, :fname, "
-            ":bytes, :sha, :ctype, :dkey, :dbytes, :dsha, :status, now(), now())"
+            "content_type, document_key, document_sha256, ingest_status, created_at, "
+            "updated_at) VALUES (:id, :tid, :aid, :sid, :kind, :key, :fname, :bytes, "
+            ":sha, :ctype, :dkey, :dsha, :status, now(), now())"
         ),
         {
             "id": upload_id,
@@ -353,7 +353,6 @@ async def create_upload(
             "sha": digest,
             "ctype": (content_type or "")[:255] or None,
             "dkey": key if native else None,
-            "dbytes": len(data) if native else None,
             "dsha": digest if native else None,
             "status": UPLOAD_RECEIVED,
         },
@@ -399,6 +398,7 @@ async def create_upload(
         "filename": filename[:512],
         "byte_size": len(data),
         "source_url": None,
+        "text_provenance": None,
     }
 
 
@@ -498,6 +498,7 @@ async def create_link(
         "filename": None,
         "byte_size": None,
         "source_url": url[:2048],
+        "text_provenance": None,
     }
 
 
@@ -518,7 +519,8 @@ def _name_from_url(url: str) -> str:
 _LIST_SQL = """
 SELECT u.id, u.source_id, u.agent_id, s.name, u.source_kind, u.ingest_status,
        u.ingest_detail, s.status, s.is_active, s.version, u.original_filename,
-       u.original_bytes, u.source_url, u.change_detected_at, u.created_at, u.updated_at
+       u.original_bytes, u.source_url, u.change_detected_at, u.created_at, u.updated_at,
+       u.text_provenance
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 """
 
@@ -571,6 +573,7 @@ def _row_out(row: Any) -> dict[str, Any]:
         "change_detected_at": row[13],
         "created_at": row[14],
         "updated_at": row[15],
+        "text_provenance": row[16],
     }
 
 

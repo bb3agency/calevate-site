@@ -1358,6 +1358,37 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "Body_upload_document_v1_kb_uploads_post": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "agent_id",
+          "file"
+        ],
+        "title": "Body_upload_document_v1_kb_uploads_post",
+        "type": "object"
+      },
       "BootstrapConfirmIn": {
         "additionalProperties": false,
         "properties": {
@@ -5712,6 +5743,26 @@
           "removable"
         ],
         "title": "DncEntryOut",
+        "type": "object"
+      },
+      "DownloadOut": {
+        "additionalProperties": false,
+        "description": "A short-lived link to the client's own file, for the person reviewing it.",
+        "properties": {
+          "expires_in_s": {
+            "title": "Expires In S",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_in_s"
+        ],
+        "title": "DownloadOut",
         "type": "object"
       },
       "DrawdownOut": {
@@ -10920,6 +10971,41 @@
           "changed"
         ],
         "title": "LifecycleOut",
+        "type": "object"
+      },
+      "LinkIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 8,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "url"
+        ],
+        "title": "LinkIn",
         "type": "object"
       },
       "LlmDefaultIn": {
@@ -18741,6 +18827,155 @@
           "cost_inr"
         ],
         "title": "UnitSpendOut",
+        "type": "object"
+      },
+      "UploadOut": {
+        "additionalProperties": false,
+        "description": "One uploaded document or link, as a client's screen shows it.\n\nTHE TWO STATES ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE FACTS, and collapsing\nthem into one \"status\" is the mistake this model exists to avoid. `ingest_status` is\nhow far the machinery got (are the bytes read, has the voice platform indexed them);\n`review_state` is whether a human has approved it. A document can be `processed` and\nstill `pending_approval` \u2014 indexed, ready, and deliberately not live.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "byte_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Size"
+          },
+          "change_detected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Detected At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "ingest_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Detail"
+          },
+          "ingest_status": {
+            "title": "Ingest Status",
+            "type": "string"
+          },
+          "is_live": {
+            "title": "Is Live",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "review_state": {
+            "title": "Review State",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "text_provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Provenance"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "source_id",
+          "agent_id",
+          "name",
+          "source_kind",
+          "ingest_status",
+          "review_state",
+          "is_live",
+          "version"
+        ],
+        "title": "UploadOut",
         "type": "object"
       },
       "UsagePanelOut": {
@@ -28979,6 +29214,45 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/kb/links": {
+      "post": {
+        "description": "The voice platform reads the page itself. We re-read it on a schedule and submit a new version for review when the page changes materially \u2014 the live version keeps answering until somebody approves the new one.",
+        "operationId": "add_link_v1_kb_links_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add a web page as knowledge",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
     "/v1/kb/sources": {
       "get": {
         "operationId": "list_sources_v1_kb_sources_get",
@@ -29184,6 +29458,260 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/kb/uploads": {
+      "get": {
+        "operationId": "list_uploads_v1_kb_uploads_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UploadOut"
+                  },
+                  "title": "Response List Uploads V1 Kb Uploads Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every document and link, with its live status",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "description": "Accepts a PDF, a Word document, plain text, a CSV, a spreadsheet or a photograph of a printed page, up to 20 MB. A PDF is sent to the voice platform as it is; everything else has its text read out first and chunked for review. Poll `GET /v1/kb/uploads` for `ingest_status`.",
+        "operationId": "upload_document_v1_kb_uploads_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_document_v1_kb_uploads_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Upload a document, spreadsheet or photograph as knowledge",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/uploads/{upload_id}": {
+      "delete": {
+        "description": "Withdraws the copy the voice platform holds before deleting anything of ours, so neither side is left holding knowledge the other cannot see.",
+        "operationId": "delete_upload_v1_kb_uploads__upload_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a document or link from the agent, and delete it",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      },
+      "get": {
+        "operationId": "read_upload_v1_kb_uploads__upload_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One document or link",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/kb/uploads/{upload_id}/confirm": {
+      "post": {
+        "description": "The account owner's own approval. Text read off a photograph is never approved automatically, whoever uploaded it \u2014 a model told us what it thought it said, and a person has to agree before an agent recites it on a phone call.",
+        "operationId": "confirm_upload_v1_kb_uploads__upload_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Approve what was read out of this document, and publish it",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/uploads/{upload_id}/original": {
+      "get": {
+        "description": "The approval gate is a human reading what the agent will be handed. For a PDF that is the file itself; there are no chunks to preview and none are invented.",
+        "operationId": "download_original_v1_kb_uploads__upload_id__original_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A short-lived link to the uploaded file, for reviewing it",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/knowledge-gaps": {

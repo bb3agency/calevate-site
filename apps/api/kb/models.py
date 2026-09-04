@@ -273,7 +273,6 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     #: Object-storage ref for what the ENGINE is handed: the original when it is already a
     #: PDF, the converter's output otherwise, NULL for a link.
     document_key: Mapped[str | None] = mapped_column(Text)
-    document_bytes: Mapped[int | None] = mapped_column(BigInteger)
     #: Hex SHA-256 of the document bytes — the publisher's re-upload guard, the same key
     #: `KBSourceRef.content_sha256` carries for a rendered document.
     document_sha256: Mapped[str | None] = mapped_column(Text)

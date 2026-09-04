@@ -166,7 +166,6 @@ def upgrade() -> None:
         # What the ENGINE is handed: the original when it is already a PDF, the converter's
         # output otherwise, and NULL for a link (the vendor scrapes it itself).
         sa.Column("document_key", sa.Text(), nullable=True),
-        sa.Column("document_bytes", sa.BigInteger(), nullable=True),
         sa.Column("document_sha256", sa.Text(), nullable=True),
         # HOW the text was obtained and BY WHAT. `parsed` means a deterministic reader
         # took it out of a file format that stores text; `ocr` means a model looked at a

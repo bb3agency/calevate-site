@@ -4132,6 +4132,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/kb/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a web page as knowledge
+         * @description The voice platform reads the page itself. We re-read it on a schedule and submit a new version for review when the page changes materially — the live version keeps answering until somebody approves the new one.
+         */
+        post: operations["add_link_v1_kb_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/kb/sources": {
         parameters: {
             query?: never;
@@ -4181,6 +4201,88 @@ export interface paths {
          * @description Off for every account until its owner turns it on. Switching it on lets members with the `staff` role submit knowledge for review and dismiss or teach a knowledge gap — and nothing else. It does not let them approve or publish anything: a staff-submitted source lands in the same review queue an owner's does, and still needs approval before an agent can say a word of it.
          */
         put: operations["set_staff_curation_v1_kb_staff_curation_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every document and link, with its live status */
+        get: operations["list_uploads_v1_kb_uploads_get"];
+        put?: never;
+        /**
+         * Upload a document, spreadsheet or photograph as knowledge
+         * @description Accepts a PDF, a Word document, plain text, a CSV, a spreadsheet or a photograph of a printed page, up to 20 MB. A PDF is sent to the voice platform as it is; everything else has its text read out first and chunked for review. Poll `GET /v1/kb/uploads` for `ingest_status`.
+         */
+        post: operations["upload_document_v1_kb_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One document or link */
+        get: operations["read_upload_v1_kb_uploads__upload_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a document or link from the agent, and delete it
+         * @description Withdraws the copy the voice platform holds before deleting anything of ours, so neither side is left holding knowledge the other cannot see.
+         */
+        delete: operations["delete_upload_v1_kb_uploads__upload_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/uploads/{upload_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve what was read out of this document, and publish it
+         * @description The account owner's own approval. Text read off a photograph is never approved automatically, whoever uploaded it — a model told us what it thought it said, and a person has to agree before an agent recites it on a phone call.
+         */
+        post: operations["confirm_upload_v1_kb_uploads__upload_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/uploads/{upload_id}/original": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A short-lived link to the uploaded file, for reviewing it
+         * @description The approval gate is a human reading what the agent will be handed. For a PDF that is the file itself; there are no chunks to preview and none are invented.
+         */
+        get: operations["download_original_v1_kb_uploads__upload_id__original_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -6046,6 +6148,18 @@ export interface components {
             /** Rule */
             rule: string;
         };
+        /** Body_upload_document_v1_kb_uploads_post */
+        Body_upload_document_v1_kb_uploads_post: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** File */
+            file: string;
+            /** Name */
+            name?: string | null;
+        };
         /** BootstrapConfirmIn */
         BootstrapConfirmIn: {
             /** Password */
@@ -7899,6 +8013,16 @@ export interface components {
             scope: string;
             /** Source */
             source: string | null;
+        };
+        /**
+         * DownloadOut
+         * @description A short-lived link to the client's own file, for the person reviewing it.
+         */
+        DownloadOut: {
+            /** Expires In S */
+            expires_in_s: number;
+            /** Url */
+            url: string;
         };
         /**
          * DrawdownOut
@@ -10225,6 +10349,18 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** LinkIn */
+        LinkIn: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Name */
+            name?: string | null;
+            /** Url */
+            url: string;
         };
         /**
          * LlmDefaultIn
@@ -13461,6 +13597,61 @@ export interface components {
             qty: string;
             /** Unit Type */
             unit_type: string;
+        };
+        /**
+         * UploadOut
+         * @description One uploaded document or link, as a client's screen shows it.
+         *
+         *     THE TWO STATES ARE SEPARATE FIELDS BECAUSE THEY ARE SEPARATE FACTS, and collapsing
+         *     them into one "status" is the mistake this model exists to avoid. `ingest_status` is
+         *     how far the machinery got (are the bytes read, has the voice platform indexed them);
+         *     `review_state` is whether a human has approved it. A document can be `processed` and
+         *     still `pending_approval` — indexed, ready, and deliberately not live.
+         */
+        UploadOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Byte Size */
+            byte_size?: number | null;
+            /** Change Detected At */
+            change_detected_at?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ingest Detail */
+            ingest_detail?: string | null;
+            /** Ingest Status */
+            ingest_status: string;
+            /** Is Live */
+            is_live: boolean;
+            /** Name */
+            name: string;
+            /** Review State */
+            review_state: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
+            /** Source Kind */
+            source_kind: string;
+            /** Source Url */
+            source_url?: string | null;
+            /** Text Provenance */
+            text_provenance?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Version */
+            version: number;
         };
         /**
          * UsagePanelOut
@@ -20629,6 +20820,39 @@ export interface operations {
             };
         };
     };
+    add_link_v1_kb_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_sources_v1_kb_sources_get: {
         parameters: {
             query?: {
@@ -20774,6 +20998,193 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StaffCurationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_uploads_v1_kb_uploads_get: {
+        parameters: {
+            query?: {
+                agent_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upload_document_v1_kb_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_document_v1_kb_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_upload_v1_kb_uploads__upload_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    delete_upload_v1_kb_uploads__upload_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    confirm_upload_v1_kb_uploads__upload_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    download_original_v1_kb_uploads__upload_id__original_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DownloadOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

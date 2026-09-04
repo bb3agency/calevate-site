@@ -133,8 +133,8 @@ def page_digest(body: bytes) -> str:
 
 
 _ROW_SQL = """
-SELECT u.id, u.source_kind, u.original_key, u.content_type, u.ingest_status, u.source_url,
-       u.content_digest, s.agent_id, s.status, s.name
+SELECT u.id, u.source_kind, u.original_key, u.content_type, u.ingest_status,
+       u.original_sha256, s.status
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 WHERE u.source_id = :sid
 """
@@ -166,6 +166,7 @@ async def _extract(
     kind: str,
     key: str,
     content_type: str | None,
+    expected_sha256: str | None,
 ) -> ExtractedText | None:
     """Read the client's document into text, or leave a refusal on the row and answer None.
 
@@ -182,6 +183,12 @@ async def _extract(
             detail="We can no longer find that file. Upload it again.",
         )
         return None
+    if expected_sha256 and hashlib.sha256(data).hexdigest() != expected_sha256:
+        # The bytes in the store are not the bytes the client uploaded. It is not a
+        # refusal — what we read is what a reviewer will read and what the agent will
+        # answer from — but an object that moved under a row that recorded it is something
+        # an operator must be able to see afterwards.
+        log.warning("kb_ingest_digest_moved", extra={"upload_id": str(upload_id)})
     if len(data) > MAX_SOURCE_BYTES:
         # Belt and braces with the door's own ceiling: the two numbers are the same today
         # and the reader owns its own bound (`document_ingest.MAX_SOURCE_BYTES`).
@@ -287,8 +294,8 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             return "gone"
         upload_id = UUID(str(row[0]))
         kind, key, content_type = str(row[1]), row[2], row[3]
-        status = str(row[4])
-        review_state = str(row[8])
+        status, expected_sha256 = str(row[4]), row[5]
+        review_state = str(row[6])
 
         if kind not in ("pdf", "url") and status in (UPLOAD_RECEIVED, UPLOAD_CONVERTING):
             await _mark(session, upload_id, UPLOAD_CONVERTING)
@@ -299,6 +306,7 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                 kind=kind,
                 key=str(key),
                 content_type=content_type,
+                expected_sha256=expected_sha256,
             )
             if extracted is None:
                 return "refused"

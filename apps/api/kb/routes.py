@@ -198,6 +198,11 @@ class UploadOut(Strict):
     filename: str | None = None
     byte_size: int | None = None
     source_url: str | None = None
+    #: `parsed` when a deterministic reader took the text out of the file, `ocr` when a
+    #: model read it off a photograph, `None` when there was nothing to read (a PDF, a
+    #: link). It is on the CLIENT's screen deliberately: text a machine guessed at is
+    #: labelled as such where the person confirming it can see the label.
+    text_provenance: str | None = None
     #: When a re-scrape last found this link's page materially changed. A NEW version is
     #: submitted for review when that happens; the live one keeps answering until somebody
     #: approves the new one.
