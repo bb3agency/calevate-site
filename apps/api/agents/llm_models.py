@@ -740,7 +740,7 @@ def dashboard_leg_providers() -> frozenset[LlmProvider]:
     return frozenset(p for p in get_args(LlmProvider) if dashboard_leg_reason(p) is None)
 
 
-def tenant_dashboard_leg(*, model: str) -> TenantModelLeg:
+def tenant_dashboard_leg(*, model: str, source: LlmModelSource = "organization") -> TenantModelLeg:
     """`model` as the assist selector's tenant half — WITHOUT a database and WITHOUT a cycle.
 
     A pure function over the identifier the caller already resolved
@@ -753,6 +753,15 @@ def tenant_dashboard_leg(*, model: str) -> TenantModelLeg:
     refusal `bind_model` and `_operator_unofferable_reason` make, and for the same reason: a
     model with no declared leg has no provider whose dashboard position could be asked about,
     so answering "not eligible" would imply the question made sense.
+
+    **`source` IS `resolve_llm_model`'s OWN THIRD FIELD, CARRIED RATHER THAN RE-DERIVED**,
+    and it is here because the assist surfaces put sentences like "the AI model you chose" in
+    front of a client. That is true on the `agent` and `organization` rungs and FALSE on the
+    `platform` one, where the account chose nothing and Calevate picked for it — the state a
+    new account is in, and (since D-530 moved the platform default to a leg this dashboard
+    cannot serve) the state that reaches the substitution sentence by default rather than by
+    accident. The leg is still the platform model's leg, so the assistant keeps behaving
+    identically; only the wording changes.
     """
     provider = leg_for_model(model).provider
     reason = dashboard_leg_reason(provider)
@@ -761,6 +770,9 @@ def tenant_dashboard_leg(*, model: str) -> TenantModelLeg:
         provider=provider,
         serves_dashboard=reason is None,
         blocked_reason=reason,
+        # The default is `"organization"` — an account choice — so a direct construction that
+        # names no rung keeps today's words. `platform` is the only rung that is not one.
+        account_chose_model=source != "platform",
     )
 
 

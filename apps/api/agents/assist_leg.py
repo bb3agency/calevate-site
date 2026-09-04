@@ -50,7 +50,22 @@ async def account_assist_leg(session: AsyncSession) -> TenantModelLeg:
     row = (await session.execute(text(_ORG_MODEL))).first()
     chosen: str | None = row[0] if row is not None else None
     resolved = resolve_llm_model(agent_model=None, organization_model=chosen)
-    return tenant_dashboard_leg(model=resolved.model)
+    # **THE RUNG TRAVELS WITH THE MODEL, AND DROPPING IT WAS A CLIENT-FACING FALSEHOOD.**
+    # This passed the resolved identifier alone, so an account that had chosen nothing was
+    # described to the assist ladder as having a provider of its own — and on the
+    # substitution rung the client read "not the AI model you chose for your account". They
+    # chose nothing; we chose for them. That is a PLATFORM fact stated as a fact about their
+    # account, the defect class `NO_CREDENTIAL_REASON`'s own note exists to prevent, and
+    # D-530 made it the DEFAULT path by moving the platform model to a leg this dashboard
+    # cannot serve.
+    #
+    # ⚠ **THE SHORTCUT IS `tenant_leg=None` ON THE PLATFORM RUNG, AND IT IS WRONG.** `None`
+    # means "no account in hand", which skips `assist_capability`'s rung-1 Gemini arm
+    # entirely (it requires a leg) — so a deployment whose Gemini leg is attested and keyed,
+    # running the platform default, would be silently moved onto Azure with no disclosure,
+    # because `serves_dashboard` was never consulted. The leg is still passed; only the
+    # sentence changes.
+    return tenant_dashboard_leg(model=resolved.model, source=resolved.source)
 
 
 __all__ = ["account_assist_leg"]
