@@ -401,9 +401,12 @@ export default function KnowledgePage() {
           </div>
         </div>
 
-        <div className="lg:col-span-7">
+        {/* ONE right-hand column holding both lists, rather than two grid children.
+            As siblings of the grid, "Submitted" would drop to a second row and sit under
+            the form on the left instead of under the documents it belongs beside — and
+            the two panels are one answer to one question ("what have I taught it"). */}
+        <div className="space-y-5 lg:col-span-7">
           <UploadList agentNames={agentNames} />
-        </div>
 
         {/* A failed first load gets NO card. An empty panel headed "Submitted" is the
             same sentence as "nothing submitted", drawn instead of written, and on this
@@ -411,13 +414,11 @@ export default function KnowledgePage() {
             notice above is the whole answer. `sources.data` survives a failed REFETCH,
             and those rows are real — so the guard is on the data, not on the error. */}
         {sources.isLoading ? (
-          <div className="lg:col-span-7">
-            <Card title="Submitted">
-              <Skeleton rows={4} />
-            </Card>
-          </div>
+          <Card title="Submitted">
+            <Skeleton rows={4} />
+          </Card>
         ) : !sources.data ? null : (
-          <div className="lg:col-span-7">
+          <div>
             <Card title="Submitted" bodyClassName="p-2">
               {typedNotes.length ? (
                 <ul className="divide-y divide-line">
@@ -531,6 +532,7 @@ export default function KnowledgePage() {
             </Card>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -549,9 +551,14 @@ export default function KnowledgePage() {
  * saying something no caller will hear, and they stop chasing the publish. Both fields
  * are on every row, so `tsc` catches nothing here; tests/knowledgeApproval.test.tsx does.
  *
- * There is no engine-side KB sync in that list, and there used to be: the engine's
- * built-in knowledge base is off and `attach_kb` refuses
- * (`apps/api/engine/bolna.py:2484,3536`). Publishing means the prompt, and nothing else.
+ * There is no engine-side KB sync in that list, and for PASTED TEXT there still is not:
+ * publishing a typed note means the T0 prompt and nothing else. ⚠ THE SENTENCE THAT USED
+ * TO SIT HERE — "the engine's built-in knowledge base is off and `attach_kb` refuses" —
+ * IS NO LONGER TRUE OF THE SCREEN AS A WHOLE. `BOLNA_CAPABILITIES.knowledge_base` is
+ * `True` (`apps/api/engine/bolna.py:3261`, D-488) and a DOCUMENT does reach the engine's
+ * own knowledge base; that half of the screen is `UploadList`, and its states are the
+ * ingest ladder rather than this badge. This ladder is still the whole of what a typed
+ * note can do.
  *
  * `SourceOut.status` is plain `string` on the wire, so the copy lookup fails VISIBLE: an
  * unnameable status renders as itself, because a client whose submission is stuck in an
