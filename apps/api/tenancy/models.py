@@ -15,11 +15,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
     false,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -153,6 +155,26 @@ class Organization(PKMixin, TimestampMixin, Base):
     )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
+    #: THE GRACE WINDOW BETWEEN "CLOSED" AND "ERASED" (D-536, migration e6c1a49d2f70).
+    #:
+    #: The founder's delete button is *close now, erase after a grace period, undo during
+    #: it*, so these four columns are the deadline that sits between `status = 'churned'`
+    #: (the relationship ended, nothing is destroyed) and `deleted_at` (the tenant erasure
+    #: ran and the caller data is gone). `tenancy/closure.py` is the only writer.
+    #:
+    #: The nesting is a database fact, not a convention: three CHECKs in that migration
+    #: hold `deleted_at` => no `erase_after`, `erase_after` => `closed_at`, and
+    #: `closed_at` => `churned`. Reading any one of the three columns therefore answers a
+    #: strictly narrower question than the one before it.
+    #:
+    #: `erase_after` NULL on a closed account is a real and intended state — it is what an
+    #: UNDO leaves behind, and it is also how an account closes with its records kept.
+    closed_at: Mapped[datetime | None]
+    erase_after: Mapped[datetime | None]
+    closure_reason: Mapped[str | None] = mapped_column(Text)
+    closed_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
 
 
 class ReservedSlug(Base):
@@ -226,6 +248,15 @@ class Invitation(PKMixin, TimestampMixin, Base):
     )
     used_at: Mapped[datetime | None]
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    #: WHEN THE LINK WAS LAST PUT IN SOMEBODY'S INBOX, and how many times (D-536).
+    #:
+    #: A resend ROTATES this row's token rather than minting a second invitation, so these
+    #: two count sends of one key rather than keys. They are the rate limiter's clock and
+    #: the console's "last sent 4 minutes ago, 3 times" line, and they are one fact on
+    #: purpose: a screen reading a different value from the limiter tells an operator to
+    #: wait when they need not, or worse, the reverse.
+    last_sent_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    send_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
 
 
 class AdminUser(PKMixin, TimestampMixin, Base):
