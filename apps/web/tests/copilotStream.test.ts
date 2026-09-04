@@ -12,6 +12,7 @@ import {
 import type {
   CopilotAction,
   CopilotFillItem,
+  CopilotNavigation,
   CopilotProposal,
   CopilotStep,
 } from "@/lib/copilot/types";
@@ -61,6 +62,7 @@ function handlers() {
   const done: { disclosure: string | null; metered: boolean }[] = [];
   const proposals: CopilotProposal[] = [];
   const actions: CopilotAction[] = [];
+  const navigations: CopilotNavigation[] = [];
   const steps: CopilotStep[] = [];
   return {
     text,
@@ -68,11 +70,13 @@ function handlers() {
     done,
     proposals,
     actions,
+    navigations,
     steps,
     onText: (delta: string) => text.push(delta),
     onFill: (items: CopilotFillItem[]) => fills.push(items),
     onProposal: (proposal: CopilotProposal) => proposals.push(proposal),
     onAction: (action: CopilotAction) => actions.push(action),
+    onNavigate: (destination: CopilotNavigation) => navigations.push(destination),
     onStep: (step: CopilotStep) => steps.push(step),
     onDone: (payload: { disclosure: string | null; metered: boolean }) =>
       done.push(payload),
@@ -352,6 +356,53 @@ describe("the action frame — a receipt, not an offer", () => {
     const sink = handlers();
     await askCopilot(SESSION, BODY, sink);
     expect(sink.actions).toEqual([]);
+  });
+});
+
+describe("the navigate frame — the one the browser has to act on", () => {
+  const NAVIGATION = {
+    tool: "open_screen",
+    screen: "Calling credit",
+    route: "/c/{slug}/credits",
+    where: "Calling credit, under Settings & account in the left sidebar",
+    detail: "Opening Calling credit, under Settings & account in the left sidebar.",
+    reversal: "Your browser's back button brings you back to this screen.",
+  };
+
+  it("REACHES ITS OWN HANDLER, because it is the only frame that DOES something", async () => {
+    // A receipt is rendered; this is a route change. One handler taking both would either
+    // navigate on an `agent_create` or silently drop a navigation.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamOf([
+          `event: navigate\ndata: ${JSON.stringify(NAVIGATION)}\n\n`,
+          'event: done\ndata: {"metered":true}\n\n',
+        ]),
+      ),
+    );
+    const sink = handlers();
+    await askCopilot(SESSION, BODY, sink);
+    // VERBATIM, and the route still carrying `{slug}`: resolving it is the consumer's job
+    // (`lib/copilot/navigate.ts`), and a transport that substituted here would be making a
+    // route decision in the layer that only frames bytes.
+    expect(sink.navigations).toEqual([NAVIGATION]);
+    expect(sink.actions).toEqual([]);
+  });
+
+  it("ignores a frame with no route, which names no destination", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamOf([
+          `event: navigate\ndata: ${JSON.stringify({ ...NAVIGATION, route: "" })}\n\n`,
+          'event: done\ndata: {"metered":false}\n\n',
+        ]),
+      ),
+    );
+    const sink = handlers();
+    await askCopilot(SESSION, BODY, sink);
+    expect(sink.navigations).toEqual([]);
   });
 });
 

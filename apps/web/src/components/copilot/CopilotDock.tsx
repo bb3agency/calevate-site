@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { BotMessageSquare } from "lucide-react";
 
+import { MAIN_CONTENT_ID } from "@/components/ui";
 import { adminSession } from "@/lib/api/admin";
 import type { Session } from "@/lib/api/client";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { fallbackSurface } from "@/lib/copilot/fallback";
+import { resolveDestination } from "@/lib/copilot/navigate";
 import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
 import { CopilotPanel } from "./CopilotPanel";
@@ -68,12 +70,27 @@ import { CopilotPanel } from "./CopilotPanel";
 export function CopilotDock({
   session,
   realm,
+  navigation,
 }: {
   session: Session;
   realm: "client" | "admin";
+  /**
+   * WHAT THE ASSISTANT NEEDS IN ORDER TO OPEN A SCREEN (D-524). Absent on the admin realm,
+   * which has no screen inventory — and absent means the panel is given no `onNavigate`, so
+   * a `navigate` frame there would be held and never acted on rather than half-handled.
+   *
+   * `slug` is what the route TEMPLATE on the wire is missing, and `href` is the client
+   * realm's own link builder: inside a D-22 view-as session it carries the `view-as` marker
+   * across the move, which a bare `router.push` would drop — turning an operator's next
+   * screen into a client-session load. Both are passed IN rather than read here because
+   * `useClientRealm()` throws outside its provider, and this component is mounted in both
+   * shells.
+   */
+  navigation?: { slug: string; href: (path: string) => string };
 }) {
   const declared = useCopilotSurfaceHolder();
   const pathname = usePathname();
+  const router = useRouter();
   // Memoised on the address, so the holder's identity is as stable as a screen's own
   // registration is — the effect below closes the panel whenever the holder changes, and a
   // fresh object per render would slam it shut on every keystroke of every form.
@@ -102,6 +119,47 @@ export function CopilotDock({
     shouldRestoreFocus.current = false;
     launcher.current?.focus();
   }, [isOpen]);
+
+  /*
+   * WHAT A SCREEN CHANGE THE PERSON DID NOT CLICK FOR HAS TO SAY, AND WHERE (D-524).
+   *
+   * A route change that moves focus without announcing it strands a screen-reader user; one
+   * that announces nothing and moves nothing leaves them on a launcher in a corner while the
+   * page underneath has been replaced. This console does neither today — nothing announces a
+   * navigation on any path — so the assistant's own moves say where they went and put the
+   * caret at the top of the new screen.
+   *
+   * THE LIVE REGION IS HERE AND NOT IN THE PANEL because the panel does not survive the
+   * move: the dock closes it when the surface underneath changes, so a message rendered
+   * there would be removed in the same commit that was meant to announce it. The dock is
+   * mounted by the layout and outlives every route change in the realm.
+   *
+   * FOCUS GOES TO `#main-content`, which is the skip link's own target and is already
+   * `tabIndex={-1}` in both shells for exactly this reason — so a `Tab` after arriving
+   * continues INTO the new screen rather than resuming in the sidebar the person did not
+   * ask to be in. It is deliberately not the first heading (not focusable) and not the
+   * document body (which announces nothing).
+   */
+  const [announcement, setAnnouncement] = useState("");
+  const navigateTo = useCallback(
+    (destination: { route: string; screen: string; where: string }) => {
+      if (navigation === undefined) return;
+      const path = resolveDestination(destination.route, navigation.slug);
+      // A DESTINATION THIS CONSOLE DOES NOT HAVE MOVES NOBODY, and says nothing: the answer
+      // beside it has already named the screen in words, so the honest response is to leave
+      // the person where they are rather than to explain a defect they did not cause.
+      if (path === null) return;
+      setAnnouncement(`Opened ${destination.where}.`);
+      router.push(navigation.href(path));
+      // AFTER the push, so the element being focused belongs to the screen being arrived at.
+      // `requestAnimationFrame` rather than a timeout: the App Router commits the new tree
+      // before the next paint, and a guessed delay would be a race either way.
+      requestAnimationFrame(() => {
+        document.getElementById(MAIN_CONTENT_ID)?.focus();
+      });
+    },
+    [navigation, router],
+  );
 
   return (
     <>
@@ -141,12 +199,19 @@ export function CopilotDock({
          * top so it does not read as a plain square against the round launcher. */}
         <BotMessageSquare aria-hidden className="h-5 w-5" />
       </button>
+      {/* WHERE THEY WERE JUST TAKEN. Always mounted and empty until there is something to
+          say: a live region added to the DOM at the same moment as its text is not reliably
+          announced, which is the classic way to ship an announcement nobody hears. */}
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
       {isOpen && (
         <CopilotPanel
           session={session}
           holder={holder}
           realm={realm}
           labelledBy={titleId}
+          onNavigate={navigation === undefined ? undefined : navigateTo}
           onClose={() => {
             shouldRestoreFocus.current = true;
             setIsOpen(false);
@@ -159,7 +224,18 @@ export function CopilotDock({
 
 /** Mounted by `app/c/[slug]/layout.tsx`, INSIDE `ClientRealmProvider`. */
 export function ClientCopilotDock() {
-  return <CopilotDock session={useClientSession()} realm="client" />;
+  // `useClientRealm()` rather than `useClientSession()`: the assistant can now open a screen
+  // (D-524), and both halves of that come from this context — the account's slug, which the
+  // route template on the wire is missing, and `href`, which carries a view-as session's
+  // marker across the move.
+  const realm = useClientRealm();
+  return (
+    <CopilotDock
+      session={realm.session}
+      realm="client"
+      navigation={{ slug: realm.session.orgSlug, href: realm.href }}
+    />
+  );
 }
 
 /** Mounted by `app/admin/layout.tsx`. `adminSession()` takes no org — an operator's

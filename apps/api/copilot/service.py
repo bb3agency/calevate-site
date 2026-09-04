@@ -1206,11 +1206,7 @@ async def _run_tool_loop(
         # operator's model naming it falls through to `read_calls` and is told there is no
         # such tool, which is the honest answer there.
         nav_calls = (
-            [
-                call
-                for call in outcome.tool_calls
-                if call.name == navigation.OPEN_SCREEN_TOOL_NAME
-            ]
+            [call for call in outcome.tool_calls if call.name == navigation.OPEN_SCREEN_TOOL_NAME]
             if realm == "client"
             else []
         )
@@ -1563,7 +1559,9 @@ async def _run_tool_loop(
 
             navigations_run += 1
             yield CopilotEvent(
-                step=_step_end(call, status="done", detail=destination.detail, started_at=started_at)
+                step=_step_end(
+                    call, status="done", detail=destination.detail, started_at=started_at
+                )
             )
             yield CopilotEvent(navigate=destination)
             messages = _with_tool_result(

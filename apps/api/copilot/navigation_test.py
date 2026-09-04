@@ -22,6 +22,7 @@ import pytest
 from apps.api.copilot import navigation
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import screens as screens_module
+from apps.api.copilot.schemas import CopilotNavigateEvent
 from apps.api.copilot.screens import CLIENT_SCREENS
 from apps.api.core.rbac import ROLE_PERMISSIONS
 
@@ -32,7 +33,7 @@ def _args(**kwargs: object) -> str:
 
 def _resolve(
     name: str, *, role: str = "owner", current_route: str = "/c/{slug}/leads"
-) -> navigation.CopilotNavigateEvent:
+) -> CopilotNavigateEvent:
     return navigation.resolve_destination(
         _args(screen=name), role=role, current_route=current_route
     )
@@ -105,9 +106,7 @@ def test_a_name_beats_another_screen_s_alias() -> None:
 def test_an_empty_or_shapeless_argument_is_refused_and_not_guessed_at() -> None:
     for arguments in ("", "not json", "[]", '{"screen": null}', '{"screen": "  "}'):
         with pytest.raises(navigation.NavigationRefusedError):
-            navigation.resolve_destination(
-                arguments, role="owner", current_route="/c/{slug}/leads"
-            )
+            navigation.resolve_destination(arguments, role="owner", current_route="/c/{slug}/leads")
 
 
 # --- who may be taken where ---------------------------------------------------------------
@@ -208,7 +207,7 @@ def test_the_tool_is_static_and_names_no_screen_of_its_own() -> None:
 
 
 def test_the_prompt_tells_the_model_when_moving_somebody_is_not_the_answer() -> None:
-    """"Where is billing?" and "take me to billing" are different questions and the second
+    """ "Where is billing?" and "take me to billing" are different questions and the second
     one is the only one that moves anybody. Both halves are in the static prefix."""
     directory = screens_module.render_directory()
     assert "YOU CAN TAKE THEM THERE" in directory

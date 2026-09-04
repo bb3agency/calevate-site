@@ -3688,8 +3688,8 @@ export interface paths {
          * Ask the in-app assistant about this screen — streamed, metered, quota-gated
          * @description Answers a question about the screen the caller is on, answers questions about the
          *     account's own business by reading it (calls, leads, campaigns, agents, performance —
-         *     read-only, under the caller's own permissions and RLS scope), and can fill that screen's
-         *     form fields. Streams `text/event-stream`:
+         *     read-only, under the caller's own permissions and RLS scope), can fill that screen's
+         *     form fields, and can open another screen of the console. Streams `text/event-stream`:
          *
          *     * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
          *     * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
@@ -3713,6 +3713,24 @@ export interface paths {
          *       token and no button. `reversal` says whether and how it can be taken back and `where`
          *       says where the result now lives; both are the server's own words. `applied: false` means
          *       the world was already in that state.
+         *     * `event: navigate` · `data: {"tool": "open_screen", "screen": "...", "route": "...",
+         *       "where": "...", "detail": "...", "reversal": "..."}` — OPEN THIS SCREEN. At most one per
+         *       response. A **Tier 1** frame: reversible (the back button), reaching no caller, spending
+         *       nothing, so there is no token and no Confirm button — render it as a RECEIPT beside the
+         *       answer, exactly like `action`. It is the one frame on this stream the browser must ACT
+         *       on, and the only one where the server has decided WHERE but not WHEN.
+         *       * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/credits`) and is a
+         *         constant read out of the server's own screen inventory — never assembled, and never
+         *         anything the model wrote (the tool it comes from takes a screen NAME). Substitute your
+         *         own slug, CHECK the result against your own navigation list, and refuse anything that
+         *         is not in it; then change route with the app's own router. Never a full page load and
+         *         never an external address.
+         *       * **ASK BEFORE YOU MOVE IF THE SCREEN BEING LEFT MAY HOLD UNSAVED WORK.** The server
+         *         knows a form exists; only you know whether it is dirty, and a half-typed campaign
+         *         discarded by a screen change is work this assistant destroyed without asking. Prefer
+         *         asking when you cannot tell.
+         *       * `screen` and `where` are the console's own words for the destination and are what a
+         *         person is told and a screen reader announces. `route` is never rendered or spoken.
          *     * `event: step` · `data: {"id": "...", "tool": "...", "status":
          *       "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
          *       "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an

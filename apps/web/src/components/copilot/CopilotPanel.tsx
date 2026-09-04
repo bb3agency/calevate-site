@@ -4,14 +4,17 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Undo2, X } from "lucide-react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { FIELD, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
+import { unsavedWork } from "@/lib/copilot/unsaved";
 import { useCopilotConversation } from "@/lib/copilot/useCopilotConversation";
 
 import { AnswerText } from "./answerText";
 import { ActionReceipt } from "./ActionReceipt";
+import { NavigationReceipt } from "./NavigationReceipt";
 import { ProposalCard } from "./ProposalCard";
 import { StepList } from "./StepList";
 
@@ -51,12 +54,23 @@ export function CopilotPanel({
   holder,
   realm,
   onClose,
+  onNavigate,
   labelledBy,
 }: {
   session: Session;
   holder: SurfaceHolder;
   realm: "client" | "admin";
   onClose: () => void;
+  /**
+   * OPEN THIS SCREEN (D-524). Passed up to the dock rather than done here, and the split is
+   * the same one the server made: this component decides WHETHER — it is the half that can
+   * see the surface and the unsaved fill — and the dock, which outlives the route change,
+   * performs the move and announces it. A `router.push` from here would unmount this
+   * component mid-call, taking the live region that has to say where the person went.
+   *
+   * `undefined` on the admin realm, which has no screen inventory to navigate.
+   */
+  onNavigate?: (destination: { route: string; screen: string; where: string }) => void;
   labelledBy: string;
 }) {
   const [question, setQuestion] = useState("");
@@ -100,6 +114,42 @@ export function CopilotPanel({
 
   const surface = holder.read();
   const batch = conversation.batch;
+  const { navigation, clearNavigation, asking } = conversation;
+
+  // THE ASK, when leaving this screen might throw work away. `null` while there is nothing
+  // to ask about; `unsaved.ts` decides which it is and writes the sentence.
+  const [leaving, setLeaving] = useState<{ reason: string } | null>(null);
+  // WHICH DESTINATION HAS ALREADY BEEN DECIDED ABOUT. A ref rather than state because it
+  // must not cause a render: the effect below runs on every render while a destination is
+  // held (the receipt stays on screen until the move happens), and without this it would
+  // navigate again on each one.
+  const decided = useRef<unknown>(null);
+
+  /*
+   * OPEN THE SCREEN THE ANSWER ASKED FOR — after the answer has finished arriving.
+   *
+   * WAITING FOR `asking` TO FALL IS NOT A POLISH DETAIL. The dock closes this panel when
+   * the surface under it changes, which unmounts this component and aborts the in-flight
+   * request; moving the instant the frame arrived would therefore cut off the sentence
+   * that tells the person where they are being taken, and charge them for it. The frame
+   * arrives before the model's closing line, so the wait is one turn and no more.
+   *
+   * THE SURFACE IS READ AGAIN HERE rather than trusted from render: "is this form dirty"
+   * is a question about the moment of the move, and the answer may have changed while the
+   * answer was streaming — a person can keep typing beside this panel, which is exactly
+   * what it is designed for (see the header on why it does not trap focus).
+   */
+  useEffect(() => {
+    if (navigation === null || asking || onNavigate === undefined) return;
+    if (decided.current === navigation) return;
+    decided.current = navigation;
+    const verdict = unsavedWork(holder.read(), batch?.ids.length ?? 0);
+    if (verdict.ask) {
+      setLeaving({ reason: verdict.reason });
+      return;
+    }
+    onNavigate(navigation);
+  }, [navigation, asking, onNavigate, holder, batch]);
   // THE ADMIN CONSOLE HAS NO ASSISTANT YET, AND THE HONEST PLACE TO SAY SO IS HERE (D-501).
   //
   // `POST /v1/copilot/ask` is client-realm: `core/auth.current_any` resolves the admin
@@ -257,6 +307,12 @@ export function CopilotPanel({
             discover. Rendered ABOVE the fill batch and BELOW the proposal: a receipt is
             settled, an offer is not, and the unsettled thing belongs nearest the input. */}
         <div aria-live="polite" className="space-y-2">
+          {/* WHERE IT IS TAKING THEM (D-524). In the same announced region as the receipts
+              and for the same reason: a screen change the person did not read about is one
+              they cannot connect to what they asked. It stays on screen until the move
+              happens — or disappears if they answer "stay", because then it is no longer
+              true. */}
+          {navigation !== null && <NavigationReceipt navigation={navigation} />}
           {conversation.actions.map((performed, index) => (
             // Keyed by position because an action list only ever grows within an exchange
             // and is emptied by the next question — there is no reorder for a key to
@@ -370,6 +426,37 @@ export function CopilotPanel({
           </button>
         </div>
       </form>
+      )}
+      {/* "YOU WILL LOSE WHAT YOU TYPED" — the one question the server could not answer.
+          THROUGH `ConfirmDialog` AND NOT `window.confirm`: one way per problem, and this is
+          the console's dialog for a consequence with two answers. It is not `beforeunload`
+          either, which does not fire for a client-side route change and so cannot see this
+          move at all.
+
+          CANCEL IS THE SAFE ANSWER AND COMES FIRST in that component's DOM order, which is
+          the property that matters here: staying loses nothing, leaving loses the work. */}
+      {leaving !== null && navigation !== null && (
+        <ConfirmDialog
+          title={`Open ${navigation.screen}?`}
+          confirmLabel={`Open ${navigation.screen}`}
+          pendingLabel={`Opening ${navigation.screen}…`}
+          cancelLabel="Stay here"
+          pending={false}
+          error={null}
+          onCancel={() => {
+            setLeaving(null);
+            // The receipt goes with it: "Opening Calling credit" stops being true the
+            // moment they say no, and a card left standing would be the assistant claiming
+            // something it did not do.
+            clearNavigation();
+          }}
+          onConfirm={() => {
+            setLeaving(null);
+            onNavigate?.(navigation);
+          }}
+        >
+          {leaving.reason}
+        </ConfirmDialog>
       )}
       {buying && quota.data !== undefined && (
         <AcceptChargeDialog
