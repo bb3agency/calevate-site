@@ -20,6 +20,7 @@ read aloud, and a chunk cut mid-sentence becomes a sentence the agent says badly
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 from uuid import UUID
@@ -1259,6 +1260,131 @@ async def live_glosses(
     return [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows if r[2]]
 
 
+
+async def _upload_row(session: AsyncSession, source_id: UUID) -> dict[str, Any] | None:
+    """The `kb_uploads` row behind this source version, or None for pasted text.
+
+    ONE READ, ONE MEANING: a source is either something a client TYPED (chunks in
+    `kb_documents`, rendered to a PDF at publish) or something they UPLOADED (a document
+    in object storage, or a link the engine scrapes). The `uq_kb_uploads_source` constraint
+    is what lets this answer be a single row rather than a list.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT source_kind, document_key, document_sha256, source_url, "
+                "content_digest, ingest_status FROM kb_uploads WHERE source_id = :sid"
+            ),
+            {"sid": source_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    return {
+        "source_kind": str(row[0]),
+        "document_key": row[1],
+        "document_sha256": row[2],
+        "source_url": row[3],
+        "content_digest": row[4],
+        "ingest_status": str(row[5]),
+    }
+
+
+def _link_digest(*, url: str, content_digest: str | None) -> str:
+    """The re-upload guard's key for a LINK, where there are no bytes of ours to hash.
+
+    IT COVERS THE URL **AND** WHAT WE LAST READ AT IT, and both halves are load-bearing.
+    The URL alone would make every re-ingest of a changed page look unchanged, so the
+    publisher would keep the vendor's old scrape and the client's approval of the NEW text
+    would change nothing an agent says — the exact silent failure the guard exists to
+    prevent, inverted. `content_digest` alone would not distinguish two links that happen
+    to serve the same text.
+
+    It is not a claim about what the VENDOR scraped. Nothing can be: the engine fetches the
+    page itself, on its own clock, and reports no digest. This is our own reading, and its
+    only job is to tell "the same link, unchanged since we last published it" from
+    everything else.
+    """
+    return hashlib.sha256(f"url:{url}:{content_digest or ''}".encode()).hexdigest()
+
+
+async def _publish_payload(
+    session: AsyncSession,
+    source_id: UUID,
+    *,
+    name: str,
+    language: str,
+) -> tuple[bytes | None, str | None, str]:
+    """What this publish hands the engine: `(document, source_url, digest)`.
+
+    THE ONE BRANCH BETWEEN TYPED KNOWLEDGE AND AN UPLOAD, and it is deliberately the only
+    one in the whole publish path. Everything downstream — the lock, the reconciliation,
+    the attach-then-detach ordering, the digest guard, the claim row, the archive-and-
+    activate flip, the T0 recompile — is identical for a pasted price list, a scanned menu
+    and a link, because all three are `kb_sources` versions and this function is where they
+    stop differing.
+
+    * **Typed text** renders the approved chunks to a PDF, exactly as before.
+    * **An uploaded document** is sent as the client's own bytes: the PDF they uploaded, or
+      the PDF a `DocumentConverter` made from their Word file or photograph. NOT re-rendered
+      — the artefact a human reviewed IS the document, and rendering a second one would
+      publish something nobody read.
+    * **A link** sends no bytes at all; the engine scrapes the page itself.
+
+    THE DIGEST IS RECOMPUTED OVER THE BYTES WE ACTUALLY READ rather than trusted from the
+    row. `kb_uploads.document_sha256` is written when the object is stored, and the object
+    store is a different system with its own lifecycle: an object replaced, truncated or
+    restored from a backup would otherwise keep a digest that says "already published" and
+    the client's correction would never reach the engine. Hashing 20 MB costs milliseconds
+    on a path that is about to spend minutes.
+    """
+    upload = await _upload_row(session, source_id)
+    if upload is None:
+        rendered = _render_document(
+            title=name,
+            chunks=await _approved_chunks_of(session, source_id, source_name=name),
+            language=language,
+        )
+        return rendered.content, None, rendered.sha256
+
+    if upload["source_kind"] == "url":
+        url = str(upload["source_url"])
+        return None, url, _link_digest(url=url, content_digest=upload["content_digest"])
+
+    key = upload["document_key"]
+    if not key:
+        # The conversion has not finished (or could not). This is a REFUSAL rather than a
+        # wait: publishing is a human's decision taken now, and "the document is not ready"
+        # is a fact they can act on — the row's own status says which of the two it is.
+        raise ProblemError.business_rule(
+            "kb_document_not_ready",
+            "That document is still being prepared for the voice platform.",
+            remediation=(
+                "Wait for the upload to finish processing, then publish it. If it says it "
+                "failed, upload it again as a PDF."
+            ),
+        )
+    # Deferred, as every other `apps/api` caller of the object store does it: boto3 is a
+    # heavy import and this module is imported by the API's request path.
+    from apps.workers.storage import read_kb_object
+
+    document = await read_kb_object(str(key))
+    if not document:
+        log.error("kb_upload_object_missing", extra={"source_id": str(source_id)})
+        raise ProblemError.business_rule(
+            "kb_document_missing",
+            "The uploaded file for this knowledge source is no longer available.",
+            remediation="Upload the document again.",
+        )
+    digest = hashlib.sha256(document).hexdigest()
+    if upload["document_sha256"] and upload["document_sha256"] != digest:
+        # Not a refusal: the bytes in front of us are the bytes the client's agent will be
+        # answering from, and they are what we hash. It IS worth an operator's attention,
+        # because it means the object changed under a row that recorded it.
+        log.warning("kb_upload_digest_moved", extra={"source_id": str(source_id)})
+    return document, None, digest
+
+
 async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> int:
     """Push an APPROVED source to the engine KB and make it the active version.
 
@@ -1433,19 +1559,12 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # directly and `fpdf2` is a declared runtime dependency of `apps/api`, so "there is
     # no renderer" is not a state this deployment can be in; a refusal now comes from
     # the CONTENT and says which chunk.
-    rendered = _render_document(
-        title=str(name),
-        chunks=await _approved_chunks_of(session, source_id, source_name=str(name)),
+    document, source_url, digest = await _publish_payload(
+        session,
+        source_id,
+        name=str(name),
         language=agent_config.language_primary,
     )
-    document = rendered.content
-    # THE RENDERER'S OWN DIGEST, not a second hash taken here. It is the SHA-256 of the
-    # same bytes either way, so this is not about the value — it is about there being one
-    # place that decides what the idempotency key is computed over. A local `_digest_of`
-    # would be a second answer to a settled question, and the day the renderer starts
-    # returning a digest over something else (a normalised form, say) the two would
-    # disagree silently and the re-upload guard would stop guarding.
-    digest = rendered.sha256
 
     # THE RE-UPLOAD GUARD. Three conditions, and all three are load-bearing: we hold a
     # handle, the bytes are the ones that handle was minted from, and the engine still
@@ -1494,6 +1613,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
                 text="\n\n".join(chunks),
                 document=document,
                 content_sha256=digest,
+                source_url=source_url,
             ),
             agent=agent_config,
         )

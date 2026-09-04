@@ -4423,7 +4423,21 @@ class BolnaEngine:
         require_capability("knowledge_base", engine=self)
         cfg = self._kb_agent_config(agent)
         document = source.document
-        if not document:
+        if source.source_url and document:
+            # BOTH IS NOT A THING THIS ROUTE ACCEPTS -- *"Provide either `file` or `url`,
+            # not both"* (`.../knowledgebase/create.md:29-30`). Choosing one would publish
+            # an artefact the publisher did not mean to send, so it is a refusal.
+            raise ProblemError(
+                kind="dependency",
+                code="engine_kb_ambiguous_source",
+                title="That knowledge source names two origins",
+                detail=(
+                    "A knowledge base is built from a document or from a web page, never "
+                    "from both."
+                ),
+                failure_stage="CORE_LOGIC",
+            )
+        if not document and not source.source_url:
             # THE ONE THING THIS ADAPTER MAY NOT DO IS RENDER ONE ITSELF. What a human
             # approved is text; turning it into a document is a decision about an approved
             # artefact, and hard rule 2 puts everything on this side of the wall out of
@@ -4438,7 +4452,7 @@ class BolnaEngine:
                 ),
                 failure_stage="CORE_LOGIC",
             )
-        if len(document) > KB_MAX_DOCUMENT_BYTES:
+        if document and len(document) > KB_MAX_DOCUMENT_BYTES:
             # Refused here rather than at the vendor: a 400 would go through the throttle
             # ladder as a transient fault and be retried, three times, with the same
             # oversized body.
@@ -4454,6 +4468,23 @@ class BolnaEngine:
                 remediation="Split it into two knowledge sources and publish them separately.",
                 status=422,
             )
+        # THE TWO SHAPES OF ONE ROUTE. A link is scraped BY THE VENDOR: `url` is a form
+        # FIELD on the same multipart route and there is no file part beside it
+        # (`.../knowledgebase/create.md:40-52`). Everything after the create -- the
+        # `processing` wait, the `vector_id` read, the agent write and the compensation --
+        # is identical, which is why this is one method with two bodies rather than two
+        # methods that would drift apart on the half that matters.
+        parts: dict[str, Any] = {
+            "chunk_size": str(KB_CHUNK_SIZE),
+            "overlapping": str(KB_OVERLAPPING),
+            "similarity_top_k": str(KB_SIMILARITY_TOP_K),
+            "language_support": KB_LANGUAGE_SUPPORT,
+        }
+        files: dict[str, tuple[str, bytes, str]] | None = None
+        if document:
+            files = {"file": (_kb_filename(source), document, "application/pdf")}
+        else:
+            parts["url"] = str(source.source_url)
         created = await self._request(
             "POST",
             "/knowledgebase",
@@ -4471,13 +4502,8 @@ class BolnaEngine:
             # up with two knowledge bases where one is referenced. There is no idempotency
             # key on this route to prevent it. The second is an orphan — money, invisible
             # to `list_kb`, and gate 43e's subject.
-            files={"file": (_kb_filename(source), document, "application/pdf")},
-            data={
-                "chunk_size": str(KB_CHUNK_SIZE),
-                "overlapping": str(KB_OVERLAPPING),
-                "similarity_top_k": str(KB_SIMILARITY_TOP_K),
-                "language_support": KB_LANGUAGE_SUPPORT,
-            },
+            files=files,
+            data=parts,
         )
         rag_id = created.get("rag_id")
         if not isinstance(rag_id, str) or not rag_id:

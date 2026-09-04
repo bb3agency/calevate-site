@@ -3133,6 +3133,22 @@ class KBSourceRef(BaseModel):
     document: bytes | None = None
     #: Hex SHA-256 of `document`, when there is one. The publisher's re-upload guard.
     content_sha256: str | None = None
+    #: A WEB PAGE the engine is asked to fetch for itself, instead of a document we upload
+    #: (D-532). Set only for a knowledge source a client added as a LINK.
+    #:
+    #: **IT IS EXCLUSIVE WITH `document`, AND THAT IS THE VENDOR'S CONSTRAINT SHOWING
+    #: THROUGH, NOT OURS.** The engine this product runs on takes `file` OR `url` on one
+    #: multipart route and refuses both together, and an adapter for an engine that only
+    #: ingests text ignores this exactly as it ignores `document`. The publisher sets one
+    #: or the other and never both; an adapter handed both refuses by name rather than
+    #: choosing, because choosing would silently publish something nobody approved.
+    #:
+    #: WHY THE URL AND NOT A COPY WE FETCHED. The page the engine indexes is the page the
+    #: engine fetches; a copy of ours would be a second reading of the same URL, minutes
+    #: older, and the client would be shown a review of text the agent never saw. We DO
+    #: fetch the page — for change detection, so a materially changed page can be sent
+    #: back for review (`kb/uploads.py`) — and that reading never reaches a vendor.
+    source_url: str | None = None
 
 
 class CostBreakdown(BaseModel):
