@@ -140,21 +140,45 @@ WHERE u.source_id = :sid
 """
 
 
+#: The one statement that moves a row's status. LITERAL, with the two provenance columns
+#: written through `COALESCE` so a caller that has nothing to say about them leaves them
+#: alone — an f-string assembling a SET list from a caller's keys is what
+#: `tests/raw_sql_guard_test.py` refuses, and correctly: SQL whose text no reader can trace
+#: to a literal is SQL nobody can review.
+_MARK_SQL = """
+UPDATE kb_uploads
+   SET ingest_status = :status,
+       ingest_detail = :detail,
+       text_provenance = COALESCE(:provenance, text_provenance),
+       extractor = COALESCE(:extractor, extractor),
+       updated_at = now()
+ WHERE id = :id
+"""
+
+
 async def _mark(
-    session: AsyncSession, upload_id: UUID, status: str, *, detail: str | None = None, **fields: Any
+    session: AsyncSession,
+    upload_id: UUID,
+    status: str,
+    *,
+    detail: str | None = None,
+    provenance: str | None = None,
+    extractor: str | None = None,
 ) -> None:
-    """The one writer of `ingest_status`. Extra columns ride along in the same UPDATE.
+    """The one writer of `ingest_status`, and of the two columns that travel with it.
 
     A single statement rather than a read-modify-write: the sweep and the job can both
-    reach one row, and neither needs the other's fields.
+    reach one row, and neither needs to know what the other last wrote.
     """
-    sets = ", ".join(f"{name} = :{name}" for name in fields)
     await session.execute(
-        text(
-            "UPDATE kb_uploads SET ingest_status = :status, ingest_detail = :detail, "
-            f"{sets + ', ' if sets else ''}updated_at = now() WHERE id = :id"
-        ),
-        {"id": upload_id, "status": status, "detail": detail, **fields},
+        text(_MARK_SQL),
+        {
+            "id": upload_id,
+            "status": status,
+            "detail": detail,
+            "provenance": provenance,
+            "extractor": extractor,
+        },
     )
 
 
@@ -328,7 +352,7 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                 session,
                 upload_id,
                 UPLOAD_RECEIVED,
-                text_provenance=extracted.provenance,
+                provenance=extracted.provenance,
                 extractor=extracted.model or "parsed",
             )
             log.info(
