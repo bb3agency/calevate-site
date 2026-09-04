@@ -12,6 +12,7 @@ from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     ForeignKey,
@@ -191,6 +192,102 @@ class KbChunk(PKMixin, TimestampMixin, Base):
     #: projection follows: the rows stay, addressable by a rollback, and are invisible to
     #: retrieval.
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+
+
+#: `kb_uploads.source_kind` — the same closed set the conversion port declares
+#: (`calevate_shared.kb_conversion.SourceKind`), imported rather than retyped so a kind the
+#: converter can serve and a kind this table can hold are one vocabulary.
+UPLOAD_KINDS: tuple[str, ...] = ("pdf", "url", "docx", "xlsx", "text", "image")
+
+#: How far an upload has got. The last three are the VENDOR's own words for a knowledge
+#: base, spelled the same way on purpose — the value a client reads is the value the engine
+#: reported, not a paraphrase somebody has to keep in step (migration `b3f7c21ea940`).
+UPLOAD_RECEIVED = "received"
+UPLOAD_CONVERTING = "converting"
+UPLOAD_CONVERSION_UNAVAILABLE = "conversion_unavailable"
+UPLOAD_CONVERSION_FAILED = "conversion_failed"
+UPLOAD_PROCESSING = "processing"
+UPLOAD_PROCESSED = "processed"
+UPLOAD_ERROR = "error"
+UPLOAD_STATUSES: tuple[str, ...] = (
+    UPLOAD_RECEIVED,
+    UPLOAD_CONVERTING,
+    UPLOAD_CONVERSION_UNAVAILABLE,
+    UPLOAD_CONVERSION_FAILED,
+    UPLOAD_PROCESSING,
+    UPLOAD_PROCESSED,
+    UPLOAD_ERROR,
+)
+
+#: The statuses a sweep should try again. `conversion_unavailable` is NOT here: no
+#: converter is installed for that kind on this deployment, and retrying it on a timer
+#: buys nothing but log lines until an operator installs one. `error` is not here either —
+#: the engine or we refused this document, and the remediation is on the row.
+UPLOAD_RETRYABLE: tuple[str, ...] = (UPLOAD_RECEIVED, UPLOAD_CONVERTING, UPLOAD_PROCESSING)
+
+
+class KbUpload(PKMixin, TimestampMixin, Base):
+    """The file, photograph or link behind ONE `kb_sources` version.
+
+    1:1 with that version (`uq_kb_uploads_source`), because an upload IS a knowledge source
+    — it is approved, versioned, published, superseded and expired by exactly the machinery
+    pasted text is. What lives here is only what is true of an uploaded ORIGINAL: what kind
+    it is, where the bytes are, what the engine was handed, and how far it got. The review
+    state, the submitter and the live flag are `kb_sources`' columns and are NOT copied.
+
+    **NO `rag_id` COLUMN.** The vendor mints two identifiers and only the one an agent
+    references (`vector_id`) is stored, in `engine_kb_routes.engine_kb_ref` — migration
+    `f1c9e0a73b46` took that decision and its reason holds here: a second vendor identifier
+    above the adapter is a vendor payload shape crossing hard rule 2's wall, and it is
+    recoverable at the one call site that needs it.
+    """
+
+    __tablename__ = "kb_uploads"
+    __table_args__ = (
+        UniqueConstraint("source_id", name="uq_kb_uploads_source"),
+        CheckConstraint(f"source_kind IN {UPLOAD_KINDS!r}", name="ck_kb_uploads_kind"),
+        CheckConstraint(f"ingest_status IN {UPLOAD_STATUSES!r}", name="ck_kb_uploads_status"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    source_id: Mapped[UUID] = mapped_column(
+        ForeignKey("kb_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    source_kind: Mapped[str] = mapped_column(String, nullable=False)
+    #: Object-storage ref for what the CLIENT sent. NULL for a link — there is nothing of
+    #: ours to store, the vendor scrapes the page itself.
+    original_key: Mapped[str | None] = mapped_column(Text)
+    original_filename: Mapped[str | None] = mapped_column(Text)
+    original_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    original_sha256: Mapped[str | None] = mapped_column(Text)
+    content_type: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    #: Object-storage ref for what the ENGINE is handed: the original when it is already a
+    #: PDF, the converter's output otherwise, NULL for a link.
+    document_key: Mapped[str | None] = mapped_column(Text)
+    document_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    #: Hex SHA-256 of the document bytes — the publisher's re-upload guard, the same key
+    #: `KBSourceRef.content_sha256` carries for a rendered document.
+    document_sha256: Mapped[str | None] = mapped_column(Text)
+    #: Which `DocumentConverter` produced `document_key`, when one did. Provenance, the
+    #: argument `kb_documents.gloss_model` makes: "machine-generated" is worth nothing
+    #: unless the row says which machine.
+    converter: Mapped[str | None] = mapped_column(Text)
+    ingest_status: Mapped[str] = mapped_column(String, nullable=False, server_default=UPLOAD_RECEIVED)
+    #: A sentence written for the CLIENT and rendered beside the row. Never a key, a path
+    #: or a stack (hard rule 6).
+    ingest_detail: Mapped[str | None] = mapped_column(Text)
+    #: For a link: the digest of the page text as we last read it, and the two clocks that
+    #: make the re-scrape sweep idempotent and auditable. What the engine indexes is still
+    #: what the engine scrapes; this is change detection and nothing else.
+    content_digest: Mapped[str | None] = mapped_column(Text)
+    last_checked_at: Mapped[datetime | None]
+    change_detected_at: Mapped[datetime | None]
 
 
 class KbRetrievalLog(PKMixin, Base):

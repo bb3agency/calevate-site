@@ -252,6 +252,104 @@ def _wrap_long_sentence(sentence: str) -> list[str]:
     return pieces
 
 
+async def insert_source_version(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    name: str,
+    kind: str,
+    uri: str | None,
+    submitted_by: UUID | None,
+    auto_approve: bool = False,
+) -> tuple[UUID, int, str]:
+    """Mint the next VERSION row of a named source. Answers `(id, version, status)`.
+
+    **EXTRACTED FROM `submit_source` RATHER THAN COPIED INTO THE UPLOAD PATH (D-532).** An
+    uploaded document is a knowledge source version in every respect that matters — it is
+    reviewed, versioned, published, superseded and expired by this module's machinery — and
+    the two things that must not be re-derived beside it are the authorisation read and the
+    version numbering. A second copy of either is how one lane gets `assert_visible` and the
+    other does not, or how two paths compute the same `MAX(version) + 1`.
+
+    ═══ AUTO-APPROVAL, AND WHY IT IS A PARAMETER RATHER THAN A ROLE READ ═══
+
+    The founder's decision is that an OWNER's submission is auto-approved and a STAFF
+    member's is reviewed. WHO is asking is a question about a request — realm, role,
+    impersonation, and the account's own staff-curation switch — and `kb/curation.py`
+    already answers it in exactly one place. This function takes the ANSWER, so the ladder
+    is not re-implemented here and a service-level caller (a worker re-ingesting a changed
+    link, a test) gets the safe default: review.
+
+    An auto-approval records `approved_by = submitted_by`, so the audit question "who
+    cleared this" has the same shape as an admin approval and never answers NULL. It is a
+    real approval by the person who is accountable for the account, not an absence of one.
+    """
+    # Hard rule 1 does not reach this INSERT on its own: PostgreSQL runs
+    # referential-integrity checks with row security bypassed, so `kb_sources.agent_id`
+    # would accept another tenant's agent (`db/ownership.py` carries the mechanism).
+    # The consequence is worse HERE than elsewhere because of the unique index below:
+    # `(agent_id, name, version)` is evaluated over every row rather than the visible
+    # ones, so an unauthorised row takes a slot the owning tenant can no longer use —
+    # their own submission then fails on a constraint violation caused by a row they
+    # cannot see, list or delete, and the error is an existence oracle besides.
+    await assert_visible(session, "agent", agent_id)
+
+    # `MAX(version) + 1` under an advisory lock on the named source, not a read-then-write.
+    # Two people submitting under the same name at the same instant — the shape a client's
+    # owner and manager reach by both pasting an updated price list — otherwise computed
+    # the SAME next version, and the second INSERT died on
+    # `uq_kb_sources_agent_id_name_version`. That IntegrityError escaped to the generic
+    # handler: a 500 and a crash alert, where the honest outcome is that both submissions
+    # are recorded as consecutive versions and both are reviewable.
+    #
+    # Same primitive, same argument and the same key shape as `ops/secret_service.install`
+    # (BACKEND-PATTERNS §5) — one way per problem. It is taken AFTER the authorisation
+    # read, so naming another tenant's agent cannot make us hold a lock on their name.
+    # The key is deliberately distinct from `_lock_agent_publishes`': submitting a draft
+    # and publishing a live version share no state and must not block each other.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"kb:submit:{agent_id}:{name}"},
+    )
+    current = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(max(version), 0) FROM kb_sources "
+                "WHERE agent_id = :aid AND name = :name"
+            ),
+            {"aid": agent_id, "name": name},
+        )
+    ).scalar()
+    version = int(current or 0) + 1
+
+    status = "approved" if auto_approve else "pending_approval"
+    source_id = uuid7()
+    await session.execute(
+        text(
+            "INSERT INTO kb_sources (id, tenant_id, agent_id, kind, name, uri, status, "
+            "version, submitted_by, approved_by, approved_at, is_active, created_at, "
+            "updated_at) VALUES (:id, :tid, :aid, :kind, :name, :uri, :status, :version, "
+            ":by, :approved_by, CASE WHEN CAST(:auto AS boolean) THEN now() END, "
+            "false, now(), now())"
+        ),
+        {
+            "id": source_id,
+            "tid": tenant_id,
+            "aid": agent_id,
+            "kind": kind,
+            "name": name,
+            "uri": uri,
+            "status": status,
+            "version": version,
+            "by": submitted_by,
+            "approved_by": submitted_by if auto_approve else None,
+            "auto": auto_approve,
+        },
+    )
+    return source_id, version, status
+
+
 async def submit_source(
     session: AsyncSession,
     *,
@@ -262,6 +360,7 @@ async def submit_source(
     kind: str = "text",
     uri: str | None = None,
     submitted_by: UUID | None = None,
+    auto_approve: bool = False,
 ) -> dict[str, Any]:
     """Create the next VERSION of a named source, chunked and awaiting approval.
 
@@ -302,61 +401,15 @@ async def submit_source(
             detail="The submitted content is empty.",
         )
 
-    # Hard rule 1 does not reach this INSERT on its own: PostgreSQL runs
-    # referential-integrity checks with row security bypassed, so `kb_sources.agent_id`
-    # would accept another tenant's agent (`db/ownership.py` carries the mechanism).
-    # The consequence is worse HERE than elsewhere because of the unique index below:
-    # `(agent_id, name, version)` is evaluated over every row rather than the visible
-    # ones, so an unauthorised row takes a slot the owning tenant can no longer use —
-    # their own submission then fails on a constraint violation caused by a row they
-    # cannot see, list or delete, and the error is an existence oracle besides.
-    await assert_visible(session, "agent", agent_id)
-
-    # `MAX(version) + 1` under an advisory lock on the named source, not a read-then-write.
-    # Two people submitting under the same name at the same instant — the shape a client's
-    # owner and manager reach by both pasting an updated price list — otherwise computed
-    # the SAME next version, and the second INSERT died on
-    # `uq_kb_sources_agent_id_name_version`. That IntegrityError escaped to the generic
-    # handler: a 500 and a crash alert, where the honest outcome is that both submissions
-    # are recorded as consecutive versions and both are reviewable.
-    #
-    # Same primitive, same argument and the same key shape as `ops/secret_service.install`
-    # (BACKEND-PATTERNS §5) — one way per problem. It is taken AFTER the authorisation
-    # read, so naming another tenant's agent cannot make us hold a lock on their name.
-    # The key is deliberately distinct from `_lock_agent_publishes`': submitting a draft
-    # and publishing a live version share no state and must not block each other.
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-        {"key": f"kb:submit:{agent_id}:{name}"},
-    )
-    current = (
-        await session.execute(
-            text(
-                "SELECT COALESCE(max(version), 0) FROM kb_sources "
-                "WHERE agent_id = :aid AND name = :name"
-            ),
-            {"aid": agent_id, "name": name},
-        )
-    ).scalar()
-    version = int(current or 0) + 1
-
-    source_id = uuid7()
-    await session.execute(
-        text(
-            "INSERT INTO kb_sources (id, tenant_id, agent_id, kind, name, uri, status, "
-            "version, submitted_by, is_active, created_at, updated_at) VALUES (:id, :tid, "
-            ":aid, :kind, :name, :uri, 'pending_approval', :version, :by, false, now(), now())"
-        ),
-        {
-            "id": source_id,
-            "tid": tenant_id,
-            "aid": agent_id,
-            "kind": kind,
-            "name": name,
-            "uri": uri,
-            "version": version,
-            "by": submitted_by,
-        },
+    source_id, version, status = await insert_source_version(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        name=name,
+        kind=kind,
+        uri=uri,
+        submitted_by=submitted_by,
+        auto_approve=auto_approve,
     )
     for idx, chunk in enumerate(chunks):
         await session.execute(
@@ -378,7 +431,7 @@ async def submit_source(
         "id": source_id,
         "version": version,
         "chunks": len(chunks),
-        "status": "pending_approval",
+        "status": status,
     }
 
 

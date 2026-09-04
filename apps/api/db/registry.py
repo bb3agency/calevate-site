@@ -182,6 +182,12 @@ TENANT_TABLES = [
     "outbound_webhooks",
     "kb_sources",
     "kb_documents",
+    # The uploaded original behind a knowledge source version (D-532, migration
+    # `b3f7c21ea940`): a client's PDF, spreadsheet, photograph or link. Tenant-scoped
+    # and FORCE-RLS'd because every row either IS the client's content or dereferences
+    # to it — `original_key` and `document_key` are object-storage keys pointing at the
+    # document itself, which is `check_rls_coverage` rule 7(b)'s subject exactly.
+    "kb_uploads",
     # The retrieval projection (D-502, migration `dc1aaeeeff02`): one row per published
     # chunk, holding a tsvector and an embedding and no content of its own. Tenant-scoped
     # and FORCE-RLS'd like every other derivative of a client's knowledge — and RLS is

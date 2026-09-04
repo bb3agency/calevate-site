@@ -483,6 +483,100 @@ async def archive_payload(
 # the signing secret, the signature header. The forensic question is what we SENT, and
 # none of those are part of it.
 
+
+KB_UPLOAD_PREFIX = "kb-uploads"
+
+
+def kb_object_key(*, tenant_id: UUID, upload_id: UUID, slot: str, suffix: str) -> str:
+    """`kb-uploads/{tenant}/{upload}/{slot}.{suffix}` — the client's document, by tenant.
+
+    THE TENANT AND THE UPLOAD ARE LOAD-BEARING, for `payload_key`'s reason exactly: an
+    uploaded price list is the client's own business data and may carry their customers'
+    names, so a DPDP erasure or an account offboarding must be able to enumerate it, and
+    an enumeration can only work from a key that names its subject.
+
+    `slot` is `original` or `document` — the two artefacts of one upload (what the client
+    sent, and what the engine was handed; the same object twice when the client sent a
+    PDF). Two slots under ONE prefix rather than two prefixes, so deleting an upload is one
+    prefix listing and cannot leave the other half behind.
+
+    NEITHER SEGMENT IS CALLER-CONTROLLED. `suffix` is chosen from our own extension map and
+    the client's filename never reaches the key — it is stored in a column, where a
+    hostile one is a string rather than a path. That is stricter than `payload_key`, which
+    can afford a vendor-controlled last segment because it is still inside the call's
+    prefix; here the file NAME is attacker-chosen in a way an execution id is not.
+    """
+    return f"{KB_UPLOAD_PREFIX}/{tenant_id}/{upload_id}/{slot}.{suffix}"
+
+
+def kb_upload_prefix(*, tenant_id: UUID, upload_id: UUID) -> str:
+    """Every object of one upload. Ends in `/` so the prefix stops at the path segment."""
+    return f"{KB_UPLOAD_PREFIX}/{tenant_id}/{upload_id}/"
+
+
+async def store_kb_object(*, key: str, data: bytes, content_type: str) -> str:
+    """Put one uploaded document. RAISES when the store refuses, and that is the
+    difference from `store_delivery_body`.
+
+    A delivery body is a copy of something that already happened, so losing it is a
+    degraded audit trail. This IS the artefact: if it is not stored, there is nothing to
+    convert, nothing to hand the engine and nothing for a reviewer to read, and answering
+    201 to the client would promise a document we do not have. So the failure is loud and
+    the request fails — `StorageUnavailableError` is an `arq.Retry`, so the same call from
+    a worker retries instead.
+
+    AWAITED off the loop for `store_delivery_body`'s reason: boto3 blocks, and one of the
+    two callers is an API request handler, where a synchronous round trip freezes every
+    tenant's request rather than only this one.
+    """
+
+    def _put() -> None:
+        _client().put_object(
+            Bucket=get_settings().object_store_bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+            ServerSideEncryption="AES256",
+        )
+
+    try:
+        await asyncio.to_thread(_put)
+    except (BotoCoreError, ClientError) as exc:
+        # The key's TENANT and UPLOAD segments are ids; the filename is not in the key and
+        # not in this log line (hard rule 6).
+        log.warning("kb_object_store_failed", extra={"bytes": len(data), "reason": type(exc).__name__})
+        raise StorageUnavailableError("Object storage refused the knowledge upload") from exc
+    return key
+
+
+async def read_kb_object(key: str) -> bytes | None:
+    """The stored bytes, or None when the object is GONE.
+
+    Gone and unreachable are different answers and this keeps them apart, exactly as
+    `read_delivery_body` does: `None` means the object is not there (expired, erased,
+    never written), and `StorageUnavailableError` means we could not look. A publisher that
+    merged them would upload nothing to the engine and report success.
+    """
+
+    def _get() -> bytes:
+        response = _client().get_object(Bucket=get_settings().object_store_bucket, Key=key)
+        body: bytes = response["Body"].read()
+        return body
+
+    try:
+        return await asyncio.to_thread(_get)
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in ("NoSuchKey", "404", "NotFound"):
+            return None
+        log.warning("kb_object_read_failed", extra={"reason": code or type(exc).__name__})
+        raise StorageUnavailableError("Object storage is unavailable") from exc
+    except BotoCoreError as exc:
+        log.warning("kb_object_read_failed", extra={"reason": type(exc).__name__})
+        raise StorageUnavailableError("Object storage is unavailable") from exc
+
+
+
 DELIVERY_BODY_PREFIX = "webhook-bodies"
 
 # Per delivery. A lead payload is a few hundred bytes; 64 KiB is room for an unusually
