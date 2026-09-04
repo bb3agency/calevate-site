@@ -169,6 +169,26 @@ VOICE_RUNTIME_ROUTES: frozenset[tuple[str, str]] = frozenset(
         # and not only at boot.
         ("POST", "/tools/v1/{engine}/callback"),
         ("POST", "/tools/v1/{engine}/callback/cancel"),
+        # THE HANDOVER NOTICE (D-533), added deliberately and not drifted into — the entry
+        # this set exists to force.
+        #
+        # **IT RETRIEVES NOTHING, and it is the furthest thing on this service from a
+        # retrieval endpoint: it is the only route here that COMPUTES nothing at all.** It
+        # is not even a tool the model calls. It is the transfer tool's pre-call webhook —
+        # the engine telling us, one step before it places the leg, that it is handing this
+        # caller to a person — so there is no answer to feed back to the LLM and nothing to
+        # look up. It verifies the source, bounds the body, reads one id and two strings the
+        # model wrote, queues a job and acks. No IO, no database, no model.
+        #
+        # It is on THIS service rather than in `apps/api` for the reason the opt-out is: the
+        # engine fires it mid-call, so hard rule 3's 500ms governs it — the vendor's promise
+        # that a slow webhook "never blocks the transfer" is not a budget we get to spend,
+        # because dead air on a live call is dead air either way.
+        #
+        # THE COST THIS SET CHARGES IS PAID: `tests/handoff_tool_test.py` drives it, and it
+        # is driven in `voice_runtime_import_surface_test._drive` so the ban on `httpx`,
+        # `apps.api.kb` and every model SDK is enforced ACROSS a request on it.
+        ("POST", "/tools/v1/{engine}/handoff"),
     }
 )
 

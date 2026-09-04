@@ -61,6 +61,7 @@ HOOK = "/hooks/v1/engine/bolna"
 TOOL = "/tools/v1/bolna/opt-out"
 BOOK = "/tools/v1/bolna/callback"
 CANCEL_CALLBACK = "/tools/v1/bolna/callback/cancel"
+HANDOFF = "/tools/v1/bolna/handoff"
 
 #: A date the booking endpoint will accept as "far enough ahead", computed rather than
 #: written down: a literal would silently start failing `too_soon` the day it passed, and
@@ -411,6 +412,22 @@ async def _drive(http: AsyncClient, tag: str) -> None:
         headers=headers,
     )  # 202
     await http.post(CANCEL_CALLBACK, json={"execution_id": f"exec_{tag}"}, headers=headers)  # 202
+
+    # THE HANDOVER NOTICE (D-533), every branch. It carries the model's own `reason` and
+    # `summary` — free-form prose about a live conversation — and prose is exactly where a
+    # lazy import for a formatter, a truncator or a redaction helper would be reached for.
+    # Nothing on this path may look at those strings; the worker redacts them.
+    await http.post(HANDOFF, json={"execution_id": f"exec_{tag}"})  # 401
+    await http.post(HANDOFF, json={"reason": "no id"}, headers=headers)  # 422
+    await http.post(
+        HANDOFF,
+        json={
+            "execution_id": f"exec_{tag}",
+            "reason": "caller asked for the owner",
+            "summary": "Wants a refund on an order from last week.",
+        },
+        headers=headers,
+    )  # 202
 
     await _hang_up_mid_body(HOOK)  # 400: ClientDisconnect out of the stream
     with pytest.MonkeyPatch.context() as patch:

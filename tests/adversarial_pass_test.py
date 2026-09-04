@@ -307,6 +307,19 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/extraction-schema", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/extraction-schema", {"fields": []}, {}),
     ("GET", "/v1/agents/{agent_id}/pending", {}, {}),
+    # D-533. The handover list — WHO a caller is put through to. Read is `agents:read` and
+    # the write is `org:manage`, so both are reachable with an ordinary client credential,
+    # which is exactly the set this sweep is over. It matters more than most rows here in
+    # BOTH directions: reading a neighbour's is reading their staff's personal mobiles, and
+    # writing one would point another business's escalation at a number of your choosing —
+    # which is not an information leak but a redirection of live calls.
+    ("GET", "/v1/agents/{agent_id}/handoff", {}, {}),
+    (
+        "PUT",
+        "/v1/agents/{agent_id}/handoff",
+        {"enabled": False, "members": []},
+        {},
+    ),
     # D-513/D-514. The switch is `org:manage` and the two reads are `leads:read`, so all
     # three are reachable with an ordinary client credential — which is exactly the set
     # this sweep exists over. The call-back pair matters more than it looks: the row names
