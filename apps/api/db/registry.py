@@ -106,6 +106,14 @@ TENANT_TABLES = [
     # append-only record of the money itself is the `credit_ledger` entry the same webhook
     # writes. A lost UPDATE here costs a stale word on a screen; it cannot cost a rupee.
     "topup_attempts",
+    # The time-boxed period a client is billed nothing for (D-536, migration a71f3c9e5d84).
+    # Tenant data — it names one client's commercial arrangement and the instant their
+    # personal data becomes erasable — and every read runs inside `tenant_session`. NOT
+    # append-only, and deliberately: it is a STATE row UPDATEd once from `active` to a
+    # terminal status, never summed into a balance, and the money a trial produces is
+    # metered into `usage_events` exactly as it always was. A lost UPDATE here costs a
+    # stale word on a screen and one extra sweep tick; it cannot cost a rupee.
+    "tenant_trials",
     "consent_ledger",
     # The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7): our own customer's owner
     # agreeing to receive hot-lead alerts from the Calevate WABA. Tenant data — it names

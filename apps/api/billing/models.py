@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -40,7 +41,39 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 # `topup` row as part of a bank transfer, and a promotional grant is not one — folding it
 # into `topup` would make the wallet claim a bank moved more than it did. It carries the
 # payment id it was earned on as its `ref` (idempotent, `ux_credit_ledger_bonus_ref`).
-CREDIT_REASONS = ("topup", "usage", "adjustment", "refund", "bonus")
+# `grant` (D-535) is credit the FOUNDER GAVE, out of nothing — goodwill, an apology, a
+# pilot we decided to fund — and it is a sixth reason rather than a sixth meaning for one
+# of the five above. Each of the alternatives was rejected for a reason worth keeping:
+#
+#   * `topup` would make the wallet claim a bank moved money it did not. That is the exact
+#     lie D-39 refused when it declined to seed opening balances, and `service
+#     .PAYMENT_REF_SQL` would then fold a grant into a bank transfer's reconciliation line.
+#   * `adjustment` is a COMPENSATING entry: it must name a wrong row and is bounded by that
+#     row's magnitude (`CorrectableEntry.compensating_delta`). A grant corrects nothing, so
+#     it has no entry to name and no ceiling to inherit.
+#   * `bonus` is credit we fund too, but it is EARNED ON A PAYMENT — keyed by the payment id
+#     (`ux_credit_ledger_bonus_ref`) and CLAWED BACK when that payment is refunded
+#     (`payments.credit_refund`). A goodwill grant must survive the refund of an unrelated
+#     payment, so sharing the reason would make it reversible by an event it has nothing to
+#     do with.
+#
+# Idempotent on an operator-supplied reference (`ux_credit_ledger_grant_ref`, migration
+# a71f3c9e5d84), the shape `topup` already uses — a grant has no natural external key, so
+# the console mints one per form and a second click converges instead of granting twice.
+CREDIT_REASONS = ("topup", "usage", "adjustment", "refund", "bonus", "grant")
+
+#: The reasons that put credit on a wallet WITHOUT a client paying for it (D-535). Named
+#: once because two surfaces publish the split — the operator's wallet read and the
+#: client's own statement — and "bought" versus "given" answered two different ways on two
+#: screens is the drift a client notices before we do. `bonus` belongs here and not with
+#: `topup`: it is a promotional grant WE fund, so counting it as revenue would inflate the
+#: same margin figure a goodwill grant would.
+GRANTED_CREDIT_REASONS = ("grant", "bonus")
+
+#: The reasons that put credit on a wallet BECAUSE MONEY ARRIVED. Exactly one today, and
+#: spelled as a tuple rather than a literal so the two sets are read the same way and a
+#: seventh reason has to be argued into one of them.
+PAID_CREDIT_REASONS = ("topup",)
 
 # The DASHBOARD-AI units (D-127 G-3, migration e1a7c93d5b02). Their own unit types
 # rather than a second meaning for the call-leg ones, and the reason is arithmetic
@@ -839,6 +872,118 @@ class TopUpAttempt(PKMixin, TimestampMixin, Base):
     #: The catalogue pack this attempt priced, or NULL for a free-form amount.
     pack_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="created")
+
+
+#: The four states a trial can be in (D-536). `active` is the only one that changes what
+#: the platform DOES; the other three are all "over" and differ only in WHY, which is the
+#: fact an operator and the erasure sweep both need — a client who CONVERTED keeps their
+#: data, and the two who did not do not.
+TRIAL_STATUSES = ("active", "converted", "expired", "stopped")
+
+#: The terminal states that mean the client did NOT buy. Named rather than spelled as
+#: "everything except converted", because the sweep that erases a non-converting client's
+#: personal data reads it and a fifth status must be argued INTO an irreversible act
+#: rather than fall into it by default.
+TRIAL_NON_CONVERTING_STATUSES = ("expired", "stopped")
+
+
+class TenantTrial(PKMixin, TimestampMixin, Base):
+    """A time-boxed period during which this client is BILLED NOTHING (D-536).
+
+    **IT IS NOT `plan_tier = 'trial'`, AND CONFLATING THE TWO IS THE MESS THIS DOCSTRING
+    EXISTS TO PREVENT.** `plan_tier` answers two standing questions about a MOTION — does
+    this account pay from a wallet (`billing/rates.PREPAID_TIERS`, which contains `trial`)
+    and did a stranger open it unattended (`compliance/service.SELF_SERVE_TIERS`, which
+    also contains `trial`) — and it has no clock. This row answers a third, temporary one:
+    *is this account, right now, inside a period we agreed to fund?* A `managed` client on
+    a retainer can be given a trial and a `trial`-tier signup can be outside one, so a
+    column that already means two things could not be made to mean a third without
+    breaking both. Nothing here reads or writes `plan_tier`; nothing there reads this.
+
+    **APPEND-ONLY? NO, AND DELIBERATELY.** This is a STATE row, not a ledger: it is
+    UPDATEd once, from `active` to a terminal status, and it is never summed into a
+    balance. The money facts a trial produces stay where money facts live — `usage_events`
+    records every minute and its `unit_cost_paid` exactly as it always did (that is how
+    anyone can say what a trial cost us), and `credit_ledger` records nothing, because
+    nothing moved. A lost UPDATE here costs a word on a screen and one extra sweep tick;
+    it cannot cost a rupee. `topup_attempts` is the same argument in the same module.
+
+    **ONE ACTIVE TRIAL PER TENANT**, enforced by `ux_tenant_trials_active` (partial unique
+    on `tenant_id WHERE status = 'active'`, migration a71f3c9e5d84) rather than by a
+    reader's `if` — two operators starting a trial at once would otherwise both read "none
+    open" and both insert, and the account would then have two end dates.
+    """
+
+    __tablename__ = "tenant_trials"
+    __table_args__ = (
+        CheckConstraint(f"status IN {TRIAL_STATUSES!r}", name="status_enum"),
+        # A trial of zero days is a trial nobody got; 365 is a year, past which "trial"
+        # is not the word for the arrangement and a plan row is. The ceiling is here as
+        # well as at the API boundary because this is the one that cannot be bypassed by
+        # a script, and because there is NO SPEND CEILING (the founder's explicit choice,
+        # D-536): days are the only bound this arrangement has, so they are bounded twice.
+        CheckConstraint("days >= 1 AND days <= 365", name="days_range"),
+        CheckConstraint("ends_at > started_at", name="ends_after_start"),
+        # `active` and "not yet ended" are ONE fact, so they are stored once and asserted
+        # equal. Without this a row can read `expired` with no `ended_at` — which the
+        # erasure sweep would then schedule from a NULL and skip for ever.
+        CheckConstraint("(status = 'active') = (ended_at IS NULL)", name="ended_iff_not_active"),
+        # At most one open trial per client. Partial, like `uq_tenant_erasure_requests_open`
+        # and for the identical reason: the CLOSED rows are history and there may be many.
+        Index(
+            "ux_tenant_trials_active",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        # The read every surface makes: this tenant's newest trial. Carries the ordering
+        # so the plan walks to the newest row instead of sorting the account's history,
+        # the same shape `ix_credit_ledger_tenant_recent` takes.
+        Index(
+            "ix_tenant_trials_tenant_recent",
+            "tenant_id",
+            text("started_at DESC"),
+            text("id DESC"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: What the operator TYPED. `ends_at` is derived from it at start, but the typed
+    #: number is kept because it is what the founder agreed with the client and what an
+    #: operator will look for when a client says "you gave us thirty days".
+    days: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    #: When it runs out if nobody touches it. The sweep ends it; a trial past this instant
+    #: has ALREADY stopped bypassing the credit gate (`trials.trial_billing_active` asks
+    #: the clock as well as the status), so a late sweep costs an operator a stale word
+    #: and never a free minute.
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="active")
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Why it ended, in the operator's own words when a human ended it, and a fixed
+    #: sentence when the clock did. Required at the API boundary for the reason
+    #: `admin/routes.LifecycleIn.reason` is: an unexplained end to a funded period is the
+    #: ticket nobody can close.
+    ended_reason: Mapped[str | None] = mapped_column(Text)
+    #: THE EARLIEST INSTANT A NON-CONVERTING CLIENT'S PERSONAL DATA MAY BE ERASED — the
+    #: grace period the founder sets, stamped when the trial ends so it is a FACT about
+    #: this trial rather than a setting that could move under a client who is already in
+    #: the window. NULL while the trial is open, and NULL FOR EVER once it converted: a
+    #: client who bought keeps their leads, calls and transcripts, because that is the
+    #: value they just built and one of those callers may be waiting for a call back.
+    erase_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Stamped when the sweep has FILED the tenant erasure (`compliance/tenant_erasure.py`),
+    #: which is what makes the sweep idempotent — the erasure itself is executed and
+    #: certified by the machinery that already exists, and nothing here erases anything.
+    erasure_filed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The operator who started it. SET NULL rather than RESTRICT: a person leaving must
+    #: not pin a client's trial history, and the durable record of who did it is the
+    #: `audit_log` row written in the same transaction.
+    started_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
 # Referenced (not yet modeled — M2): invoices, engine_capacity.
