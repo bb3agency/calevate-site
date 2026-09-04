@@ -68,7 +68,7 @@ from apps.workers.extraction import (
     SarvamExtractor,
 )
 from apps.workers.redaction import redact
-from calevate_shared.engine import LLM_MODELS
+from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL, LLM_MODELS
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -116,6 +116,14 @@ def azure_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     `tests/azure_extraction_test.py`, and reaching it here by accident would silently
     move every test in this file onto the fallback rung.
 
+    ⚠ **IT MUST ALSO PIN `platform_llm_model`, AND THAT IS NEW (D-530).** Holding an Azure
+    credential no longer puts an account ON the Azure leg: the platform default moved to
+    `gemini-2.5-flash-lite`, so an account that has chosen no model of its own resolves to
+    the GOOGLE leg, finds no Google credential, and the assistant correctly falls to its
+    disclosed substitution. That is the ladder working — but it is not what these tests are
+    about, and without this line they assert Azure metering against an answer Azure never
+    produced.
+
     IT NO LONGER RESETS A TOKEN CACHE. The fixture beside this one used to, because the
     Vertex bearer was process-level state shared between tests; an Azure key is static
     and is read per request, so there is nothing to go stale. That is a deleted class of
@@ -126,6 +134,7 @@ def azure_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "azure_openai_api_key", API_KEY, raising=False)
     monkeypatch.setattr(settings, "azure_openai_deployment", DEPLOYMENT, raising=False)
     monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
+    monkeypatch.setattr(settings, "platform_llm_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False)
 
 
 def use_fake_azure(monkeypatch: pytest.MonkeyPatch, azure: FakeAzure) -> None:

@@ -109,6 +109,11 @@ const LEDGER_ROWS: WalletLedger = {
 };
 
 const PACK_CARD = {
+  // SYNTHETIC, and deliberately not the real ladder: the list rate here is ₹8.00 and the
+  // catalogue's is ₹5.00, so these amounts, bonuses and talk times are internally
+  // consistent test data rather than packs we sell. The real rungs are pinned in
+  // `tests/credit_packs_test.py`; a fixture that tracked them would break on every
+  // repricing while proving nothing this file is about (D-526).
   list_rate_inr_per_min: "8.00",
   packs: [
     {

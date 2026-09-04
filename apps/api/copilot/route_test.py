@@ -33,6 +33,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
@@ -79,11 +80,20 @@ def _the_platform_brake_is_not_this_suites_business(monkeypatch: pytest.MonkeyPa
 
 @pytest.fixture
 def azure_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment whose ONLY assistant leg is Azure.
+
+    ⚠ `platform_llm_model` is pinned here and that is new (D-530). An Azure credential no
+    longer decides the leg: the platform default is `gemini-2.5-flash-lite`, so an account
+    that chose no model resolves to GOOGLE, holds no Google credential, and the assistant
+    correctly substitutes with a disclosure. Right behaviour, wrong test — these assert
+    Azure's own token count reaching the ledger, which needs the answer to come from Azure.
+    """
     settings = get_settings()
     monkeypatch.setattr(settings, "azure_openai_resource", "calevate-test", raising=False)
     monkeypatch.setattr(settings, "azure_openai_api_key", "k", raising=False)
     monkeypatch.setattr(settings, "azure_openai_deployment", "dep", raising=False)
     monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
+    monkeypatch.setattr(settings, "platform_llm_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False)
 
 
 def _fake_provider(

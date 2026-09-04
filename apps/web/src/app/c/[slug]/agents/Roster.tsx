@@ -17,28 +17,45 @@
  */
 
 import Link from "next/link";
-import { Bot, PhoneCall, PhoneIncoming, PhoneOutgoing, Plus } from "lucide-react";
+import { useState } from "react";
+import {
+  Bot,
+  PhoneCall,
+  PhoneIncoming,
+  PhoneOutgoing,
+  Plus,
+  PowerOff,
+  Trash2,
+} from "lucide-react";
 
 import {
   Card,
+  DANGER_BUTTON,
   EmptyState,
   MonoValue,
+  NOTICE_TONES,
   PRIMARY_BUTTON,
   ProblemNotice,
+  RestrictionNote,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_SM,
   formatCount,
   formatIST,
 } from "@/components/ui";
 import {
+  useAgentLifecycle,
   useAgentStats,
   useArchivedAgents,
   type Agent,
   type AgentStats,
 } from "@/lib/api/agents";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { agentOwnModel } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { LiveBadge } from "./AgentBadge";
+import { MOVE_COPY } from "./AgentLifecycle";
 import {
   DIRECTION_COPY,
   LANGUAGE_NAMES,
@@ -76,7 +93,10 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
           title="No agents yet"
           hint="An agent is a phone line that answers for you — it picks up, has the conversation, and writes down what was said. Build your first one and it will show up here before it takes a single call."
           action={
-            <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
+            <Link
+              href={href(`/c/${slug}/agents/new`)}
+              className={PRIMARY_BUTTON}
+            >
               <Plus aria-hidden className="h-4 w-4" />
               Build your first agent
             </Link>
@@ -94,8 +114,18 @@ export function Roster({ agents, slug }: { agents: Agent[]; slug: string }) {
       {/* Both sections always render, because "nothing is answering your calls" is the
           most important thing this screen can say and an absent heading says it to
           nobody. */}
-      <AgentGroup groupKey="active" rows={active} slug={slug} stats={stats.data} />
-      <AgentGroup groupKey="inactive" rows={inactive} slug={slug} stats={stats.data} />
+      <AgentGroup
+        groupKey="active"
+        rows={active}
+        slug={slug}
+        stats={stats.data}
+      />
+      <AgentGroup
+        groupKey="inactive"
+        rows={inactive}
+        slug={slug}
+        stats={stats.data}
+      />
     </div>
   );
 }
@@ -115,31 +145,55 @@ export function Archive({ slug }: { slug: string }) {
   const stats = useAgentStats(session);
 
   if (archived.error) {
-    return <ProblemNotice error={archived.error} onRetry={() => void archived.refetch()} />;
+    return (
+      <ProblemNotice
+        error={archived.error}
+        onRetry={() => void archived.refetch()}
+      />
+    );
   }
   // Nothing while it is in flight, and nothing when the server said there is none: an
   // empty archive is not news, and a heading that appears and then vanishes is worse than
   // one that never appeared.
   if (!archived.data?.length) return null;
-  return <AgentGroup groupKey="archived" rows={archived.data} slug={slug} stats={stats.data} />;
+  return (
+    <AgentGroup
+      groupKey="archived"
+      rows={archived.data}
+      slug={slug}
+      stats={stats.data}
+    />
+  );
 }
 
-/** What each section is, in the owner's words rather than in our status column's. */
-const GROUP_COPY: Record<AgentGroupKey, { title: string; hint: string; empty: string }> = {
+/**
+ * What each section is, in the owner's words rather than in our status column's.
+ *
+ * ONE SHORT LINE, OR NONE (D-527). The founder's note on this screen was that there is too
+ * much to read, and a heading that has already said the thing does not need a paragraph
+ * repeating it: "Working right now" needs no gloss at all, and the three sentences that
+ * used to sit under it (parallel answering, per-number bindings, after-hours lines) are
+ * platform facts a person reads once, not status a person scans. The EMPTY strings are the
+ * opposite case and stay whole — "nothing is answering your calls" is the most important
+ * sentence this screen can say, and it is read exactly when it is true.
+ */
+const GROUP_COPY: Record<
+  AgentGroupKey,
+  { title: string; hint?: string; empty: string }
+> = {
   active: {
     title: "Working right now",
-    hint: "On the calling system and switched on. Several can run at once — each answers its own numbers, so an after-hours line and a sales line pick up in parallel.",
     empty:
-      "Nothing is answering your calls at the moment. An agent has to be built on the calling system and switched on before it can pick up.",
+      "Nothing is answering your calls. An agent has to be built and switched on to pick up.",
   },
   inactive: {
     title: "Not working",
-    hint: "Built, being built, or deliberately switched off. None of these takes a call.",
+    hint: "Being built, or switched off. None of these takes a call.",
     empty: "Every agent you have is working.",
   },
   archived: {
-    title: "Archived",
-    hint: "Retired agents. They take no calls and cannot be put on a campaign; the calls they already handled stay in your call log.",
+    title: "Deleted",
+    hint: "They take no calls. Their call history stays in your call log, and you can bring one back.",
     empty: "",
   },
 };
@@ -166,9 +220,11 @@ function AgentGroup({
       }
       bodyClassName="p-0"
     >
-      <p className="border-b border-line px-4 py-3 text-xs text-ink-muted sm:px-6">
-        {copy.hint}
-      </p>
+      {copy.hint && (
+        <p className="border-b border-line px-4 py-3 text-xs text-ink-muted sm:px-6">
+          {copy.hint}
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="px-4 py-6 text-sm text-ink-muted sm:px-6">{copy.empty}</p>
       ) : (
@@ -178,6 +234,7 @@ function AgentGroup({
               key={agent.id}
               agent={agent}
               slug={slug}
+              groupKey={groupKey}
               /* `find`, not an index built from ids: the key would be a server string and
                  a keyed object inherits `Object.prototype` (src/lib/lookup.ts). A roster is
                  bounded at 200 rows, so the scan is not a cost worth a hazard. */
@@ -216,16 +273,24 @@ const DIRECTION_ICONS: Record<string, typeof PhoneCall> = {
 function AgentRow({
   agent,
   slug,
+  groupKey,
   stats,
 }: {
   agent: Agent;
   slug: string;
+  groupKey: AgentGroupKey;
   stats: AgentStats | undefined;
 }) {
   const { href } = useClientRealm();
+  /* Whether this row's Delete is OPEN lives here rather than in `RowDelete`, so the panel
+     can be a sibling of the row strip instead of a flex item inside it — and so the
+     mutation and the permission read below it are mounted only for the row somebody is
+     actually deleting, not once per agent on every paint. */
+  const [deleting, setDeleting] = useState(false);
   const direction = lookup(DIRECTION_COPY, agent.direction);
   const DirectionIcon = lookup(DIRECTION_ICONS, agent.direction) ?? Bot;
-  const language = lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary;
+  const language =
+    lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary;
   /**
    * WHICH AGENTS HAVE BEEN TAKEN OFF THE ACCOUNT DEFAULT — the one model fact a roster
    * can answer that a detail screen cannot.
@@ -244,54 +309,195 @@ function AgentRow({
 
   return (
     <li>
-      <Link
-        href={href(`/c/${slug}/agents/${agent.id}`)}
-        className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 hover:bg-black/5 sm:px-6 dark:hover:bg-white/5"
-      >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
-          <DirectionIcon aria-hidden className="h-4 w-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-ink">{agent.name}</span>
-          <span className="block text-xs text-ink-muted">
-            {direction?.label ?? humanise(agent.direction)} · Speaks {language}
-            {/* HOW MANY LINES IT ANSWERS IN PARALLEL — the honest per-agent deployment
+      {/* The link and the delete control are SIBLINGS, not nested: a `<button>` inside an
+          `<a>` is invalid HTML and gives a screen reader one control that is two. The link
+          still takes the whole strip a finger aims at (`flex-1`), so "one target per row"
+          holds for the row's own purpose — opening it — and the destructive control is the
+          deliberate second target, which is the one place UX-DOCTRINE §4 asks for one. */}
+      <div className="flex items-center">
+        <Link
+          href={href(`/c/${slug}/agents/${agent.id}`)}
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 hover:bg-black/5 sm:px-6 dark:hover:bg-white/5"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
+            <DirectionIcon aria-hidden className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-ink">
+              {agent.name}
+            </span>
+            <span className="block text-xs text-ink-muted">
+              {direction?.label ?? humanise(agent.direction)} · Speaks{" "}
+              {language}
+              {/* HOW MANY LINES IT ANSWERS IN PARALLEL — the honest per-agent deployment
                 fact, and the only one: inbound is a per-number binding at the engine, so
                 an agent bound to three numbers picks up three calls at once. Outbound
                 concurrency is an account-level pool shared by every campaign, so there is
                 no per-agent number that could be true and this row invents none. */}
-            {agent.direction !== "outbound" && (
-              <>
-                {" · "}
-                {agent.inbound_number_count === 1
-                  ? "Answers 1 number"
-                  : `Answers ${formatCount(agent.inbound_number_count)} numbers`}
-              </>
-            )}
-            {/* The server's own identifier, not a friendly name: it is what the settings
+              {agent.direction !== "outbound" && (
+                <>
+                  {" · "}
+                  {agent.inbound_number_count === 1
+                    ? "Answers 1 number"
+                    : `Answers ${formatCount(agent.inbound_number_count)} numbers`}
+                </>
+              )}
+              {/* The server's own identifier, not a friendly name: it is what the settings
                 screen and the invoice line both print, and a roster that renamed it would
                 leave an owner unable to match this row to the charge. */}
-            {ownModel !== null && (
-              <>
-                {" · "}Its own AI model: <MonoValue>{ownModel}</MonoValue>
-              </>
+              {ownModel !== null && (
+                <>
+                  {" · "}Its own AI model: <MonoValue>{ownModel}</MonoValue>
+                </>
+              )}
+            </span>
+            {stats && (
+              <span className="block text-xs text-ink-faint">
+                {formatCount(stats.calls_total)}{" "}
+                {stats.calls_total === 1 ? "call" : "calls"} handled
+                {stats.last_call_at !== null && (
+                  <> · last used {formatIST(stats.last_call_at)}</>
+                )}
+              </span>
+            )}
+            {/* "Deleted", the console's word for what `archived_at` records (D-527) — a
+                row must not name the move by a word no button on this screen uses. */}
+            {agent.archived_at !== null && (
+              <span className="block text-xs text-ink-faint">
+                Deleted {formatIST(agent.archived_at)}
+              </span>
             )}
           </span>
-          {stats && (
-            <span className="block text-xs text-ink-faint">
-              {formatCount(stats.calls_total)}{" "}
-              {stats.calls_total === 1 ? "call" : "calls"} handled
-              {stats.last_call_at !== null && <> · last used {formatIST(stats.last_call_at)}</>}
-            </span>
-          )}
-          {agent.archived_at !== null && (
-            <span className="block text-xs text-ink-faint">
-              Retired {formatIST(agent.archived_at)}
-            </span>
-          )}
-        </span>
-        <LiveBadge agent={agent} />
-      </Link>
+          <LiveBadge agent={agent} />
+        </Link>
+        {/* THE FOUNDER'S RULE IS THAT THIS IS ON EVERY AGENT (D-527), whether it is working
+            or not — so it is not conditioned on the agent's state, only on the row being a
+            live one. A deleted agent has no Delete because it is already deleted; bringing
+            it back is on its own screen, where the rest of its life is. */}
+        {groupKey !== "archived" && (
+          <button
+            type="button"
+            onClick={() => setDeleting((open) => !open)}
+            aria-expanded={deleting}
+            /* The visible word is inside the accessible name (WCAG 2.5.3): six rows each
+               offering a control called only "Delete" is a list a screen-reader user
+               cannot navigate, and a name that dropped the visible word would break voice
+               control. */
+            aria-label={`Delete ${agent.name}`}
+            className={`${SECONDARY_BUTTON_SM} mr-4 shrink-0 sm:mr-6`}
+          >
+            <Trash2 aria-hidden className="h-3.5 w-3.5" />
+            Delete
+          </button>
+        )}
+      </div>
+      {deleting && (
+        <RowDelete agent={agent} onClose={() => setDeleting(false)} />
+      )}
     </li>
+  );
+}
+
+/**
+ * DELETING ONE AGENT FROM THE ROSTER — the confirm, or the one thing to do first.
+ *
+ * ## Why the control exists here at all
+ *
+ * The founder asked for it in these words: *"a delete option should be provided for every
+ * agent regardless of it is working or not and if it is working it cannot be deleted
+ * unless it is decommissioned (i mean deactivated as not working)"*. Both halves are the
+ * design. The affordance is on every row, because an owner who is finished with an agent
+ * should not have to open it to find that out; and a WORKING agent is refused, because a
+ * delete beside every row is one click from ending a phone line a business is running on.
+ *
+ * ## The refusal is offered as a step, not as a wall
+ *
+ * `agentGroup` decides "is it working", which is the same predicate the groups above use
+ * and the same one the copilot is told — a second test here is the drift this repo treats
+ * as a defect even when both spellings agree. When it says yes, the panel does not just
+ * say no: it offers Switch off, which is the move the server will accept, and the panel
+ * then becomes the delete confirm on the next render because the agent has changed group.
+ * That is the whole two-step, on one screen, without the person navigating anywhere.
+ *
+ * ## The words are the detail screen's words
+ *
+ * `MOVE_COPY.archive.confirm` — imported, not retyped. What deleting an agent does to a
+ * client's account is one fact, and a roster that summarised it in its own words is how
+ * one of the two copies quietly stops saying that the call history is kept.
+ *
+ * The server enforces all of this independently (`agents/lifecycle.archive_agent` refuses
+ * a live agent with `agent_is_live`); this is the half that means a person never meets
+ * that refusal by surprise.
+ */
+function RowDelete({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+  const session = useClientSession();
+  const move = useAgentLifecycle(session, agent.id);
+  /* `org:manage`, the owner's own permission — the same read the detail screen's lifecycle
+     panel makes, and for the same reason: a viewer is shown why, not a button that 403s. */
+  const write = useWriteAccess(session, "org:manage", "delete an agent");
+  const working = agentGroup(agent) === "active";
+  const copy = MOVE_COPY.archive.confirm;
+
+  return (
+    /* `role="status"`, polite: this panel appears because the person pressed Delete, so it
+       does not need to interrupt — but a consequence that exists only as newly-painted
+       pixels is one a screen-reader user is asked to confirm without having been told.
+       Same call as the detail screen's confirm panel. */
+    <div
+      role="status"
+      className={`border-t border-line px-4 py-3 text-xs sm:px-6 ${NOTICE_TONES.warn}`}
+    >
+      {move.error && <ProblemNotice error={move.error} />}
+      <RestrictionNote reason={write.reason} />
+
+      {working ? (
+        <>
+          <p className="font-semibold">{agent.name} is working right now</p>
+          <p className="mt-1">
+            It has to be switched off before it can be deleted. Switching it off
+            stops it answering and dialling, and releases the numbers it picks
+            up.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="font-semibold">Delete {agent.name}?</p>
+          <ul className="mt-2 list-inside list-disc space-y-1">
+            {copy?.points.map((point) => (
+              <li key={point}>{point}</li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {working ? (
+          <button
+            type="button"
+            onClick={() => move.mutate("deactivate")}
+            disabled={!write.allowed || move.isPending}
+            title={write.reason ?? undefined}
+            className={SECONDARY_BUTTON}
+          >
+            <PowerOff aria-hidden className="h-4 w-4" />
+            {move.isPending ? "Switching off…" : "Switch it off"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => move.mutate("archive")}
+            disabled={!write.allowed || move.isPending}
+            title={write.reason ?? undefined}
+            className={DANGER_BUTTON}
+          >
+            <Trash2 aria-hidden className="h-4 w-4" />
+            {move.isPending ? "Deleting…" : `Delete ${agent.name}`}
+          </button>
+        )}
+        <button type="button" onClick={onClose} className={SECONDARY_BUTTON}>
+          Keep it
+        </button>
+      </div>
+    </div>
   );
 }

@@ -238,12 +238,38 @@ const SWITCH_TRACK =
  * `summary` is the whole control, so it carries `touch:min-h-11` for SC 2.5.8's target
  * size; `subtitle` lets the closed state say what is inside without the reader opening it,
  * which is the "information scent" that makes a disclosure findable at all.
+ *
+ * ## `variant="inline"` — the same mechanism at strip size
+ *
+ * A card-shaped panel is the right container for a section. It is the wrong one for a
+ * LIST of one-line facts, each of which has a longer sentence behind it: five bordered
+ * cards inside a card is a stack of chrome around ten words apiece, and the doc comment
+ * above says outright that a disclosed panel is a peer of a card and never nested in one.
+ * `variant="inline"` drops the border, the shadow and the padding and keeps everything
+ * that makes this component the console's one disclosure: the native `<details>`, the
+ * announced state, the Show/Hide affordance in words, and the touch target.
+ *
+ * It is a VARIANT rather than a second component because the alternative on offer was a
+ * hand-rolled `<details>` beside `WhatCallsCost`, which is the thing UX-DOCTRINE §3
+ * forbids ("do not hand-roll a second").
+ *
+ * Two contract differences, both deliberate:
+ *
+ * - **`headingLevel`.** The card variant's `h2` is a peer of `Card`'s own `h2`. An inline
+ *   disclosure sits INSIDE a card's body, under that `h2`, so it takes `3` there —
+ *   otherwise the heading list reads as two peers where one contains the other.
+ * - **`subtitle` is not expected.** §3 requires the closed state to carry the FACT rather
+ *   than a tease; in the inline variant the TITLE is the fact ("No GST is added, and we
+ *   cannot issue a tax invoice") and the body is only the elaboration, so a subtitle would
+ *   be a third line of text on a strip that exists to remove text.
  */
 export function Disclosure({
   title,
   subtitle,
   icon,
   defaultOpen = false,
+  variant = "card",
+  headingLevel = 2,
   children,
   className,
 }: {
@@ -251,14 +277,21 @@ export function Disclosure({
   subtitle?: ReactNode;
   icon?: ReactNode;
   defaultOpen?: boolean;
+  variant?: "card" | "inline";
+  headingLevel?: 2 | 3;
   children: ReactNode;
   className?: string;
 }) {
+  const inline = variant === "inline";
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   return (
     <details
       open={defaultOpen}
       className={clsx(
-        "group rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+        "group",
+        inline
+          ? "border-b border-line/60 last:border-b-0"
+          : "rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
         className,
       )}
     >
@@ -268,17 +301,34 @@ export function Disclosure({
           can jump to from the heading list and one they can only find by tabbing. WCAG 2.2
           1.3.1 / 2.4.6 — the level is fixed at 2 for `Disclosure`'s reason above `Card`:
           a disclosed panel is a peer of a card, never nested inside one. */}
-      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-4 touch:min-h-11 sm:px-6 [&::-webkit-details-marker]:hidden">
+      <summary
+        className={clsx(
+          "flex cursor-pointer list-none items-center gap-3 touch:min-h-11 [&::-webkit-details-marker]:hidden",
+          inline ? "py-2" : "px-4 py-4 sm:px-6",
+        )}
+      >
         {icon && (
           <span
             aria-hidden
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+            className={clsx(
+              "flex shrink-0 items-center justify-center",
+              inline
+                ? "text-brand"
+                : "h-8 w-8 rounded-full bg-brand-soft text-brand-strong",
+            )}
           >
             {icon}
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+          <Heading
+            className={clsx(
+              "text-ink",
+              inline ? "text-sm font-medium" : "text-[15px] font-semibold",
+            )}
+          >
+            {title}
+          </Heading>
           {subtitle && (
             <span className="block text-xs text-ink-muted">{subtitle}</span>
           )}
@@ -294,7 +344,13 @@ export function Disclosure({
           className="h-4 w-4 shrink-0 text-ink-faint transition-transform group-open:rotate-180"
         />
       </summary>
-      <div className="border-t border-line p-4 sm:p-6">{children}</div>
+      <div
+        className={clsx(
+          inline ? "pb-3 pr-6 text-sm text-ink-muted" : "border-t border-line p-4 sm:p-6",
+        )}
+      >
+        {children}
+      </div>
     </details>
   );
 }

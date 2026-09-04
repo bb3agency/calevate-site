@@ -496,6 +496,18 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # model the deployment does not run prices something nobody is calling, which is a
     # wrong invoice rather than an outage and therefore the failure that hides longest.
     "azure_openai_model": AppliesRule(LIVE),
+    # WHICH MODEL EVERYBODY RUNS WHEN NOBODY CHOSE — the platform rung, across all three
+    # legs. LIVE and genuinely so on the surfaces a person watches: the settings screen
+    # resolves it per request, so "the model we run by default" moves within one poll. ⚠ A
+    # LIVE AGENT MOVES ON ITS NEXT PUBLISH, not on the poll — `_to_config` resolves this rung
+    # at publish time — which is the same shape `azure_openai_deployments` carries and is why
+    # that one is NEEDS_REPUBLISH. It is classified LIVE anyway because the two are not the
+    # same promise: an entry in that map decides WHICH DEPLOYMENT an agent is addressed by
+    # and can leave a published agent calling a different model than the console reports,
+    # while this one only decides what an account inherits — no agent that has ever been
+    # published is silently mismatched by it, and the account-default writer re-publishes the
+    # agents it moves.
+    "platform_llm_model": AppliesRule(LIVE),
     # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
     # deployment fields above, this value is never published into an agent's engine record —
     # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the

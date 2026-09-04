@@ -18,6 +18,11 @@ existed rather than by a new one:
 * `archived` — retired. Never dialled, never assignable, and NOT deleted: `deleted_at` is
                the DPDP erasure column and writing it here would take the agent's own call
                history off every screen (migration e4b90d27c1f6 argues this at length).
+               THE CLIENT CONSOLE CALLS THIS MOVE "DELETE" (D-527) — the founder's word,
+               and the only word a business owner looks for when they are finished with
+               an agent. The server vocabulary stays `archive` because the endpoint, the
+               status, the audit action and the column all say it; what changed is the
+               label and the fact that a WORKING agent is refused (see `archive_agent`).
 
 WHY THE TRANSITIONS ARE A TABLE AND NOT A CHAIN OF `if`s. BACKEND-PATTERNS §5 asks for
 "a central transition table + `INVALID_STATUS_TRANSITION` error", and `AGENT_TRANSITIONS`
@@ -91,9 +96,18 @@ log = get_logger(__name__)
 #: thing that can establish what it is holding is a publish with its read-back. So a
 #: restore returns the agent to the INACTIVE state and the owner activates it deliberately,
 #: which runs that proof.
+#:
+#: `live -> archived` WAS AN EDGE AND IS NOT ANY MORE (D-527, the founder's rule stated in
+#: his own words: *"if it is working it cannot be deleted unless it is decommissioned"*).
+#: Retiring is what the console now calls DELETING, and a delete is the one control on the
+#: agents screen a person presses by accident — so it may not, in one click, be the thing
+#: that stops a business's phone being answered. Switching off is that decision, and it is
+#: taken on its own, with its own button and its own audit row. What the removed edge costs
+#: is one extra click on a retirement, which nobody does twice a year; what it buys is that
+#: no single click on this screen can take a working line down.
 AGENT_TRANSITIONS: dict[AgentStatus, frozenset[AgentStatus]] = {
     "draft": frozenset({"live", "archived"}),
-    "live": frozenset({"paused", "archived"}),
+    "live": frozenset({"paused"}),
     "paused": frozenset({"live", "archived"}),
     "archived": frozenset({"paused"}),
 }
@@ -139,7 +153,7 @@ ASSIGNABLE_STATUSES: frozenset[AgentStatus] = frozenset(
 AGENT_MOVERS: dict[str, tuple[frozenset[AgentStatus], AgentStatus]] = {
     "activate": (frozenset({"draft", "paused"}), "live"),
     "deactivate": (frozenset({"live"}), "paused"),
-    "archive": (frozenset({"draft", "live", "paused"}), "archived"),
+    "archive": (frozenset({"draft", "paused"}), "archived"),
     "restore": (frozenset({"archived"}), "paused"),
 }
 
@@ -558,7 +572,7 @@ async def deactivate_agent(
 async def archive_agent(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
 ) -> LifecycleResult:
-    """Retire the agent: `draft`/`live`/`paused` → `archived`. Never a delete.
+    """Retire the agent: `draft`/`paused` → `archived`. The console's DELETE (D-527).
 
     WHAT SURVIVES, and it is the whole reason this is not `deleted_at`: the agent row, its
     prompt versions, its extraction schema, every `calls` row that references it
@@ -566,9 +580,40 @@ async def archive_agent(
     stops is dialling — `check_dispatch` refuses `status <> 'live'` — and answering, which
     is the number release below.
 
-    ARCHIVING FROM `live` IS ALLOWED and does the deactivation's work in the same move. The
-    alternative, forcing deactivate-then-archive, buys nothing: both paths must release the
-    numbers, and a two-click retirement is a retirement somebody abandons halfway.
+    **A WORKING AGENT IS REFUSED, AND THIS FUNCTION USED TO ACCEPT ONE.** `live` was a
+    source until D-527: archiving did the deactivation's work in the same move, on the
+    argument that a two-click retirement is one somebody abandons halfway. That argument
+    survives for a button labelled *Archive*, which nobody presses in a hurry, and does
+    not survive the founder's instruction that the control be a DELETE on every row of the
+    roster: a delete beside every agent, one click from ending a live phone line, is the
+    accident this refusal exists to make impossible. Switching off is now the separate,
+    deliberate decision it always was for every other purpose — and the console offers it
+    as the next step, so the extra click costs a person nothing but a moment's attention.
+
+    **THE REFUSAL IS BY NAME, NOT BY THE CAS.** `from_statuses` is already `('draft',
+    'paused')`, so a live row is never updated whatever this branch does; what the CAS
+    cannot do is say WHICH state it found or what to press instead. `invalid_status_
+    transition` on the one control a client uses to tidy up their account is a dead end
+    (the same reasoning `deactivate_agent` and `restore_agent` state for their own
+    hand-written refusals).
+
+    **WHAT HAPPENS AT THE VOICE PLATFORM, AND WHAT DELIBERATELY DOES NOT.** The numbers are
+    released (below), which is the half that matters: inbound is answered by whatever the
+    vendor has bound to a number and nothing in our database is consulted, so a retired
+    agent whose bindings survived would go on picking up. The vendor's AGENT OBJECT is left
+    standing, and `VoiceEngine.delete_agent` is deliberately NOT called here — deleting an
+    agent at Bolna destroys all of its batches and executions with it
+    (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/agent/v2/delete.md`
+    lines 7 and 10, read 4 Sep 2026), and those executions are the vendor-side record of
+    calls we hold a retention obligation over (SECURITY-COMPLIANCE §4). An object nothing
+    is bound to cannot be rung, `check_dispatch` refuses to dial it and
+    `assert_assignable` refuses to put it on a campaign, so what is left standing is
+    unreachable rather than loose. What it COSTS to leave standing is UNKNOWN in the strict
+    sense — the mirrored vendor documentation carries no per-agent standing charge that a
+    search of it found, and no reading of their live pricing page has been made from here
+    (`www.bolna.ai` is egress-blocked). The one caller of `delete_agent` stays what it was:
+    `agents/service.py`'s orphan compensator, whose subject is an agent minted seconds ago
+    that has never taken a call.
 
     `archived_at` is stamped by the transition itself, in the same UPDATE as the status,
     because `ck_agents_archived_at_matches_status` makes the pair inseparable — there is no
@@ -605,7 +650,15 @@ async def archive_agent(
     # `restore` all did; taking it here also makes `agents` the FIRST row every one of
     # these paths locks, which is what keeps the ordering deadlock-free against
     # `update_agent` (agents → engine) and `launch_campaign` (agents → campaigns).
-    await _locked_status(session, agent_id)
+    if await _locked_status(session, agent_id) == "live":
+        raise ProblemError.conflict(
+            "agent_is_live",
+            "This agent is working right now, so it cannot be deleted yet.",
+            remediation=(
+                "Switch it off first — that stops it answering and releases the numbers "
+                "it picks up — and then delete it."
+            ),
+        )
     await _assert_no_campaign_is_dialling(session, agent_id=agent_id)
     moved = await transition_status(
         session,

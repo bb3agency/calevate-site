@@ -9,16 +9,20 @@ acts differently on: one is a setting they can clear, the other is a default the
 override. So `resolve_llm_model` returns `ResolvedLlmModel`, never a bare `str`, and
 every response that carries the model carries the level it came from beside it.
 
-THE PLATFORM LEVEL IS `Settings.azure_openai_model`, NOT `AZURE_OPENAI_DEFAULT_MODEL`
--------------------------------------------------------------------------------------
-The constant is the DEFAULT OF that setting, not the platform's answer. `azure_openai_
-model` is `applies: live` (`core/platform_config.py`) — an operator flips it, points the
-deployment at a matching model, and from that moment the model this deployment actually
-runs is the setting's value. Reading the frozen constant here would report `gpt-4o-mini`
-to every client on a deployment running `gpt-4.1-mini`: the D-105 defect (an identifier
-changing under a constant nobody re-derived) on the surface that tells a client what
-their calls cost. On an unflipped deployment the two are the same string, which is why
-this is strictly more correct rather than differently correct.
+THE PLATFORM LEVEL IS `Settings.platform_llm_model`, NOT A CONSTANT
+-------------------------------------------------------------------
+`PLATFORM_DEFAULT_LLM_MODEL` is the DEFAULT OF that setting, not the platform's answer.
+The field is `applies: live` (`core/platform_config.py`) — an operator flips it and from
+that moment the model an un-chosen account runs is the setting's value. Reading the frozen
+constant here would report last quarter's model to every client on a deployment that has
+moved: the D-105 defect (an identifier changing under a constant nobody re-derived) on the
+surface that tells a client what their calls cost.
+
+⚠ **AND IT IS NOT `azure_openai_model`, WHICH IS WHAT IT USED TO READ.** That field answers
+a different question — which model the AZURE DEPLOYMENT was made from — and its type is the
+Azure Literal, so while this function read it the platform's own default could not be a
+model on either of the other two declared legs. The founder's answer is one of them
+(`gemini-2.5-flash-lite`), so the two facts now have two fields; `config.py` states both.
 
 THREE CONDITIONS DECIDE WHAT A CLIENT MAY PICK, AND ONLY ONE OF THEM IS IN SOURCE
 ---------------------------------------------------------------------------------
@@ -72,12 +76,31 @@ others as `model=deployment` pairs. `deployment_for()` below is the only reader 
 either, so "which deployment serves this model" has one answer and one place.
 
 ON A DEPLOYMENT WITH NO AZURE CREDENTIALS AT ALL — local, CI, any staging without a
-resource — there is no deployment indirection: `in_call_llm` passes the model straight
-to the engine, so every Azure-catalogue model is addressable and the picker offers them
-all. That is not a special case bolted on; it is the same question ("can this deployment
-put this model on the wire?") answered for the other arm of the same switch. The other two
-legs have no such arm: their credential lives in the engine's own store and there is
-nothing to fall back to.
+resource — THE AZURE LEG IS NOT CONFIGURED, AND NO AZURE MODEL IS OFFERED. ⚠ **THIS
+PARAGRAPH SAID THE OPPOSITE UNTIL THE FOUNDER READ THEIR OWN SCREEN**: it said the model
+went to the engine verbatim, so "every Azure-catalogue model is addressable and the picker
+offers them all", and the picker duly presented `gpt-4o-mini` and `gpt-4.1-mini` under a
+heading reading AZURE OPENAI on a deployment holding no Azure resource, no Azure key and no
+Azure deployment. Two things are wrong with that, and only the second is about tidiness:
+
+* **IT IS A FALSE CLAIM ABOUT WHOSE MODEL ANSWERS THE CALL.** The engine's passthrough does
+  not reach Azure — it reaches the engine's own bundled tier, where those two identifiers
+  belong to OPENAI and the Azure spellings are different wire values entirely:
+  `gpt-4.1-mini`, `gpt-4o-mini` under **OpenAI** against `azure/gpt-4.1-mini`,
+  `azure/gpt-4o-mini` under **Azure OpenAI** (VERIFIED-VENDOR-DOCS,
+  `bolna-findings/mirror/pages/pricing/preferred-models.md:69-74`). So the row named a
+  vendor, a region and a DPA that the call would not be under, on the screen a client reads
+  to decide what their calls cost and where they run.
+* **IT PRICED A LEG WE ARE NOT ON.** Those bundled models are inside the engine's flat
+  per-minute rate (same page, :12), while the row quoted our Azure catalogue's per-token
+  figures. Hard rule 7 is that a price describes what actually happened.
+
+`in_call_llm`'s passthrough arm is UNCHANGED and is still what every local run, CI run and
+conformance fixture exercises: an account that has chosen nothing inherits the platform's
+model and the engine serves it from that bundled tier. What no longer happens is a client
+CHOOSING an Azure model on a deployment that has no Azure. The other two legs never had
+such an arm — their credential lives in the engine's own store — so all three legs now
+answer the same question the same way: is a credential installed?
 
 WHAT THIS MODULE STILL DOES NOT DO, on purpose: it holds no key, stores no attestation and
 reads no database. The ops console owns both (`apps/api/ops/`), and reaches this module
@@ -225,8 +248,16 @@ def selectable_models() -> tuple[str, ...]:
 
 def platform_default_model() -> str:
     """What an account runs when neither it nor its agent chose — see the module docstring
-    for why this is the live setting and not the frozen constant behind it."""
-    return get_settings().azure_openai_model
+    for why this is the live setting and not the frozen constant behind it.
+
+    ⚠ **`platform_llm_model`, NOT `azure_openai_model`, AND THE TWO ARE DIFFERENT FACTS.**
+    This read the Azure field while Azure was the only leg, which made the platform's own
+    default un-settable to anything the `AzureOpenAIModel` Literal does not hold — on a
+    product declaring three legs whose founder chose a Google model. `azure_openai_model`
+    keeps its own job: which model the Azure DEPLOYMENT was made from, priced by the cost
+    model and pushed to the engine's credential store. `config.py` states both at length.
+    """
+    return get_settings().platform_llm_model
 
 
 def _configured_deployments() -> dict[str, str]:
@@ -261,11 +292,20 @@ def deployment_for(model: str) -> str | None:
     THE ONE READER OF BOTH DEPLOYMENT FIELDS. `Settings.azure_openai_deployment` answers
     for `Settings.azure_openai_model` and `Settings.azure_openai_deployments` answers for
     everything else, so no model is named in two places and the two can never disagree
-    about one model. The order matters and is the whole rule: the singular field is what
-    `engine/bolna.py` pushes into the vendor's credential store as `AZURE_OPENAI_MODEL`,
-    so if a stray entry in the map ever named the platform's own model, letting the map
-    win would point published agents at one deployment and the credential store at
-    another. It is ignored instead.
+    about one model.
+
+    ⚠ **THE SINGULAR FIELD IS KEYED ON `azure_openai_model`, NOT ON `platform_default_
+    model()`.** They were the same string while the platform default WAS the Azure model,
+    and reading the platform default here would break the pairing the moment the two diverge
+    — which they now do: a Google platform default would leave `azure_openai_deployment`
+    answering for nothing while the map was asked for the Azure model the credential store is
+    actually populated with. The pairing this field belongs to is stated in `config.py`:
+    `azure_openai_model` and `azure_openai_deployment` move together.
+
+    The order matters and is the whole rule: the singular field is what `engine/bolna.py`
+    pushes into the vendor's credential store as `AZURE_OPENAI_MODEL`, so if a stray entry in
+    the map ever named that same model, letting the map win would point published agents at
+    one deployment and the credential store at another. It is ignored instead.
 
     ⚠ **ASK IT ONLY ABOUT AN AZURE MODEL.** Deployments are an Azure artefact; on the other
     two legs the API addresses the model's own published name and a deployment id has
@@ -278,7 +318,7 @@ def deployment_for(model: str) -> str | None:
     `str | None` and an operator clearing it in the console leaves `""`, which is not a
     deployment and must not be returned as one.
     """
-    if model == platform_default_model():
+    if model == get_settings().azure_openai_model:
         return (get_settings().azure_openai_deployment or "").strip() or None
     return (_configured_deployments().get(model) or "").strip() or None
 
@@ -320,17 +360,24 @@ def installed_llm_providers() -> frozenset[LlmProvider]:
     filled in behave as they always have. The other two legs are simply not usable until
     somebody installs a key, which is the honest state and the one the picker should show.
 
-    ⚠ **AZURE IS PRESENT ON *BOTH* ARMS OF `azure_credentials()`, AND THAT IS NOT A BUG.**
-    A deployment with no Azure credentials at all has no Azure leg to configure — and on
-    that arm `in_call_llm` sends the model identifier straight through to the engine's own
-    default client, which is the passthrough every conformance fixture and every local run
-    exercises. So "can this platform run an Azure-catalogue model" is true either way, and
-    it is `_leg_is_addressable` below that knows the two arms need different questions
-    asked of them.
+    ⚠ **AZURE USED TO BE PRESENT ON *BOTH* ARMS OF `azure_credentials()`, AND THAT WAS THE
+    DEFECT THE FOUNDER FOUND.** The reasoning was that a deployment with no Azure
+    credentials sends the model identifier straight to the engine's own default client, so
+    "can this platform run an Azure-catalogue model" was true either way. It is not: that
+    passthrough reaches the engine's BUNDLED OpenAI tier, not Azure (the module docstring
+    carries the vendor page and the line numbers), so answering "yes, Azure" for it named a
+    vendor the call would never touch. One question, one answer, all three legs: a leg is
+    installed when this platform holds a credential for it.
+
+    `azure_credentials()` is the reader because it is the ONE definition of "the Azure leg
+    is configured" in this tree — all three fields or none, with a blank or whitespace value
+    counting as absent — and it is what `agents/service.in_call_llm` and the copilot already
+    branch on. A second notion of "installed" here is how the picker and the wire come to
+    disagree.
     """
     if _credential_reader is not None:
         return _credential_reader()
-    return frozenset({"azure_openai"})
+    return frozenset({"azure_openai"}) if azure_credentials() is not None else frozenset()
 
 
 def _leg_is_addressable(model: str) -> bool:
@@ -345,18 +392,21 @@ def _leg_is_addressable(model: str) -> bool:
       a model with no deployment would be quoted at its own price while every call ran a
       different deployment — a charge for something we did not deliver, invisible in a
       transcript and in an execution payload, and a hard-rule-7 defect rather than a
-      cosmetic one. On the no-credentials arm there is no deployment indirection at all, so
-      the model IS what the engine is sent and every catalogue model is addressable.
+      cosmetic one.
     * **OpenAI and Google address the model's own published name.** There is nothing to
       configure per model, so the whole question is whether the leg's credential is
       installed — and if it is, every model on it is addressable.
+
+    ⚠ **THE THIRD ARM IS GONE, AND ITS ABSENCE IS THE FIX.** This function used to answer
+    True for every Azure model when `azure_credentials()` was None, on the ground that the
+    engine's passthrough would carry the identifier. `installed_llm_providers()` now refuses
+    the leg outright on that arm — see its note and the module docstring for the vendor page
+    that settles where such a call actually lands — so the question never reaches here.
     """
     leg = leg_for_model(model)
     if leg.provider not in installed_llm_providers():
         return False
     if not leg.addresses_a_deployment:
-        return True
-    if azure_credentials() is None:
         return True
     return deployment_for(model) is not None
 

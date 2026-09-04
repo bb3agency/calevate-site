@@ -1817,8 +1817,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Retire the agent (draft, active or inactive -> archived)
-         * @description An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving an active agent also releases the numbers it was answering.
+         * Retire the agent — the console's Delete (draft or inactive -> archived)
+         * @description An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving releases any numbers the agent was answering.
+         *
+         *     **An ACTIVE agent is refused with `agent_is_live` (409).** Switching off is a separate, deliberate decision (D-527): the client console shows this move as Delete on every row of the roster, and no single click there may take a working phone line down. Deactivate first, then archive.
          */
         post: operations["archive_agent_route_v1_agents__agent_id__archive_post"];
         delete?: never;
@@ -3719,7 +3721,7 @@ export interface paths {
          *       nothing, so there is no token and no Confirm button — render it as a RECEIPT beside the
          *       answer, exactly like `action`. It is the one frame on this stream the browser must ACT
          *       on, and the only one where the server has decided WHERE but not WHEN.
-         *       * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/credits`) and is a
+         *       * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/billing`) and is a
          *         constant read out of the server's own screen inventory — never assembled, and never
          *         anything the model wrote (the tool it comes from takes a screen NAME). Substitute your
          *         own slug, CHECK the result against your own navigation list, and refuse anything that

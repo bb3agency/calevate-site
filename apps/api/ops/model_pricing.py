@@ -47,6 +47,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.errors import ProblemError
 from apps.api.ops.secret_service import read_secrets
 
+# THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS — the same import
+# `agents/llm_models.py` and `agents/service.py` make, for the identical reason: "is the
+# Azure leg configured" must have one answer, and a second read here would be a second
+# definition of it.
+from apps.workers.extraction import azure_credentials
+
 #: Which `Settings` credential field installs the key for each declared LLM leg.
 #:
 #: THE ONE PLACE this mapping lives. `LlmProvider` is the engine's closed vocabulary and
@@ -163,18 +169,29 @@ async def _stored_credential_keys(session: AsyncSession) -> frozenset[str]:
 async def installed_llm_legs(session: AsyncSession) -> frozenset[LlmProvider]:
     """Which declared legs this platform can put a call on today.
 
-    `azure_openai` is ALWAYS present — it is reachable with our key AND, without one, via
-    the engine's own default client (the passthrough arm of `azure_credentials()` that every
-    local run, CI run and conformance fixture uses). This reproduces
-    `agents.llm_models.installed_llm_providers()`'s azure-only default exactly, so wiring
-    this reader in never makes an Azure-catalogue model disappear from the picker.
+    ⚠ **`azure_openai` USED TO BE UNCONDITIONALLY PRESENT AND IS NOT ANY MORE.** The ground
+    was that the leg is reachable without our key via the engine's own default client, so a
+    deployment holding no Azure credential still offered every Azure-catalogue model. The
+    founder read that screen on a deployment with no Azure resource, no Azure key and no
+    Azure deployment and asked why those models were selectable. They should not have been:
+    the engine's passthrough serves those identifiers from its OWN bundled OpenAI tier, not
+    from Azure (`agents/llm_models.py`'s module docstring carries the vendor page and lines),
+    so the panel was reporting an Azure leg nobody had installed. It is now read from
+    `azure_credentials()` — the one definition of "the Azure leg is configured" in this tree,
+    which sees the key wherever it came from: injected from the secrets manager in
+    production, or stored here through the console.
 
-    `openai` and `google` have NO passthrough, so each is present only when its credential
-    is installed in the panel (`_stored_credential_keys`). Returns `frozenset[LlmProvider]`,
-    the shape the catalogue lane's `install_llm_credential_reader` consumes directly.
+    `openai` and `google` keys are NOT settings this API reads on a call path — they live in
+    the ENGINE's own credential store — so for those two "installed" is what the founder
+    stored in the panel (`_stored_credential_keys`). Returns `frozenset[LlmProvider]`, the
+    shape the catalogue lane's `install_llm_credential_reader` consumes directly, and it
+    reproduces `agents.llm_models.installed_llm_providers()`'s reader-less default exactly —
+    the two must agree, because half a deployment reads one and half reads the other.
     """
     stored = await _stored_credential_keys(session)
-    legs: set[LlmProvider] = {"azure_openai"}
+    legs: set[LlmProvider] = set()
+    if azure_credentials() is not None:
+        legs.add("azure_openai")
     for provider, cred in PROVIDER_CREDENTIAL.items():
         if provider != "azure_openai" and cred in stored:
             legs.add(provider)

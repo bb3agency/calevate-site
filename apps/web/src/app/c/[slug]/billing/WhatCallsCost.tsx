@@ -3,7 +3,7 @@
 import { Clock3, Infinity as InfinityIcon, PhoneMissed, ReceiptText, Waves } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Card, formatRupeeRate } from "@/components/ui";
+import { Card, Disclosure, formatRupeeRate } from "@/components/ui";
 
 /**
  * WHAT CALLS COST — the plain-language explainer, and the only place this console makes
@@ -76,6 +76,23 @@ import { Card, formatRupeeRate } from "@/components/ui";
  *    business that needs an input-credit invoice has to learn that BEFORE they buy,
  *    not from a refund request afterwards.
  *
+ * ## DENSITY — one line each, the sentence behind a click (founder, 4 Sep 2026)
+ *
+ * This panel used to render five multi-sentence bullets and the verdict on it was that
+ * nobody reads them. What survives is the CLAIM, one short line apiece, in a strip a
+ * reader scans in seconds; the paragraph that argues each claim is one click away in the
+ * console's one disclosure mechanism (`Disclosure`, `variant="inline"` — UX-DOCTRINE §3
+ * forbids a second). Nothing was deleted, because every sentence here was cited above and
+ * a citation with no sentence under it is worth nothing.
+ *
+ * §3's rule is what decides WHICH half goes where, and it is the reason the titles read
+ * as facts rather than as topics: "the closed state carries the FACT; the click buys the
+ * CONTROL". §8's absolute — a sentence that qualifies a money claim may never be hidden —
+ * is why the GST line says BOTH halves before it is opened: "No GST is added, and we
+ * cannot issue a tax invoice" is on screen, unopened, above the button that takes the
+ * money. A business that needs input tax credit learns it here and not from a refund
+ * request. What the click buys is the explanation, never the warning.
+ *
  * ## What it deliberately does not do
  *
  * It names no competitor, compares to no competitor, and quotes nobody else's price.
@@ -103,81 +120,80 @@ export function WhatCallsCost({ listRate }: { listRate: string | null }) {
             {formatRupeeRate(listRate)}
           </strong>
         )}
-        {listRate !== null &&
-          " at the standard rate — a bigger pack brings that down. One rate, because there is one voice and it is the best one our speech provider makes."}
+        {listRate !== null && " at the standard rate — a bigger pack brings that down."}
       </p>
 
-      <ul className="mt-4 space-y-3">
-        <Point
+      <div className="mt-3 border-t border-line/60">
+        <Fact
           icon={<Waves className="h-4 w-4" aria-hidden />}
-          title="One voice, and it is the top one"
+          claim="One voice, and it is the best one our speech provider makes"
         >
-          Every account gets the best voice our speech provider makes — Sarvam&rsquo;s
-          newest one — and there is nothing above it to upgrade to and nothing cheaper
-          below it that sounds worse. One voice, one rate, every call. What you hear in a
-          demo is what your customers hear at three in the morning.
-        </Point>
+          Every account gets Sarvam&rsquo;s newest voice. There is nothing above it to
+          upgrade to and nothing cheaper below it that sounds worse — one voice, one rate,
+          every call. What you hear in a demo is what your customers hear at three in the
+          morning.
+        </Fact>
 
-        <Point
+        <Fact
           icon={<Clock3 className="h-4 w-4" aria-hidden />}
-          title="You pay for the seconds you actually talk"
+          claim="You pay for the seconds you actually talk"
         >
           A call is charged on its real length, second by second. A 40-second call is
           charged as 40 seconds — we do not round it up to a minute, or to a block of any
           other size.
-        </Point>
+        </Fact>
 
-        <Point
+        <Fact
           icon={<PhoneMissed className="h-4 w-4" aria-hidden />}
-          title="A call nobody answers costs nothing"
+          claim="A call nobody answers costs nothing"
         >
           Ringing out, engaged, or a number that never picks up: there is no talk time, so
           there is nothing to charge and no entry appears in your history.
-        </Point>
+        </Fact>
 
-        <Point
+        <Fact
           icon={<InfinityIcon className="h-4 w-4" aria-hidden />}
-          title="Your credit never expires"
+          claim="Your credit never expires"
         >
           Nothing runs it down except your own calls, and nothing takes it back. Buy a
           large pack in a quiet month and it is still there in a busy one.
-        </Point>
+        </Fact>
 
-        <Point
+        <Fact
           icon={<ReceiptText className="h-4 w-4" aria-hidden />}
-          title="No GST is added, and we cannot issue a tax invoice"
+          claim="No GST is added, and we cannot issue a tax invoice"
         >
           Calevate is not registered for GST, so nothing is added on top — the price you
           see is the price you pay. The other side of that is real and worth knowing
           before you buy: what we can issue is a bill of supply, not a tax invoice, so a
           business that needs to claim input tax credit on this spend will not be able to.
-        </Point>
-      </ul>
+        </Fact>
+      </div>
     </Card>
   );
 }
 
 /**
- * One fact. A `<li>` with a heading and a sentence, because a screen reader moving by
- * list item should hear the claim before the explanation — and because a client scanning
- * on a phone reads the five headings and stops.
+ * One fact: the claim on a line, the argument behind a click.
+ *
+ * `headingLevel={3}` because this sits inside `Card`&rsquo;s body, under its `h2` — a
+ * heading list that reads h2 "What calls cost" then h3 per claim is the containment that
+ * is actually on the screen. The claim is the `title` and never a `subtitle`: §3 wants the
+ * closed state to carry the fact, and on a strip built to remove text a second line under
+ * every heading would put it straight back.
  */
-function Point({
+function Fact({
   icon,
-  title,
+  claim,
   children,
 }: {
   icon: ReactNode;
-  title: string;
+  claim: string;
   children: ReactNode;
 }) {
   return (
-    <li className="flex gap-3">
-      <span className="mt-0.5 shrink-0 text-brand">{icon}</span>
-      <span className="text-sm">
-        <strong className="font-semibold text-ink">{title}.</strong>{" "}
-        <span className="text-ink-muted">{children}</span>
-      </span>
-    </li>
+    <Disclosure variant="inline" headingLevel={3} icon={icon} title={claim}>
+      {children}
+    </Disclosure>
   );
 }

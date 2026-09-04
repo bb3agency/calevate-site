@@ -108,6 +108,7 @@ from apps.api.agents import assignment
 from apps.api.agents.llm_models import (
     ResolvedLlmModel,
     deployment_for,
+    installed_llm_providers,
     platform_default_model,
     resolve_llm_model,
     unofferable_reason,
@@ -722,19 +723,30 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     leg = leg_for_model(model)
     traps = tuple(trap.name for trap in LLM_MODELS[model].traps)
 
-    if leg.provider == "azure_openai" and credentials is None:
-        # THE PASSTHROUGH ARM, unchanged and deliberately narrow. With no Azure leg
-        # configured there is no deployment indirection and no endpoint to name, so the
-        # model goes to the engine's own default client — which is what every conformance
-        # fixture and every local run exercises. `configured_model` rather than `model`:
-        # nobody chose, so the engine's default is the honest thing to send, and
-        # substituting the platform's model here would publish a choice nobody made.
+    if configured_model is None and leg.provider not in installed_llm_providers():
+        # THE PASSTHROUGH ARM: NOBODY CHOSE, AND WE HOLD NO KEY FOR THE LEG THE PLATFORM'S
+        # OWN DEFAULT RUNS ON. Send no model at all and let the engine answer from its own
+        # default client — which is what every conformance fixture, every local run and every
+        # CI run exercises, and what a deployment whose console has not been filled in has
+        # always done.
         #
-        # ⚠ IT IS AZURE-ONLY ON PURPOSE. The other two legs have no analogue: their
-        # credential lives in the engine's store, so "unconfigured" there is not a
-        # passthrough, it is an agent that will 401 on its first turn. They fall through to
-        # the refusal below, which is the loud direction.
-        return {"llm_model": configured_model}
+        # ⚠ **THE CONDITION USED TO BE `leg is azure_openai and azure_credentials() is
+        # None`, AND BOTH HALVES CHANGED FOR A REASON.**
+        #
+        # * **It is no longer Azure-only**, because the platform default no longer has to be
+        #   an Azure model (`Settings.platform_llm_model`). The old spelling would
+        #   have refused every publish on a deployment whose default is a Gemini model and
+        #   whose Google key is not installed yet — i.e. CI, every local run, and the
+        #   founder's own deployment between the decision and the ops-console work. What the
+        #   arm actually encodes is "this platform cannot address its own default, so the
+        #   engine's default answers", and that sentence was never about Azure.
+        # * **It fires only when NOBODY CHOSE.** The old arm also passed a CLIENT'S CHOSEN
+        #   model through on an unconfigured deployment, which is the one thing this seam
+        #   must not do: it published an agent under a model somebody was quoted and billed
+        #   for while the engine served whatever its own bundled tier holds. A choice we
+        #   cannot honour now falls to the refusal below, which is the loud direction, and
+        #   `validate_llm_model` already refuses that selection at the write path.
+        return {"llm_model": None}
 
     refusal = unofferable_reason(model)
     if refusal is not None:

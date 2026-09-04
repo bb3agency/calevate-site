@@ -20,7 +20,12 @@
 import type { ReactNode } from "react";
 import { CircleAlert, Hourglass, Layers, Zap } from "lucide-react";
 
-import { Disclosure, ProblemNotice, Skeleton, formatCallCap } from "@/components/ui";
+import {
+  Disclosure,
+  ProblemNotice,
+  Skeleton,
+  formatCallCap,
+} from "@/components/ui";
 import { humanise } from "@/lib/agentState";
 import type { Session } from "@/lib/api/client";
 import { useLanes, type Lane } from "@/lib/api/publishing";
@@ -32,7 +37,7 @@ export function HowChangesTakeEffect({ session }: { session: Session }) {
   return (
     <Disclosure
       title="How changes take effect"
-      subtitle="Which settings reach a live call straight away, and which wait to be applied."
+      subtitle="What waits to be applied, and what is in force on the next call."
       icon={<Layers className="h-4 w-4" />}
     >
       <LaneBody lanes={lanes} />
@@ -43,7 +48,9 @@ export function HowChangesTakeEffect({ session }: { session: Session }) {
 /** The body, so the §52 branches are one function and the disclosure shell is another. */
 function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
   if (lanes.error) {
-    return <ProblemNotice error={lanes.error} onRetry={() => void lanes.refetch()} />;
+    return (
+      <ProblemNotice error={lanes.error} onRetry={() => void lanes.refetch()} />
+    );
   }
   if (!lanes.data) return <Skeleton rows={4} />;
 
@@ -62,24 +69,33 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
 
   return (
     <>
-      <p className="text-sm font-medium text-ink">{lanes.data.precedence_rule}</p>
-      <p className="mt-1 text-sm text-ink-muted">
-        Some changes reach live calls the moment they are made; a change to what the agent
-        SAYS waits until it is deliberately applied, so nothing a caller hears changes by
-        accident.
+      {/* THE ONE THING FIRST (D-527). This block used to open with the server's precedence
+          rule — three clauses of our vocabulary — and put the sentence a person actually
+          needs underneath it. The order is now the other way round: the guarantee leads,
+          and the precedence rule stays as the smaller line beneath it because SURFACES §2b
+          asks for it to be STATED and it is the server's own words for it. */}
+      <p className="text-sm font-medium text-ink">
+        A change to what the agent SAYS waits until it is applied. Everything
+        else is in force on the next call.
+      </p>
+      <p className="mt-1 text-xs text-ink-muted">
+        {lanes.data.precedence_rule}
       </p>
 
       <div className="mt-5 grid gap-6 sm:grid-cols-2">
+        {/* No hint under the first two headings any more: "Waits to be applied" and
+            "Applies straight away" were each followed by a line restating them, on the
+            screen whose whole complaint was how much there is to read. The third keeps its
+            hint, because "Ask your account manager" does not say on its own what the
+            column is or why a setting is in it. */}
         <LaneList
           icon={<Hourglass className="h-3.5 w-3.5" />}
           title="Waits to be applied"
-          hint="Made now, live only after your account manager applies it."
           lanes={waits}
         />
         <LaneList
           icon={<Zap className="h-3.5 w-3.5" />}
           title="Applies straight away"
-          hint="In force on the next call, with nothing to approve."
           lanes={immediate}
         />
         <LaneList
@@ -91,10 +107,9 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
       </div>
 
       <p className="mt-5 text-xs text-ink-muted">
-        Every agent is capped at {formatCallCap(lanes.data.call_cap_default_s)} per call by
-        default, and that cap can be set anywhere between{" "}
-        {formatCallCap(lanes.data.call_cap_min_s)} and{" "}
-        {formatCallCap(lanes.data.call_cap_max_s)}. There is no way to remove it.
+        Every call is capped at {formatCallCap(lanes.data.call_cap_default_s)}{" "}
+        by default — settable between {formatCallCap(lanes.data.call_cap_min_s)}{" "}
+        and {formatCallCap(lanes.data.call_cap_max_s)}, never removable.
       </p>
     </>
   );
@@ -109,6 +124,14 @@ const FIELD_LABELS: Record<string, string> = {
   extraction_fields: "What it writes down",
   training: "Knowledge and training",
   voice: "Its voice",
+  /* D-163's two rows shipped in `LANES` without a label here, so they rendered as
+     "ai disclosure enabled" and "recording notice enabled" — our column names, in a list a
+     clinic owner reads. The `why` beneath each is the server's and is NOT summarised here:
+     both sentences end with the guarantee that the answer a caller gets when they ask
+     outright is always the truth and cannot be switched off, and that is the one wording
+     on this screen a paraphrase must never touch (hard rule 5). */
+  ai_disclosure_enabled: "Saying it is an AI at the start",
+  recording_notice_enabled: "Saying the call is recorded at the start",
 };
 
 function LaneList({
@@ -119,7 +142,8 @@ function LaneList({
 }: {
   icon: ReactNode;
   title: string;
-  hint: string;
+  /** Absent where the heading already says it — see the call sites. */
+  hint?: string;
   lanes: Lane[];
 }) {
   if (lanes.length === 0) return null;
@@ -131,7 +155,7 @@ function LaneList({
         </span>
         {title}
       </h3>
-      <p className="mt-1 text-xs text-ink-muted">{hint}</p>
+      {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
       <ul className="mt-3 space-y-3">
         {lanes.map((lane) => (
           <li key={lane.field}>

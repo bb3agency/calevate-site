@@ -23,7 +23,9 @@ from pydantic_settings.sources import DotEnvSettingsSource
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_RESOURCE_PATTERN,
+    PLATFORM_DEFAULT_LLM_MODEL,
     AzureOpenAIModel,
+    LlmModelName,
 )
 
 #: Environment variables the deployment's `.env` legitimately carries FOR SOMEONE ELSE.
@@ -755,6 +757,38 @@ class Settings(BaseSettings):
     # the boot-time load and the console alike, and a new model is a decision-log entry
     # rather than a typo.
     azure_openai_model: AzureOpenAIModel = AZURE_OPENAI_DEFAULT_MODEL
+    # WHAT AN ACCOUNT RUNS WHEN NEITHER IT NOR ITS AGENT CHOSE — the PLATFORM rung, across
+    # all three declared legs.
+    #
+    # **IT IS NOT `azure_openai_model`, AND THIS FIELD EXISTS BECAUSE IT USED TO BE.**
+    # `agents/llm_models.platform_default_model()` read the field above, which is typed
+    # `AzureOpenAIModel` — so the platform's own default could only ever be an Azure model,
+    # on a product that declares three legs and whose founder chose a Google one
+    # (`PLATFORM_DEFAULT_LLM_MODEL`). Two different facts had one field: which model the
+    # AZURE DEPLOYMENT was made from (read by the cost model, pushed to the engine's
+    # credential store as `AZURE_OPENAI_MODEL`) and which model everybody runs by default.
+    # They are separate now, and the field above keeps its one job.
+    #
+    # `applies: live` for the same reason the field above is: nothing publishes this value on
+    # its own: `GET /v1/organization/llm-defaults` resolves it per request and `in_call_llm`
+    # resolves it at publish, so an operator changing it moves the picker's "the model we run
+    # by default" within one config poll, and moves a live agent on its next publish.
+    #
+    # ⚠ CHANGING IT DOES NOT CHANGE ANY CLIENT'S BILL. The plan rate is struck against
+    # `billing/rates.BASE_RATE_LLM_MODEL`, deliberately frozen at `AZURE_OPENAI_DEFAULT_MODEL`
+    # so that an operator's flip cannot silently re-classify what an account is charged for
+    # (D-455) — and an account that FOLLOWS the platform default is never surcharged whatever
+    # it resolves to.
+    #
+    # BOUNDED BY ITS TYPE, like the field above: `LlmModelName` is the union of the three leg
+    # Literals, so pydantic refuses an unknown identifier at the console write path, at the
+    # boot-time load and on every snapshot rebuild. It deliberately does NOT refuse a model
+    # this repository currently withholds on merit: `selectable` is a live property that a
+    # release can flip either way, and a stored value that stops validating BRICKS THE BOOT
+    # of a running deployment rather than reporting a problem. An unofferable default is
+    # reported instead, where it can be acted on — the picker marks the row unavailable with
+    # its ground, `in_call_llm` refuses the publish, and the ops console shows why.
+    platform_llm_model: LlmModelName = PLATFORM_DEFAULT_LLM_MODEL
     # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE LLM KEY (D-404, re-aimed by
     # D-410).
     #

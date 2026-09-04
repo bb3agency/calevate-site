@@ -994,6 +994,45 @@ GOOGLE_DIRECT_MODELS: Final[frozenset[str]] = frozenset(get_args(GoogleDirectMod
 #: and per-agent choice a client can make for themselves.
 AZURE_OPENAI_DEFAULT_MODEL: Final = "gpt-4o-mini"
 
+#: EVERY MODEL IDENTIFIER THIS REPOSITORY KNOWS, AS A TYPE — the union of the three leg
+#: Literals rather than a fourth list typed beside them (D-104). `LLM_MODEL_NAMES` is the
+#: same thing as a set of values; this is what a `Settings` field can be annotated with, so
+#: pydantic refuses an unknown identifier at the console write path and at boot.
+LlmModelName = AzureOpenAIModel | OpenAIDirectModel | GoogleDirectModel
+
+#: WHAT AN ACCOUNT RUNS WHEN NEITHER IT NOR ITS AGENT CHOSE — the PLATFORM rung of
+#: `agents/llm_models.resolve_llm_model`, and the default of `Settings.platform_llm_model`.
+#:
+#: ⚠ **THIS IS NOT `AZURE_OPENAI_DEFAULT_MODEL`, AND THE TWO STOPPED BEING THE SAME QUESTION
+#: THE DAY A SECOND LEG WAS DECLARED.** That constant answers "which model was the Azure
+#: DEPLOYMENT made from" — it is the default of `Settings.azure_openai_model`, it is pushed
+#: to the engine's own credential store as `AZURE_OPENAI_MODEL`, and it is what
+#: `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against. The platform's own
+#: default is a different fact with a different owner (the founder, on the ops console), and
+#: while the product had one leg the two were spelled with one constant, which is how the
+#: platform rung came to be typed `AzureOpenAIModel` — a type that cannot hold the founder's
+#: answer.
+#:
+#: **THE FOUNDER'S DECISION (4 Sep 2026): `gemini-2.5-flash-lite`.** It is the cheapest model
+#: on offer — $0.10/$0.40 against $0.15/$0.60 (`LLM_MODELS`) — so it lowers the platform's own
+#: cost per minute and, because `is_surchargeable_llm_model` compares against
+#: `BASE_RATE_LLM_MODEL` and not against this, it changes no client's bill and re-classifies
+#: no account's charge. Its trap (`THINKING_TOKENS_SHARE_THE_REPLY_BUDGET`) is the one the
+#: engine ELIMINATES on exactly the 2.5 flash pair by sending `thinking_budget=0` itself, and
+#: `engine/bolna.py::_llm_trap_settings` renders it as a deliberate empty arm — so this
+#: default sends nothing the vendor can refuse and cannot produce the dead-air failure that
+#: keeps every `gemini-3.*` unselectable.
+#:
+#: ⚠ **A DEPLOYMENT STILL HAS TO HOLD A GOOGLE KEY AND AN ATTESTED PRICE BEFORE ANY CLIENT
+#: CAN BE PUT ON IT.** Offerability is a live property of a deployment, never of a constant
+#: (`agents/llm_models.offerable_models`), and this leg's catalogue price is
+#: `verified=False` — VENDOR-PUBLISHED and founder-relayed, not a page any process here can
+#: fetch — so hard rule 7 keeps it out of `unit_cost_paid` until an operator attests what the
+#: invoice says. Until then an account that has chosen nothing runs the ENGINE's own default
+#: model (`agents/service.in_call_llm`'s passthrough arm), which is exactly what CI, every
+#: local run and every conformance fixture do today.
+PLATFORM_DEFAULT_LLM_MODEL: Final[LlmModelName] = "gemini-2.5-flash-lite"
+
 
 @dataclass(frozen=True, slots=True)
 class LlmPrice:
@@ -4465,6 +4504,7 @@ __all__ = [
     "KBSourceRef",
     "ListingIncompleteReason",
     "LlmCredentialPlacement",
+    "LlmModelName",
     "LlmModelSpec",
     "LlmModelTrap",
     "LlmModelTrapName",

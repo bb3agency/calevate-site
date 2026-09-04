@@ -71,10 +71,40 @@ def test_every_pack_holds_the_gross_margin_floor_at_the_live_rate() -> None:
         )
 
 
+def test_the_founder_approved_ladder_is_pinned() -> None:
+    """THE RATE CARD ITSELF: amount and bonus, in order, for all five rungs (D-526).
+
+    The bonus percentages are the margin model — the effective rate is
+    ``list_rate / (1 + bonus)`` and nothing else — so a bonus that moves without the founder
+    moving it changes what we earn per rupee. The amounts carry the founder's instruction
+    ("start the pricing from 2k minimum ... the max we can go is 50k") plus the deliberate
+    choice of ROUND rungs over the competitor's ₹x,999 charm prices. Both halves are pinned
+    here so either kind of drift is a red test rather than a silent repricing.
+    """
+    assert [(p.pack_id, p.amount_inr, p.bonus_pct) for p in PACK_CATALOGUE] == [
+        ("starter", Decimal("2000"), Decimal("0")),
+        ("growth", Decimal("5000"), Decimal("3")),
+        ("scale", Decimal("10000"), Decimal("5")),
+        ("pro", Decimal("25000"), Decimal("7")),
+        ("max", Decimal("50000"), Decimal("8")),
+    ]
+    amounts = [p.amount_inr for p in PACK_CATALOGUE]
+    assert amounts == sorted(amounts), "the ladder is read top to bottom; keep it ascending"
+    assert amounts[0] == Decimal("2000"), "the founder's ₹2,000 entry floor"
+    assert amounts[-1] == Decimal("50000"), "the founder's ₹50,000 ceiling"
+    for amount in amounts:
+        # Round rungs, not charm prices: every amount is a whole multiple of ₹1,000, which is
+        # what makes the effective rate and the talk time easy to hold in your head.
+        assert amount % Decimal("1000") == 0, f"{amount} is not a round rung"
+
+
 def test_the_approved_launch_table_holds_at_five_rupees() -> None:
     """The founder-approved rate card, pinned at ₹5.00/min. Each pack's effective rate
     matches the approved table and clears 20% margin at the ₹3.70 floor — so the invariant
-    is documented against the exact numbers that were signed off, not just today's config."""
+    is documented against the exact numbers that were signed off, not just today's config.
+
+    These five figures are UNCHANGED by D-526's ladder redesign: the effective rate depends
+    only on the bonus percentage, and only the amounts moved."""
     expected_effective = {
         "starter": Decimal("5.00"),
         "growth": Decimal("4.85"),
@@ -128,12 +158,12 @@ def test_credit_derivations_are_one_rupee_per_credit() -> None:
     and talk time is total/list_rate."""
     growth = pack_by_id("growth")
     assert growth is not None
-    assert growth.paid_credits == Decimal("2999.0000")
-    assert growth.bonus_credits == Decimal("89.9700")  # 2999 x 3%
-    assert growth.total_credits == Decimal("3088.9700")
-    # At ₹5.00/min: 3088.97 credits ÷ 5 = 617.79 minutes.
+    assert growth.paid_credits == Decimal("5000.0000")
+    assert growth.bonus_credits == Decimal("150.0000")  # 5000 x 3%
+    assert growth.total_credits == Decimal("5150.0000")
+    # At ₹5.00/min: 5150 credits ÷ 5 = 1030 minutes.
     minutes = pack_talk_time_minutes(growth, list_rate=APPROVED_LIST_RATE)
-    assert abs(minutes - Decimal("617.794")) < Decimal("0.01")
+    assert abs(minutes - Decimal("1030")) < Decimal("0.01")
 
 
 def test_the_starter_pack_has_no_bonus() -> None:
@@ -247,13 +277,13 @@ async def _ledger(tenant_id: uuid.UUID) -> list[tuple[str, Decimal, str | None]]
 
 
 async def test_a_pack_payment_grants_paid_and_bonus_credits() -> None:
-    """The ₹2,999 growth pack: one paid `topup` (₹2,999) and one `bonus` (₹89.97), both
+    """The ₹5,000 growth pack: one paid `topup` (₹5,000) and one `bonus` (₹150), both
     keyed on the payment id, and a balance that reflects the sum."""
     tenant_id, _ = await _self_serve_tenant()
     payment_id = _payment_id("GROWTH")
-    # ₹2,999 in paise.
+    # ₹5,000 in paise.
     raw, headers = _sign(
-        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=299900, pack_id="growth")
+        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=500000, pack_id="growth")
     )
 
     async with _client() as http:
@@ -261,13 +291,13 @@ async def test_a_pack_payment_grants_paid_and_bonus_credits() -> None:
 
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "credited"
-    # Balance = paid + bonus = 2999 + 89.97 = 3088.97.
-    assert response.json()["balance_inr"] == "3088.97"
+    # Balance = paid + bonus = 5000 + 150 = 5150.
+    assert response.json()["balance_inr"] == "5150.00"
 
     entries = await _ledger(tenant_id)
     assert entries == [
-        ("topup", Decimal("2999.0000"), payment_id),
-        ("bonus", Decimal("89.9700"), payment_id),
+        ("topup", Decimal("5000.0000"), payment_id),
+        ("bonus", Decimal("150.0000"), payment_id),
     ]
 
 
@@ -277,7 +307,7 @@ async def test_a_pack_bonus_is_granted_exactly_once_on_replay() -> None:
     tenant_id, _ = await _self_serve_tenant()
     payment_id = _payment_id("REPLAY")
     raw, headers = _sign(
-        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=999900, pack_id="scale")
+        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=1000000, pack_id="scale")
     )
 
     async with _client() as http:
@@ -288,10 +318,10 @@ async def test_a_pack_bonus_is_granted_exactly_once_on_replay() -> None:
     assert replay.json()["status"] == "duplicate"
 
     entries = await _ledger(tenant_id)
-    # ₹9,999 paid + ₹499.95 bonus (5%), exactly one of each.
+    # ₹10,000 paid + ₹500 bonus (5%), exactly one of each.
     assert entries == [
-        ("topup", Decimal("9999.0000"), payment_id),
-        ("bonus", Decimal("499.9500"), payment_id),
+        ("topup", Decimal("10000.0000"), payment_id),
+        ("bonus", Decimal("500.0000"), payment_id),
     ]
 
 
@@ -389,13 +419,13 @@ async def test_the_starter_pack_grants_no_bonus_row() -> None:
     tenant_id, _ = await _self_serve_tenant()
     payment_id = _payment_id("STARTER")
     raw, headers = _sign(
-        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=149900, pack_id="starter")
+        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=200000, pack_id="starter")
     )
     async with _client() as http:
         response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
 
     assert response.json()["status"] == "credited"
-    assert await _ledger(tenant_id) == [("topup", Decimal("1499.0000"), payment_id)]
+    assert await _ledger(tenant_id) == [("topup", Decimal("2000.0000"), payment_id)]
 
 
 async def test_an_unknown_pack_id_credits_the_payment_without_a_bonus() -> None:
@@ -404,13 +434,13 @@ async def test_an_unknown_pack_id_credits_the_payment_without_a_bonus() -> None:
     tenant_id, _ = await _self_serve_tenant()
     payment_id = _payment_id("GHOST")
     raw, headers = _sign(
-        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=200000, pack_id="retired-2024")
+        _envelope(payment_id=payment_id, tenant_id=tenant_id, amount=300000, pack_id="retired-2024")
     )
     async with _client() as http:
         response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
 
     assert response.json()["status"] == "credited"
-    assert await _ledger(tenant_id) == [("topup", Decimal("2000.0000"), payment_id)]
+    assert await _ledger(tenant_id) == [("topup", Decimal("3000.0000"), payment_id)]
 
 
 async def test_a_pack_bonus_is_invisible_to_another_tenant() -> None:
@@ -422,7 +452,7 @@ async def test_a_pack_bonus_is_invisible_to_another_tenant() -> None:
     payment = payments.CapturedPayment(
         payment_id=payment_id,
         tenant_id=tenant_a,
-        amount_inr=Decimal("9999.00"),
+        amount_inr=Decimal("10000.00"),
         currency="INR",
         pack_id="scale",
     )
@@ -454,7 +484,7 @@ async def test_the_intent_prices_a_pack_from_the_catalogue() -> None:
         )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["amount_inr"] == "24999.00"
+    assert body["amount_inr"] == "25000.00"
     assert body["pack_id"] == "pro"
     assert body["notes"][payments.NOTES_PACK_KEY] == "pro"
     assert body["notes"][payments.NOTES_TENANT_KEY] == str(tenant_id)

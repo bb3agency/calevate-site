@@ -273,7 +273,7 @@ async def test_a_created_agent_cannot_be_activated_until_it_has_a_script() -> No
 
 
 async def test_the_agent_walks_its_whole_life_and_the_engine_follows() -> None:
-    """draft -> live -> paused -> live -> archived -> paused, with the numbers.
+    """draft -> live -> paused -> live -> paused -> archived -> paused, with the numbers.
 
     ONE TEST FOR THE WHOLE WALK rather than six, because the claim is about the SEQUENCE:
     every state has to be reachable from the one before it and the engine's inbound
@@ -313,8 +313,23 @@ async def test_the_agent_walks_its_whole_life_and_the_engine_follows() -> None:
         "reactivating did not put the agent back on its number"
     )
 
+    # DELETING A WORKING AGENT IS REFUSED, and the number it answers is still answered
+    # afterwards — a refusal that had quietly released the line would be the worse defect.
+    code, body = await _move(token, agent_id, "archive")
+    assert (code, _code(body)) == (409, "agent_is_live"), body
+    assert engine.inbound_agent_for("num_life_1") is not None, (
+        "a refused delete released the numbers anyway"
+    )
+
+    code, body = await _move(token, agent_id, "deactivate")
+    assert (code, body["numbers_released"]) == (200, 1), body
+
     code, body = await _move(token, agent_id, "archive")
     assert code == 200, body
+    # STILL 1, and deliberately not 0: `numbers_released` counts the numbers the engine was
+    # TOLD to stop answering, not a delta since the last mover. The binding row survives a
+    # deactivate (that is what makes reactivating one button), so the archive re-releases
+    # the same line — idempotently, at an engine that has already forgotten it.
     assert (body["status"], body["changed"], body["numbers_released"]) == ("archived", True, 1)
     assert engine.inbound_agent_for("num_life_1") is None
     status, archived_at = await _status(tenant_id, agent_id)
@@ -328,6 +343,63 @@ async def test_the_agent_walks_its_whole_life_and_the_engine_follows() -> None:
     )
     status, archived_at = await _status(tenant_id, agent_id)
     assert (status, archived_at) == ("paused", None)
+
+
+async def test_a_working_agent_cannot_be_deleted_until_it_is_switched_off() -> None:
+    """The founder's rule (D-527), which is the whole reason `live -> archived` was removed.
+
+    In his words: *"a delete option should be provided for every agent regardless of it is
+    working or not and if it is working it cannot be deleted unless it is decommissioned"*.
+    The console puts Delete on EVERY row of the roster, so the move that retires an agent
+    is now one click away from a phone line a business is running on — and the refusal is
+    what makes that safe.
+
+    THREE CLAIMS, and the middle one is the one a CAS alone would not have made:
+
+    1. The refusal is a 409 that NAMES the state (`agent_is_live`), not
+       `invalid_status_transition`, which says what happened and nothing about what to do.
+    2. NOTHING MOVED. A refusal that had released the numbers on its way out would leave a
+       live agent that answers nothing — worse than the archive it refused to make.
+    3. The remediation is the move the server will actually accept next, so the two-step
+       the console offers is the server's own instruction rather than the screen's idea.
+    """
+    engine = _fresh_engine()
+    tenant_id, agent_id, token = await _tenant()
+    await _write_script(tenant_id, agent_id)
+    await _number(tenant_id, agent_id, ref="num_delete_1")
+    assert (await _move(token, agent_id, "activate"))[0] == 200
+
+    code, body = await _move(token, agent_id, "archive")
+    assert code == 409, body
+    assert _code(body) == "agent_is_live", body
+    assert "switch it off" in body.get("remediation", "").lower(), body
+
+    assert (await _status(tenant_id, agent_id))[0] == "live"
+    assert engine.inbound_agent_for("num_delete_1") is not None, (
+        "the refused delete released the agent's number anyway"
+    )
+
+    # And the two-step completes: switch off, then delete.
+    assert (await _move(token, agent_id, "deactivate"))[0] == 200
+    code, body = await _move(token, agent_id, "archive")
+    assert (code, body["status"]) == (200, "archived"), body
+
+
+def test_no_state_that_is_answering_calls_may_go_straight_to_the_archive() -> None:
+    """The table half of the rule above, so a future widening is a red test and not a leak.
+
+    `live` is the only state an agent takes calls in (`check_dispatch` refuses every other
+    one), and the assertion is written against that fact rather than against the string:
+    add a fifth state that CAN answer a phone and this has to be revisited deliberately.
+    """
+    assert "archived" not in lifecycle.AGENT_TRANSITIONS["live"], (
+        "a working agent can be deleted in one move again — D-527 removed that edge "
+        "because the console offers Delete on every row of the roster"
+    )
+    assert "live" not in lifecycle.AGENT_MOVERS["archive"][0], (
+        "the archive mover accepts a live agent again, so the refusal in archive_agent "
+        "is now the only thing standing between a single click and a dead phone line"
+    )
 
 
 async def test_the_illegal_edges_are_conflicts_that_name_what_they_found() -> None:
@@ -849,14 +921,27 @@ async def test_an_agent_a_campaign_is_still_dialling_cannot_be_archived() -> Non
             {"cid": campaign_id},
         )
 
+    # TWO REFUSALS IN A ROW, IN THE ORDER A PERSON CAN ACT ON THEM (D-527). A live agent
+    # is refused for being live before the campaigns are counted at all, because that is
+    # the one thing the client can do next and doing it also stops the dialling. The
+    # campaign refusal is what they meet on the SECOND press, and it has to survive: an
+    # agent switched off with a campaign still `running` is exactly the zombie this test
+    # exists for, and nothing about D-527 makes it acceptable.
     code, body = await _move(token, agent_id, "archive")
     assert code == 409, body
-    assert _code(body) == "agent_has_active_campaigns", body
+    assert _code(body) == "agent_is_live", body
     assert (await _status(tenant_id, agent_id))[0] == "live"
 
     # The emergency brake still works, and it is what the refusal points the client at.
     assert (await _move(token, agent_id, "deactivate"))[0] == 200
     assert (await _status(tenant_id, agent_id))[0] == "paused"
+
+    code, body = await _move(token, agent_id, "archive")
+    assert code == 409, body
+    assert _code(body) == "agent_has_active_campaigns", body
+    assert (await _status(tenant_id, agent_id))[0] == "paused", (
+        "an agent a campaign is still dialling through was retired anyway"
+    )
 
 
 async def test_archiving_is_not_a_delete() -> None:
