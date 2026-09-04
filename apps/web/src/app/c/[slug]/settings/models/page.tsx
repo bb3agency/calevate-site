@@ -406,29 +406,39 @@ function OrganizationDefault({
                 per-minute rate is unchanged and this is added to it. That is the whole
                 shape of `plans.llm_model_surcharge`, and a client who reads it as "the new
                 price of a minute" would expect the wrong number on their statement. */}
-            A model&apos;s figure is ADDED to your plan&apos;s per-minute rate, for the
-            minutes your agents run it — your plan&apos;s own rate does not change. It
-            appears on your statement as its own line, naming the model. What you are
-            actually billed for the month is on the{" "}
-            <Link
-              href={href(`/c/${slug}/billing?tab=usage`)}
-              className="font-medium underline underline-offset-2 hover:text-ink"
-            >
-              Usage tab of Credits &amp; billing
-            </Link>
-            .
+            {/* The <li> is a FLEX CONTAINER, so it gets exactly two children: the icon and
+                one span holding the whole sentence. Left loose, each text node and the
+                <Link> were separate flex ITEMS — the link was laid out as its own ragged
+                column with `gap-2` on both sides of it, which is what the founder
+                screenshotted. Inside the span it is inline text again and `gap-2` does the
+                one job it was written for: the space after the icon. */}
+            <span>
+              A model&apos;s figure is ADDED to your plan&apos;s per-minute rate, for the
+              minutes your agents run it — your plan&apos;s own rate does not change. It
+              appears on your statement as its own line, naming the model. What you are
+              actually billed for the month is on the{" "}
+              <Link
+                href={href(`/c/${slug}/billing?tab=usage`)}
+                className="font-medium underline underline-offset-2 hover:text-ink"
+              >
+                Usage tab of Credits &amp; billing
+              </Link>
+              .
+            </span>
           </li>
           <li className="flex gap-2">
             <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            One agent can be put on a different model from the rest — open it from{" "}
-            <Link
-              href={href(`/c/${slug}/agents`)}
-              className="font-medium underline underline-offset-2 hover:text-ink"
-            >
-              Agents
-            </Link>{" "}
-            and choose there. An agent with its own model ignores this setting until you
-            put it back on the default.
+            <span>
+              One agent can be put on a different model from the rest — open it from{" "}
+              <Link
+                href={href(`/c/${slug}/agents`)}
+                className="font-medium underline underline-offset-2 hover:text-ink"
+              >
+                Agents
+              </Link>{" "}
+              and choose there. An agent with its own model ignores this setting until you
+              put it back on the default.
+            </span>
           </li>
         </ul>
       </Card>

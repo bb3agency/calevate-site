@@ -232,16 +232,22 @@ function NeedsAnAccount() {
             </Link>
           </div>
           {SIGNUP_CONTACT_EMAIL && (
-            <p className="flex flex-wrap items-center gap-1.5 text-xs">
-              <Mail aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
-              Would rather talk to a person? Write to{" "}
-              <a
-                className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
-              >
-                {SIGNUP_CONTACT_EMAIL}
-              </a>
-              .
+            <p className="flex items-start gap-1.5 text-xs">
+              <Mail aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-ink-faint" />
+              {/* Icon + ONE span, never icon + loose text + <a>: each child of a flex
+                  container is an item, so the address used to be laid out as its own
+                  column with a gap on both sides instead of flowing in the sentence.
+                  `flex-wrap` went with it — the span wraps its own text now. */}
+              <span>
+                Would rather talk to a person? Write to{" "}
+                <a
+                  className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                  href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
+                >
+                  {SIGNUP_CONTACT_EMAIL}
+                </a>
+                .
+              </span>
             </p>
           )}
         </div>
@@ -300,16 +306,18 @@ function SignupClosed({
                 : "Talk to us and we will set your workspace up with you.")}
           </p>
           {!deferred && SIGNUP_CONTACT_EMAIL && (
-            <p className="flex flex-wrap items-center gap-1.5">
-              <Mail aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
-              Write to{" "}
-              <a
-                className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
-                href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
-              >
-                {SIGNUP_CONTACT_EMAIL}
-              </a>
-              , or reply to whoever showed you the demo.
+            <p className="flex items-start gap-1.5">
+              <Mail aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+              <span>
+                Write to{" "}
+                <a
+                  className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                  href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
+                >
+                  {SIGNUP_CONTACT_EMAIL}
+                </a>
+                , or reply to whoever showed you the demo.
+              </span>
             </p>
           )}
           {!deferred && (

@@ -1017,13 +1017,18 @@ function TmRegistrationPanel({
         )}
         {/* The SERVER's `is_live` after the write, never this form's opinion of it. */}
         {record.data && (
-          <p className="flex items-center gap-2 text-sm text-ink-muted">
-            <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand" />
-            Recorded. The launch gate now reads{" "}
-            <span className="font-semibold text-ink">
-              {record.data.is_live ? "live" : "not live"}
+          <p className="flex items-start gap-2 text-sm text-ink-muted">
+            <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+            {/* One span around the whole sentence: a flex container lays out EVERY child
+                as its own item, so leaving the text loose beside the <span> below made
+                the verdict a column of its own with a `gap-2` either side of it. */}
+            <span>
+              Recorded. The launch gate now reads{" "}
+              <span className="font-semibold text-ink">
+                {record.data.is_live ? "live" : "not live"}
+              </span>
+              .
             </span>
-            .
           </p>
         )}
 
