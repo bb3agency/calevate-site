@@ -241,7 +241,14 @@ describe("nothing is pinned wider than the narrowest phone", () => {
     for (const file of FILES) {
       const lines = read(file).split("\n");
       const code = blankComments(lines);
-      lines.forEach((line, i) => {
+      // MATCHED OVER `code`, NOT `lines`, which is what `blankComments` was built for and
+      // was not being used for: the scan read the RAW source, so a comment that merely
+      // NAMES a utility was a violation. It caught `TopUp.tsx`, whose docstring explains
+      // that the table it replaced needed `min-w-[36rem]` and that a card does not — the
+      // guard reading a comment about its own fix as the defect, which is the exact
+      // failure the note below says this design avoids. Line numbers still point at the
+      // real line because the blanking is in place rather than a strip.
+      code.forEach((line, i) => {
         for (const match of line.matchAll(/(^|[\s"'`])(min-w-\[[^\]]+\])/g)) {
           // A responsive prefix (`sm:min-w-[…]`) is the fix, and shows up as the char
           // before the utility being `:` rather than whitespace or a quote.
