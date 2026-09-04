@@ -298,6 +298,16 @@ async def spec_for(
     return spec, duty
 
 
+def spoken_line_for(language: str) -> str:
+    """What the caller hears while the handover is placed, in `language`.
+
+    ONE PRODUCER, so the sentence the client's screen SHOWS and the sentence the engine
+    SPEAKS cannot come to differ — `compose_opening_line` is the same discipline about the
+    same class of string.
+    """
+    return HANDOFF_SPOKEN_TEMPLATES.get(language, HANDOFF_SPOKEN_TEMPLATES[_FALLBACK_LANGUAGE])
+
+
 def brief_url() -> str:
     """OUR endpoint, notified the moment a handover fires.
 
@@ -331,9 +341,7 @@ def handoff_spec(
     return HandoffSpec(
         destination_e164=duty.member.phone_e164,
         trigger=(trigger or "").strip() or HANDOFF_TRIGGER_DEFAULT,
-        spoken_line=HANDOFF_SPOKEN_TEMPLATES.get(
-            language, HANDOFF_SPOKEN_TEMPLATES[_FALLBACK_LANGUAGE]
-        ),
+        spoken_line=spoken_line_for(language),
         brief_url=brief_url,
     )
 
@@ -350,4 +358,5 @@ __all__ = [
     "resolve_on_duty",
     "roster",
     "spec_for",
+    "spoken_line_for",
 ]

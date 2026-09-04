@@ -136,6 +136,17 @@ WRITE_ONLY_BASELINE: dict[str, str] = {
         "`apps/web/src/lib/api/openapi.json`. Closes with that snapshot, in the change "
         "that adds the field"
     ),
+    "HandoffAttempt.leg_cost_reported": (
+        "an UNANSWERED VENDOR QUESTION held as a column rather than as a guess (D-533). "
+        "The voice platform reports a cost for the transferred leg separately from the "
+        "execution's own, and whether that figure is already inside `total_cost` or is a "
+        "second charge is not answerable from the pinned mirror — so the boolean records "
+        "only that one was stated. It deliberately has no CLIENT reader: hard rule 7 "
+        "meters `unit_cost_paid`, and putting an unclassified vendor figure on a screen "
+        "would be exactly the guess this column exists instead of. Closes with OPERATIONS "
+        "§2 gate 46c, which is one live call and one execution read; the metering it "
+        "implies lands in the same change"
+    ),
     "CampaignContact.dedupe_hash": (
         "write-stopped, step 1 of hard rule 8's two-step (D-233). `service.add_contacts` "
         "no longer writes it; retention's erase still NULLs the values older rows carry, "

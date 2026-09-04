@@ -99,6 +99,26 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/voices": BoundedByConstruction(
         by="the voice catalogue, a constant in `agents/voices.py` — not a table."
     ),
+    "GET /v1/agents/{agent_id}/handoff": BoundedByConstruction(
+        by=(
+            "both lists on the response, by two constants. `members` is capped at "
+            "`agents/handoff.MAX_HANDOFF_MEMBERS` — the roster is what a client TYPES and "
+            "the request model refuses an eleventh — and `recent` at "
+            "`agents/handoff_routes.RECENT_ATTEMPTS`, applied as the LIMIT in the query. "
+            "Neither takes a page size deliberately: this is a configuration screen "
+            "answering 'who takes calls, and is it working', not a call history — the "
+            "whole history is per-call and belongs on the calls list."
+        )
+    ),
+    "PUT /v1/agents/{agent_id}/handoff": BoundedByConstruction(
+        by=(
+            "it returns the same object `GET` does, from the same renderer, so the same "
+            "two constants bound it. The REQUEST is bounded independently: "
+            "`HandoffIn.members` carries `max_length=MAX_HANDOFF_MEMBERS`, so a client "
+            "pasting a contact export is refused at the boundary rather than turning one "
+            "publish into a thousand-row scan."
+        )
+    ),
     "GET /v1/agents/lanes": BoundedByConstruction(
         by="the publishing lanes, a constant tuple in `agents/publishing.py`."
     ),

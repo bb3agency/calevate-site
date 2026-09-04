@@ -1242,6 +1242,80 @@
         "title": "AssistOut",
         "type": "object"
       },
+      "AttemptOut": {
+        "additionalProperties": false,
+        "description": "One handover that actually happened, as the client sees it.\n\n**THE NUMBER IS NOT ON THIS OBJECT AND THE LABEL MAY BE NULL**, which is deliberate\nrather than an oversight. `handoff_attempts.destination_e164` records the number that\nrang because an operator may have to answer for it; a client's own screen already knows\nwho is on the list and gains nothing from seeing the digits again on every row (hard\nrule 6, minimum necessary). `member` is null when that person has since been removed\nfrom the roster \u2014 the FK is `SET NULL` precisely so removing somebody does not rewrite\nthe history of the calls they took \u2014 and the row still says what happened.",
+        "properties": {
+          "callback_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Id"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "member": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "second_recording_at_platform": {
+            "title": "Second Recording At Platform",
+            "type": "boolean"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "member",
+          "outcome",
+          "explanation",
+          "duration_s",
+          "second_recording_at_platform",
+          "callback_id"
+        ],
+        "title": "AttemptOut",
+        "type": "object"
+      },
       "AttentionItemOut": {
         "additionalProperties": false,
         "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose composed by us \u2014 never a vendor\nstring and never transcript text. A blocked lead is named by its captured lead NAME,\nfalling back to its number in full, because \"ring this person\" is the action the row\nexists to prompt (D-436).",
@@ -5108,6 +5182,28 @@
         "title": "DayHours",
         "type": "object"
       },
+      "DayWindow": {
+        "additionalProperties": false,
+        "description": "One day's opening window, in the shape `agents.business_hours` already stores.\n\n`HH:MM`, 24-hour, IST wall clock \u2014 the zone is a property of the column and is argued\nin `agents/business_hours.py`, not repeated per request. A pattern rather than a\n`time` type because this round-trips into JSONB that a different writer (the intake\nwizard) also fills, and one storage shape with two spellings is how the two start\ndisagreeing about when a shop opens.",
+        "properties": {
+          "closes": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Closes",
+            "type": "string"
+          },
+          "opens": {
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "title": "Opens",
+            "type": "string"
+          }
+        },
+        "required": [
+          "opens",
+          "closes"
+        ],
+        "title": "DayWindow",
+        "type": "object"
+      },
       "DeadLetterJobOut": {
         "additionalProperties": false,
         "description": "One `job`'s share of the outbox DLQ.\n\nCOUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding\nlead fields and phone numbers; `job` is an ARQ job name \u2014 a code identifier \u2014 and\nnothing derived from a payload reaches this model. See\n`reliability.service.DeadLetterQueue`, which is where that boundary is enforced.",
@@ -6076,6 +6172,17 @@
             ],
             "title": "Engine Agent Ref"
           },
+          "handoff_applied": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Handoff Applied"
+          },
           "in_sync": {
             "title": "In Sync",
             "type": "boolean"
@@ -6141,6 +6248,7 @@
           "prompt_disclosure_applied",
           "truthful_answer_applied",
           "voice_applied",
+          "handoff_applied",
           "detail"
         ],
         "title": "EngineStateOut",
@@ -7637,6 +7745,141 @@
           "malformed"
         ],
         "title": "GlobalSuppressOut",
+        "type": "object"
+      },
+      "HandoffIn": {
+        "additionalProperties": false,
+        "description": "The whole configuration, replaced in one write.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberIn"
+            },
+            "maxItems": 10,
+            "title": "Members",
+            "type": "array"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "HandoffIn",
+        "type": "object"
+      },
+      "HandoffOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "effective_trigger": {
+            "title": "Effective Trigger",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/apps__api__agents__handoff_routes__MemberOut"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "on_duty_member_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Duty Member Id"
+          },
+          "published": {
+            "title": "Published",
+            "type": "boolean"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptOut"
+            },
+            "title": "Recent",
+            "type": "array"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation"
+          },
+          "spoken_line": {
+            "title": "Spoken Line",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "agent_id",
+          "enabled",
+          "trigger",
+          "effective_trigger",
+          "spoken_line",
+          "members",
+          "on_duty_member_id",
+          "unavailable_reason",
+          "remediation",
+          "recent",
+          "published"
+        ],
+        "title": "HandoffOut",
         "type": "object"
       },
       "HealthSignalOut": {
@@ -11335,36 +11578,65 @@
         "title": "Measurement",
         "type": "object"
       },
-      "MemberOut": {
+      "MemberIn": {
         "additionalProperties": false,
-        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: an invitation carries an address and,\noptionally, a name, so a colleague who typed neither has NULL\n(`authn/invitations.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
+        "description": "One person on the list, as the client writes them.",
         "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
           },
-          "name": {
+          "hours": {
             "anyOf": [
               {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DayWindow"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Name"
+            "title": "Note"
           },
-          "role": {
-            "title": "Role",
+          "phone_e164": {
+            "pattern": "^\\+[1-9]\\d{7,18}$",
+            "title": "Phone E164",
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "role"
+          "label",
+          "phone_e164"
         ],
-        "title": "MemberOut",
+        "title": "MemberIn",
         "type": "object"
       },
       "MemberRemovedOut": {
@@ -19827,6 +20099,80 @@
         "title": "PublishOut",
         "type": "object"
       },
+      "apps__api__agents__handoff_routes__MemberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "hours": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DayWindow"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hours"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "on_duty": {
+            "title": "On Duty",
+            "type": "boolean"
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "label",
+          "phone_e164",
+          "active",
+          "hours",
+          "note",
+          "on_duty"
+        ],
+        "title": "MemberOut",
+        "type": "object"
+      },
       "apps__api__agents__routes__PublishOut": {
         "additionalProperties": false,
         "properties": {
@@ -19985,6 +20331,38 @@
           "number_purchase_available"
         ],
         "title": "KycRecordOut",
+        "type": "object"
+      },
+      "apps__api__tenancy__routes__MemberOut": {
+        "additionalProperties": false,
+        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: an invitation carries an address and,\noptionally, a name, so a colleague who typed neither has NULL\n(`authn/invitations.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role"
+        ],
+        "title": "MemberOut",
         "type": "object"
       }
     }
@@ -25036,6 +25414,95 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/handoff": {
+      "get": {
+        "operationId": "get_handoff_v1_agents__agent_id__handoff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The people this agent hands a caller to, and who is on duty now",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "put": {
+        "description": "Replace the whole configuration in one statement, in the order given.\n\n**DELETE-THEN-INSERT INSIDE ONE TRANSACTION, and the alternative was worse.** An\nupsert keyed on position would have to reconcile removals anyway, and a diff keyed on\nthe member id would let a client renumber two people into the same position halfway\nthrough. The ids are therefore NOT stable across a write, which is a real consequence\nand a deliberate one: `handoff_attempts.member_id` is `SET NULL` precisely so the\nhistory of a call somebody took survives the roster being re-ordered, and the number\nthat rang is copied onto the attempt row rather than looked up through this table.\n\nTwo things are refused rather than normalised, because both are a client saying\nsomething they did not mean: the same number twice (one person cannot be two rungs of\na hunt list, and whichever is second is unreachable), and enabling the feature with\nnobody on the list (an agent that promises a caller a person and has none).",
+        "operationId": "put_handoff_v1_agents__agent_id__handoff_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandoffIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandoffOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Replace this agent's handover list, its switch and its trigger",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/agents/{agent_id}/pending": {
@@ -31371,7 +31838,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/MemberOut"
+                    "$ref": "#/components/schemas/apps__api__tenancy__routes__MemberOut"
                   },
                   "title": "Response List Members V1 Members Get",
                   "type": "array"
@@ -31462,7 +31929,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberOut"
+                  "$ref": "#/components/schemas/apps__api__tenancy__routes__MemberOut"
                 }
               }
             },

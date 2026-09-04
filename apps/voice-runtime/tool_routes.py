@@ -152,6 +152,10 @@ OPTOUT_JOB = "record_in_call_optout"
 BOOK_CALLBACK_JOB = "book_requested_callback"
 CANCEL_CALLBACK_JOB = "cancel_requested_callback"
 
+# Must equal `apps.workers.handoff.HANDOFF_JOB`. A literal for the reason above (`apps.
+# workers` is forbidden in this process), asserted equal in `tests/handoff_tool_test.py`.
+HANDOFF_JOB = "record_handoff_started"
+
 
 class ToolAckOut(BaseModel):
     """The in-call tool's ack, declared for the reason `WebhookAckOut` is (D-303).
@@ -434,6 +438,91 @@ async def _cancel_callback(
     )
 
 
+@router.post(
+    "/{engine}/handoff",
+    status_code=202,
+    response_model=ToolAckOut,
+    summary="A handover to a person has started (engine pre-call webhook)",
+)
+async def handoff_started(engine: str, request: Request, response: Response) -> dict[str, str]:
+    started = time.perf_counter()
+    return await measured(
+        started, engine, _handoff_started(engine, request, response, started), meter=TOOL_ACK
+    )
+
+
+async def _handoff_started(
+    engine: str, request: Request, response: Response, started: float
+) -> dict[str, str]:
+    """The engine tells us, mid-call, that it is about to put the caller through (D-533).
+
+    **THIS IS NOT A TOOL THE MODEL CALLS AND ITS REPLY REACHES NOBODY.** The other three
+    endpoints on this router are custom functions whose response is fed back to the LLM and
+    spoken; this is the transfer tool's PRE-CALL WEBHOOK, which the vendor describes as
+    fire-and-forget — *"A slow or failing webhook endpoint never blocks or delays the
+    transfer itself"* (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/tool-calling/
+    transfer-calls.md`, "Pre-call Webhook"; VERIFIED-OSS: `bolna-ai/bolna@cd2e192`,
+    `bolna/agent_manager/task_manager.py:3143-3160`, fired as a background task with errors
+    swallowed, BEFORE the leg is placed). So nothing here can refuse a handover, delay one,
+    or tell the agent anything — and the ack discipline still applies in full, because a
+    slow endpoint is dead air on a live call whether or not the vendor promises otherwise.
+    A vendor's promise is not a budget we get to spend.
+
+    **IT IS THE ONLY SIGNAL THAT EXISTS WHILE THE CALL IS STILL HAPPENING**, which is why
+    it is worth an endpoint at all. Everything else about the handover — whether the person
+    picked up, how long they spoke, whether a second recording was made — arrives minutes
+    later on the execution record. This is what lets the person whose phone is ringing be
+    told what the call is about, and it is the nearest honest thing to the whisper the
+    founder asked for: a message on their phone, not a voice in their ear (see
+    `agents/handoff.py`, and `docs/evidence/handoff-warm-transfer.md` for why).
+
+    THE FIVE OBLIGATIONS ARE THE SAME as every other handler here, and the fourth is worth
+    naming: **no DB writes at all**. The `handoff_attempts` row is written by the worker,
+    from an AUTHENTICATED execution fetch — this payload names a tenant to nobody and
+    carries the model's own prose about a live conversation, which is a hint (D-31), not a
+    record.
+    """
+    payload, execution_id = await _tool_payload(engine, request)
+    job_id: str | None = None
+    async with _durable(
+        engine,
+        started,
+        # Nobody hears this sentence — see the docstring — but the shape is shared with the
+        # three tools above and a `_durable` block with no detail would be the odd one out.
+        "The handover notice was not recorded.",
+    ):
+        job_id = await enqueue(
+            HANDOFF_JOB,
+            {
+                "engine": engine,
+                "execution_id": execution_id,
+                # THE MODEL'S OWN WORDS, PASSED THROUGH UNREAD AND UNLOGGED. Both are
+                # conversation content: the worker redacts them before either touches a
+                # column (hard rule 6), and nothing on this path may look at them. They are
+                # carried rather than re-derived because they exist ONLY here — the
+                # execution record's own `summary` is not populated until the call ends
+                # (`transfer-calls.md`: "fields that are only finalized at call end ...
+                # won't be complete yet"), and the whole point is to reach the person while
+                # their phone is still ringing.
+                "reason": scalar_hint(payload.get("reason")),
+                "summary": scalar_hint(payload.get("summary")),
+            },
+            # One handover per conversation, which is the ENGINE's own behaviour and not
+            # our policy (`task_manager.py:3116-3126`), so collapsing on the execution
+            # cannot lose a second real one.
+            job_id=job_id_for(HANDOFF_JOB, engine, execution_id),
+        )
+    # Ids only. Not the reason, not the summary, not the destination (hard rule 6).
+    log.info("in_call_handoff_started", extra={"engine": engine, "job_id": job_id or "deduped"})
+    return _ack(
+        response,
+        started,
+        engine,
+        {"status": "accepted", "execution_id": execution_id, "job_id": job_id or "deduped"},
+        meter=TOOL_ACK,
+    )
+
+
 def _truthy(value: Any) -> bool:
     """Did the model say yes? Booleans, and the two strings a JSON-ish model produces.
 
@@ -541,6 +630,7 @@ async def _durable(engine: str, started: float, failure_detail: str) -> AsyncIte
 __all__ = [
     "BOOK_CALLBACK_JOB",
     "CANCEL_CALLBACK_JOB",
+    "HANDOFF_JOB",
     "OPTOUT_JOB",
     "router",
 ]

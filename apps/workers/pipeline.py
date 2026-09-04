@@ -106,6 +106,7 @@ from apps.api.reliability.service import (
     mark_inbox_processed,
 )
 from apps.workers.extraction import extract_call
+from apps.workers.handoff import settle_handoff
 from apps.workers.moments import derive_moments, merge_moments
 from apps.workers.redaction import redact
 from apps.workers.storage import (
@@ -1000,6 +1001,24 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         set_span_attributes(
             stage, outcome=await _record_engine_latency(tenant_id, call_id, snapshot)
         )
+
+    # STEP 1d — the HUMAN LEG, if this call had one (D-533). Before the transcript because
+    # it is a single indexed lookup that usually finds nothing, and because when it DOES
+    # find something the two things it does are time-sensitive in a way transcript work is
+    # not: a caller whose handover reached nobody gets a call-back booked here, and the
+    # sooner that row exists the sooner the tick can honour it.
+    #
+    # It takes the snapshot this stage already holds rather than fetching its own — the
+    # ending of a handover is a property of the execution record, and a second Get
+    # Execution for data already in hand is a vendor round trip nobody needs.
+    with span("pipeline.handoff_settle", call_id=str(call_id)) as stage:
+        async with tenant_session(tenant_id) as session:
+            set_span_attributes(
+                stage,
+                outcome=await settle_handoff(
+                    session, tenant_id=tenant_id, call_id=call_id, snapshot=snapshot
+                ),
+            )
 
     # STEP 2 — transcript + redaction. `text_redacted` is the default view (hard rule 5).
     with span("pipeline.transcript_persist", call_id=str(call_id)) as stage:

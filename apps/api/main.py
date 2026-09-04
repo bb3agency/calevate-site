@@ -76,6 +76,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.experiment_routes import router as experiment_router
     from apps.api.agents.extraction_routes import admin_router as extraction_admin_router
     from apps.api.agents.extraction_routes import router as extraction_router
+    from apps.api.agents.handoff_routes import router as handoff_router
     from apps.api.agents.llm_routes import admin_router as llm_defaults_admin_router
     from apps.api.agents.llm_routes import router as llm_defaults_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
@@ -196,6 +197,10 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/agents/{agent_id}/script/...`; mounting it first keeps its literal `script`
     # subsegment from being shadowed by any `/v1/agents/{agent_id}` route.
     application.include_router(script_router)
+    # Before `agents_router`, for `script_router`'s reason (D-533): the handover list lives
+    # under `/v1/agents/{agent_id}/handoff`, and mounting it first keeps that literal
+    # subsegment from being shadowed by any `/v1/agents/{agent_id}` route declared later.
+    application.include_router(handoff_router)
     application.include_router(agents_router)
     # The ACCOUNT-level model default (D-454). Its own paths (`/v1/organization/...`,
     # `/v1/admin/organizations/...`) collide with nothing above, so mount order is not

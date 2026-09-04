@@ -109,6 +109,7 @@ from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
+from apps.workers.handoff import record_handoff_started
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
     DIGEST_MINUTE,
@@ -215,6 +216,14 @@ FUNCTIONS: list[Any] = [
         # version of the `check_job_wiring` shape in this list: a promise made to a person.
         book_requested_callback,
         cancel_requested_callback,
+        # D-533. The mid-call notice that a caller is being handed to a person. Same shape
+        # as the pair above and with one difference that makes it worse, not better: the
+        # engine has ALREADY started placing the leg by the time this fires — the webhook
+        # is fire-and-forget and nothing we do can stop it — so an unregistered name here
+        # does not merely lose a promise, it loses the only record that a client's caller
+        # was put through to a member of their staff at all. The `handoff_attempts` row,
+        # the brief and the call-back for a handover nobody answered all hang off it.
+        record_handoff_started,
         # THE EMPTY-WALLET WARNING (2 Sep 2026). Published by `billing.service.record_entry`
         # in the same transaction as the ledger entry that crossed the line, so an
         # unregistered name here is not a dormant feature: the outbox marks the row
