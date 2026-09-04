@@ -208,6 +208,10 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     caller_id=True,
     inbound_binding=True,
     transfer=False,
+    # Bolna's shape for a third time (D-533): the agent hands off from inside the call to
+    # a number fixed at publish, so the default fake is what exercises the handoff seam
+    # offline -- the publish carrying it, and the read-back proving the engine holds it.
+    in_call_handoff=True,
     webhook_auth="none",
 )
 
@@ -251,6 +255,10 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     caller_id=True,
     inbound_binding=True,
     transfer=True,
+    # Unchanged from the default for the reason the lines above give: this fixture's axis
+    # is SPEECH, and a second difference would stop a failing clause saying which one it
+    # measured.
+    in_call_handoff=True,
     webhook_auth="hmac",
 )
 
@@ -298,6 +306,11 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
     caller_id=False,
     inbound_binding=False,
     transfer=False,
+    # **AND THE ONE PROFILE THAT REFUSES THE HANDOFF** (D-533), forced by the same fact:
+    # there is no agent object of ours on this shape to hang an in-call tool on. Without
+    # it, `require_capability("in_call_handoff")`'s refusal branch would be contract no
+    # test has ever run.
+    in_call_handoff=False,
     webhook_auth="none",
 )
 

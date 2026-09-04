@@ -101,8 +101,14 @@ _REMEDIATION: Final[dict[EngineCapabilityName, str]] = {
         "it up."
     ),
     "transfer": (
-        "The voice platform in use cannot transfer a live call. Use the escalation phone "
-        "number configured on the agent."
+        "The voice platform in use cannot transfer a live call from outside it. The agent "
+        "can still hand a caller to a person during the call — configure the people "
+        "who take calls on the agent's handover list."
+    ),
+    "in_call_handoff": (
+        "The voice platform in use cannot hand a live caller to a person, so the people "
+        "on this agent's handover list would never be rung. Contact us before relying on "
+        "escalation for this account."
     ),
 }
 

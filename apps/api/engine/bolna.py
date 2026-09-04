@@ -133,6 +133,9 @@ from calevate_shared.engine import (
     EngineKBRef,
     ExecutionListing,
     ExecutionSnapshot,
+    HandoffLeg,
+    HandoffLegOutcome,
+    HandoffSpec,
     KBSourceRef,
     ListingIncompleteReason,
     LlmCredentialPlacement,
@@ -859,6 +862,123 @@ def _one_api_tool(tool: ActionToolSpec) -> tuple[dict[str, Any], dict[str, Any]]
     return definition, exec_params
 
 
+#: The function name the handoff tool is published under.
+#:
+#: **THE `transfer_call` PREFIX IS LOAD-BEARING AND IS NOT A STYLE CHOICE.** The engine
+#: branches on the NAME, not on the `key`: `if called_fun.startswith("transfer_call")` is
+#: what selects the code path that places a leg at the telephony layer, and a tool called
+#: `escalate_to_human` carrying `key: transfer_call` would be executed as an ordinary API
+#: call — a POST to a URL, no transfer, and a caller told they were being put through
+#: (VERIFIED-OSS: `bolna-ai/bolna@cd2e192`, `bolna/agent_manager/task_manager.py:3107`,
+#: read 4 Sep 2026).
+HANDOFF_TOOL_NAME: Final = "transfer_call_human"
+
+#: What the pre-call webhook sends us. Static keys pass through; `%(name)s` is substituted
+#: from the tool's runtime arguments, missing ones as `""`
+#: (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/tool-calling/transfer-calls.md`,
+#: "Available Substitution Fields"; VERIFIED-OSS: `task_manager.py:938-953`).
+#:
+#: `%(call_transfer_number)s` IS DELIBERATELY NOT REQUESTED. It is the staff mobile we
+#: ourselves put in `param` two lines below — asking the vendor to send it back would put
+#: a personal number on a webhook path for no reader (hard rule 6), and our own row already
+#: records which roster member was on duty.
+_HANDOFF_WEBHOOK_TEMPLATE: Final[dict[str, str]] = {
+    "event": "handoff_started",
+    "reason": "%(reason)s",
+    "summary": "%(summary)s",
+    "call_sid": "%(call_sid)s",
+}
+
+
+def _handoff_tool(spec: HandoffSpec) -> tuple[dict[str, Any], dict[str, Any]]:
+    """`(function definition, execution params)` for the ONE human-handoff tool.
+
+    Sits beside `_one_api_tool` and deliberately does NOT reuse it: that function renders
+    a `custom_task`, whose whole contract is "the engine POSTs to our endpoint and feeds
+    the reply back to the model". This is the vendor's `transfer_call` built-in, which does
+    something else entirely — it places a second call leg — and the two share a JSON block
+    and nothing else.
+
+    **WHY `url` IS NOT SET, WHICH IS THE MOST CONSEQUENTIAL LINE IN THIS FUNCTION.**
+    `TransferCallToolParams` has a `url` — *"Link of the URL to control the transferring of
+    call"* (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/agent/v2/
+    create.md:1174`) — and in the OSS it is exactly what it sounds like: the tool POSTs the
+    call's telephony identifiers to that URL and **whatever answers it performs the
+    redirect**; when it is unset the engine falls back to its own transfer service
+    (`task_manager.py:3181-3183`, `url = os.getenv("CALL_TRANSFER_WEBHOOK_URL")`, then
+    `session.post(url, json=payload)` at `:3266`). Pointing it at us is therefore the seam
+    through which a warm transfer, a whisper and a real hunt list would all become
+    possible — and it is not taken, because taking it requires placing a call leg on the
+    telephony account that owns this conversation, and **this repository holds no telephony
+    credential of any kind**: there is no Plivo or Exotel client, no auth id, no auth token,
+    and `campaigns/provisioning.PROVISIONING_IMPLEMENTED` is False. An endpoint that
+    received that POST and could not redirect would leave the caller listening to an agent
+    that has been told the transfer succeeded. Unset is the honest configuration; see
+    `docs/evidence/handoff-warm-transfer.md` for what changes if a carrier account is ever
+    held here.
+
+    **`reason` AND `summary` ARE DECLARED AS PARAMETERS, AND THAT IS AN ASSUMPTION** —
+    OPERATIONS §2 gate 46a. The vendor's OAS declares only `call_sid` on this tool, while
+    the transfer-call page names `%(reason)s` and `%(summary)s` as substitution fields
+    available to the pre-call webhook, and the OSS substitutes from the LLM's own tool
+    arguments (`task_manager.py:938-939`). Those two facts are only consistent if the model
+    is the thing that supplies them, which means they have to be declared. If the
+    assumption is wrong the substitution yields `""` — documented behaviour, *"Any field
+    that is not available at transfer time is sent as an empty string rather than failing"*
+    — so the failure is a brief with no reason in it, never a broken transfer.
+    """
+    definition: dict[str, Any] = {
+        "name": HANDOFF_TOOL_NAME,
+        "key": "transfer_call",
+        "description": spec.trigger,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "call_sid": {"type": "string", "description": "unique call id"},
+                "reason": {
+                    "type": "string",
+                    "description": "Why this caller needs a person, in one short sentence.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": (
+                        "What has happened on this call so far, in two or three sentences, "
+                        "so the person taking it does not have to ask again."
+                    ),
+                },
+            },
+            "required": ["call_sid"],
+        },
+    }
+    params: dict[str, Any] = {
+        "method": "POST",
+        # A STRINGIFIED JSON BLOB, which is the vendor's own shape for this field
+        # (`TransferCallToolParams.param`, *"Stringified JSON of the tool schema"*, whose
+        # example is exactly this pair). `_api_tools` resolves the same
+        # array-versus-string contradiction the same way, and for the same reason.
+        "param": json.dumps(
+            {"call_transfer_number": spec.destination_e164, "call_sid": "%(call_sid)s"},
+            separators=(",", ":"),
+        ),
+        # What the caller hears while the leg is placed. The vendor calls it the pre-tool
+        # message; the OSS reads `pre_call_message` off the same params block.
+        "pre_call_message": spec.spoken_line,
+    }
+    if spec.brief_url is not None:
+        # BOTH KEYS, ALWAYS TOGETHER, because the docs and the code disagree about which
+        # one is the switch: the page says `pre_call_webhook_param` is the master switch
+        # and a missing URL falls back to the agent-level webhook, while the OSS fires only
+        # `if transfer_pre_call_webhook_url` (`task_manager.py:3145-3146`). Setting both
+        # satisfies either reading, and the fallback is one we would not want anyway — our
+        # agent-level `webhook_url` is the post-call receiver, which would then have to
+        # tell a mid-call notification apart from an execution it has finished.
+        params["pre_call_webhook_url"] = spec.brief_url
+        params["pre_call_webhook_param"] = json.dumps(
+            _HANDOFF_WEBHOOK_TEMPLATE, separators=(",", ":")
+        )
+    return definition, params
+
+
 def _api_tools(cfg: AgentConfig) -> dict[str, Any] | None:
     """The `tools_config.api_tools` block for an agent's in-call actions, or None.
 
@@ -883,7 +1003,7 @@ def _api_tools(cfg: AgentConfig) -> dict[str, Any] | None:
     envelope is a 422 at publish (surfaced by `create_agent`), not a silently toolless
     agent that a caller discovers mid-call.
     """
-    if not cfg.action_tools:
+    if not cfg.action_tools and cfg.handoff is None:
         return None
     definitions: list[dict[str, Any]] = []
     tools_params: dict[str, Any] = {}
@@ -891,6 +1011,21 @@ def _api_tools(cfg: AgentConfig) -> dict[str, Any] | None:
         definition, exec_params = _one_api_tool(tool)
         definitions.append(definition)
         tools_params[tool.name] = exec_params
+    # THE HUMAN HANDOFF, IN THE SAME BLOCK AND LAST (D-533). It is a different `oneOf` arm
+    # of the vendor's `ApiTools.tools[]` — `TransferCallTools`, not a custom function — but
+    # it rides the same two keys, so there is one renderer for the block and one place the
+    # envelope question (gate 18) is answered. Last so that an agent's own actions keep the
+    # order they were configured in; the model reads descriptions, not positions.
+    #
+    # **ONE TOOL, NEVER ONE PER ROSTER MEMBER.** `HandoffSpec` carries a single number by
+    # construction and its docstring argues why at length: the engine latches after the
+    # first transfer tool call and answers every later one with "Call transfer already in
+    # progress" (VERIFIED-OSS: `task_manager.py:3116-3126`), so five tools would produce an
+    # agent that silently tries exactly one of them.
+    if cfg.handoff is not None:
+        definition, exec_params = _handoff_tool(cfg.handoff)
+        definitions.append(definition)
+        tools_params[HANDOFF_TOOL_NAME] = exec_params
     return {
         # A JSON STRING, per the field's own description — see the gate-18 note above.
         "tools": json.dumps(definitions, separators=(",", ":")),
@@ -1255,62 +1390,93 @@ def _check_cost_plausibility(
     )
 
 
-# --- did a SECOND call leg happen that we are not carrying? ---------------------------
+# --- the SECOND call leg: the one placed to a human ------------------------------------
 #
-# `BOLNA_CAPABILITIES.transfer=False`, so nothing this tree publishes configures a transfer
-# tool and no execution we produce should carry a transfer leg. That is a statement about
-# OUR publish path, not about the account — and the two can diverge without a deploy. The
-# vendor's Transfer Call built-in is enabled from the agent's Tools tab
-# (`bolna-findings/mirror/pages/agent-setup/tools-tab.md`: "Click **+ Add** next to any
-# tool to enable it"), i.e. a console toggle a client or an operator can flip on an agent
-# we published. The drift sweep proves the PROMPT still carries hard rule 5's directive;
-# it does not enumerate the agent's tools.
+# **THIS BLOCK USED TO BE AN ALARM AND IS NOW A NORMALIZER (D-533), because the fact it
+# alarmed on is now a feature.** It read: `BOLNA_CAPABILITIES.transfer=False`, so nothing
+# this tree publishes configures a transfer tool and no execution we produce should carry a
+# transfer leg — page on the first one that happens. That was right while the product had
+# no escalation path. It has one now (`AgentConfig.handoff`), so a transfer leg is the
+# expected outcome of a caller asking for a person, and an alarm per handoff would be noise
+# on the very path it was written to protect.
 #
-# What that costs, if it happens silently, is exactly the two things this repo has hard
-# rules about. The vendor models the transferred leg as its own object with its own
-# fields — `TransferCallData` in the pinned OAS
-# (`bolna-findings/mirror/pages/api-reference/agent/v2/get_agent_execution.md:270-328`):
+# WHAT IT PROTECTED IS STILL PROTECTED, IN TWO BETTER PLACES. The console toggle it feared —
+# somebody adding a Transfer Call tool to an agent we published, pointed at a number nobody
+# here chose — is now visible where it actually IS visible: on the agent read-back
+# (`_agent_handoff_destinations`), which every publish and every half-hourly drift sweep
+# runs, and which can see the DESTINATION rather than only the after-the-fact leg. And the
+# execution-side question "did this call hand off when its agent has nobody to hand off to"
+# is asked by the worker that holds the agent's roster, not by an adapter that does not.
+#
+# THE TWO COSTS IT NAMED ARE UNCHANGED AND ARE NOW CARRIED RATHER THAN PAGED:
 #
 #   * `recording_url` — "Recording URL for the transferred call", a SECOND recording of the
-#     same caller. `pipeline`'s recording copy reads `ExecutionSnapshot.recording_url`,
-#     which is `telephony_data.recording_url` and nothing else, so that audio is never
-#     copied, never retained under our policy, and never reached by a DPDP erasure. The
-#     vendor even serves it from its own route — `GET /recordings/transfer/{execution-id}`,
-#     "Use the `transfer` variant if the call included a transfer leg"
-#     (`bolna-findings/mirror/pages/changelog/may-2026.md:100-103`).
-#   * `cost` — "Total cost incurred for this transferred call". A per-call cost outside
-#     `total_cost`/`cost_breakdown` is a cost hard rule 7 never meters.
+#     same caller, served from the vendor's own route (`GET /recordings/transfer/
+#     {execution-id}`, `bolna-findings/mirror/pages/changelog/may-2026.md:100-103`).
+#     `pipeline`'s recording copy reads `ExecutionSnapshot.recording_url` and nothing else,
+#     so that audio is still never copied, never retained under our policy and never
+#     reached by a DPDP erasure. `HandoffLeg.recording_present` is how a human finds out it
+#     exists; OPERATIONS §2 gate 46b is where it is settled.
+#   * `cost` — "Total cost incurred for this transferred call". Whether that figure is
+#     already inside `total_cost` or is a second charge is not answerable from the mirror,
+#     so `HandoffLeg.cost_reported` records only that one was stated. Gate 46c.
 #
-# So this is an ALARM and not a handler, deliberately. Carrying the leg properly needs new
-# members on `ExecutionSnapshot` (a shared model), a decision on whether the transfer leg
-# is separately metered and separately retained, and an answer to whether the recording
-# notice a caller already heard covers a human they are handed to — none of which is a
-# thing an adapter may decide on its own. OPERATIONS §2 gate 18 is where it is settled.
-# Until then the failure mode this converts is the dangerous one: silent loss becomes a
-# named page, on the first call that does it, from every path that snapshots an execution.
-#
-# HARD RULE 6 GOVERNS WHAT THIS MAY SAY. `TransferCallData` carries `to_number` and
-# `from_number` in E.164 and a URL that resolves to caller audio; none of the three appears
-# here. What is reported is the execution id, the leg's vendor status, and two booleans we
-# derived — enough for an operator to know which execution to open and what is at stake.
-def _check_transfer_leg(payload: dict[str, Any], *, engine_call_id: str) -> None:
-    """Page when an execution carries a transfer leg this adapter drops on the floor."""
+# HARD RULE 6 STILL GOVERNS WHAT CROSSES. `TransferCallData` carries `to_number` and
+# `from_number` in E.164 and a URL resolving to caller audio; none of the three is carried
+# up. The destination is already ours — we chose it — and a URL to audio no notice covers
+# is not something this adapter hands to a caller that might store it.
+
+#: The vendor's `TransferCallData.status` set, mapped to ours. VERIFIED-VENDOR-DOCS:
+#: `bolna-findings/mirror/pages/api-reference/agent/v2/get_agent_execution.md:278-292`.
+#: Anything outside it is `unknown` rather than a guess — a status this vendor adds later
+#: must not be read as "the person picked up".
+_HANDOFF_OUTCOMES: Final[dict[str, HandoffLegOutcome]] = {
+    "completed": "connected",
+    # The person answered and the call then dropped at the telephony layer. Still a
+    # connection: somebody picked up, which is the question everything downstream asks.
+    "call-disconnected": "connected",
+    "no-answer": "unreached",
+    "busy": "unreached",
+    "failed": "unreached",
+    "canceled": "unreached",
+    "balance-low": "unreached",
+    "in-progress": "in_progress",
+    "queued": "in_progress",
+    "ringing": "in_progress",
+    "initiated": "in_progress",
+}
+
+
+def _handoff_leg(payload: dict[str, Any]) -> HandoffLeg | None:
+    """The human leg of this execution, in our vocabulary, or None if there was none.
+
+    An empty or non-dict `transfer_call_data` answers None: the vendor sends the key on
+    executions that never transferred, and "the object is there but empty" and "this call
+    had a human leg" are different facts.
+    """
     leg = payload.get("transfer_call_data")
     if not isinstance(leg, dict) or not leg:
-        return
-    alert(
-        "CORE_LOGIC",
-        "engine_transfer_leg_unhandled",
-        detail=(
-            "this execution carries a transfer leg, which this adapter does not normalize: "
-            f"vendor status {leg.get('status') or 'unknown'!r}, "
-            f"second recording present: {bool(leg.get('recording_url'))}, "
-            f"separate cost present: {leg.get('cost') is not None}. "
-            "The leg's recording is NOT copied, retained or reachable by erasure, and its "
-            "cost is NOT metered. An agent we published has had the Transfer Call tool "
-            "enabled outside this tree — OPERATIONS §2 gate 18."
-        ),
-        engine_call_id=engine_call_id,
+        return None
+    raw = leg.get("status")
+    raw_status = raw if isinstance(raw, str) else ""
+    duration = leg.get("duration")
+    # Their own example types this as a STRING holding a number ("42"), while the schema
+    # says `type: string` and the sibling `telephony_data.duration` arrives as an int.
+    # Both are read; anything else is None rather than a zero, because a zero-second human
+    # leg and an unreadable one are opposite answers to "did somebody pick up".
+    duration_s: int | None = None
+    if isinstance(duration, bool):
+        duration_s = None
+    elif isinstance(duration, int | float):
+        duration_s = int(duration)
+    elif isinstance(duration, str) and duration.strip().isdigit():
+        duration_s = int(duration.strip())
+    return HandoffLeg(
+        outcome=_HANDOFF_OUTCOMES.get(raw_status, "unknown"),
+        raw_status=raw_status,
+        duration_s=duration_s,
+        recording_present=bool(leg.get("recording_url")),
+        cost_reported=leg.get("cost") is not None,
     )
 
 
@@ -1337,7 +1503,7 @@ def _check_transfer_leg(payload: dict[str, Any], *, engine_call_id: str) -> None
 # guessing `null` or `[]` risks 400ing every publish on this platform for a field we have no
 # use for — the same reasoning that keeps `allow_multiple` and `ivr_config` off the inbound
 # body. The exposure is a console edit, which is precisely what a READ-BACK sees and a
-# request body cannot. So this is `_check_transfer_leg`'s shape, deliberately: one adapter,
+# request body cannot. So this is `_check_multilingual_speech`'s shape, deliberately: one adapter,
 # one way of reporting a vendor-side configuration nobody here decided.
 #
 # HARD RULE 6 GOVERNS WHAT IT MAY SAY. A route's `utterances` are what a caller says and its
@@ -1993,6 +2159,87 @@ def _agent_alternate_prompts(agent: dict[str, Any]) -> tuple[str, ...]:
         if isinstance(prompt, str) and prompt.strip():
             prompts.append(prompt)
     return tuple(prompts)
+
+
+def _agent_handoff_destinations(agent: dict[str, Any]) -> tuple[tuple[E164, ...], bool]:
+    """`(destinations, readable)` — every number this agent would hand a caller to.
+
+    **WHAT THIS IS FOR IS THE CONSOLE, NOT OUR OWN PUBLISH** (D-533). We write exactly one
+    destination, from the roster; the vendor ships the same tool as a form in the agent's
+    Tools tab, on an account a client or an operator can log into
+    (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/agent-setup/tools-tab.md`, "Route
+    the call to a human agent or another phone number"). A number added there is a phone
+    that rings and a stranger who then hears a customer's business, and until this function
+    existed nothing in this repository could see one — the same blind spot
+    `_agent_alternate_prompts` was written to close, about a bigger consequence.
+
+    THE PATH IS THE VENDOR'S OWN, and it is two fields deep because that is how the tool
+    block is shaped: `tasks[].tools_config.api_tools` carries `tools` (the function
+    definitions) beside `tools_params` (their execution config), and the destination lives
+    in the params under the tool's own name, as a stringified JSON blob whose
+    `call_transfer_number` is the number (`bolna-findings/mirror/pages/api-reference/agent/
+    v2/get.md:1036-1062`, `TransferCallToolParams`).
+
+    **IT WALKS `tools_params` AND NOT `tools`**, and that is the difference between seeing a
+    console-added transfer and missing it: `tools` says a transfer tool EXISTS, `tools_params`
+    says where it goes. Anything whose params carry a `call_transfer_number` is reported,
+    whatever it is named — a console tool is named by whoever added it, and matching on our
+    own `HANDOFF_TOOL_NAME` would make every foreign one invisible, which is precisely the
+    case this exists for.
+
+    READABILITY IS ABOUT THE BLOCK, NOT THE RESULT. `True` with an empty tuple means "this
+    agent's tool params were read and none of them transfers anywhere", which is a fact worth
+    publishing on; `False` means the block was not found, and the sweep's verdict is then
+    `None` rather than a false clean.
+
+    Hard rule 6: the numbers are returned to a caller that compares them. Nothing here logs.
+    """
+    root = agent.get("agent_config") if isinstance(agent.get("agent_config"), dict) else agent
+    tasks = root.get("tasks") if isinstance(root, dict) else None
+    if not isinstance(tasks, list):
+        return (), False
+    readable = False
+    found: list[E164] = []
+    for task in tasks:
+        tools = task.get("tools_config") if isinstance(task, dict) else None
+        block = tools.get("api_tools") if isinstance(tools, dict) else None
+        if not isinstance(block, dict):
+            continue
+        params = block.get("tools_params")
+        if not isinstance(params, dict):
+            continue
+        readable = True
+        for entry in params.values():
+            number = _transfer_destination(entry)
+            if number is not None:
+                found.append(number)
+    # Sorted and de-duplicated so two identical read-backs compare equal: this reaches a
+    # verdict and a log line, and a dict-order-dependent one would make a quiet sweep look
+    # like a change (`_check_semantic_routes` sorts for the same reason).
+    return tuple(sorted(set(found))), readable
+
+
+def _transfer_destination(entry: Any) -> E164 | None:
+    """The `call_transfer_number` inside one tool's execution params, or None.
+
+    The value is documented as a STRING holding JSON and is observed as an object in the
+    vendor's own example bodies, so both are read. A shape we cannot parse answers None
+    rather than raising: this runs on every publish and every drift sweep, and an agent
+    whose params the vendor renders differently must degrade to "we saw no destination"
+    — which `readable` above then keeps from being reported as a clean agent.
+    """
+    if not isinstance(entry, dict):
+        return None
+    param = entry.get("param")
+    if isinstance(param, str):
+        try:
+            param = json.loads(param)
+        except ValueError:
+            return None
+    if not isinstance(param, dict):
+        return None
+    number = param.get("call_transfer_number")
+    return number if isinstance(number, str) and number.strip() else None
 
 
 def _agent_greeting(agent: dict[str, Any]) -> tuple[str | None, bool]:
@@ -2948,9 +3195,23 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   executions reads — **no route transfers a live execution**, and `stop` cancels QUEUED
 #   calls ("This stops **ALL** the queued calls for a given agent",
 #   `bolna-findings/mirror/pages/api-reference/agent/v2/stop.md`), not an in-flight one.
-#   What is left for gate 18 is the DESIGN question, not the vendor one: whether a
-#   per-agent escalation number becomes engine config, and who is metered and retained for
-#   the transferred leg (`_check_transfer_leg` above pages on the first one that happens).
+#   **THE DESIGN QUESTION IS ANSWERED (D-533) AND THE ANSWER IS THE FIELD BELOW.** A
+#   per-agent escalation number IS engine config, because on this engine it cannot be
+#   anything else, and `in_call_handoff=True` is what says so. What is still open is what
+#   the transferred leg costs and what its second recording obliges — OPERATIONS §2 gates
+#   46b/46c, carried as `HandoffLeg.recording_present` / `.cost_reported` rather than paged.
+# * `in_call_handoff=True` (D-533). VERIFIED-VENDOR-DOCS for the tool
+#   (`TransferCallTools` / `TransferCallToolParams`, and the whole of
+#   `bolna-findings/mirror/pages/tool-calling/transfer-calls.md`); VERIFIED-OSS for what it
+#   DOES (`bolna-ai/bolna@cd2e192`, `bolna/agent_manager/task_manager.py:3107-3360`, read
+#   4 Sep 2026) — the engine POSTs the call's telephony identifiers to a transfer service
+#   which places the leg, and reports it back as `transfer_call_data` with its own provider
+#   call id, duration, cost and recording. ⚠ NOT MEASURED AGAINST A LIVE ACCOUNT: no
+#   credential exists here and `api.bolna.ai` is unreachable from this container, so `True`
+#   is the claim that the tool exists as the pinned mirror documents it and that
+#   `_handoff_tool` renders it correctly. OPERATIONS §2 gate 46 is the single call that
+#   settles it, and every unmeasured half fails LOUD (a 422 at publish surfaced as
+#   `engine_rejected`) rather than degrading to a green tick.
 # * `agent_hosting="control_plane"` (D-280). Bolna is the shape this port was written
 #   around and the reason it read as vendor-neutral for as long as it did: `POST /v2/agent`
 #   creates the object, `PUT /v2/agent/{id}` edits it, `GET /v2/agent/{id}` answers what it
@@ -2994,6 +3255,7 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     caller_id=True,
     inbound_binding=True,
     transfer=False,
+    in_call_handoff=True,
     webhook_auth="source_ip",
 )
 
@@ -3127,6 +3389,14 @@ class BolnaEngine:
         require_speech_leg("stt", engine=self, value=cfg.models.stt_model)
         require_speech_leg("llm", engine=self, value=cfg.models.llm_model)
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
+        # THE HANDOFF, ON THE SAME ARGUMENT AND WITH A SHARPER CONSEQUENCE (D-533). A
+        # dropped BYOK leg is an agent speaking in the wrong voice; a dropped handoff is a
+        # client who configured the people who take their calls, watched the agent go live,
+        # and finds out it was never wired when a caller asks for a person. So the
+        # descriptor is asked here — the one place both `create_agent` and `update_agent`
+        # pass through — and a publish REFUSES by name rather than quietly omitting a tool.
+        if cfg.handoff is not None:
+            require_capability("in_call_handoff", engine=self)
         prompt = compose_engine_prompt(cfg)
         # The in-call ACTION tools, or None for an agent with none — see `_api_tools`. Held
         # in a local so the `tools_config` literal below can add the key ONLY when there is
@@ -3630,7 +3900,7 @@ class BolnaEngine:
         """
         payload = await self._request("GET", f"/v2/agent/{ref}")
         agent = _agent_object(payload)
-        # BEFORE the snapshot is assembled, for `_check_transfer_leg`'s reason: this is a
+        # BEFORE the snapshot is assembled, and deliberately: this is a
         # fact about the agent nothing in `AgentSnapshot` can carry, and the read-back is
         # the only place it is visible. Every publish and every half-hourly drift sweep
         # comes through here, so a console-added route is paged on within the sweep
@@ -3645,6 +3915,7 @@ class BolnaEngine:
         greeting, greeting_readable = _agent_greeting(agent)
         kb_refs, kb_readable = _agent_kb_refs(agent)
         models, models_readable = _agent_models(agent)
+        handoff_destinations, handoff_readable = _agent_handoff_destinations(agent)
         returned_id = agent.get("agent_id") or agent.get("id") or payload.get("agent_id")
         return AgentSnapshot(
             # Their id when they state one, so a vendor answering about a DIFFERENT agent
@@ -3663,6 +3934,11 @@ class BolnaEngine:
             knowledge_base_refs_readable=kb_readable,
             models=models,
             models_readable=models_readable,
+            # Who this agent would hand a caller to, as the ENGINE holds it — see
+            # `_agent_handoff_destinations` for why the interesting case is a number we
+            # did not write.
+            handoff_destinations=handoff_destinations,
+            handoff_destinations_readable=handoff_readable,
             engine="bolna",
         )
 
@@ -4681,7 +4957,6 @@ class BolnaEngine:
         # bounded by `alerting`'s per-fingerprint suppression, so a fleet metering wrong
         # pages once per 15 minutes with the count riding along, not once per call.
         _check_cost_plausibility(cost, duration_s, engine_call_id=call_id)
-        _check_transfer_leg(payload, engine_call_id=call_id)
         # THE ENGINE'S OWN TIMINGS, read on every snapshot path rather than only on
         # `get_execution`: a listing row carries no `latency_data` today and `parse_latency_data`
         # answers `None` for it, so reading here costs a dict lookup and means the day they

@@ -115,6 +115,7 @@ EngineCapabilityName = Literal[
     "caller_id",
     "inbound_binding",
     "transfer",
+    "in_call_handoff",
 ]
 
 #: The speech legs, in the order a call uses them. Derived from the type so a leg added
@@ -230,6 +231,22 @@ class EngineCapabilities(BaseModel):
     #: method, and a True on the strength of the feature would put an escalation control
     #: on the console that refuses every time a caller needs a human.
     transfer: bool
+    #: Can the AGENT, mid-call, hand the caller to a human at a number WE NAME when the
+    #: agent is published — `AgentConfig.handoff` (D-533)?
+    #:
+    #: **THE OTHER HALF OF `transfer`, AND THE DISTINCTION IS THE WHOLE POINT.** That
+    #: field asks whether a command from OUTSIDE a running call can move it, which is what
+    #: `VoiceEngine.transfer` is; this asks whether the agent can do it from INSIDE, on a
+    #: destination fixed at publish time. Bolna answers no to the first and yes to the
+    #: second, and until this field existed the descriptor had no way to say so — so the
+    #: one shape this engine actually supports read as "cannot transfer", and the product
+    #: had no escalation path at all.
+    #:
+    #: Under False, a publish carrying a `handoff` must REFUSE by name rather than drop
+    #: it. Dropping is the dangerous direction: a client who configured a hunt list, saw it
+    #: saved and watched the agent go live would learn it was never wired the first time a
+    #: caller asked for a person — which is the moment escalation exists for.
+    in_call_handoff: bool
     #: How this engine's webhooks are proved authentic. Must equal what `verify_webhook`
     #: actually reports, and must equal `WEBHOOK_AUTH_BY_ENGINE[name]` — the receiver in
     #: `apps/voice-runtime` reads that table rather than importing an adapter (hard rule
@@ -288,7 +305,9 @@ class EngineCapabilities(BaseModel):
             return self.caller_id
         if name == "inbound_binding":
             return self.inbound_binding
-        return self.transfer
+        if name == "transfer":
+            return self.transfer
+        return self.in_call_handoff
 
 
 #: The webhook authenticity method of each engine we ship, as DATA — one definition, two
@@ -2589,6 +2608,58 @@ class ActionToolSpec(BaseModel):
     params: tuple[ActionToolParam, ...] = ()
 
 
+class HandoffSpec(BaseModel):
+    """WHO a live call is handed to when the caller needs a human, and what we are told
+    when it happens (D-533). ONE destination, resolved by us before the agent is
+    published — never a list, and never the model's choice.
+
+    **WHY ONE NUMBER AND NOT THE HUNT LIST THE PRODUCT ACTUALLY HAS.** The client
+    configures an ORDERED ROSTER of people who can take a call
+    (`apps/api/agents/handoff.py`); this field carries the ONE of them who is on duty at
+    the instant the agent was published. The list does not reach the engine, because on
+    the engine we rent it could not be honoured: the destination is fixed when the agent
+    is configured, and the vendor's own guidance for "multiple departments" is multiple
+    tools with multiple TRIGGERS — intents, not failover
+    (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/tool-calling/transfer-calls.md`,
+    "Multiple departments? Add separate transfer functions for Sales, Support, Billing —
+    each with its own phone number and trigger description"). Worse, a second tool would
+    not fire even if we sent one: the engine latches the handoff after the first tool
+    call and answers every later one with "Call transfer already in progress"
+    (VERIFIED-OSS: `bolna-ai/bolna@cd2e192`,
+    `bolna/agent_manager/task_manager.py:3107-3126`, the `has_transfer` guard, read
+    4 Sep 2026). **In-call failover down a list is therefore not available on this
+    engine, and pretending otherwise by sending five tools would produce an agent that
+    silently tries exactly one of them.** What the roster buys instead is stated in
+    `apps/api/agents/handoff.py`: rotation between calls, hours enforced by NOT PUBLISHING
+    the tool at all outside them, and a callback booked from the leg that failed.
+
+    **NO WHISPER, AND THE FIELD NAMES SAY SO.** `brief_url` is not an announcement to the
+    human — nothing in this engine's surface plays audio to the called party — it is a
+    fire-and-forget notification to US, before the leg is placed, carrying the reason and
+    the summary the model wrote (`transfer-calls.md`, "Pre-call Webhook"). What reaches
+    the person is a message on their phone, not a voice in their ear. See
+    `docs/evidence/handoff-warm-transfer.md` for what a real whisper would take.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: The number the engine dials. E.164, and PII (hard rule 6): it is a member of the
+    #: client's staff, so nothing logs it and every surface that shows it is a surface a
+    #: role check already covers.
+    destination_e164: E164
+    #: WHEN the model should hand over — the client's own words, in the description the
+    #: LLM reads. Ours composes a floor around it; a client cannot write a trigger that
+    #: makes the agent deny being an AI, because that directive is in the prompt and this
+    #: is a tool description.
+    trigger: str
+    #: What the agent SAYS while the handoff is placed, so the caller does not hear dead
+    #: air. The engine calls this the pre-tool message.
+    spoken_line: str
+    #: OUR endpoint, notified before the leg is placed. None = no notification, which is
+    #: the honest state for a deployment whose runtime base URL is unset.
+    brief_url: str | None = None
+
+
 class AgentConfig(BaseModel):
     """What an agent IS, in our terms. The adapter renders this into the vendor's
     agent object."""
@@ -2640,6 +2711,19 @@ class AgentConfig(BaseModel):
     #: (`compliance.caller_memory.memory_enabled`). A second switch is the thing this
     #: comment exists to stop somebody adding.
     caller_memory_enabled: bool = False
+    #: THE HUMAN HANDOFF (D-533), or None for an agent that never hands a call over —
+    #: which is every agent until a client configures a hunt list, and after hours for
+    #: every agent that has one.
+    #:
+    #: **NONE IS THE ENFORCEMENT, NOT A DEFAULT.** Decision 4 of the founder's brief is
+    #: "never transfer outside business hours", and the only place that can be enforced on
+    #: this engine is HERE: the destination is fixed when the agent is published and no
+    #: instruction reaches a running call, so a prompt saying "do not transfer after 9pm"
+    #: is a request to a model, not a control. `apps/api/agents/handoff.py::on_duty`
+    #: returns None outside every roster member's hours, this field is then None, the
+    #: adapter emits no transfer tool, and the model has nothing to fire. Server-side, and
+    #: structural rather than textual.
+    handoff: HandoffSpec | None = None
 
 
 class DisclosurePosture(BaseModel):
@@ -2907,6 +2991,27 @@ class AgentSnapshot(BaseModel):
     #: as an agent genuinely carrying no voice, because the first is a reason to go
     #: looking and the second is a reason to publish.
     models_readable: bool = False
+    #: THE NUMBERS THIS AGENT WOULD HAND A CALLER TO, as the engine holds them (D-533).
+    #:
+    #: WHY IT IS READ BACK AT ALL. A handoff destination is a phone that rings and a
+    #: stranger who then hears a customer's business. Our publish writes exactly one, from
+    #: the roster, on the client's own account — and the engine's console offers the same
+    #: tool as a form anybody with a login can fill in, which is precisely the class of
+    #: change a read-back sees and a request body cannot (`_agent_alternate_prompts` makes
+    #: the same argument about per-language prompts). Without this field a console-added
+    #: transfer to somebody else's number is invisible to every instrument here.
+    #:
+    #: PII (hard rule 6). It crosses this boundary for the same reason
+    #: `ExecutionSnapshot.to_e164` does — the comparison cannot be made without it — and
+    #: it is logged by nothing: the drift sweep reports a COUNT and a verdict.
+    handoff_destinations: tuple[E164, ...] = ()
+    #: True only when the adapter positively located the engine's handoff tool block.
+    #: The fifth `*_readable` tri-state, for the fourth time for the same reason: "this
+    #: agent hands off to nobody" is a fact worth publishing on, and "we could not find
+    #: the tool block" is a reason to go and read the adapter. An engine with no such
+    #: concept (the fake, Cartesia) leaves this False and the empty tuple above, and the
+    #: sweep's verdict is then `None` rather than a false clean.
+    handoff_destinations_readable: bool = False
     engine: str = "fake"
 
     def carries_prompt_marker(self, marker: str) -> bool | None:
@@ -3677,6 +3782,57 @@ class CallLatency(BaseModel):
         return sum(1 for value in self.llm_ttft_samples if value > LLM_TTFT_BUDGET_MS)
 
 
+#: What became of the leg the engine placed to a human, in OUR vocabulary (D-533). The
+#: vendor's own set is `completed | call-disconnected | no-answer | busy | failed |
+#: in-progress | canceled | balance-low | queued | ringing | initiated`
+#: (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/agent/v2/
+#: get_agent_execution.md:270-300`, `TransferCallData.status`); the adapter maps it.
+#:
+#: `unreached` COLLAPSES busy, no-answer and failed DELIBERATELY, and the reason is what
+#: reads it: the caller was not put through to a person, and the only thing this product
+#: does about that is book them a callback. Three ways of saying it would be three
+#: branches in the worker with one behaviour, and the raw word is kept beside it for the
+#: operator who wants to know which.
+HandoffLegOutcome = Literal["connected", "unreached", "in_progress", "unknown"]
+
+
+class HandoffLeg(BaseModel):
+    """The SECOND call leg — the one the ENGINE placed to a human when the agent handed
+    the caller over (D-533).
+
+    **THIS IS NOT A LEG WE PLACE, AND THE MODEL IS SHAPED BY THAT.** The engine dials it
+    on the telephony account connected to it, and reports it afterwards as an object of
+    its own with its own provider call id, its own duration, its own cost and its own
+    recording. We learn about it from the execution fetch and from nowhere else: there is
+    no live signal, so nothing here can be reacted to during the call.
+
+    **WHAT IS DELIBERATELY ABSENT.** The vendor's object carries `to_number`,
+    `from_number` and a `recording_url` resolving to audio of the caller. None of the
+    three is here. The destination is already ours — we chose it and stored which roster
+    member it was — so re-importing it would put a staff mobile on a path with no reader
+    (hard rule 6), and the recording is the subject of an unanswered question rather than
+    a field: `recording_present` says a second recording of this caller EXISTS on the
+    vendor's side, which is what an erasure and a retention policy need to know, and the
+    URL is not carried because nothing here may copy audio that no notice covers
+    (OPERATIONS §2 gate 46b).
+    """
+
+    outcome: HandoffLegOutcome
+    #: The vendor's own word, kept verbatim for the operator. Not branched on.
+    raw_status: str
+    duration_s: int | None = None
+    #: A SECOND recording of the same caller exists on the vendor's side. `pipeline`'s
+    #: recording copy reads `ExecutionSnapshot.recording_url` and nothing else, so this
+    #: audio is not copied, not retained under our policy and not reached by a DPDP
+    #: erasure — which is a stated gap with a gate against it, not an oversight.
+    recording_present: bool = False
+    #: The vendor reported a cost for this leg SEPARATELY from the execution's own. Hard
+    #: rule 7 meters what `CostBreakdown` carries; whether this figure is already inside
+    #: `total_cost` or is a second charge is OPERATIONS §2 gate 46c, and until that is
+    #: answered a boolean is what can honestly be recorded.
+    cost_reported: bool = False
+
+
 class ExecutionSnapshot(BaseModel):
     """The authenticated fetch that is the TRUTH (D-31: webhooks are hints).
 
@@ -3756,6 +3912,10 @@ class ExecutionSnapshot(BaseModel):
     #: reader. `get_execution` is the path the archive runs on, and the conformance suite
     #: requires one there.
     raw_document: bytes | None = Field(default=None, repr=False, exclude=True)
+    #: The human leg, if this call had one (D-533). `None` means the execution carried no
+    #: transfer object — which is every call that was never handed over, and is NOT the
+    #: same as a leg that failed (`outcome="unreached"`).
+    handoff: HandoffLeg | None = None
 
 
 #: Why an adapter could not promise the listing was the whole window. Values are a
@@ -4517,6 +4677,9 @@ __all__ = [
     "Evidence",
     "ExecutionListing",
     "ExecutionSnapshot",
+    "HandoffLeg",
+    "HandoffLegOutcome",
+    "HandoffSpec",
     "KBSourceRef",
     "ListingIncompleteReason",
     "LlmCredentialPlacement",

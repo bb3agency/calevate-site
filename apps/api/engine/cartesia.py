@@ -354,6 +354,11 @@ _TERMINAL_RAW: Final = frozenset(
 #   repository, and nothing read at source describes a number-to-agent route on this
 #   platform. A guess would be a screen that reports a receptionist assigned to a number
 #   nobody told the vendor about — which is exactly the defect D-420 opened on.
+# * `in_call_handoff=False` (D-533). Nothing read at source describes an in-call tool that
+#   hands the caller to a phone number on this platform, and this is not a capability to
+#   guess at: the wrong guess is a client's hunt list saved, shown as live and never
+#   wired, discovered by the first caller who asks for a person. False makes the publish
+#   refuse by name instead.
 CARTESIA_CAPABILITIES = EngineCapabilities(
     stt="engine",
     tts="engine",
@@ -365,6 +370,7 @@ CARTESIA_CAPABILITIES = EngineCapabilities(
     caller_id=False,
     inbound_binding=False,
     transfer=False,
+    in_call_handoff=False,
     webhook_auth="hmac",
 )
 
