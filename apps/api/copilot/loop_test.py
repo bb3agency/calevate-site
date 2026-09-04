@@ -1061,3 +1061,139 @@ async def test_a_turn_that_spent_the_whole_ceiling_saying_nothing_says_that(
     events = await _drain()
     assert [e.text for e in events if e.text] == [service.TRUNCATED_MESSAGE]
     assert events[-1].spend is not None
+
+
+# --- opening a screen (D-524) -------------------------------------------------------------
+#
+# The loop's half of navigation: it is a THIRD tool family beside the fill and the actions,
+# it goes round again like a Tier 1 action (the destination is settled; what is left is the
+# sentence), it is capped at one per answer, and it may not share a turn with a fill — which
+# is not tidiness but the hazard itself, since moving away throws an unsaved form out.
+
+
+async def test_asking_to_be_taken_to_billing_opens_calling_credit(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE TRANSCRIPT THIS FEATURE EXISTS FOR — "take me to billing page", answered with a
+    screen change instead of "I cannot take you to the billing page".
+
+    FAILS IF: the navigate frame stops being emitted, or the loop ends at the tool call and
+    the person is moved with nothing said."""
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("open_screen", '{"screen": "billing"}')),
+            _turn(content="Opening Credits & billing for you."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    moved = [event.navigate for event in events if event.navigate is not None]
+    assert len(moved) == 1
+    assert moved[0].screen == "Credits & billing"
+    assert moved[0].route == "/c/{slug}/billing"
+    # THE LOOP WENT ROUND, and the server's own sentence is what it went round WITH.
+    assert len(sent) == 2
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "OPENING Credits & billing" in str(tool_messages[-1]["content"])
+    assert "not that they have arrived" in str(tool_messages[-1]["content"])
+    assert [event.text for event in events if event.text] == ["Opening Credits & billing for you."]
+
+
+async def test_a_screen_the_person_cannot_open_is_refused_and_the_model_is_told_why(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Navigating somebody into a refusal is worse than not navigating. The refusal goes
+    BACK to the model, which is what lets the answer be "AI help is the account owner's"
+    rather than an interrupted stream.
+
+    AI help and not Invoice, which this used to use: Invoice is a TAB of Credits & billing
+    now (D-525), a screen staff can open, so asking for it by that word correctly opens
+    the hub. AI help is the last client screen that refuses at the door, which is exactly
+    what this test needs one of.
+    """
+    staff = tools_module.ToolContext(tenant_id=TOOL_CONTEXT.tenant_id, role="staff")
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("open_screen", '{"screen": "AI help"}')),
+            _turn(content="AI help is your owner's screen."),
+        ],
+    )
+    events = [event async for event in service.run_copilot(PAYLOAD, tool_context=staff)]
+
+    assert [event.navigate for event in events if event.navigate is not None] == []
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "NOBODY was moved" in str(tool_messages[-1]["content"])
+    assert "account owner" in str(tool_messages[-1]["content"])
+    refused = [event.step for event in events if event.step and event.step.status == "refused"]
+    assert refused and refused[0].tool == "open_screen"
+
+
+async def test_one_answer_opens_at_most_one_screen(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second destination in one answer is a flicker through a screen nobody read and a
+    back button that no longer returns where the person expects."""
+    _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("open_screen", '{"screen": "Leads"}')),
+            _tool_turn(("open_screen", '{"screen": "Campaigns"}')),
+            _turn(content="I've opened Leads."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    moved = [event.navigate for event in events if event.navigate is not None]
+    assert [frame.screen for frame in moved] == ["Leads"]
+
+
+async def test_a_turn_that_fills_a_field_and_opens_a_screen_does_neither(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE HAZARD, AS A TEST. A fill writes into the form on the screen the person is
+    standing on and nothing saves it; navigating away in the same breath would discard those
+    values as its first act. Both are refused together and the model spends one turn
+    separating them."""
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(
+                ("set_fields", json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+                ("open_screen", '{"screen": "Leads"}'),
+            ),
+            _turn(content="I've set the opening time."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert [event.fill for event in events if event.fill is not None] == []
+    assert [event.navigate for event in events if event.navigate is not None] == []
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "would be lost by the move" in str(tool_messages[-1]["content"])
+
+
+async def test_the_admin_realm_is_offered_no_way_to_open_a_client_screen(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`screens.py` is the CLIENT console's inventory and there is no admin one, so the tool
+    is not in that realm's array — and a model that names it anyway is told there is no such
+    tool rather than being silently ignored."""
+    client = [tool["function"]["name"] for tool in service.tool_array("client")]
+    admin = [tool["function"]["name"] for tool in service.tool_array("admin")]
+    assert "open_screen" in client
+    assert "open_screen" not in admin
+
+    _fake_tools(monkeypatch, {})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("open_screen", '{"screen": "Leads"}')), _turn(content="I cannot do that.")],
+    )
+    events = [
+        event
+        async for event in service.run_copilot(PAYLOAD, realm="admin", tool_context=TOOL_CONTEXT)
+    ]
+
+    assert [event.navigate for event in events if event.navigate is not None] == []
+    assert any(message["role"] == "tool" for message in sent[1])

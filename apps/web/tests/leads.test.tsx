@@ -427,7 +427,7 @@ describe("the D-21 dispatch verdict, per lead", () => {
 
     await screen.findByText(/no calling credit left/);
     expect(container.textContent).toContain("People ringing you still get through");
-    expect(container.textContent).toContain("Top up on the Calling credit screen");
+    expect(container.textContent).toContain("Add credit on the Credits & billing screen");
     // The gate's own name is not what the person who was refused reads.
     expect(container.textContent).not.toContain("no_credits");
   });

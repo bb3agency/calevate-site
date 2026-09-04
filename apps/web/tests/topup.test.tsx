@@ -1,13 +1,13 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import CreditsPage from "@/app/c/[slug]/credits/page";
 import type { Me } from "@/lib/api/client";
 import type { Wallet } from "@/lib/api/wallet";
 import { RAZORPAY_CHECKOUT_SRC } from "@/lib/razorpayCheckout";
 
 import { expectNoA11yViolations } from "./a11y";
-import { expectTextCount, problem, renderClientPage } from "./harness";
+import { renderBillingHub } from "./billingHub";
+import { expectTextCount, problem } from "./harness";
 
 /**
  * The top-up panel (D-98) — a control that must not exist unless it can work, and, since
@@ -183,8 +183,6 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
-const page = <CreditsPage />;
-
 /**
  * The provider's global, as a stub that RECORDS rather than one that pretends.
  *
@@ -248,14 +246,14 @@ describe("the top-up panel", () => {
     // The DEFAULT configuration of every deployment. The form used to be offered here
     // and could only ever answer `payments_not_configured` — a control whose single
     // possible outcome is a red notice.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [CAPABILITY]: {
           online_payments_available: false,
           provider_orders_available: false,
         },
       }),
+      "Credits",
     );
 
     // Awaited on the SENTENCE, not on the card around it: the panel renders a skeleton
@@ -286,14 +284,14 @@ describe("the top-up panel", () => {
   it("never names which of our secrets is missing", async () => {
     // `reason` is OUR configuration state and stays server-side. A client cannot act on
     // "no_webhook_secret" and telling them is an internals leak.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [CAPABILITY]: {
           online_payments_available: false,
           provider_orders_available: false,
         },
       }),
+      "Credits",
     );
 
     await screen.findByText(/transfer the amount to us by bank/);
@@ -312,9 +310,9 @@ describe("the top-up panel", () => {
     // We do not know whether payment works, so we offer nothing and say so. Rendering
     // the form optimistically would produce a refusal after the click; rendering the
     // "not available" sentence would state a fact we do not have.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ [CAPABILITY]: problem(503, { title: "Service unavailable" }) }),
+      "Credits",
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -328,8 +326,7 @@ describe("the top-up panel", () => {
     // A deployment that can RECEIVE payments but cannot create orders (`no_api_secret`,
     // the state of every deployment before a Razorpay account exists). The label is the
     // consequence: this click produces a reference, not a payment window.
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({
         [CAPABILITY]: {
           online_payments_available: true,
@@ -337,6 +334,7 @@ describe("the top-up panel", () => {
         },
         [INTENT]: { ...ORDER_INTENT, provider_order_id: null, provider_order_pending: true },
       }),
+      "Credits",
     );
 
     const field = await screen.findByLabelText("Other amount");
@@ -367,11 +365,11 @@ describe("the top-up panel", () => {
     // answered with none. The hint being stale costs a reference panel and can never cost
     // a payment: no window opens and no constructor is touched.
     const opened = stubRazorpay();
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [INTENT]: { ...ORDER_INTENT, provider_order_id: null, provider_order_pending: true },
       }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -383,8 +381,7 @@ describe("the top-up panel", () => {
 
   it("renders the pack rate card and starts an intent priced by pack, not amount", async () => {
     stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({
         [INTENT]: {
           ...ORDER_INTENT,
@@ -395,6 +392,7 @@ describe("the top-up panel", () => {
           pack_id: "max",
         },
       }),
+      "Credits",
     );
 
     // The rate card renders both packs with their server-priced figures — the effective
@@ -417,7 +415,7 @@ describe("the top-up panel", () => {
 describe("the payment window", () => {
   it("opens with the server's own values and charges no amount this browser computed", async () => {
     const opened = stubRazorpay();
-    await renderClientPage(page, routes({ [INTENT]: ORDER_INTENT }));
+    await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
 
     await payCustomAmount();
     await waitFor(() => expect(opened).toHaveLength(1));
@@ -447,8 +445,7 @@ describe("the payment window", () => {
 
   it("posts exactly the three signature fields and never asserts a balance itself", async () => {
     const opened = stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({
         [INTENT]: ORDER_INTENT,
         [CALLBACK]: {
@@ -458,6 +455,7 @@ describe("the payment window", () => {
           credit_pending: true,
         },
       }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -503,9 +501,9 @@ describe("the payment window", () => {
 
   it("treats a dismissal as a cancellation, not a failure, and keeps the same order", async () => {
     const opened = stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({ [INTENT]: ORDER_INTENT }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -532,9 +530,9 @@ describe("the payment window", () => {
 
   it("reports a failed payment in our words, never the provider's string", async () => {
     const opened = stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({ [INTENT]: ORDER_INTENT }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -570,8 +568,7 @@ describe("the payment window", () => {
     // have moved, which is why the sentence about the webhook has to be here and has to
     // be accurate: the wallet is credited by the signed webhook, not by this page.
     const opened = stubRazorpay();
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [INTENT]: ORDER_INTENT,
         [CALLBACK]: problem(401, {
@@ -583,6 +580,7 @@ describe("the payment window", () => {
           retryable: false,
         }),
       }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -608,7 +606,7 @@ describe("the payment window", () => {
   it("says so when the provider's script will not load, and offers a way through", async () => {
     // No `window.Razorpay`, so the loader really injects a tag; the `error` a blocked or
     // dropped request would fire is dispatched onto it. Nothing here reaches the network.
-    const { calls } = await renderClientPage(page, routes({ [INTENT]: ORDER_INTENT }));
+    const { calls } = await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
 
     await payCustomAmount();
 
@@ -637,7 +635,7 @@ describe("the payment window", () => {
 
   it("keeps no secret in the browser and passes the accessibility floor", async () => {
     const opened = stubRazorpay();
-    const { container } = await renderClientPage(page, routes({ [INTENT]: ORDER_INTENT }));
+    const { container } = await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
 
     await payCustomAmount();
     await waitFor(() => expect(opened).toHaveLength(1));

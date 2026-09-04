@@ -3,7 +3,10 @@ who may open it.
 
 ═══ THE DEFECT. THE COPILOT DENIED A SCREEN THE CLIENT WAS STANDING ON. ═══
 
-Verbatim, from a live dashboard, with the person on the Calling credit screen:
+Verbatim, from a live dashboard, with the person on the money screen — which at the time
+was one of FOUR of them, and was called "Calling credit". It is a single screen called
+"Credits & billing" now (D-525), and the fold is part of the fix: half of what made
+this exchange possible was that "the billing page" had four candidates and no hub.
 
     Client:   I can't see any billing page?
     Copilot:  I cannot see a billing page either. You can add funds to your wallet on
@@ -13,7 +16,7 @@ Verbatim, from a live dashboard, with the person on the Calling credit screen:
               page, which is about calling credit.
 
 Three failures in four lines. It DENIED a screen that exists (the client was on it — our
-name for it is "Calling credit", theirs is "billing"). It then CONTRADICTED itself in one
+name for it is "Credits & billing", theirs is "billing"). It then CONTRADICTED itself in one
 breath by naming a capitalised "Billing page" that is not a screen in this product. And
 it could not say where anything IS, because it had no way to know.
 
@@ -68,14 +71,22 @@ facts already sit. The directory carries a `who` marker per screen — "everyone
 account owner" — and the viewer element carries the person's role and, by NAME, the screens
 their role cannot open. So the model has both halves and neither one moved the cache.
 
-═══ WHAT THIS DOES NOT DO: IT DOES NOT NAVIGATE ═══
+═══ IT NOW NAVIGATES TOO, AND THIS SECTION USED TO SAY IT COULD NOT (D-524) ═══
 
-There is no `navigate_to` tool and the copilot cannot move anybody (D-523). What it can now
-do is answer the question the client actually asked — name the screen and say where it sits
-in the sidebar — which is what the two of them were failing to communicate about. The
-route strings below are for MATCHING ONLY and are never spoken: `/c/{slug}/credits` is an
-internal address, and the prompt says so in the words the founder has banned across the
-product ("no route paths, no code identifiers").
+What it said, and what was true when it said it: there was no `navigate_to` tool and the
+copilot could not move anybody (D-523). The client's second message was *"take me to billing
+page"*, so the deferral was closed rather than kept: `copilot/navigation.py` is the one tool
+that opens a screen, and THIS FILE IS ITS INVENTORY — `find_screen` resolves a name or a
+client's own word to a `Screen`, `Screen.permission` is what refuses a destination the person
+would be turned away from, and `Screen.route` is the only thing that ever becomes a
+destination. A model-authored path is the open redirect that design exists to make
+impossible, which is why the tool takes a NAME.
+
+The route strings below are still for MATCHING ONLY and are never spoken: `/c/{slug}/billing`
+is an internal address, and the prompt says so in the words the founder has banned across the
+product ("no route paths, no code identifiers"). What changed is that one of them may now be
+COPIED — verbatim, by us, out of this tuple — onto the wire for a browser to act on. It is
+still never said out loud.
 """
 
 from __future__ import annotations
@@ -98,7 +109,7 @@ class Screen:
     """One screen of the client console, as the assistant is allowed to talk about it."""
 
     #: The route TEMPLATE, exactly as the console declares it to the copilot
-    #: (`useCopilotSurface({ route: "/c/{slug}/credits" })`) and exactly as `clientNav.ts`
+    #: (`useCopilotSurface({ route: "/c/{slug}/billing" })`) and exactly as `clientNav.ts`
     #: spells it with the slug substituted out. The matching key, never spoken.
     route: str
     #: What the sidebar calls it. THE name — the client's screen is called this and
@@ -112,7 +123,7 @@ class Screen:
     summary: str
     #: The words a CLIENT uses for it when they do not know our name. This is the half the
     #: defect was actually about: "billing", "payment", "top up", "recharge", "wallet" all
-    #: mean Calling credit, and no artefact in the frontend knows that.
+    #: mean Credits & billing, and no artefact in the frontend knows that.
     #:
     #: Lower case, no duplicates, and deliberately SHORT — enough to bridge a person's word
     #: to ours, not a thesaurus. Every screen must have at least one, which is what stops a
@@ -287,13 +298,24 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("api", "webhooks", "connections", "crm sync", "zapier"),
     ),
     Screen(
-        route="/c/{slug}/credits",
-        name="Calling credit",
+        route="/c/{slug}/billing",
+        name="Credits & billing",
         group=SETTINGS_GROUP,
-        # THE SCREEN THE DEFECT WAS ABOUT. Its aliases are the actual fix: every word in
-        # this tuple is one a client has used, or would obviously use, for the place they
-        # pay. "billing" is first because it is the one that was refused.
-        summary="The prepaid balance, how long it lasts, and the one place to add more money.",
+        # THE SCREEN THE DEFECT WAS ABOUT, and it is now ONE screen instead of four
+        # (D-525). It was "Credits & billing", and Usage, Spend and Invoice sat beside it —
+        # four sidebar entries all answering a piece of "what am I paying?", which is
+        # exactly the shape that made the assistant look foolish: asked for "the billing
+        # page" it had four candidates, no hub, and no way to know which piece the client
+        # meant. Folding them into tabs did more for this inventory than any alias could.
+        #
+        # The aliases are still the fix, and they now have to carry the four OLD screen
+        # names too: a client who learnt the console before the fold will still ask for
+        # "Usage" or "the invoice screen", and those words must land here rather than on a
+        # denial. "billing" stays first because it is the word that was refused.
+        summary=(
+            "The one money screen: the prepaid balance and how long it lasts, adding "
+            "credit, every charge and payment, and what this month has cost."
+        ),
         aliases=(
             "billing",
             "payment",
@@ -307,24 +329,34 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "add funds",
             "credit",
             "buy credits",
+            # The four folded screens, by their old names and by the questions they
+            # answered. Each of these was a sidebar entry until D-525.
+            "usage",
+            "spend",
+            "invoice",
+            "bill",
+            "receipt",
+            "statement",
+            "gst",
+            "tax invoice",
+            "download bill",
+            "cost",
+            "this month",
+            "spending limit",
+            "consumption",
+            "minutes used",
+            "breakdown",
+            "charges",
+            "where the money went",
+            "expenses",
+            "how much have i spent",
         ),
+        # `wallet:read`, which staff HOLD — see the page's own header. The owner-only
+        # figures refuse per TAB inside the screen, which is why the whole-screen
+        # permission is the wallet one and not `billing:read`: sending a staff member
+        # away from the screen would take the balance and the runway with it, and the
+        # empty wallet is the thing that stops THEM dialling.
         permission="wallet:read",
-    ),
-    Screen(
-        route="/c/{slug}/usage",
-        name="Usage",
-        group=SETTINGS_GROUP,
-        summary="What this month has cost so far, and the spending limit.",
-        aliases=("cost", "this month", "spending limit", "consumption", "minutes used"),
-        permission="billing:read",
-    ),
-    Screen(
-        route="/c/{slug}/spend",
-        name="Spend",
-        group=SETTINGS_GROUP,
-        summary="Where the money went — the per-agent and per-call breakdown behind Usage.",
-        aliases=("breakdown", "charges", "where the money went", "expenses"),
-        permission="billing:read",
     ),
     Screen(
         route="/c/{slug}/ai-assist",
@@ -334,21 +366,13 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("ai allowance", "assistant usage", "copilot usage"),
         permission="billing:read",
     ),
-    Screen(
-        route="/c/{slug}/invoice",
-        name="Invoice",
-        group=SETTINGS_GROUP,
-        summary="The monthly statement, with tax, ready to download.",
-        aliases=("bill", "receipt", "statement", "gst", "tax invoice", "download bill"),
-        permission="billing:read",
-    ),
 )
 
 
 def where_is(screen: Screen) -> str:
     """The screen's location as a person would say it out loud.
 
-    "Calling credit, under Settings & account in the left sidebar" — the sentence the
+    "Credits & billing, under Settings & account in the left sidebar" — the sentence the
     founder asked for, composed in ONE place so the prompt, the tests and any future
     caller cannot each invent their own phrasing. No route, no identifier: the two things
     banned from client-facing text.
@@ -362,9 +386,9 @@ def match_route(route: str) -> Screen | None:
     """The screen a route belongs to, or `None` when none owns it.
 
     TWO SPELLINGS ARRIVE HERE AND BOTH ARE LEGITIMATE. A screen that declares itself sends
-    the TEMPLATE (`/c/{slug}/credits`, `lib/copilot/registry.ts`); a screen that has not
+    the TEMPLATE (`/c/{slug}/billing`, `lib/copilot/registry.ts`); a screen that has not
     declared itself gets the fallback surface, which sends the masked ADDRESS BAR
-    (`/c/acme/credits`, or `/c/:hidden/credits` when the slug is not a plain name —
+    (`/c/acme/billing`, or `/c/:hidden/billing` when the slug is not a plain name —
     `lib/copilot/fallback.ts`). Normalising the second path segment to `{slug}` makes one
     key of the two, which is the whole trick; without it the copilot would know where it
     was on declared screens and be lost on exactly the undeclared ones it can say least
@@ -413,7 +437,7 @@ def _open_to_staff(screen: Screen) -> bool:
     """May a member of staff open this screen? Read off `core/rbac.ROLE_PERMISSIONS`.
 
     **NOT "does it declare a permission at all", WHICH IS WHAT THIS LINE SAID FIRST AND WAS
-    WRONG ON THE ONE SCREEN THE WHOLE CHANGE IS ABOUT.** Calling credit declares
+    WRONG ON THE ONE SCREEN THE WHOLE CHANGE IS ABOUT.** Credits & billing declares
     `wallet:read`, and `wallet:read` is a permission STAFF HOLD — the founder's 2 Sep 2026
     decision that everyone on a client's team can see why dialling stopped, while only the
     owner may buy. A directory that read "declares a permission" as "owner only" would have
@@ -462,28 +486,34 @@ def render_directory() -> str:
         "\n"
         "HOW TO USE THIS LIST:\n"
         "- WHEN SOMEBODY ASKS WHERE SOMETHING IS, name the screen and say where it sits — "
-        '"Calling credit, under Settings & account in the left sidebar". Give the name '
+        '"Credits & billing, under Settings & account in the left sidebar". Give the name '
         "first; that is what they are looking for on their own screen.\n"
         "- THEY WILL NOT USE OUR NAME FOR IT. Match what they said against the words after "
-        '"Also asked for as" — somebody asking for the billing page, to pay, to top up or '
-        'to recharge means Calling credit. Say our name for it and say theirs too: "the '
-        'billing screen is called Calling credit…". Never invent a screen name, never '
-        "capitalise their word as if it were one, and never say a screen does not exist "
-        "because it is not called what they called it.\n"
+        '"Also asked for as" — somebody asking to pay, to top up, to recharge, for their '
+        "invoice, or for what this month has cost means Credits & billing. Say our name "
+        'for it and say theirs too: "that is on Credits & billing — the Usage tab has '
+        "this month's cost\". Never invent a screen name, never capitalise their word as "
+        "if it were one, and never say a screen does not exist because it is not called "
+        "what they called it.\n"
         "- CHECK WHETHER THEY ARE ALREADY ON IT. The SCREEN STATE at the end of this "
         "prompt carries the address of the screen they are looking at, and the LIVE "
         "BUSINESS STATE names it. If it is the screen they are asking for, tell them they "
         "are already there and what to do on it.\n"
-        "- YOU CANNOT MOVE THEM. There is no tool that opens a screen, so say where it is "
-        "rather than promising to take them there — one sentence, not an apology.\n"
+        "- YOU CAN TAKE THEM THERE. When they ask to be taken, moved, or to have a screen "
+        'opened ("take me to billing", "open my leads"), call open_screen with the '
+        "screen's NAME from this list — it opens in their browser straight away. Say you "
+        "are opening it, not that they have arrived: if they have unsaved work on the "
+        "screen they are leaving, the console asks them first. When they only asked WHERE "
+        "something is, do NOT move them — say the name and where it sits.\n"
         "- NEVER SAY AN ADDRESS OUT LOUD. The bracketed address on each line is for "
         "matching only; it is not something a person is shown or told, and neither is any "
         "internal name. Screen names and sidebar groups are the only place vocabulary you "
         "use.\n"
         "- SOME SCREENS ARE THE OWNER'S ONLY. The LIVE BUSINESS STATE says who you are "
         "talking to and names any screen their role cannot open. Never send somebody to a "
-        "screen they will be refused from: say the screen exists, that it is the account "
-        "owner's, and what they can ask the owner to do.\n"
+        "screen they will be refused from — open_screen refuses one of those and tells you "
+        "so: say the screen exists, that it is the account owner's, and what they can ask "
+        "the owner to do.\n"
         "--- END SCREENS ---"
     )
 

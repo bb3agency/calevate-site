@@ -3,7 +3,13 @@
 import { API_BASE, ApiProblem, TimeoutProblem, problemFrom, type Session } from "@/lib/api/client";
 
 import { createSseParser } from "./sse";
-import type { CopilotAction, CopilotFillItem, CopilotProposal, CopilotStep } from "./types";
+import type {
+  CopilotAction,
+  CopilotFillItem,
+  CopilotNavigation,
+  CopilotProposal,
+  CopilotStep,
+} from "./types";
 import type { WireFact, WireField } from "./redaction";
 
 /**
@@ -66,6 +72,18 @@ export interface CopilotStreamHandlers {
    * two of them is the seam where a receipt gets rendered as an offer.
    */
   onAction: (action: CopilotAction) => void;
+  /**
+   * A SCREEN TO OPEN (D-524). The only handler here that is asked to DO something rather
+   * than to render something, which is why it is its own callback and not a variety of
+   * `onAction`: a consumer that routed them through one would either navigate on a receipt
+   * or ignore a navigation.
+   *
+   * At most one per response. The frame carries a route TEMPLATE and this layer passes it
+   * through unresolved — substituting the slug and checking the result against the console's
+   * own nav list is `navigate.ts`'s job, and doing it here would put a route decision in the
+   * transport.
+   */
+  onNavigate: (navigation: CopilotNavigation) => void;
   /**
    * One tool call as it happens. Called TWICE per call — `running`, then a terminal frame
    * sharing the same `id`.
@@ -244,6 +262,16 @@ export async function askCopilot(
           const payload = JSON.parse(event.data) as CopilotAction;
           if (typeof payload.tool === "string" && payload.tool !== "") {
             handlers.onAction(payload);
+          }
+        } else if (event.event === "navigate") {
+          // Guarded on `route`, which is the field this frame exists to carry — a frame
+          // without one names no destination and could only ever be dropped later. Nothing
+          // else is checked HERE, and in particular the route is not validated here: it is
+          // a template, and turning it into a path this console actually has is
+          // `navigate.ts`'s job, run at the moment of the move rather than at parse time.
+          const payload = JSON.parse(event.data) as CopilotNavigation;
+          if (typeof payload.route === "string" && payload.route !== "") {
+            handlers.onNavigate(payload);
           }
         } else if (event.event === "step") {
           // Guarded on `id`, because the id is what pairs the terminal frame with its own

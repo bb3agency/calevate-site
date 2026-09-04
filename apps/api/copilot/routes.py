@@ -77,8 +77,8 @@ router = APIRouter(prefix="/v1", tags=["copilot"])
 _DESCRIPTION = """\
 Answers a question about the screen the caller is on, answers questions about the
 account's own business by reading it (calls, leads, campaigns, agents, performance —
-read-only, under the caller's own permissions and RLS scope), and can fill that screen's
-form fields. Streams `text/event-stream`:
+read-only, under the caller's own permissions and RLS scope), can fill that screen's
+form fields, and can open another screen of the console. Streams `text/event-stream`:
 
 * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
 * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
@@ -102,6 +102,24 @@ form fields. Streams `text/event-stream`:
   token and no button. `reversal` says whether and how it can be taken back and `where`
   says where the result now lives; both are the server's own words. `applied: false` means
   the world was already in that state.
+* `event: navigate` · `data: {"tool": "open_screen", "screen": "...", "route": "...",
+  "where": "...", "detail": "...", "reversal": "..."}` — OPEN THIS SCREEN. At most one per
+  response. A **Tier 1** frame: reversible (the back button), reaching no caller, spending
+  nothing, so there is no token and no Confirm button — render it as a RECEIPT beside the
+  answer, exactly like `action`. It is the one frame on this stream the browser must ACT
+  on, and the only one where the server has decided WHERE but not WHEN.
+  * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/billing`) and is a
+    constant read out of the server's own screen inventory — never assembled, and never
+    anything the model wrote (the tool it comes from takes a screen NAME). Substitute your
+    own slug, CHECK the result against your own navigation list, and refuse anything that
+    is not in it; then change route with the app's own router. Never a full page load and
+    never an external address.
+  * **ASK BEFORE YOU MOVE IF THE SCREEN BEING LEFT MAY HOLD UNSAVED WORK.** The server
+    knows a form exists; only you know whether it is dirty, and a half-typed campaign
+    discarded by a screen change is work this assistant destroyed without asking. Prefer
+    asking when you cannot tell.
+  * `screen` and `where` are the console's own words for the destination and are what a
+    person is told and a screen reader announces. `route` is never rendered or spoken.
 * `event: step` · `data: {"id": "...", "tool": "...", "status":
   "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
   "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
@@ -345,6 +363,12 @@ async def ask_copilot(
     filled: tuple[str, ...] = ()
     proposed: str | None = None
     acted: list[str] = []
+    #: The screen this answer opened, by NAME, or None. One at most (D-524). It is on the
+    #: audit row because "the assistant moved me" is a thing a person may later ask about,
+    #: and the `copilot.ask` row is the only record of it — navigation writes no row of its
+    #: own, deliberately (`copilot/navigation.py`: an append-only hash chain is not where a
+    #: screen change belongs).
+    navigated: str | None = None
     # THE ANSWER, KEPT ONLY LONG ENOUGH TO REMEMBER IT. Accumulated rather than re-read,
     # because a stream has no "the answer" to read back; bounded by
     # `service.MAX_ANSWER_TOKENS` * `service.MAX_TURNS`, which is the same ceiling the
@@ -461,6 +485,8 @@ async def ask_copilot(
                     # records the change itself is written by `POST /v1/copilot/confirm`
                     # if — and only if — a person agreed to it.
                     "proposed_tool": proposed,
+                    # WHICH SCREEN THIS ANSWER OPENED, or None. A name, never a route.
+                    "navigated_to": navigated,
                 },
             )
             # 5. THE MEMORY, in the SAME transaction as the meter and the audit, and that
@@ -554,6 +580,12 @@ async def ask_copilot(
                 # the record does not depend on this route reaching its meter.
                 acted.append(event.action.tool)
                 yield ServerSentEvent(event="action", data=event.action)
+            if event.navigate is not None:
+                # A SCREEN CHANGE (D-524). The NAME is kept for the audit row, not the
+                # route: `object_id` already carries the route the person was ON, and a
+                # screen name is this product's own vocabulary rather than a value.
+                navigated = event.navigate.screen
+                yield ServerSentEvent(event="navigate", data=event.navigate)
             if event.spend is not None:
                 spends.append(event.spend)
         completed = True

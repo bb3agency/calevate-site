@@ -41,7 +41,7 @@ from calevate_shared.engine import (
 )
 
 from apps.api.copilot import admin_prompt as admin_prompt_module
-from apps.api.copilot import admin_tools, write_tools
+from apps.api.copilot import admin_tools, navigation, write_tools
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.identity import (
@@ -55,6 +55,7 @@ from apps.api.copilot.schemas import (
     CopilotAskIn,
     CopilotField,
     CopilotFillItem,
+    CopilotNavigateEvent,
     CopilotProposalEvent,
     CopilotRealm,
     CopilotStepEvent,
@@ -375,6 +376,11 @@ class CopilotEvent:
     #: yet, this is a receipt for a database write. The browser must never render them the
     #: same way, so the wire does not let it confuse them.
     action: CopilotActionEvent | None = None
+    #: A SCREEN TO OPEN (D-524). Beside `action` rather than inside it, because the browser
+    #: has to DO something with this one and does nothing with a receipt — a consumer that
+    #: rendered them through one path would either navigate on an agent_create or ignore a
+    #: navigation. At most one per answer (`navigation.MAX_NAVIGATIONS_PER_RUN`).
+    navigate: CopilotNavigateEvent | None = None
     spend: CopilotSpend | None = None
 
 
@@ -733,6 +739,13 @@ def tool_array(realm: CopilotRealm) -> list[dict[str, Any]]:
             for tool in realm_read_tools(realm)
         ],
         *write_tools.write_tool_schemas(),
+        # NAVIGATION, LAST, AND CLIENT-REALM ONLY (D-524). `screens.py` is an inventory of
+        # the CLIENT console and there is no admin equivalent, so offering the tool to an
+        # operator would be offering one whose every argument is a refusal. Appended rather
+        # than inserted for the reason `set_fields` stays first: the array is the cacheable
+        # prefix, so a new tool costs one re-warm at deploy where a reordering would cost
+        # every request behind it.
+        *([navigation.open_screen_tool()] if realm == "client" else []),
     ]
 
 
@@ -1120,6 +1133,10 @@ async def _run_tool_loop(
     #: How many TIER 1 actions this ANSWER has performed. See `MAX_ACTIONS_PER_RUN` — the
     #: bound is on what one question changed, so it lives outside the turn loop.
     actions_run = 0
+    #: How many SCREEN CHANGES this answer has made. Outside the turn loop for
+    #: `actions_run`'s reason — the bound is on what one ANSWER did to the person, not on
+    #: what one turn asked for. See `navigation.MAX_NAVIGATIONS_PER_RUN`.
+    navigations_run = 0
     #: The LAST refusal fed back to the model, kept so the out-of-turns message can name
     #: it. One tuple for both tool families: "narrow the request" is unhelpful advice to
     #: somebody whose real problem is that the field is read-only OR that their role may
@@ -1182,6 +1199,17 @@ async def _run_tool_loop(
             call for call in write_calls if write_tools.tier_of(call.name) == "confirm"
         ]
         immediate_calls = [call for call in write_calls if call not in confirm_calls]
+        # A SCREEN TO OPEN (D-524), and it is a THIRD family rather than a write tool: it
+        # touches no row, so it has no planner, no executor, no idempotency record and no
+        # audit row (`navigation.py` argues why putting one on the hash chain would be
+        # wrong). GATED ON THE REALM, because the tool is only in the client array — an
+        # operator's model naming it falls through to `read_calls` and is told there is no
+        # such tool, which is the honest answer there.
+        nav_calls = (
+            [call for call in outcome.tool_calls if call.name == navigation.OPEN_SCREEN_TOOL_NAME]
+            if realm == "client"
+            else []
+        )
         # WHATEVER IS LEFT IS A LOOKUP. Derived by elimination rather than by asking the
         # read registry, so a tool the model invents lands here and is answered by
         # `_run_read_tools` with "no such tool" instead of vanishing into a turn that
@@ -1191,8 +1219,9 @@ async def _run_tool_loop(
             for call in outcome.tool_calls
             if call.name != prompt_module.SET_FIELDS_TOOL_NAME
             and not write_tools.is_write_tool(call.name)
+            and call not in nav_calls
         ]
-        if not fill_calls and not write_calls and not read_calls:
+        if not fill_calls and not write_calls and not nav_calls and not read_calls:
             # The model answered in prose. Done — this is the ordinary end of a question.
             #
             # UNLESS IT SAID NOTHING, which is the same branch and is NOT the ordinary end
@@ -1226,6 +1255,31 @@ async def _run_tool_loop(
         # that had just told somebody it was suggesting a change having suggested nothing,
         # and silently dropping the fill would lose work. Both go back as one refusal and
         # the model spends a turn separating them.
+        # OPENING A SCREEN AND DOING SOMETHING ELSE IN ONE TURN IS REFUSED, and against a
+        # FILL it is not a tidiness rule — it is the hazard this whole feature had to be
+        # careful about (D-524). A fill writes into the form on the screen the person is
+        # standing on and nothing saves it; navigating away in the same breath would throw
+        # those values away as its first act. The refusal costs one turn and the model can
+        # do either one next.
+        if nav_calls and (fill_calls or write_calls):
+            call = nav_calls[0]
+            reasons = (
+                "you asked to open another screen in the same turn as changing something, "
+                "which this app cannot do as one act — anything filled into the form on "
+                "this screen would be lost by the move",
+            )
+            messages = _with_tool_result(
+                messages,
+                outcome,
+                call,
+                "NOTHING was done and NOBODY was moved. "
+                + reasons[0]
+                + ". Do one of them in this turn and the other in the next.",
+            )
+            refusal_reasons = reasons
+            log.info("copilot_mixed_navigation_turn", extra={"turn": turn_index})
+            continue
+
         if fill_calls and write_calls:
             call = fill_calls[0]
             reasons = (
@@ -1442,6 +1496,90 @@ async def _run_tool_loop(
             )
             continue
 
+        # OPEN A SCREEN (D-524, closing D-523). A TIER 1 act by the contract's own test —
+        # reversible with the back button, reaching no caller, spending nothing — so there
+        # is no token and no Confirm button, and the loop GOES ROUND for the Tier 1 reason:
+        # the destination is settled and what is left is the sentence that tells the person
+        # where they are being taken.
+        #
+        # THE SERVER DECIDES WHERE AND THE BROWSER DECIDES WHEN. Only the browser can know
+        # whether the form on the screen being left is DIRTY, so it asks before it moves
+        # when it cannot rule unsaved work out — which is why the tool result below says
+        # "opening", not "opened", and why the model is told to say the same.
+        if nav_calls:
+            call = nav_calls[0]
+            started_at = time.monotonic()
+            yield CopilotEvent(step=_step_start(call))
+            if navigations_run >= navigation.MAX_NAVIGATIONS_PER_RUN:
+                refusal_reasons = ("you have already opened a screen answering this question",)
+                log.info("copilot_navigation_cap", extra={"turn": turn_index})
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="refused", detail=refusal_reasons[0], started_at=started_at
+                    )
+                )
+                messages = _with_tool_result(
+                    messages,
+                    outcome,
+                    call,
+                    "NOBODY was moved. " + refusal_reasons[0] + ", and one answer opens at "
+                    "most one screen. Tell them where the other screen is instead.",
+                )
+                continue
+            try:
+                destination = navigation.resolve_destination(
+                    call.arguments,
+                    # THE VERIFIED ROLE, from the same `ToolContext` every read tool is
+                    # judged against — never from the body, which is a caller-composed
+                    # description of a screen. `None` is refused inside `resolve_destination`
+                    # rather than defaulted to a role.
+                    role=None if tool_context is None else tool_context.role,
+                    # WHERE THEY ARE, which is what makes "you are already there" decidable.
+                    # It is the browser's own claim about its address and is used ONLY to
+                    # avoid a pointless move — never to authorize one.
+                    current_route=payload.screen.route,
+                )
+            except navigation.NavigationRefusedError as refused:
+                refusal_reasons = (refused.reason,)
+                # The tool NAME and the turn. The reason names a screen and a role and no
+                # value, but a log line is the cheapest place for one to end up by accident.
+                log.info("copilot_navigation_refused", extra={"turn": turn_index})
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="refused", detail=refused.reason, started_at=started_at
+                    )
+                )
+                messages = _with_tool_result(
+                    messages,
+                    outcome,
+                    call,
+                    "NOBODY was moved. " + refused.reason + ".",
+                )
+                continue
+
+            navigations_run += 1
+            yield CopilotEvent(
+                step=_step_end(
+                    call, status="done", detail=destination.detail, started_at=started_at
+                )
+            )
+            yield CopilotEvent(navigate=destination)
+            messages = _with_tool_result(
+                messages,
+                outcome,
+                call,
+                # THE SERVER'S OWN SENTENCE, handed back verbatim — the model is told what
+                # is happening rather than asked to remember what it asked for. The
+                # PARENTHESIS IS LOAD-BEARING: if the browser finds unsaved work it asks
+                # first, so an assistant that said "you are now on Credits & billing" would be
+                # wrong for exactly the person who most needs it not to be.
+                f"OPENING {destination.where} for them now. If they have unsaved work on "
+                "this screen the console asks them before moving, so say you are opening "
+                "it — not that they have arrived. One short sentence naming the screen. Do "
+                "not call this tool again.",
+            )
+            continue
+
         # A LOOKUP, NOT AN ANSWER, and the only branch that goes round again. It sits
         # AFTER the fill and write paths because both of those END the turn: a turn that
         # asks for a change and a lookup at once resolves the way it always did — the act
@@ -1640,8 +1778,9 @@ async def run_copilot(
     CONTROL 2, ON EVERY FRAGMENT THAT COMES BACK. `IdentityEgress` is the belt: it holds
     the sentence in flight, and text asserting that this assistant is some vendor's model
     never reaches the browser whatever the model emitted. Only `text` is filtered — a
-    `fill`, a `proposal`, an `action` and the `spend` are structured events with no prose
-    in them, and a run that leaked one sentence still filled the field it was asked to.
+    `fill`, a `proposal`, an `action`, a `navigate` and the `spend` are structured events
+    whose only prose is the SERVER'S OWN, and a run that leaked one sentence still filled
+    the field it was asked to.
     """
     canned = identity_answer(payload.question)
     if canned is not None:

@@ -227,8 +227,8 @@ class Viewer:
     #: no screen in the inventory (an admin-realm page, or one nobody has added yet).
     #:
     #: THE FIRST OF THE THREE FAILURES THIS FIXES: the copilot denied the billing page to a
-    #: person standing on it, because "the address bar says /c/x/credits" and "this screen
-    #: is called Calling credit" were two facts nothing in the prompt joined up.
+    #: person standing on it, because "the address bar says /c/x/billing" and "this screen
+    #: is called Credits & billing" were two facts nothing in the prompt joined up.
     on_screen: str | None
     #: The screens this role may not open, by NAME, in sidebar order. Empty for an owner.
     closed: tuple[str, ...]

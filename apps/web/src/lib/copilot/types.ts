@@ -117,6 +117,27 @@ export interface CopilotSurface {
    */
   apply: (items: CopilotFillItem[]) => void;
   /**
+   * IS THERE WORK ON THIS SCREEN THAT WOULD BE LOST BY LEAVING IT? D-524.
+   *
+   * The assistant can now open another screen (`CopilotNavigation`), and the one thing the
+   * SERVER cannot know is whether the form in front of the person is dirty — it is told
+   * that fields exist, never that any of them has been touched. So this is the screen's
+   * own answer, and it is the AUTHORITATIVE one when it is given: `true` means ask before
+   * leaving, `false` means "I have nothing unsaved, go".
+   *
+   * **OPTIONAL, AND WHAT `undefined` MEANS IS "I DID NOT SAY", NEVER "NO".** A screen that
+   * has not been taught this question is not a screen with nothing to lose, so
+   * `unsaved.ts` falls back to a conservative reading — a screen with any writable field
+   * is treated as possibly dirty and the person is asked. Asking when there was nothing to
+   * lose costs one click; not asking when there was costs the work. Declare it and the
+   * question stops being asked needlessly; leave it out and nothing is ever discarded
+   * silently.
+   *
+   * Read at navigation time through the holder, like every other value here, so it is the
+   * state at the moment of the move rather than at the moment of the question.
+   */
+  unsaved?: boolean;
+  /**
    * Set ONLY by `fallback.ts::fallbackSurface`, on the surface the dock composes for a
    * screen that declared nothing (D-501). Never set by a screen: a screen that sets it
    * would be claiming it cannot see itself.
@@ -255,6 +276,45 @@ export interface CopilotAction {
   applied: boolean;
   reversal: string;
   where: string;
+}
+
+/**
+ * A SCREEN TO OPEN — the `navigate` SSE frame. D-524.
+ *
+ * **THE ONE FRAME ON THIS STREAM THE BROWSER HAS TO ACT ON.** Text, fills, proposals,
+ * receipts and steps are all things to render; this one is a route change, so it is a
+ * separate type and a separate handler for `CopilotAction`'s reason — one shape carrying
+ * both would be a receipt that sometimes navigates.
+ *
+ * It is Tier 1 (`apps/api/copilot/actions.py`): reversible with the back button, reaching
+ * no caller, spending nothing. So it arrives with no token and no Confirm button, and it is
+ * RENDERED as a receipt exactly like `CopilotAction`.
+ *
+ * ## `route` is a TEMPLATE, and it is checked here before anything moves
+ *
+ * It carries a literal `{slug}` (`/c/{slug}/credits`) because the server is never told this
+ * account's slug on this path — a declaring screen sends the template
+ * (`lib/copilot/registry.ts`). `resolveDestination` substitutes the slug and then checks the
+ * result against `lib/clientNav.ts`; a route that is not in that list does not navigate,
+ * whatever the server said. The server side is the same shape (the model names a SCREEN and
+ * the route is a constant from an inventory), so there are two closed lists and neither half
+ * moves anybody on the other's word alone.
+ *
+ * `screen`, `where`, `detail` and `reversal` are the server's own sentences and are the only
+ * things a person is shown or a screen reader hears. `route` is never rendered.
+ */
+export interface CopilotNavigation {
+  tool: string;
+  /** The destination's name as the sidebar spells it — "Calling credit". */
+  screen: string;
+  /** The route TEMPLATE, `{slug}` unsubstituted. Acted on, never rendered. */
+  route: string;
+  /** "Calling credit, under Settings & account in the left sidebar". */
+  where: string;
+  /** "Opening …" — never "Opened", because this browser decides when. */
+  detail: string;
+  /** How to come back. The panel's Undo does not reach a route change. */
+  reversal: string;
 }
 
 /**

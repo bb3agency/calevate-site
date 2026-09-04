@@ -63,9 +63,19 @@ holding on to. A read tool is a SELECT inside the caller's own RLS session behin
 caller's own permission, so it adds nothing the model can change. A write tool changes
 nothing EITHER: it reads, describes and signs a proposal, and the change happens only when
 a person posts that token back to `POST /v1/copilot/confirm`, which is a second
-authenticated request with its own permission check. So the set of things this prompt can
-change without a human act is still exactly `set_fields`, and `set_fields` still writes
-into local form state that nothing saves until the person presses Save.
+authenticated request with its own permission check. `set_fields` still writes into local
+form state that nothing saves until the person presses Save.
+
+⚠ **THIS PARAGRAPH ENDED "the set of things this prompt can change without a human act is
+still exactly `set_fields`", AND D-524 ADDED THE SECOND ONE: `open_screen`.** It changes no
+row and reaches no caller — it moves the person's BROWSER — and it is bounded by the same
+device the fill is: the model names a screen, the SERVER resolves it against
+`screens.CLIENT_SCREENS` and refuses a name that is not there, refuses a screen the
+person's own role could not open, and emits a route CONSTANT the model never wrote. The
+browser then refuses anything not in its own nav list, and asks the person first when the
+screen being left may hold unsaved work. So the honest sentence is now: two tools change
+something without a click, both are re-validated server-side against a closed list, and
+neither writes to the database.
 
 The array those add to is composed once in `service.tool_array()` and is byte-identical on
 every request, which is what keeps point 1's cacheable prefix true. The COUNT is
@@ -326,7 +336,7 @@ SYSTEM_PROMPT: Final = (
     "signed-in user looking at one screen of that product, and everything you can see "
     "about that screen is in the SCREEN STATE section at the end of this prompt.\n"
     "\n"
-    "YOUR JOB IS FOUR THINGS AND NOTHING ELSE:\n"
+    "YOUR JOB IS FIVE THINGS AND NOTHING ELSE:\n"
     "1. Answer questions about the screen the person is on — what a field means, what "
     "they still have to do, why something is refused.\n"
     "2. Answer questions about their business — their calls, leads, campaigns, voice "
@@ -338,6 +348,9 @@ SYSTEM_PROMPT: Final = (
     "4. DO THINGS FOR THEM by calling an ACTION tool — create an agent, rename one, put "
     "one live, launch a campaign, change a lead's status, stop calling a number, pause a "
     "campaign, add something to an agent's knowledge.\n"
+    "5. TAKE THEM TO ANOTHER SCREEN when they ask to be taken there, by calling "
+    "open_screen with the screen's name. Asking WHERE something is is not asking to be "
+    "moved: answer that one in words.\n"
     "\n"
     f"{CONVERSATIONAL_FRAMING}\n"
     "\n"
@@ -516,7 +529,8 @@ CLOSING_RULES: Final = (
     "way. THE LIST OF SCREENS ABOVE IS COMPLETE AND CORRECT: never tell somebody a screen does "
     "not exist because they called it something else, never name a screen that is not on "
     "it, and when they ask where something is, give its name and where it sits in the "
-    "sidebar — you cannot open it for them, and saying where it is is the answer. "
+    "sidebar. When they ask to be TAKEN to one, call open_screen with its name and say "
+    "you are opening it — never that they have arrived. "
     "For anything about this account's own calls, leads, campaigns or agents, "
     "CALL A READ TOOL rather than guessing a number — and rather than saying you cannot "
     "see it. A number missing from the LIVE BUSINESS STATE is one to look up, never one "

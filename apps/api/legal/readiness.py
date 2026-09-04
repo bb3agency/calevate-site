@@ -195,18 +195,23 @@ ROW_COPY: dict[str, _Copy] = {
     "spend_cap": _Copy(
         title="Monthly spending cap reached",
         actor="client",
-        next_step="Raise the cap on the Spend screen, or wait for the month to roll over.",
+        next_step=(
+            "Raise the cap on the Usage tab of Credits & billing, or wait for the month "
+            "to roll over."
+        ),
     ),
     "no_credits": _Copy(
         title="No calling credit left",
         actor="client",
         # NAMES THE SCREEN THAT HAS THE BUTTON, and it used to name the wrong one: the
-        # top-up form lives on "Calling credit" (`/c/{slug}/credits`), while Usage is the
-        # month's charges and cannot take a payment. And "Calls resume" said more than it
-        # meant — only OUTGOING calls ever stopped (D-521).
+        # top-up form was on "Calling credit" while Usage was the month's charges and
+        # could not take a payment. Both are tabs of Credits & billing now (D-525), which
+        # is why this says the SCREEN and not the tab — the Credits tab is where the
+        # button is, and the screen opens on Overview, which carries it too. And "Calls
+        # resume" said more than it meant — only OUTGOING calls ever stopped (D-521).
         next_step=(
-            "Top up on the Calling credit screen. Outgoing calls resume as soon as the "
-            "payment clears; incoming calls are answered throughout."
+            "Add credit on the Credits & billing screen. Outgoing calls resume as soon "
+            "as the payment clears; incoming calls are answered throughout."
         ),
     ),
     "national_dnd_scrub_missing": _Copy(

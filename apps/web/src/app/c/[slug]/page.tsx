@@ -376,7 +376,7 @@ export default function DashboardPage({
               icon={<Sparkles className="h-5 w-5" />}
               hint={
                 <Link
-                  href={href(`/c/${slug}/usage`)}
+                  href={href(`/c/${slug}/billing?tab=usage`)}
                   className="underline hover:text-ink"
                 >
                   {usage.data.minutes_used} min used of{" "}
@@ -391,7 +391,7 @@ export default function DashboardPage({
               wallet to hold. */}
           <CallingCreditTile
             wallet={wallet}
-            href={href(`/c/${slug}/credits`)}
+            href={href(`/c/${slug}/billing?tab=credits`)}
           />
 
           {/* `?? {}` here is a PAYLOAD null, not an envelope one, and the difference is

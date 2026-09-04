@@ -1,11 +1,12 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import ClientInvoicePage from "@/app/c/[slug]/invoice/page";
+
 import { formatINR } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
 
-import { problem, renderClientPage } from "./harness";
+import { renderBillingHub } from "./billingHub";
+import { problem } from "./harness";
 
 /**
  * The client's own invoice (SLICE AL / BRD §51 — the persona that pays it).
@@ -34,7 +35,7 @@ const ME = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["billing:read", "org:read"],
+  permissions: ["wallet:read", "billing:read", "org:read"],
   impersonating: false,
   organization: { id: "o1", name: "Sri Traders", slug: "acme", status: "active" },
 };
@@ -105,8 +106,50 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
   };
 }
 
+/**
+ * WHAT THE HUB AROUND THIS DOCUMENT READS. The statement is the bottom of the Transactions
+ * tab of `/c/{slug}/billing` now (D-525), and the screen reads the wallet, its history and
+ * the pack rate card on mount whatever tab is open. Routed with the emptiest honest answer,
+ * because an unrouted request throws in this harness. `prepaid: false` keeps a balance out
+ * of assertions this file makes about a printed document.
+ */
+const HUB_ROUTES = {
+  "/v1/billing/wallet": {
+    tenant_id: "o1",
+    prepaid: false,
+    balance_inr: "0.00",
+    is_low: false,
+    low_balance_threshold_inr: "200.00",
+    outbound_stopped: false,
+    runway: {
+      basis: "empty",
+      days: null,
+      daily_burn_inr: null,
+      history_days: 0,
+      beyond_horizon: false,
+      window_days: 30,
+      min_history_days: 7,
+      max_days: 365,
+    },
+    minutes_left: null,
+    drawdown: {
+      calls_inr: "0.00",
+      ai_assist_inr: "0.00",
+      adjustments_inr: "0.00",
+      spent_inr: "0.00",
+      added_inr: "0.00",
+      refunded_inr: "0.00",
+    },
+  },
+  "/v1/billing/wallet/ledger?limit=50": { entries: [], payments: [] },
+  "/v1/billing/topups/packs": { list_rate_inr_per_min: "8.00", packs: [] },
+};
+
 async function render(answer: unknown, me: unknown = ME) {
-  return await renderClientPage(<ClientInvoicePage />, { "/v1/me": me, [ROUTE]: answer });
+  return await renderBillingHub(
+    { "/v1/me": me, [ROUTE]: answer, ...HUB_ROUTES },
+    "Transactions",
+  );
 }
 
 describe("the client's own invoice", () => {
@@ -266,7 +309,7 @@ describe("the client's own invoice", () => {
     const { container } = await render(invoice(), {
       ...ME,
       role: "staff",
-      permissions: ["leads:read", "org:read"],
+      permissions: ["leads:read", "org:read", "wallet:read"],
     });
 
     // `billing:read` is an owner permission (SEC-COMP §5) and the nav shows this screen
@@ -274,7 +317,7 @@ describe("the client's own invoice", () => {
     // AWAITED: `/v1/me` decides this and is in flight on the first paint — nothing is
     // refused until the server has answered, so a screen never flashes an explanation it
     // is about to withdraw.
-    await screen.findByText(/Invoices are limited to the account owner/);
+    await screen.findByText(/Statements are limited to the account owner/);
     expect(container.textContent).not.toContain("TAX INVOICE");
   });
 });
