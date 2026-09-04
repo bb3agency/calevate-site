@@ -76,7 +76,7 @@ class NumberPurchaseIn(BaseModel):
     # that cannot be produced, and the generated client turned it into a
     # `Record<string, string>` nobody will ever receive. `NoReturn` states the same fact
     # to mypy, which is what makes it enforceable: nobody can add a success body here
-    # without declaring what it is — and under Model B there is no success body to add.
+    # without declaring what it is — and there is no self-serve success body to add.
     response_model=None,
     openapi_extra=permission_meta("org:manage"),
     summary="Ask us for a phone number — always refused; Calevate does not supply numbers",
@@ -102,8 +102,9 @@ async def purchase_number(
 
     The client-side gate first (`kyc_not_verified` — actionable, and true of them at
     their own operator too), then the refusal that names our model and their next step.
-    There is no success path below them and that is not an oversight: Calevate supplying
-    the number is Model A, and Model A is refused outright (module docstring).
+    There is no success path below them and that is not an oversight: supplying a number
+    from the CLIENT CONSOLE is the self-serve shape the playbook names as unsafe, and it
+    stays refused whatever the operator-led path does (module docstring).
 
     `series` and `city` are validated and then not used. They stay in the contract
     because they are the two facts a client needs settled before they walk into an
