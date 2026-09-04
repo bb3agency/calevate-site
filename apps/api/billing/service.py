@@ -76,7 +76,11 @@ from apps.api.tenancy.models import DEFAULT_PLAN_TIER
 
 log = get_logger(__name__)
 
-CreditReason = Literal["topup", "usage", "adjustment", "refund", "bonus"]
+# Spelled as a Literal rather than derived from `models.CREDIT_REASONS`, because a
+# `Literal[*tuple]` is not a static type mypy can check and the point of this alias is that
+# `record_entry("granted")` is a TYPE ERROR rather than a CHECK violation at 2am.
+# `tests/credits_test.py` holds the two in step.
+CreditReason = Literal["topup", "usage", "adjustment", "refund", "bonus", "grant"]
 
 # Below this the wallet is "low" — surfaced in the UI, not enforced. Enforcement is
 # `balance > 0`; a warning band exists so a client is told before calls start failing.
@@ -2502,8 +2506,12 @@ __all__ = [
     "ADJUSTMENT_META_KIND",
     "ADJUSTMENT_REF_PREFIX",
     "BASE_OVERAGE_RUNG",
+    "GRANT_META_KIND",
+    "GRANT_REF_PREFIX",
     "LOW_BALANCE_INR",
     "LOW_BALANCE_JOB",
+    "MAX_GRANT_INR",
+    "MIN_GRANT_INR",
     "PAISE",
     "PAYMENT_REF_SQL",
     "RESTATEMENT_META_KIND",
@@ -2515,6 +2523,7 @@ __all__ = [
     "Balance",
     "CorrectableEntry",
     "CreditReason",
+    "CreditTotals",
     "LedgerEntryRef",
     "MonthSeconds",
     "MonthTotals",
@@ -2525,11 +2534,13 @@ __all__ = [
     "allocate_paise",
     "calling_revenue_inr",
     "charge_for_call",
+    "credit_totals",
     "crossed_downwards",
     "current_billing_month",
     "find_entry_by_ref",
     "find_topup",
     "get_balance",
+    "grant_ref",
     "llm_model_minutes",
     "lock_tenant_credits",
     "margin_for_tenant",
