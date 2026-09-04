@@ -156,8 +156,8 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
       "(\"in our docs we still have my full address please fix that\"). Deleting the " +
       "token instead would have traded a privacy problem for a compliance one, which " +
       "is why the entry survives with less in it rather than not at all. The PIN code " +
-      "went with the street lines on purpose: 522007 narrows to a sub-locality of " +
-      "Guntur, so keeping it would have kept most of what was being removed.\n\n" +
+      "went with the street lines on purpose: a PIN code narrows to a sub-locality, " +
+      "so keeping it would have kept most of what was being removed.\n\n" +
       "WHAT THE REDUCED VALUE STILL SATISFIES, AND THE ONE DUTY IT MAY NOT. The " +
       "instruments that make us publish an identity at all are satisfied by name, " +
       "registration number, city, telephone and a monitored mailbox, and none of them " +
