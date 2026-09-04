@@ -259,9 +259,10 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
    * belief this product can create, and the same reason `WalletHero` orders its two
    * sentences that way.
    *
-   * Both are `client`: the balance is topped up on `/credits` and the monthly limit is
-   * the client's own, set on `/usage` (D-34 R-11). Neither waits on us, so neither may
-   * carry the "we handle this" badge that tells a client to sit and wait.
+   * Both are `client`, and both are now the same screen: the balance is topped up and the
+   * monthly limit is set on `/c/{slug}/billing`, on its Credits and Usage tabs (D-34 R-11,
+   * D-525). Neither waits on us, so neither may carry the "we handle this" badge that
+   * tells a client to sit and wait.
    */
   no_credits: {
     text:
