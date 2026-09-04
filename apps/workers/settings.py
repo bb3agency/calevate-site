@@ -84,6 +84,7 @@ from apps.api.core.settings import (
     validate_bootstrap_env,
 )
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
+from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
@@ -240,6 +241,12 @@ FUNCTIONS: list[Any] = [
         # and the client watches an upload sit at "received" for ever while every one of
         # our screens reports it as queued.
         ingest_kb_source,
+        # D-536. Queued in the SAME transaction as the closure it announces, so a client
+        # is never told about a closure that rolled back and a closure never commits with
+        # nobody told. Registered here because an unregistered job name is a DLQ
+        # generator — `tests/job_registration_test.py` is what makes that a failing test
+        # rather than a silent one.
+        notify_account_closed,
     )
 ]
 
@@ -463,6 +470,24 @@ CRON_JOBS = [
     # `apply_retention` also alerts on a non-zero failure count now, because a retry
     # ladder that runs out still has to tell somebody.
     cron(traced_job(apply_retention), hour={3}, minute={40}, max_tries=WORKER_MAX_TRIES),
+    # D-536. HOURLY, at :25 so it does not land on the same minute as the fleet's other
+    # sweeps. The grace window is a PROMISE WITH A DATE ON IT and it has to hold in both
+    # directions: an account must not be erased before the date the client was given, and
+    # a client who asked us to erase now (`bring_erasure_forward`) must not wait until
+    # 03:40 for a deadline they set for this afternoon. An hour is the coarsest tick that
+    # keeps "erased on the date we told you" true either way.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. The next tick
+    # IS a sufficient retry here — the sweep is a re-readable query over a durable column
+    # and `request_tenant_erasure` dedupes on the open request — but an hour of an
+    # overdue erasure is an hour past a date we published to a client, so the ladder runs
+    # first and the tick is the backstop rather than the only recovery.
+    cron(
+        traced_job(sweep_due_erasures),
+        minute={25},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # The two infra tables `apply_retention` structurally cannot reach, because neither
     # has a `tenant_id` to sweep inside (P6.7). Until this existed nothing anywhere
     # deleted a row from `outbox_messages` or `webhook_inbox_events` — an unbounded copy
