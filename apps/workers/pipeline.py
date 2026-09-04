@@ -71,6 +71,7 @@ from apps.api.billing.service import (
     month_increment,
     plan_tier_of,
 )
+from apps.api.billing.trials import trial_covers
 from apps.api.compliance.consent import record_recording_notice
 from apps.api.compliance.deletion import refile_erasure_for_late_records
 from apps.api.compliance.disclosure import disclosure_spoken
@@ -2556,7 +2557,18 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         #
         # PREPAID HAS NO ALLOWANCE, so the debit needs no month arithmetic and can be
         # taken before the `spend_state` lock: every minute is charged at the list price.
-        if tier in PREPAID_TIERS:
+        #
+        # AND NOTHING AT ALL IF THIS CALL WAS ON US (D-536). The question is asked about the
+        # CALL'S OWN INSTANT, not about the clock right now: an ARQ retry ladder or the
+        # reconciliation poller can settle a call hours after it ended, and charging a
+        # client for a minute that was free when they spoke it is the one direction of error
+        # they will notice and be right about. `usage_events` above is untouched — every
+        # minute and its real `unit_cost_paid` is still metered, which is the only reason
+        # anyone can say what a trial cost us. What does not happen is the wallet debit.
+        on_us = await trial_covers(
+            session, tenant_id=tenant_id, at=snapshot.ended_at or datetime.now(UTC)
+        )
+        if tier in PREPAID_TIERS and not on_us:
             await charge_for_call(
                 session,
                 tenant_id=tenant_id,

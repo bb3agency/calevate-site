@@ -47,7 +47,11 @@ from apps.api.billing.caps import (
     read_spend_counters,
 )
 from apps.api.billing.list_rates import self_serve_rate_at
-from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
+from apps.api.billing.models import (
+    AI_ASSIST_UNIT_TYPES,
+    GRANTED_CREDIT_REASONS,
+    PAID_CREDIT_REASONS,
+)
 from apps.api.billing.plans import (
     ist_billing_month,
     ist_month_window,
@@ -62,6 +66,7 @@ from apps.api.billing.rates import (
     ROUNDING,
     is_surchargeable_llm_model,
 )
+from apps.api.billing.trials import counter_epoch, read_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -497,6 +502,122 @@ def adjustment_ref(*, entry_id: UUID, amount_inr: Decimal) -> str:
     return f"{ADJUSTMENT_REF_PREFIX}:{entry_id}:{to_paise(amount_inr)}"
 
 
+# --- credit GRANTED out of nothing (D-535) -------------------------------------
+#
+# The founder: *"the admin should be able to add any no.of credits without any payments
+# record to any client but it is audited"*. The adjustment above cannot do it — it must
+# name a wrong entry and is bounded by that entry's magnitude, which is what makes it a
+# CORRECTION — and the top-up cannot do it without the ledger claiming a bank moved money
+# nobody moved. So `grant` is a sixth reason (`billing/models.CREDIT_REASONS` argues which
+# of the five it is not, and why), and this is what carries it.
+
+GRANT_REF_PREFIX: Final = "grant"
+
+#: The `meta.kind` every operator grant carries, the shape `ADJUSTMENT_META_KIND` and
+#: `RESTATEMENT_META_KIND` established: `reason` is the coarse enum, `meta.kind` says which
+#: writer wrote the row.
+GRANT_META_KIND: Final = "operator_grant"
+
+#: THE CEILING ON ONE GRANT, and it is the founder's own guardrail: *"a ceiling per grant,
+#: so a fat-finger (₹5,00,000 instead of ₹5,000) is refused rather than posted"*.
+#:
+#: ₹50,000 is an order of magnitude above the goodwill grant the founder described and an
+#: order of magnitude below the slip it has to catch, which is the property that makes a
+#: ceiling worth having at all — one set at the top of the plausible range refuses honest
+#: work, and one set above the typo stops nobody. It is deliberately NOT `MAX_TOPUP_INR`
+#: (₹1,00,000): that number bounds what a client may PAY US in one transfer, which is a
+#: fact about a payment rail, and reusing it here would tie the size of a gift to the size
+#: of a card transaction. A genuinely larger gift is two grants under two references, each
+#: separately confirmed and separately audited — which is the trail we want for one anyway.
+MAX_GRANT_INR: Final = Decimal("50000.00")
+
+#: The floor. A grant below one rupee is a typo or a test, and the ledger is not the place
+#: to find out which.
+MIN_GRANT_INR: Final = Decimal("1.00")
+
+
+def grant_ref(*, reference: str) -> str:
+    """A grant's own ledger reference — its idempotency key, enforced by
+    `ux_credit_ledger_grant_ref` rather than by a reader's `if` (D-63's argument).
+
+    **THE REFERENCE IS THE OPERATOR'S, NOT DERIVED**, and that is the one place this
+    departs from `adjustment_ref`. An adjustment is content-addressed over (entry, amount)
+    because it HAS a natural key — the row it corrects — and because two genuinely distinct
+    corrections of one entry for one amount are a coincidence worth collapsing. A grant has
+    neither property: nothing outside this act identifies it, and two goodwill grants of
+    ₹5,000 to one client two months apart are ORDINARY, not a double click. Content-
+    addressing over (amount, reason) would silently refuse the second of them and report it
+    as a replay of the first — a gift the client never received, reported as delivered.
+
+    So the caller supplies the key, which is exactly what `TopUpIn.payment_ref` does with a
+    UTR, and the console mints one per opened form so that a second CLICK converges while a
+    second DECISION does not. The prefix keeps the string out of the namespaces `ref` shares
+    (a call id on `usage`, whatever the bank printed on `topup`), so a grant can never be
+    mistaken for either by a reader that forgets to scope by reason.
+    """
+    return f"{GRANT_REF_PREFIX}:{reference}"
+
+
+@dataclass(frozen=True, slots=True)
+class CreditTotals:
+    """What a wallet has been given, split by WHERE IT CAME FROM (D-535).
+
+    The founder's first guardrail: *"shown separately from paid credit — a client's
+    statement must distinguish credit they BOUGHT from credit we GAVE"*. It is not only a
+    presentation rule. Granted credit that reads as paid inflates the revenue side of our
+    own margin figures, which is the same defect D-39 refused when it declined to seed
+    opening balances — every `reason` would have been a lie about money nobody paid.
+
+    LIFETIME totals, not a window: "how much of this wallet did we fund" is a fact about the
+    relationship, and a client comparing a statement against their own books is adding up
+    every payment they ever made, not the last thirty days of them.
+    """
+
+    paid_inr: Decimal
+    granted_inr: Decimal
+
+
+async def credit_totals(session: AsyncSession, *, tenant_id: UUID) -> CreditTotals:
+    """Bought versus given, over the whole wallet. Summed in SQL over NUMERIC.
+
+    ONE query and ONE definition of each side, read by the operator's wallet panel and by
+    the client's own statement — two screens showing one wallet must not be able to
+    disagree about how much of it we funded. The reason sets come from
+    `billing/models.PAID_CREDIT_REASONS` / `GRANTED_CREDIT_REASONS` rather than from
+    literals here, so a seventh reason has to be argued onto one side or the other instead
+    of quietly landing on neither.
+
+    `delta > 0` on both sides: a `grant` is only ever positive (the route refuses anything
+    else) and a `topup` likewise, but the filter says so rather than assuming it — the row
+    that takes a wrong grant back is an `adjustment`, which belongs to NEITHER total and
+    must not be able to subtract from what a client was given. What a wallet HOLDS is
+    `get_balance`; this answers where it came from.
+    """
+    row = (
+        await session.execute(
+            # `tenant_id` in the predicate as well as in RLS: it is what makes this an index
+            # scan on `ix_credit_ledger_tenant_recent`, the argument `read_credits` records.
+            text(
+                "SELECT "
+                "COALESCE(SUM(delta) FILTER ("
+                "  WHERE delta > 0 AND reason = ANY(CAST(:paid AS text[]))), 0), "
+                "COALESCE(SUM(delta) FILTER ("
+                "  WHERE delta > 0 AND reason = ANY(CAST(:granted AS text[]))), 0) "
+                "FROM credit_ledger WHERE tenant_id = :tid"
+            ),
+            {
+                "tid": tenant_id,
+                "paid": list(PAID_CREDIT_REASONS),
+                "granted": list(GRANTED_CREDIT_REASONS),
+            },
+        )
+    ).first()
+    if row is None:
+        return CreditTotals(paid_inr=Decimal("0"), granted_inr=Decimal("0"))
+    # `Decimal(str(...))` on every NUMERIC read — `_newest_balance` argues the one character.
+    return CreditTotals(paid_inr=Decimal(str(row[0])), granted_inr=Decimal(str(row[1])))
+
+
 @dataclass(frozen=True, slots=True)
 class CorrectableEntry:
     """A ledger entry as a correction target: what it moved, and what is left to undo."""
@@ -887,11 +1008,24 @@ _IST_MONTH = "to_char(occurred_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM')"
 _IST_MONTH_WINDOW = "occurred_at >= :month_from AND occurred_at < :month_to"
 
 
-def _month_bounds(month: str) -> dict[str, datetime]:
+def _month_bounds(month: str, *, since: datetime | None = None) -> dict[str, datetime]:
     """The two binds `_IST_MONTH_WINDOW` reads, so a caller cannot name the window and
-    then supply half of it."""
+    then supply half of it.
+
+    `since` RAISES THE FLOOR AND NEVER LOWERS IT (D-536). A trial's start or end is a
+    counting-period boundary (`billing/trials.counter_epoch`), and the client's own usage
+    figures are counted from it rather than from the 1st — "when the trial is over the
+    numbers should start from 0 again". `max` rather than replacement is the whole safety
+    property: a boundary in a PREVIOUS month must not widen a month's window backwards,
+    and a boundary in a FUTURE month cannot reach a month that is already closed.
+
+    Passed only by the CLIENT-facing reads. Our own cost and margin reads
+    (`billing/attribution.py`, `tier_usage`, `margin_for_tenant`, the invoice) deliberately
+    never pass it: what a trial cost us must stay true and countable for ever, which is the
+    only way anybody can say what a trial was worth.
+    """
     start, end = ist_month_window(month)
-    return {"month_from": start, "month_to": end}
+    return {"month_from": max(start, since) if since is not None else start, "month_to": end}
 
 
 # "…and it is a CALL row", for the cost query that prices minutes. Spelled NEGATIVELY
@@ -1183,7 +1317,9 @@ class MonthSeconds:
     by_llm_model: dict[str, Decimal]
 
 
-async def rung_seconds(session: AsyncSession, *, tenant_id: UUID, month: str) -> MonthSeconds:
+async def rung_seconds(
+    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+) -> MonthSeconds:
     """(SECONDS, our cost) per TTS rung — and per surcharged model — for one month. THE query.
 
     Split out of `_tier_totals` when the meter needed the same month's rungs to price a
@@ -1222,7 +1358,7 @@ async def rung_seconds(session: AsyncSession, *, tenant_id: UUID, month: str) ->
                 f"  AND {_NOT_AI_UNITS}"
                 ") attributed GROUP BY tier, llm_model"
             ),
-            {"tid": tenant_id, **_month_bounds(month), **_surcharge_binds()},
+            {"tid": tenant_id, **_month_bounds(month, since=since), **_surcharge_binds()},
         )
     ).all()
 
@@ -1299,7 +1435,9 @@ class MonthTotals:
     by_llm_model: dict[str, Decimal]
 
 
-async def _tier_totals(session: AsyncSession, *, tenant_id: UUID, month: str) -> MonthTotals:
+async def _tier_totals(
+    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+) -> MonthTotals:
     """(minutes, our cost) per TTS rung — and minutes per surcharged model — for one month.
 
     THE one definition of "how many minutes ran on which rung". `tier_usage` presents
@@ -1345,7 +1483,7 @@ async def _tier_totals(session: AsyncSession, *, tenant_id: UUID, month: str) ->
     sentence is corrected rather than deleted because a reader who finds the old claim
     elsewhere should be able to see it was retired and why.
     """
-    read = await rung_seconds(session, tenant_id=tenant_id, month=month)
+    read = await rung_seconds(session, tenant_id=tenant_id, month=month, since=since)
     return MonthTotals(
         by_rung=rung_minutes(read.by_rung),
         cost_by_rung=read.cost_by_rung,
@@ -1667,6 +1805,11 @@ async def usage_summary(
     # that makes a single reading worth passing around.
     today = current_billing_month()
     period = month or today
+    # ONE reading of the clock for the whole function, for `today`'s own reason: the trial
+    # arm below asks whether this account is inside a funded period and how many days are
+    # left, and two readings taken a query apart can straddle the end instant and publish
+    # "active, 0 days left" beside charges that were computed as if it had ended.
+    at = datetime.now(UTC)
     # WHICH INSTANT THIS MONTH IS PRICED AT, resolved (and the month validated) BEFORE
     # any query runs — a month we cannot parse is a month we cannot pick a plan for, and
     # a 422 up front beats a ₹0.00 statement for `?month=july`.
@@ -1696,7 +1839,14 @@ async def usage_summary(
     # `_tier_totals`' second return is `unit_cost_paid` — our supplier cost, which
     # `_spend_used` used to publish for a closed month (P1.3). `tier_usage` still reads
     # both for the ADMIN margin panel, which is what that number is for.
-    totals = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    # WHERE THIS CLIENT'S COUNTING PERIOD BEGINS (D-536). None for every account that has
+    # never been given a trial, which is the plain IST billing month this panel has always
+    # shown. For an account on one — or one that just came off one — it is the trial
+    # boundary, and every figure below is counted from there: "when the trial is lifted or
+    # over or stopped the numbers should start from 0 again". Nothing is deleted to make
+    # that true; the WINDOW moves, and `usage_events` keeps every row (hard rule 4).
+    epoch = await counter_epoch(session, tenant_id=tenant_id)
+    totals = await _tier_totals(session, tenant_id=tenant_id, month=period, since=epoch)
     tier_minutes = totals.by_rung
     minutes = sum(tier_minutes.values(), _ZERO_PAISE)
     row = (
@@ -1714,7 +1864,7 @@ async def usage_summary(
                 "SELECT COUNT(DISTINCT call_id) "
                 f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW}"
             ),
-            {"tid": tenant_id, **_month_bounds(period)},
+            {"tid": tenant_id, **_month_bounds(period, since=epoch)},
         )
     ).first()
     calls = int(row[0] or 0) if row else 0
@@ -1835,13 +1985,69 @@ async def usage_summary(
     elif plan and plan[3] is not None:
         minutes_left = max(0, int(Decimal(str(plan[3])) - minutes))
 
+    # IS THIS CLIENT'S CALLING ON US RIGHT NOW (D-536)? Asked AFTER the runway above so
+    # the trial's answer overrides it rather than being computed around it, and asked as a
+    # fact about the account today rather than about the month on screen — the same reading
+    # `capped` takes two paragraphs up, for the same reason: a client re-opening last
+    # month's statement is being told what they owe, not what they owed.
+    trial = await read_trial(session, tenant_id=tenant_id)
+    trial_active = trial is not None and trial.is_active(at=at)
+    if trial_active:
+        # A trial bypasses the credit gate entirely (`compliance.service.credits_exhausted`),
+        # so a wallet balance is not what limits this client's calling and quoting minutes
+        # from it would be a number they cannot spend down. `None` is this field's own word
+        # for "no answer" (`prepaid_minutes_left`), and the trial block below says why —
+        # publishing 0 would tell a client with a working service that it has stopped.
+        minutes_left = None
+
     if capped:
         # `spend_state.capped` is the ONLY cap the gate enforces, and it refuses every
         # outbound call regardless of tier. Offering runway on top of that is a promise
         # the platform will not keep. (Inbound is unaffected by the cap — the gate is
         # outbound-only — but inbound is not something an owner "has minutes left" to
         # spend, so the outbound answer is the honest one for a planning number.)
+        #
+        # AFTER the trial arm above and not before it: a spend cap is a ceiling the CLIENT
+        # or an operator set and it still binds during a trial (a trial is a billing state,
+        # never a licence to ignore a ceiling somebody asked for), so when both are true the
+        # cap is the honest answer.
         minutes_left = 0
+
+    # WHAT THE CLIENT OWES, and during a trial it is ZERO — that is the whole feature.
+    #
+    # Because `epoch` moved the window to the trial's own start, every minute counted above
+    # was spoken inside the funded period, so there is no apportionment to get wrong and no
+    # partial month to explain. What the same minutes WOULD have cost is published beside it
+    # as `trial_absorbed_inr` rather than discarded: the client sees what the service is
+    # worth, and the figure a screen prints as "on us" is the same arithmetic the bill uses
+    # rather than a second one. It is the CLIENT's price throughout — never `unit_cost_paid`,
+    # which is ours and which no client panel has ever shown.
+    charges = to_paise(
+        month_charges_inr(
+            monthly_fee_inr=(
+                to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
+            ),
+            plan_tier=tier,
+            minutes=minutes,
+            overage_cost_inr=overage_cost,
+            llm_surcharge_inr=surcharge.total_inr,
+            self_serve_rate_inr_per_min=list_rate,
+        )
+    )
+    spend_used = to_paise(
+        _spend_used(
+            period,
+            today,
+            counters.billed_inr,
+            closed_month_billed=calling_revenue_inr(
+                plan_tier=tier,
+                minutes=minutes,
+                overage_cost_inr=overage_cost,
+                llm_surcharge_inr=surcharge.total_inr,
+                self_serve_rate_inr_per_min=list_rate,
+            ),
+        )
+    )
 
     return {
         "month": period,
@@ -1899,37 +2105,27 @@ async def usage_summary(
         # retainer entirely and answers "what have my calls drawn down". This answers "what
         # will this month cost me", retainer included, from the same three published
         # components a client can add up by hand.
-        "month_charges_inr": to_paise(
-            month_charges_inr(
-                monthly_fee_inr=(
-                    to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
-                ),
-                plan_tier=tier,
-                minutes=minutes,
-                overage_cost_inr=overage_cost,
-                llm_surcharge_inr=surcharge.total_inr,
-                self_serve_rate_inr_per_min=list_rate,
-            )
-        ),
+        "month_charges_inr": _ZERO_PAISE if trial_active else charges,
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
         "minutes_left": minutes_left,
         "capped": capped,
         # THE CLIENT'S OWN SPEND, in the client's own currency (P1.3). See `_spend_used`
         # for what each branch reads and why neither of them is `spend_used` any more.
-        "spend_used_inr": to_paise(
-            _spend_used(
-                period,
-                today,
-                counters.billed_inr,
-                closed_month_billed=calling_revenue_inr(
-                    plan_tier=tier,
-                    minutes=minutes,
-                    overage_cost_inr=overage_cost,
-                    llm_surcharge_inr=surcharge.total_inr,
-                    self_serve_rate_inr_per_min=list_rate,
-                ),
-            )
-        ),
+        "spend_used_inr": _ZERO_PAISE if trial_active else spend_used,
+        # IS THIS PERIOD ON US, AND UNTIL WHEN (D-536). Always present, `active: False` for
+        # every account that has never had a trial — a key that appears and disappears is a
+        # key a screen forgets to handle, and this one decides whether the two figures above
+        # mean "you owe nothing" or "you have spent nothing".
+        "trial": {
+            "active": trial_active,
+            "days_remaining": trial.days_remaining(at=at) if trial is not None else None,
+            "ends_at": trial.ends_at if trial_active and trial is not None else None,
+        },
+        # WHAT WE ABSORBED for this client this period, at the CLIENT's own price. Zero
+        # whenever no trial is running, so a screen can print it unconditionally. Never our
+        # supplier cost: `unit_cost_paid` is commercially ours and the client panel has
+        # never shown it (`trials.trial_cost_to_us_inr` is where an OPERATOR reads that).
+        "trial_absorbed_inr": charges if trial_active else _ZERO_PAISE,
     }
 
 

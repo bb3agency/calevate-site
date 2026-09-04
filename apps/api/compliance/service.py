@@ -67,6 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.service import agent_outbound_number_blocker
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
+from apps.api.billing.trials import trial_billing_active
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.first_campaign import (
     FIRST_CAMPAIGN_REVIEW_PENDING_REASON,
@@ -384,6 +385,31 @@ async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
     """
     tier = await plan_tier_of(session, tenant_id)
     if tier not in PREPAID_TIERS:
+        return False
+    # A TRIAL BYPASSES THE CREDIT GATE ENTIRELY (D-536), and the arm is HERE rather than
+    # beside the call in `check_dispatch`, on purpose.
+    #
+    # The founder explicitly refused the alternative — grant the client credit and let the
+    # ordinary gate honour it — because the ledger would then assert they were given money
+    # nobody gave them, which is the lie D-39 declined to seed opening balances over. So a
+    # trial writes nothing to `credit_ledger` and this predicate learns one more reason a
+    # wallet may not stop a dial.
+    #
+    # PUTTING IT IN THE PREDICATE BUYS THREE THINGS A SECOND `if` IN THE GATE COULD NOT.
+    # The gate's ORDER is untouched, which matters: the audit's finding that an inbound
+    # line survives a zero balance rests on `agent_inbound_only` being answered before any
+    # money question, and it still is. Every OTHER reader of this predicate — the admin
+    # health board, `legal/readiness.py`, the campaign launch and dispatch gates, the
+    # client's own wallet summary and the attention queue's `no_credits` copy — gets the
+    # same answer without any of them learning what a trial is. And there stays exactly ONE
+    # definition of "this account may not dial for want of money", which is the property
+    # this whole function was extracted to hold.
+    #
+    # ONLY THIS GATE. KYC, the agreements, the spend cap, calling hours, DNC, consent, the
+    # AI disclosure, the India-only destination, the DLT chain and the first-campaign hold
+    # are all unchanged and all still bite. A trial is a BILLING state; there is no reading
+    # of "everything is on us" that reaches TRAI.
+    if await trial_billing_active(session, tenant_id=tenant_id):
         return False
     balance = await get_balance(session, tenant_id=tenant_id)
     return balance.is_exhausted

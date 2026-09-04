@@ -57,7 +57,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import OVERAGE_META_KIND
-from apps.api.billing.service import Balance, get_balance, prepaid_minutes_left
+from apps.api.billing.service import (
+    Balance,
+    CreditTotals,
+    credit_totals,
+    get_balance,
+    prepaid_minutes_left,
+)
+from apps.api.billing.trials import TrialState, read_trial
 from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -194,6 +201,20 @@ class WalletSummary:
     runway: Runway
     minutes_left: int | None
     drawdown: Drawdown
+    #: BOUGHT versus GIVEN, over the whole life of the wallet (D-535). The founder's own
+    #: guardrail on granting credit out of nothing: *"a client's statement must distinguish
+    #: credit they BOUGHT from credit we GAVE"*. Lifetime rather than windowed, unlike
+    #: `drawdown` — "how much of this did you fund" is a fact about the relationship, and a
+    #: client checking a statement against their own books is adding up every payment they
+    #: ever made. `service.credit_totals` is the one definition, shared with the operator's
+    #: own wallet panel so two screens cannot disagree about one wallet.
+    totals: CreditTotals
+    #: Is this client's calling on us right now, and until when (D-536)? `None` for every
+    #: account that has never had a trial. When it is present and active, `outbound_stopped`
+    #: above is False whatever the balance says — the trial arm lives inside
+    #: `credits_exhausted`, so this field EXPLAINS that verdict rather than competing with
+    #: it, and no screen has to re-derive why a wallet at zero is still dialling.
+    trial: TrialState | None
 
 
 def _floor_days(value: Decimal) -> int:
@@ -241,8 +262,11 @@ async def read_runway(
                 "  WHERE delta < 0 AND reason = 'usage'"
                 "  AND (meta->>'kind') = :ai_kind), 0), "
                 "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'), 0), "
+                # `grant` JOINS THIS FILTER (D-535). It is the fourth way credit lands on
+                # a wallet, and a goodwill grant missing from "added" would leave a client
+                # watching a balance rise with nothing on the screen accounting for it.
                 "COALESCE(SUM(delta) FILTER ("
-                "  WHERE delta > 0 AND reason IN ('topup', 'bonus', 'adjustment')), 0), "
+                "  WHERE delta > 0 AND reason IN ('topup', 'bonus', 'adjustment', 'grant')), 0), "
                 "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'refund'), 0) "
                 "FROM credit_ledger "
                 "WHERE tenant_id = :tid AND occurred_at >= :since"
@@ -507,15 +531,26 @@ async def read_wallet(
     """
     balance = await get_balance(session, tenant_id=tenant_id)
     runway, drawdown = await read_runway(session, tenant_id=tenant_id, balance=balance, now=now)
+    trial = await read_trial(session, tenant_id=tenant_id)
+    at = now or datetime.now(UTC)
     return WalletSummary(
         balance=balance,
         outbound_stopped=outbound_stopped,
         prepaid=prepaid,
         runway=runway,
         minutes_left=(
-            prepaid_minutes_left(balance=balance, rate=rate_inr_per_min) if prepaid else None
+            # A TRIAL SUPPRESSES THE RUNWAY FIGURE (D-536), for `usage_summary`'s reason:
+            # the wallet is not what limits this client's calling while we are funding it,
+            # so a minutes-left number computed from the balance is a limit they will not
+            # meet. `None` is this field's own word for "no answer"; the `trial` block says
+            # why, and the screen says it in words.
+            prepaid_minutes_left(balance=balance, rate=rate_inr_per_min)
+            if prepaid and not (trial is not None and trial.is_active(at=at))
+            else None
         ),
         drawdown=drawdown,
+        totals=await credit_totals(session, tenant_id=tenant_id),
+        trial=trial,
     )
 
 
