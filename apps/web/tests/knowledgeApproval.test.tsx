@@ -108,6 +108,10 @@ async function renderKnowledge(sources: KbSource[] | ProblemResponse, over: Rout
     "/v1/agents": [AGENT],
     "/v1/kb/sources": sources,
     "/v1/kb/staff-curation": STAFF_CURATION,
+    // The document list (D-534). Empty by default: every assertion in this file is about
+    // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
+    // on the screen for the reason `STAFF_CURATION` above records.
+    "/v1/kb/uploads": [],
     ...over,
   });
 }
@@ -337,8 +341,9 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
  * and "preview", and its chunk-preview panel legitimately talks about what the agent
  * would SAY. What may not appear is retrieval language aimed at a live call, or an
  * invitation to hand over a file — `POST /v1/kb/sources` takes text and refuses
- * `kind="url"` and `kind="file"` (`apps/api/kb/routes.py:44`), and this console has no
- * file input at all, so an "upload" here would be a control that does not exist.
+ * `kind="url"` and `kind="file"` (`apps/api/kb/routes.py:44`) — a document is submitted
+ * through `POST /v1/kb/uploads` instead, and reaches the engine's own knowledge base as a
+ * file. What stays banned is the sentence that something is looked up mid-call.
  */
 describe("what the screen says the agent does with the text", () => {
   it("says the approved facts become part of what the agent already knows", async () => {
@@ -365,7 +370,18 @@ describe("what the screen says the agent does with the text", () => {
       /\b(retriev\w+|search\w+|look\w* up|fetch\w*)\b[^.]{0,40}\b(during|mid|on) (a )?calls?\b/i,
     );
     expect(text).not.toMatch(/\bretrieved during calls\b/i);
-    // No file words: there is nothing on this screen that accepts one.
-    expect(text).not.toMatch(/\bupload\w*\b|\bpdfs?\b|\battach a (file|document)\b/i);
+    // THE FILE-WORD BAN THAT USED TO BE HERE IS GONE, AND ITS PREMISE WITH IT.
+    //
+    // It read "there is nothing on this screen that accepts one", which was true of the
+    // console for as long as `attach_kb` raised. It does not raise any more: the engine's
+    // knowledge base is on (`apps/api/engine/bolna.py:3261`, `knowledge_base=True`), a PDF
+    // is handed to it as the artefact a person approved, and D-534 built the six `/v1/kb`
+    // routes this screen now offers. The ban would now fail on the control the founder
+    // asked for. What must NOT come back is the CLAIM above it — that something is looked
+    // up while a caller is on the line — and that is still asserted, twice.
+    //
+    // The one file sentence worth pinning positively is the limit, because a client who
+    // learns it from a 413 has already spent the upload.
+    expect(text).toMatch(/20 MB/);
   });
 });

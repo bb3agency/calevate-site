@@ -11,6 +11,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { useAddLink, useUploadDocument } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
 import type { UploadProgress } from "@/lib/api/client";
@@ -64,6 +65,9 @@ export function AddDocument({
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [url, setUrl] = useState("");
+  // The house refusal: our sentence, in our surface, rather than Chrome's bubble in
+  // whatever language Chrome is set to (`components/formValidation.tsx`).
+  const valid = useFormValidation();
   /** The last file this panel accepted, so the row can say what it is sending. */
   const [sending, setSending] = useState<File | null>(null);
 
@@ -178,14 +182,11 @@ export function AddDocument({
         <div className="border-t border-line pt-4">
           <form
             className="space-y-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (disabled || !url.trim()) return;
-              link.mutate(
-                { agentId, url: url.trim() },
-                { onSuccess: () => setUrl("") },
-              );
-            }}
+            noValidate
+            onSubmit={valid.onSubmit(() => {
+              if (!allowed || !agentId || link.isPending) return;
+              link.mutate({ agentId, url: url.trim() }, { onSuccess: () => setUrl("") });
+            })}
           >
             <label htmlFor={urlInputId} className={FIELD_LABEL}>
               Or give us the address of a page
@@ -197,9 +198,11 @@ export function AddDocument({
                   className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
                 />
                 <input
+                  {...valid.field("url", "Give us the full web address of the page.")}
                   id={urlInputId}
                   type="url"
                   inputMode="url"
+                  required
                   value={url}
                   disabled={!allowed || !agentId || link.isPending}
                   onChange={(event) => setUrl(event.target.value)}
@@ -209,13 +212,18 @@ export function AddDocument({
               </div>
               <button
                 type="submit"
-                disabled={!allowed || !agentId || link.isPending || url.trim() === ""}
+                /* The empty-address rule is NOT repeated here: pressing answers in words,
+                   where a dead button answers with nothing. Having no agent to teach IS
+                   still a dead button — that one is not an answer the person can correct
+                   on this form. */
+                disabled={!allowed || !agentId || link.isPending}
                 title={reason ?? undefined}
                 className={PRIMARY_BUTTON}
               >
                 {link.isPending ? "Adding…" : "Add page"}
               </button>
             </div>
+            {valid.error("url")}
             <span className={FIELD_HINT}>
               We read the page and check it again from time to time. If it changes, we ask
               you about the new version before your agent uses it.

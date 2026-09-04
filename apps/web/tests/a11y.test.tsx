@@ -1993,6 +1993,45 @@ const CLIENT_SCREENS: Screen[] = [
       // The owner's staff-curation switch (D-487). Without it `StaffCurationSwitch`
       // renders its ProblemNotice and the scan would cover an error panel.
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
+      // Documents and web pages (D-534). One row per state family, so the sweep covers
+      // the populated list rather than its empty state: a live PDF, and a photograph
+      // waiting for the client to confirm what was read off it.
+      "/v1/kb/uploads": [
+        {
+          id: "0192f0aa-7777-7000-8000-000000000001",
+          source_id: "0192f0aa-8888-7000-8000-000000000001",
+          agent_id: "agent-1",
+          name: "Price list.pdf",
+          source_kind: "pdf",
+          ingest_status: "processed",
+          ingest_detail: null,
+          review_state: "approved",
+          is_live: true,
+          version: 1,
+          filename: "Price list.pdf",
+          byte_size: 284_912,
+          source_url: null,
+          text_provenance: null,
+          change_detected_at: null,
+        },
+        {
+          id: "0192f0aa-7777-7000-8000-000000000002",
+          source_id: "0192f0aa-8888-7000-8000-000000000002",
+          agent_id: "agent-1",
+          name: "Rates board",
+          source_kind: "image",
+          ingest_status: "received",
+          ingest_detail: null,
+          review_state: "pending_approval",
+          is_live: false,
+          version: 1,
+          filename: "rates.jpg",
+          byte_size: 1_204_112,
+          source_url: null,
+          text_provenance: "ocr",
+          change_detected_at: null,
+        },
+      ],
       "/v1/kb/sources": [
         {
           id: "kb-1",

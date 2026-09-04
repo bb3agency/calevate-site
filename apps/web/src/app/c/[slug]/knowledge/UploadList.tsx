@@ -256,7 +256,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
         <span>
           {isMachineRead(upload)
             ? "This is what our computer read off your photo — it is not your own typing, so please check the numbers and the spellings before you say yes."
-            : "This is what we read out of your file. Check it before you say yes."}
+            : "This is the text we took out of what you sent. Check it before you say yes."}
         </span>
       </p>
 
