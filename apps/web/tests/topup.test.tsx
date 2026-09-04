@@ -248,7 +248,7 @@ describe("the top-up panel", () => {
     // The DEFAULT configuration of every deployment. The form used to be offered here
     // and could only ever answer `payments_not_configured` — a control whose single
     // possible outcome is a red notice.
-    await renderClientPage(
+    const { container } = await renderClientPage(
       page,
       routes({
         [CAPABILITY]: {
@@ -270,6 +270,17 @@ describe("the top-up panel", () => {
     expect(screen.queryByText("Pay this amount")).toBeNull();
     // Not an error either: this deployment is configured, not broken.
     expect(screen.queryByRole("alert")).toBeNull();
+
+    // ...AND THE PRICES ARE STILL THERE. This branch used to `return` before the rate
+    // card, so a client opening "Add credit" on any deployment without a provider account
+    // — which is all of them until one exists — got a single sentence and no idea what
+    // anything cost. They cannot decide what to transfer without knowing what a pack
+    // buys. Removing the BUTTON must not remove the PRICE LIST: the catalogue reads no
+    // tenant and no provider state, so it is exactly as true on a bank-transfer
+    // deployment as on a card one.
+    expect(screen.getByText("Best value"), "the rate card is gone").toBeTruthy();
+    expect(container.textContent).toContain("₹4.6296/min");
+    expect(container.textContent).toContain("+4,000 (8%)");
   });
 
   it("never names which of our secrets is missing", async () => {
