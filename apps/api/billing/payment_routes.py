@@ -46,7 +46,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -134,6 +134,12 @@ TopUpRead = Annotated[Principal, Depends(requires("billing:read", realm="client"
 # credit adjustment (`credit_routes.CreditsWrite`), so it takes the SAME permission — one
 # vocabulary for "an operator may move this client's money".
 RefundWrite = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
+
+#: Refusals that ALREADY alerted where they were raised, so the guard in `razorpay_webhook`
+#: does not fire a second alarm for one delivery. `_apply_captured_payment` and
+#: `_apply_refund` both alert `razorpay_unknown_tenant` before raising `not_found`, and
+#: that sentence names the case better than a general "we could not apply this" could.
+_SELF_ALERTING_REFUSALS: Final = frozenset({"not_found"})
 
 # The route this intent claims its idempotency key under. A literal, matching the
 # `crm/routes.py` convention of naming the templated path rather than the resolved one.
@@ -775,10 +781,36 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
 
     # payment.captured AND order.paid both carry `payload.payment.entity` and both mean
     # "money arrived", deduped on the same payment id — so they take the same path.
-    if event in CREDIT_EVENTS:
-        return await _apply_captured_payment(envelope, event=event, ip=ip)
-    if event == REFUND_PROCESSED_EVENT:
-        return await _apply_refund(envelope, event=event, ip=ip)
+    #
+    # THE GUARD AROUND THEM IS THE ONE THING BETWEEN A REFUSED PAYMENT AND SILENCE. Past
+    # the signature check the money is REAL: Razorpay signed this delivery, so a refusal
+    # here is a rupee that reached the provider and did not reach the wallet. Every
+    # refusal on this path is one of ours — an unreadable payload, a currency we do not
+    # settle in, an amount that is not whole paise, missing tenant notes, or a payment id
+    # already on the ledger for a different amount — and each was previously visible only
+    # as a 4xx in an access log while the provider retried into the same wall. The client
+    # meanwhile sees a debited card and an unmoved balance, and nobody here is told.
+    # `razorpay_unknown_tenant` already alerted for its own case, which is the standard
+    # this generalizes rather than a precedent it duplicates.
+    try:
+        if event in CREDIT_EVENTS:
+            return await _apply_captured_payment(envelope, event=event, ip=ip)
+        if event == REFUND_PROCESSED_EVENT:
+            return await _apply_refund(envelope, event=event, ip=ip)
+    except ProblemError as exc:
+        if exc.code not in _SELF_ALERTING_REFUSALS:
+            alert(
+                "ROUTE_HANDLER",
+                "razorpay_money_unapplied",
+                detail=(
+                    "A payment event this deployment could not apply passed signature "
+                    "verification, so the money is real and the wallet did not move. "
+                    "Reconcile it by hand: runbooks/topup-payments.md."
+                ),
+                problem_code=exc.code,
+                event=event,
+            )
+        raise
     if event == PAYMENT_FAILED_EVENT:
         # A failed attempt moves no money, so nothing is credited and no ledger row is
         # written. What DOES happen now — and did not before `topup_attempts` existed — is

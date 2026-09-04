@@ -286,6 +286,75 @@ async def test_payment_captured_then_order_paid_for_one_payment_credits_once() -
 
 
 # ============================================================================
+# The alarm on money that verified and did not land
+# ============================================================================
+
+
+def _route_alerts(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The codes the alert path wrote on this route. `alert()` emits ONE
+    `log.error("alert", ...)` per firing and the CODE is the contract — the sentence
+    beside it is prose an operator edits."""
+    return [
+        str(record.__dict__.get("code"))
+        for record in caplog.records
+        if record.message == "alert" and record.__dict__.get("failure_stage") == "ROUTE_HANDLER"
+    ]
+
+
+async def test_a_verified_payment_we_cannot_attribute_raises_an_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A payment taken OUTSIDE our checkout (a payment link, a dashboard payment) carries
+    no `notes.calevate_tenant_id`. The signature verified, so the money is real — and
+    before this alarm the only trace was a 4xx in an access log while the provider retried
+    into the same wall and the client watched an unmoved balance."""
+    raw, headers = _sign(_payment_envelope(payment_id=_payment_id("NONOTE"), tenant_id=None))
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("payment_tenant_unresolved")
+    assert "razorpay_money_unapplied" in _route_alerts(caplog)
+
+
+async def test_a_payload_shape_we_cannot_read_raises_the_same_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The FIRST live payment's most likely failure: our reading of their payload paths is
+    wrong. It must be loud, because nothing else on this path is."""
+    raw, headers = _sign({"event": "payment.captured", "payload": {"payment": {}}})
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 422, response.text
+    assert "razorpay_money_unapplied" in _route_alerts(caplog)
+
+
+async def test_an_unknown_tenant_alarms_once_and_not_twice(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`razorpay_unknown_tenant` alerts where it is raised, with a sharper sentence than
+    the general guard could carry, so the guard must not fire a second alarm for the one
+    delivery."""
+    raw, headers = _sign(_payment_envelope(payment_id=_payment_id("GHOST"), tenant_id=uuid.uuid4()))
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 404, response.text
+    assert _route_alerts(caplog) == ["razorpay_unknown_tenant"]
+
+
+async def test_a_credited_payment_raises_no_alarm(caplog: pytest.LogCaptureFixture) -> None:
+    tenant_id = await _tenant()
+    raw, headers = _sign(_payment_envelope(payment_id=_payment_id("QUIET"), tenant_id=tenant_id))
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.json()["status"] == "credited"
+    assert _route_alerts(caplog) == []
+
+
+# ============================================================================
 # payment.failed — acked, moves no money
 # ============================================================================
 
