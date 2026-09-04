@@ -23,7 +23,9 @@ Client lifecycle
 - Account lookup with full operational context: org, plan, engine refs, numbers,
   DLT state, caps, credit balance, recent errors — one screen per client.
 - Controlled mutations with audit: plan changes, credit adjustments (compensating
-  entries, never edits), cap raises, suspend/reactivate, offboarding trigger.
+  entries, never edits), credit GRANTS (credit out of nothing, capped per grant and shown
+  separately from paid credit — D-535), TRIAL PERIODS (N days billed to nobody — D-536),
+  cap raises, suspend/reactivate, offboarding trigger.
 - Batched onboarding pattern (industry: weekly cohorts once client count grows).
 
 Tenant health board (the core admin screen — industry-standard for voice agencies)
@@ -394,6 +396,26 @@ Admin realm (`/admin/…`)
   balance the write produced, rendered as a stop-toned notice — never re-derived on the
   client. `runbooks/topup-payments.md` §3 no longer describes hand-constructing the call.
   The self-serve wallet UI in §2b is separately still M2.
+- **Credit granted out of nothing** (`POST .../credits/grants`) — **API SHIPPED** (D-535).
+  Goodwill credit with no payment behind it: its own ledger reason, so no statement and no
+  reconciliation ever reads it as a bank transfer, and the wallet read publishes
+  `paid_inr` beside `granted_inr` so a client's statement distinguishes credit they BOUGHT
+  from credit we GAVE. Capped per grant (₹50,000) so a mistyped figure is refused rather
+  than posted, idempotent on an operator-supplied reference, and
+  `X-Confirm-Action: grant_credits:<amount>` on EVERY call — the amount is re-keyed because
+  the danger scales with the figure. The `audit_log` row commits in the same transaction as
+  the money. **The control this stands in for is second-person approval** (segregation of
+  duties), waived while the founder is the only operator and recorded in
+  `credit_routes.credit_grant_confirmation` so the gap is a known one.
+- **Trial periods** (`POST|GET /v1/admin/tenants/{tenant_id}/trial`, `POST .../trial/end`)
+  — **API SHIPPED** (D-536). N days during which the client's outbound calling is not
+  stopped by an empty wallet and nothing is debited from it. It writes NOTHING to the
+  ledger: a trial bypasses the credit gate rather than being paid for with invented credit.
+  Every minute is still metered, and every other gate — KYC, agreements, spend cap, calling
+  hours, DNC, consent, DLT — still applies. There is deliberately NO spend ceiling, so the
+  start step-up double-keys the DAYS and the read publishes `cost_to_us_inr`. Ending it
+  (converted, or stopped by Calevate) starts a fresh counting period: the client's own
+  figures count from zero and nothing is deleted from any ledger.
 - **Platform configuration** (`/admin/ops/config`; `GET`/`PUT`/`DELETE /v1/ops/config`,
   `platform:config`; `GET`/`PUT /v1/ops/secrets`, `POST /v1/ops/secrets/{key}/test`,
   `GET /v1/ops/secrets/kek`, `platform:secrets`). The ops config panel — every setting
