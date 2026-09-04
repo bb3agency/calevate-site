@@ -132,6 +132,22 @@ Models (per-agent config, BYOK):
   table, one builder. `gpt-4.1-mini` is a CONFIG SWITCH through `azure_openai_model`, not a
   second shipped default.
 
+  > **THE PLATFORM'S OWN DEFAULT MOVED OFF THIS LEG ON 4 SEP 2026, AND THIS PARAGRAPH IS
+  > ABOUT THE LEG RATHER THAN ABOUT THE DEFAULT.** Everything D-410 settled about the Azure
+  > leg still holds. What changed is which model an account runs when neither it nor its
+  > agent chose: the founder's answer is **`gemini-2.5-flash-lite`**, and it is now its own
+  > setting - `Settings.platform_llm_model`, typed over all three declared legs - because the
+  > platform rung used to read `azure_openai_model`, a field whose type could not hold it.
+  > `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) keeps its two other jobs unchanged: the
+  > default of `azure_openai_model` (which model the Azure DEPLOYMENT was made from) and
+  > `billing/rates.BASE_RATE_LLM_MODEL`, the frozen model the plan rate is struck against - so
+  > no client's bill moves and no account is re-classified. **A DEPLOYMENT CANNOT ACTUALLY
+  > RUN THE NEW DEFAULT UNTIL ITS GOOGLE KEY IS INSTALLED AND ITS PRICE ATTESTED** (the Gemini
+  > catalogue figures are `verified=False` - vendor-published and founder-relayed rather than
+  > fetchable here - so hard rule 7 keeps them out of `unit_cost_paid`); until then an account
+  > that has chosen nothing runs the ENGINE's own default and the picker marks the row
+  > unavailable with its ground.
+
   **WHY THE REGION MOVED, AND WHAT IT COST [D-449].** Two grounds. **(a)** Bolna's
   orchestrator is US-hosted (VERIFIED-VENDOR-DOCS,
   `bolna-findings/mirror/pages/concepts/security.md:29`, AWS us-east-1), so every
@@ -1344,9 +1360,9 @@ unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
 | TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | **₹1.08–1.62** |
-| LLM — **`gpt-4o-mini` on Azure OpenAI `eastus2`** (D-410 default; region per D-449) | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
+| LLM — `gpt-4o-mini` on Azure OpenAI `eastus2` *(D-410's default and still the **base-rate** model `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against — no longer the platform default; region per D-449)* | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
-| LLM — `gemini-2.5-flash-lite` on Google Gemini Developer API *(the cheapest leg we offer, and cheaper than the platform default — so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
+| LLM — **`gemini-2.5-flash-lite` on Google Gemini Developer API** *(the cheapest leg we offer, and since 4 Sep 2026 the **platform default** — `Settings.platform_llm_model`. Cheaper than the base-rate model, so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
 | LLM — `gemini-2.5-flash` on Google Gemini Developer API *(the vendor's own production recommendation; thinking budget zeroed by the engine)* | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |
 | LLM — `gpt-5.4-mini` on OpenAI direct `us` *(the engine's own voice recommendation, and the dearest thing we offer)* | $0.75/$4.50 per 1M tok | **₹0.54 (1 min) / ₹0.85 (5 min) / ₹1.24 (10 min)** |
 | LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and the extraction pass — **not an in-call leg**, so no per-minute curve is derived for it)* | ₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out | **not ₹0.00 — see the correction note** |
@@ -1400,11 +1416,12 @@ variable, D-32):
 
 Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt-4o-mini`**, ₹0.44 on `gpt-4.1-mini`, ₹0.11 on `gemini-2.5-flash-lite`, ₹0.36 on `gemini-2.5-flash`, ₹0.85 on `gpt-5.4-mini` — because a blended average has to pick a call length and five minutes is the one §10's other assumptions are written for. A ten-minute call adds **₹0.08/min** to every `gpt-4o-mini` row, **₹0.21/min** to `gpt-4.1-mini`, ₹0.05 to `gemini-2.5-flash-lite`, ₹0.15 to `gemini-2.5-flash` and ₹0.39 to `gpt-5.4-mini`. None of them is a rate: `llm_cost_inr_per_minute` takes a duration because §6.1 resends the whole conversation each turn, and it takes `model` as a required keyword because the offered set now spans **7.7x per minute** at five minutes — from ₹0.11 to ₹0.85.
 
-**The cheapest offered model is not the platform default, and the surcharge floors at zero because of it.** `gemini-2.5-flash-lite` costs us less per minute than `gpt-4o-mini`, which the plan's rate is struck at, so `billing/rates.py::is_surchargeable_llm_model` compares both token legs against the base model and returns False for anything at or below it — a client who moves to a cheaper model keeps their plan rate and is **not** charged an upgrade. There is no negative arm: a derived discount would publish our margin in the one direction a client could arithmetic backwards (D-455's own argument for why what a client pays is a plan term rather than a figure derived from supplier cost).
+**The cheapest offered model IS the platform default now, and the surcharge floors at zero because the BASE-RATE model is a different, dearer one.** ⚠ This paragraph used to open "the cheapest offered model is not the platform default": on 4 Sep 2026 the founder made `gemini-2.5-flash-lite` what an account runs when it has chosen nothing, and the two facts came apart deliberately — `billing/rates.BASE_RATE_LLM_MODEL` stays frozen at `gpt-4o-mini` so that moving the platform default cannot re-classify what any account is billed for (D-455), and an account that FOLLOWS the default is never surcharged whatever it resolves to. `gemini-2.5-flash-lite` costs us less per minute than `gpt-4o-mini`, which the plan's rate is struck at, so `billing/rates.py::is_surchargeable_llm_model` compares both token legs against the base model and returns False for anything at or below it — a client who moves to a cheaper model keeps their plan rate and is **not** charged an upgrade. There is no negative arm: a derived discount would publish our margin in the one direction a client could arithmetic backwards (D-455's own argument for why what a client pays is a plan term rather than a figure derived from supplier cost).
 
 | Combination | Per call-minute |
 |---|---|
-| **Bulbul v3 + `gpt-4o-mini`** (D-410 default) | **₹1.74–2.28** |
+| **Bulbul v3 + `gemini-2.5-flash-lite`** *(the PLATFORM DEFAULT since 4 Sep 2026 - the three legs above added at their five-minute figures)* | **₹1.69–2.23** |
+| Bulbul v3 + `gpt-4o-mini` *(D-410's default, and still the base-rate model)* | ₹1.74–2.28 |
 | Bulbul v3 + `gpt-4.1-mini` *(the switch — what it costs, stated where the choice is made)* | ₹2.02–2.56 |
 | **Bulbul v3 + Sarvam LLM** *(what runs today; cheapest verified stack)* | **₹1.58–2.12** |
 

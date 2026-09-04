@@ -734,7 +734,7 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
         # None`, AND BOTH HALVES CHANGED FOR A REASON.**
         #
         # * **It is no longer Azure-only**, because the platform default no longer has to be
-        #   an Azure model (`Settings.platform_llm_model`, D-541). The old spelling would
+        #   an Azure model (`Settings.platform_llm_model`). The old spelling would
         #   have refused every publish on a deployment whose default is a Gemini model and
         #   whose Google key is not installed yet — i.e. CI, every local run, and the
         #   founder's own deployment between the decision and the ops-console work. What the

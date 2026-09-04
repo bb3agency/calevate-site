@@ -686,7 +686,7 @@ def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together
     monkeypatch.setattr(
         get_settings(), "azure_openai_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False
     )
-    # AND THE PLATFORM'S OWN DEFAULT IS ITS OWN SETTING (D-541): `azure_openai_model` says
+    # AND THE PLATFORM'S OWN DEFAULT IS ITS OWN SETTING: `azure_openai_model` says
     # which model the deployment was made from, `platform_llm_model` says what an account
     # that has chosen nothing runs. This case is about the Azure leg, so it puts the platform
     # rung on the Azure model; the shipped default is a Google one.
