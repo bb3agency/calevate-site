@@ -50,7 +50,11 @@ import { Archive, Roster } from "./Roster";
  * a client's account. The three are mutually exclusive branches, not a ladder that falls
  * through.
  */
-export default function AgentsPage({ params }: { params: Promise<{ slug: string }> }) {
+export default function AgentsPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = use(params);
   const session = useClientSession();
   const { href } = useClientRealm();
@@ -86,24 +90,35 @@ export default function AgentsPage({ params }: { params: Promise<{ slug: string 
       },
       ...(agents.data
         ? [
-            { key: "agents_total", label: "Agents on the working roster", value: String(roster.length) },
+            {
+              key: "agents_total",
+              label: "Agents on the working roster",
+              value: String(roster.length),
+            },
             {
               key: "agents_working",
-              label: "Agents working right now (on the calling system and switched on)",
-              value: String(roster.filter((agent) => agentGroup(agent) === "active").length),
+              label:
+                "Agents working right now (on the calling system and switched on)",
+              value: String(
+                roster.filter((agent) => agentGroup(agent) === "active").length,
+              ),
             },
             {
               key: "agents_not_working",
               label: "Agents not working (being built, or switched off)",
-              value: String(roster.filter((agent) => agentGroup(agent) !== "active").length),
+              value: String(
+                roster.filter((agent) => agentGroup(agent) !== "active").length,
+              ),
             },
             {
               key: "agent_directions",
               label: "How many answer, call out, or both",
-              value:
-                (["inbound", "outbound", "both"] as const)
-                  .map((direction) => `${direction}: ${roster.filter((agent) => agent.direction === direction).length}`)
-                  .join(", "),
+              value: (["inbound", "outbound", "both"] as const)
+                .map(
+                  (direction) =>
+                    `${direction}: ${roster.filter((agent) => agent.direction === direction).length}`,
+                )
+                .join(", "),
             },
           ]
         : []),
@@ -114,9 +129,13 @@ export default function AgentsPage({ params }: { params: Promise<{ slug: string 
   return (
     <div className="space-y-5 pb-12">
       <div className="flex flex-wrap items-start justify-between gap-3">
+        {/* ONE LINE (D-527). The founder's note on this screen was that there is too much
+            to read; the page already carries an "Agents" heading from the layout and a New
+            agent button beside it, and a paragraph enumerating what an agent's own screen
+            can do is read by nobody who is here to see which agent is working. What the
+            line keeps is the only thing the heading does not say: that a row opens. */}
         <p className="max-w-2xl text-sm text-ink-muted">
-          The phone agents working for your business. Open one to write what it says, teach
-          it, change what it announces at the start of a call, or switch it on and off.
+          Open one to change what it says, teach it, or switch it on and off.
         </p>
         {/* The section's one creating control, at the top where a person looks for it —
             and repeated inside the first-run empty state below, which is the other place
@@ -128,7 +147,12 @@ export default function AgentsPage({ params }: { params: Promise<{ slug: string 
         </Link>
       </div>
 
-      {agents.error && <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />}
+      {agents.error && (
+        <ProblemNotice
+          error={agents.error}
+          onRetry={() => void agents.refetch()}
+        />
+      )}
 
       {agents.isLoading ? (
         <Card bodyClassName="p-4">

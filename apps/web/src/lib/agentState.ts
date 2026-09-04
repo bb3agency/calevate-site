@@ -107,12 +107,19 @@ export const LANGUAGE_NAMES: Record<AgentLanguage, string> = {
 };
 
 export const STATUS_COPY: Record<string, { label: string; hint: string }> = {
-  draft: { label: "Draft", hint: "Still being put together by your account manager." },
+  draft: {
+    label: "Draft",
+    hint: "Still being put together by your account manager.",
+  },
   live: { label: "Switched on", hint: "Cleared to take calls." },
   paused: { label: "Paused", hint: "Switched off for now, on purpose." },
+  /* "Deleted", not "Archived" (D-527): the console calls the move Delete, in the founder's
+     word, and a badge that names the state by the OTHER word leaves an owner unable to
+     connect the button they pressed to the row in front of them. The hint carries the
+     honest half the old label carried implicitly — the history is kept. */
   [ARCHIVED_STATUS]: {
-    label: "Archived",
-    hint: "Retired. It takes no calls and makes none, and its call history is kept.",
+    label: "Deleted",
+    hint: "Deleted. It takes no calls and makes none, and its call history is kept.",
   },
 };
 
