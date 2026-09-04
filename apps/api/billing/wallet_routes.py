@@ -44,7 +44,7 @@ NOT mounted here — the integrator wires this router into `main.py`.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
@@ -180,6 +180,42 @@ class WalletOut(Strict):
     #: their wallet that they cannot call.
     minutes_left: int | None
     drawdown: DrawdownOut
+    #: WHAT THIS CLIENT PAID FOR versus WHAT WE GAVE THEM, over the life of the wallet
+    #: (D-535). The founder's own guardrail: a statement must distinguish credit they
+    #: BOUGHT from credit we GAVE, so the screen can say so rather than showing one
+    #: undifferentiated balance. Lifetime, unlike `drawdown`, which is the 30-day window —
+    #: "how much of this did you fund" is a fact about the relationship.
+    paid_inr: Decimal
+    granted_inr: Decimal
+    #: IS THIS CLIENT'S CALLING ON US, AND UNTIL WHEN (D-536)? Null for an account that has
+    #: never had a trial. While it is `active`, `outbound_stopped` above is false whatever
+    #: the balance says and `minutes_left` is null — the wallet is not what limits them —
+    #: and this block is what lets the screen say why instead of showing a client with an
+    #: empty wallet a service that is inexplicably still working.
+    trial: WalletTrialOut | None
+
+
+class WalletTrialOut(Strict):
+    """The trial, as its own client reads it. Dates and a count; no cost, ever.
+
+    What an OPERATOR sees on the same trial includes `cost_to_us_inr` — our real supplier
+    cost — and that figure is commercially ours and has never appeared on a client panel
+    (`billing/trial_routes.TrialStatusOut`). The client's equivalent is
+    `usage_summary`'s `trial_absorbed_inr`, which is priced at the CLIENT'S OWN rate: what
+    the service they are using is worth to them, not what it costs us to provide.
+    """
+
+    active: bool
+    #: `active` / `converted` / `expired` / `stopped`, as stored — so a screen can say
+    #: "your trial ended on the 3rd" rather than only "you are not on a trial".
+    status: str
+    days: int
+    started_at: datetime
+    ends_at: datetime
+    #: Whole days left, rounded UP, or null once it is over. Four hours left reads "1 day":
+    #: rounding down would tell somebody with a working service it had stopped.
+    days_remaining: int | None
+    ended_at: datetime | None
 
 
 class WalletEntryOut(Strict):
@@ -198,7 +234,8 @@ class WalletEntryOut(Strict):
     #: SIGNED — negative took credit off the wallet. The sign is the only place direction
     #: lives, and the screen reads it off the DIGITS rather than through `Number()`.
     delta_inr: Decimal
-    #: `topup` · `usage` · `adjustment` · `refund` · `bonus`, as stored.
+    #: `topup` · `usage` · `adjustment` · `refund` · `bonus` · `grant`, as stored.
+    #: `grant` is credit Calevate gave this account with no payment behind it (D-535).
     reason: str
     ref: str | None
     balance_after_inr: Decimal
@@ -372,6 +409,21 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
             spent_inr=to_paise(summary.drawdown.spent_inr),
             added_inr=to_paise(summary.drawdown.added_inr),
             refunded_inr=to_paise(summary.drawdown.refunded_inr),
+        ),
+        paid_inr=to_paise(summary.totals.paid_inr),
+        granted_inr=to_paise(summary.totals.granted_inr),
+        trial=(
+            WalletTrialOut(
+                active=summary.trial.is_active(at=datetime.now(UTC)),
+                status=summary.trial.status,
+                days=summary.trial.days,
+                started_at=summary.trial.started_at,
+                ends_at=summary.trial.ends_at,
+                days_remaining=summary.trial.days_remaining(at=datetime.now(UTC)),
+                ended_at=summary.trial.ended_at,
+            )
+            if summary.trial is not None
+            else None
         ),
     )
 

@@ -904,6 +904,25 @@ class AttentionOut(Strict):
     items: list[AttentionItemOut]
 
 
+class UsageTrialOut(BaseModel):
+    """Whether this client's calling is on us, and until when (D-536).
+
+    The CLIENT's view of a trial. It carries no cost figure of any kind — what this trial
+    costs Calevate is our supplier price and lives on the operator's own read
+    (`billing/trial_routes.TrialStatusOut.cost_to_us_inr`); what the client is being given
+    is `trial_absorbed_inr` beside this block, at their own rate.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    active: bool
+    #: Whole days left, rounded UP, or null once it is over. Four hours left reads "1 day":
+    #: rounding down would tell somebody with a working service that it had stopped.
+    days_remaining: int | None
+    #: When it runs out. Null once it has.
+    ends_at: datetime | None
+
+
 class UsagePanelOut(Strict):
     """GET /v1/usage — this month's usage and what it costs (SURFACES §2b).
 
@@ -971,6 +990,18 @@ class UsagePanelOut(Strict):
     # Credits only mean something for the self-serve motion (D-34); None for a managed
     # client, whose ₹0 wallet would otherwise invite a support ticket.
     credit_balance_inr: str | None
+    # IS THIS PERIOD ON US (D-536)? Always present — `active: false` for every account that
+    # has never had a trial — because a key that appears and disappears is a key a screen
+    # forgets to handle, and this one decides how the two money figures above are read.
+    #
+    # While it is active, `month_charges_inr` and `spend_used_inr` are BOTH ₹0.00 and that
+    # is not a bug in the meter: every minute was recorded, and the window this panel counts
+    # over starts at the trial's own start, so everything in it was free when it happened.
+    # `trial_absorbed_inr` is what those same minutes WOULD have cost at this client's own
+    # rate — published so the screen can say what the service is worth rather than leaving a
+    # month of work reading as nothing.
+    trial: UsageTrialOut
+    trial_absorbed_inr: str
 
 
 __all__ = [
@@ -1008,4 +1039,5 @@ __all__ = [
     "SavedViewUpdateIn",
     "TranscriptTurnOut",
     "UsagePanelOut",
+    "UsageTrialOut",
 ]
