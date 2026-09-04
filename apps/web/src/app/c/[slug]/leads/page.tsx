@@ -1341,17 +1341,29 @@ export default function LeadsPage() {
  * of it. An unknown rule adds nothing rather than printing itself.
  */
 function blockedRemedy(rule: string | null | undefined): ReactNode {
+  // BOTH SCREENS ARE ONE SCREEN NOW (D-525). This used to name "Calling credit" and
+  // "Usage", which were two of the four money screens; they are tabs of Credits & billing,
+  // so the destination is the same in both arms and only the tab differs. The tab is not
+  // named here on purpose — a client who lands on the screen sees the balance and the
+  // limit without being told which tab to press, and a tab name is one more thing that
+  // goes stale on a screen this sentence cannot see.
   if (rule === "no_credits") {
     return (
       <>
         {" "}
-        People ringing you still get through. Top up on the Calling credit screen and
-        outgoing calls start again.
+        People ringing you still get through. Add credit on the Credits &amp; billing
+        screen and outgoing calls start again.
       </>
     );
   }
   if (rule === "spend_cap") {
-    return <> People ringing you still get through. Your monthly limit is on Usage.</>;
+    return (
+      <>
+        {" "}
+        People ringing you still get through. Your monthly limit is on Credits &amp;
+        billing.
+      </>
+    );
   }
   return null;
 }

@@ -21,7 +21,7 @@ import type { CopilotNavigation } from "@/lib/copilot/types";
  *
  * `route` is deliberately not rendered anywhere. It is an internal address, and route paths
  * are banned from everything a client reads; `where` is what a person is told, in the
- * console's own vocabulary ("Calling credit, under Settings & account in the left sidebar").
+ * console's own vocabulary ("Credits & billing, under Settings & account in the left sidebar").
  */
 export function NavigationReceipt({ navigation }: { navigation: CopilotNavigation }) {
   return (

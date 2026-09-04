@@ -445,7 +445,7 @@ export function CopilotPanel({
           error={null}
           onCancel={() => {
             setLeaving(null);
-            // The receipt goes with it: "Opening Calling credit" stops being true the
+            // The receipt goes with it: "Opening Credits & billing" stops being true the
             // moment they say no, and a card left standing would be the assistant claiming
             // something it did not do.
             clearNavigation();
