@@ -159,7 +159,7 @@ ASSIST_FEATURE_COPILOT_MEMORY: Final = "copilot_memory_distillation"
 ASSIST_FEATURE_KB_GLOSS: Final = "kb_gloss"
 
 #: `usage_events.meta.feature` for READING A PHOTOGRAPH a client uploaded as knowledge
-#: (`apps/workers/document_ocr.py`, driven by `apps/workers/kb_ingest.py`) — D-532.
+#: (`apps/workers/document_ocr.py`, driven by `apps/workers/kb_ingest.py`) — D-534.
 #:
 #: A SEVENTH name, and it belongs beside `kb_gloss` rather than inside it: both are AI
 #: spend on a client's knowledge, and they answer different questions. A gloss is

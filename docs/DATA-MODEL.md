@@ -380,6 +380,29 @@ engine_kb_routes(engine, engine_kb_ref, tenant_id, agent_id, source_id, digest,
   -- the vendor's copy at the moment we promise a client it is gone.
   -- The row is deleted on detach, because a claim on an object we no longer believe
   -- exists is exactly what the orphan sweep must not see.
+kb_uploads(id, tenant_id, agent_id, source_id, source_kind ENUM[pdf,url,docx,txt,csv,
+  xlsx,image], original_key, original_filename, original_bytes, original_sha256,
+  content_type, source_url, document_key, document_sha256, text_provenance ENUM[parsed,
+  ocr], extractor, ingest_status ENUM[received,converting,conversion_unavailable,
+  conversion_failed,processing,processed,error], ingest_detail, content_digest,
+  last_checked_at, change_detected_at, UNIQUE(source_id))
+  -- THE FILE, PHOTOGRAPH OR LINK BEHIND ONE kb_sources VERSION (D-534, migration
+  -- b3f7c21ea940). 1:1 with that version, because an upload IS a knowledge source: it is
+  -- approved, versioned, published, superseded and expired by the machinery above. What
+  -- lives here is only what is true of an uploaded ORIGINAL; the review state, the
+  -- submitter and the live flag stay on kb_sources and are NOT duplicated.
+  -- WHAT EACH KIND BECOMES: a `pdf` is handed to the engine as the client's own bytes
+  -- (document_key = original_key) and what a reviewer approves is the file itself; a `url`
+  -- is scraped BY the engine (no document_key, nothing of ours to upload); every other
+  -- kind has its TEXT extracted by the conversion lane
+  -- (`calevate_shared.document_ingest`), chunked into kb_documents, and published through
+  -- the one renderer — so a client's own bytes never route around the approval gate.
+  -- NO `rag_id`-shaped second vendor identifier: the handle an agent references lives on
+  -- engine_kb_routes and nowhere else (hard rule 2, `tests/kb_boundaries_test.py`).
+  -- content_digest is OUR reading of a link's visible text, for change detection only —
+  -- a materially changed page submits a NEW version for review and leaves the live one
+  -- serving. FORCEd RLS `tenant_isolation` in the same migration: every row either is the
+  -- client's content or names an object-storage key that dereferences to it.
 kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
   embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,
   chunk_meta JSONB, version INT, is_active BOOL)   -- BUILT (D-502, migration dc1aaeeeff02)

@@ -99,7 +99,7 @@ def test_the_kb_path_reaches_the_engine_only_through_the_protocol() -> None:
 
 
 def test_every_object_key_the_kb_path_writes_is_covered_by_a_lifecycle_rule() -> None:
-    """The KB path DOES write to the bucket now (D-532), so the tripwire becomes the check
+    """The KB path DOES write to the bucket now (D-534), so the tripwire becomes the check
     it was a placeholder for.
 
     THIS TEST USED TO ASSERT THE OPPOSITE — that `apps/api/kb` touches no bucket at all —

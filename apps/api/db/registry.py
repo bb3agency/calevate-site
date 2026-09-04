@@ -182,7 +182,7 @@ TENANT_TABLES = [
     "outbound_webhooks",
     "kb_sources",
     "kb_documents",
-    # The uploaded original behind a knowledge source version (D-532, migration
+    # The uploaded original behind a knowledge source version (D-534, migration
     # `b3f7c21ea940`): a client's PDF, spreadsheet, photograph or link. Tenant-scoped
     # and FORCE-RLS'd because every row either IS the client's content or dereferences
     # to it — `original_key` and `document_key` are object-storage keys pointing at the

@@ -266,7 +266,7 @@ async def insert_source_version(
 ) -> tuple[UUID, int, str]:
     """Mint the next VERSION row of a named source. Answers `(id, version, status)`.
 
-    **EXTRACTED FROM `submit_source` RATHER THAN COPIED INTO THE UPLOAD PATH (D-532).** An
+    **EXTRACTED FROM `submit_source` RATHER THAN COPIED INTO THE UPLOAD PATH (D-534).** An
     uploaded document is a knowledge source version in every respect that matters — it is
     reviewed, versioned, published, superseded and expired by this module's machinery — and
     the two things that must not be re-derived beside it are the authorisation read and the

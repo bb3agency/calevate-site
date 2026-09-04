@@ -1,4 +1,4 @@
-"""Uploads, links and the ingest path (D-532) — the properties that must not regress.
+"""Uploads, links and the ingest path (D-534) — the properties that must not regress.
 
 The feature's whole point is that a client can hand their agent a DOCUMENT, so what is
 worth testing is not that a row lands: it is the six places this could quietly go wrong.

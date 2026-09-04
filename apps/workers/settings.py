@@ -223,7 +223,7 @@ FUNCTIONS: list[Any] = [
         # stated failure ("a client whose phone stops being answered because a top-up
         # lapsed is a client who leaves"). `check_job_wiring` shape 3.
         notify_low_balance,
-        # D-532. The upload lane's one job: read a client's document into text, approve it
+        # D-534. The upload lane's one job: read a client's document into text, approve it
         # if its submitter could, and publish it to the voice platform. Enqueued through
         # the OUTBOX in the same transaction as the `kb_uploads` row, so an unregistered
         # name here is the `check_job_wiring` shape 3 failure with a screen behind it — the
@@ -558,7 +558,7 @@ CRON_JOBS = [
         minute=set(GLOSS_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
-    # THE UPLOAD SWEEP (D-532), and it is two jobs that are one job seen twice: re-drive an
+    # THE UPLOAD SWEEP (D-534), and it is two jobs that are one job seen twice: re-drive an
     # ingestion that stalled, and re-read a client's LINK to see whether the page still
     # says what they approved. Both walk `kb_uploads` asking "does this row still reflect
     # reality", which is why they share a tick rather than a second registration.

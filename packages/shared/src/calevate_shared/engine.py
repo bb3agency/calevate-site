@@ -3134,7 +3134,7 @@ class KBSourceRef(BaseModel):
     #: Hex SHA-256 of `document`, when there is one. The publisher's re-upload guard.
     content_sha256: str | None = None
     #: A WEB PAGE the engine is asked to fetch for itself, instead of a document we upload
-    #: (D-532). Set only for a knowledge source a client added as a LINK.
+    #: (D-534). Set only for a knowledge source a client added as a LINK.
     #:
     #: **IT IS EXCLUSIVE WITH `document`, AND THAT IS THE VENDOR'S CONSTRAINT SHOWING
     #: THROUGH, NOT OURS.** The engine this product runs on takes `file` OR `url` on one

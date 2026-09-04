@@ -1616,6 +1616,21 @@ _VENDOR_ONLY_KEYS = frozenset(
         # every other shipped mention is prose explaining the vendor, which the AST reader
         # ignores.
         "api_tools",
+        # THE HUMAN-HANDOFF TOOL, IN THE VENDOR'S FIVE NOUNS (D-533). Bolna keeps the
+        # tools' execution config beside their definitions at
+        # `tools_config.api_tools.tools_params`, keyed by tool name, and the destination
+        # inside a stringified `param` blob as `call_transfer_number`; the notification is
+        # configured with `pre_call_webhook_url` / `pre_call_webhook_param`
+        # (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:1036-1062`,
+        # `bolna-findings/mirror/pages/tool-calling/transfer-calls.md`). OUR words for the
+        # same concepts are `HandoffSpec.destination_e164` and `.brief_url`, so any of
+        # these five appearing outside the adapter would be a vendor spelling that escaped
+        # — `api_tools`' case exactly, one level deeper.
+        "call_transfer_number",
+        "param",
+        "pre_call_webhook_param",
+        "pre_call_webhook_url",
+        "tools_params",
         # THE KNOWLEDGE LINKAGE, IN THE VENDOR'S FOUR NOUNS (D-488). The agent references
         # a knowledge base through `llm_config.vector_store.provider_config.vector_ids`
         # (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:806-817,1164-1195`),
@@ -1834,7 +1849,7 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "languages",
         "content",
         "context_note",
-        # THE FORM FIELD A KNOWLEDGE BASE IS BUILT FROM WHEN IT IS A WEB PAGE (D-532). The
+        # THE FORM FIELD A KNOWLEDGE BASE IS BUILT FROM WHEN IT IS A WEB PAGE (D-534). The
         # adapter sends `url` as one half of the vendor's "provide either `file` or `url`"
         # multipart route — and `url` is our word at least as much as theirs: it is a
         # column on `outbound_webhooks`, a field on half the models in this repo, and the

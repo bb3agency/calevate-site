@@ -229,7 +229,7 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             )
             ids[key] = str(row_id)
 
-        # THE UPLOADED DOCUMENT (D-532). It hangs off the `kb_sources` row seeded above
+        # THE UPLOADED DOCUMENT (D-534). It hangs off the `kb_sources` row seeded above
         # rather than off the tenant directly, so it is inserted after the loop. It matters
         # more than most rows here: `{upload_id}` addresses a client's own uploaded file,
         # and one of its routes hands back a PRESIGNED URL to that file — a leak there is a
@@ -442,7 +442,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # `recorded_payments` runs inside `tenant_session`, so the row is invisible to the
     # statement and the answer is a 404 that no handler had to remember to produce.
     ("GET", "/v1/billing/wallet/receipts/{payment_ref}", {}, {}),
-    # The knowledge UPLOAD lane (D-532). `/original` is the one to look at twice: it
+    # The knowledge UPLOAD lane (D-534). `/original` is the one to look at twice: it
     # answers with a presigned object-storage URL, which is a bearer credential for a
     # client's own document with nothing else in front of it — so "invisible row, 404"
     # has to hold before the key is ever read, and it does because every one of these

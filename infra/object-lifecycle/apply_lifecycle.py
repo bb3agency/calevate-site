@@ -66,7 +66,7 @@ PAYLOADS_PREFIX = "engine-payloads/"
 # request ever names.
 BODIES_PREFIX = "webhook-bodies/"
 # A client's own uploaded knowledge — the PDF, the spreadsheet, the photograph of a price
-# list (D-532, `storage.kb_object_key`). A CEILING and nothing else, and the number is
+# list (D-534, `storage.kb_object_key`). A CEILING and nothing else, and the number is
 # `webhook-bodies/`': these objects are the LIVE artefact behind a published knowledge
 # source, so an expiry short enough to be a retention mechanism would delete the document a
 # client's agent answers from and the file a reviewer opens. They are removed on purpose in

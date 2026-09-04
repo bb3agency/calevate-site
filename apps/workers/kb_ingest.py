@@ -1,4 +1,4 @@
-"""From an uploaded file or a link to knowledge an agent can answer from (D-532).
+"""From an uploaded file or a link to knowledge an agent can answer from (D-534).
 
 **THIS IS THE ONLY PLACE THE THREE LANES MEET.** The API stores the bytes and mints a
 `kb_sources` version (`apps/api/kb/uploads.py`); the conversion lane turns a document into

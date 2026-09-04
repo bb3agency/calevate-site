@@ -160,7 +160,7 @@ async def preview_source(
     return [ChunkOut.model_validate(c) for c in await service.preview(session, source_id)]
 
 
-# --- Uploads and links: the half of this screen that did not exist (D-532) ---------
+# --- Uploads and links: the half of this screen that did not exist (D-534) ---------
 #
 # `/c/{slug}/knowledge` offered a title box and a text box, so a clinic with a price list
 # in a Word file had to retype it. These six routes are the door for a document, a

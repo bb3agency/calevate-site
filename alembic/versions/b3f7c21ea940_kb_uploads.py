@@ -4,7 +4,7 @@ Revision ID: b3f7c21ea940
 Revises: a8d3f61c04e7
 Create Date: 2026-09-04
 
-D-532. `/c/{slug}/knowledge` offered a client a title box and a text box, so the only way
+D-534. `/c/{slug}/knowledge` offered a client a title box and a text box, so the only way
 to teach an agent a price list was to retype it. This table is the row behind an UPLOAD —
 a PDF, a Word file, a spreadsheet, a photograph of a laminated menu, or a link — and it is
 deliberately a SIDE TABLE on `kb_sources` rather than a second knowledge system.

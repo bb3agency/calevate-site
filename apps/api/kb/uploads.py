@@ -1,4 +1,4 @@
-"""Uploads and links: the half of the Knowledge screen that was missing (D-532).
+"""Uploads and links: the half of the Knowledge screen that was missing (D-534).
 
 `/c/{slug}/knowledge` offered a client a title box and a text box, so a clinic with a
 four-page price list in a Word file had to retype it, and a shop whose menu exists only as
