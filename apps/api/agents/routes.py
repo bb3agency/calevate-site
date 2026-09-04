@@ -613,12 +613,15 @@ async def deactivate_agent_route(
     "/v1/agents/{agent_id}/archive",
     response_model=AgentLifecycleOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Retire the agent (draft, active or inactive -> archived)",
+    summary="Retire the agent — the console's Delete (draft or inactive -> archived)",
     description=(
         "An archived agent is never dialled and cannot be given to a campaign. It is NOT "
         "deleted: the agent, its scripts and every call it ever took stay readable, and "
-        "it can be restored. Archiving an active agent also releases the numbers it was "
-        "answering."
+        "it can be restored. Archiving releases any numbers the agent was answering.\n\n"
+        "**An ACTIVE agent is refused with `agent_is_live` (409).** Switching off is a "
+        "separate, deliberate decision (D-527): the client console shows this move as "
+        "Delete on every row of the roster, and no single click there may take a working "
+        "phone line down. Deactivate first, then archive."
     ),
 )
 async def archive_agent_route(

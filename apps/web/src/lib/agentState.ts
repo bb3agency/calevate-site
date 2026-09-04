@@ -156,7 +156,13 @@ export function humanise(value: string): string {
  */
 const MOVES_BY_STATUS: Record<string, readonly LifecycleMove[]> = {
   draft: ["activate", "archive"],
-  live: ["deactivate", "archive"],
+  /* NO `archive` ON A LIVE AGENT, and the omission is the server's (D-527): deleting is
+     refused with `agent_is_live` until the agent is switched off, because the console puts
+     Delete on every row of the roster and one click there may not end a working phone
+     line. The roster still SHOWS the control on a live agent — pressing it explains the
+     one thing to do first and offers Switch off — which is not the same as offering a
+     move that would 409. */
+  live: ["deactivate"],
   paused: ["activate", "archive"],
   [ARCHIVED_STATUS]: ["restore"],
 };
