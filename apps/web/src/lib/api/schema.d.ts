@@ -318,6 +318,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/copilot/conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The operator's own conversation with the admin assistant — durable, paged
+         * @description One page of this operator's live conversation (D-540).
+         *
+         *     `untenanted_session`, and it is the correct one rather than a convenient one:
+         *     `admin_copilot_conversation_turns` carries no `tenant_id` and no policy (these are the
+         *     platform's own rows — `db/registry.py` holds the standing justification), so there is
+         *     no tenant to scope to and `admin_session` would widen `organizations` for no reason.
+         *     The `admin_user_id` predicate is the whole of the scoping, exactly as on
+         *     `admin_copilot_memories`.
+         *
+         *     The thread is NOT scoped on the account the operator happens to be viewing. It is one
+         *     conversation and it follows them across screens — which is the founder's decision 3
+         *     (the screen is recorded per message) applied to a console where "the screen" includes
+         *     "whose account". `viewing_tenant_id` is on every row, so the provenance of a turn is
+         *     recoverable; what is not on offer is a separate thread per client, which would change
+         *     underneath an operator the moment the assistant moved them.
+         */
+        get: operations["load_admin_copilot_conversation_v1_admin_copilot_conversation_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Start again — forget this operator's assistant conversation
+         * @description Forget this operator's whole conversation. No audit row, for the client route's
+         *     reason: what is audited is every answer and every change, not a person clearing a
+         *     panel.
+         */
+        delete: operations["clear_admin_copilot_conversation_v1_admin_copilot_conversation_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/impersonation-grants": {
         parameters: {
             query?: never;
@@ -4059,6 +4099,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/copilot/conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The conversation you are already having — durable, per person, paged
+         * @description The conversation you are already having with the assistant, so it survives a refresh, a
+         *     navigation, and a browser you closed yesterday afternoon.
+         *
+         *     **It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open
+         *     and both show the same thread — the desktop's copy simply does not know about the phone's
+         *     newest turn until it loads again, which is the whole of the concurrency story here:
+         *     there is no realtime channel and none is needed (see `load_copilot_conversation`).
+         *
+         *     **It ends when your LAST session ends.** Signing out on one device does not take the
+         *     thread away from another, but signing out of the last one does, and so does letting the
+         *     last one expire.
+         *
+         *     Turns come back oldest first, at most `limit` of them, newest page first: pass the `id`
+         *     of the oldest turn you hold as `before` to page backwards. `has_more` says whether
+         *     anything older exists. `content` is the REDACTED form — a screen value that looked like a
+         *     phone number was replaced by a placeholder before the question ever left the browser, and
+         *     the placeholder is what was stored.
+         *
+         *     Requires `copilot:use`.
+         */
+        get: operations["load_copilot_conversation_v1_copilot_conversation_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Start again — forget this conversation on every device
+         * @description Forget this person's whole conversation.
+         *
+         *     **NO `audit_log` ROW, AND THAT IS HARD RULE 6 RATHER THAN AN OMISSION.** An audit
+         *     entry naming "this person cleared their assistant conversation" records nothing anyone
+         *     can act on and puts a per-person behavioural trail on the compliance chain; the rows
+         *     it describes carry a client's staff prose and are deliberately not durable. What IS
+         *     audited is every ANSWER (`copilot.ask`) and every CHANGE the assistant made
+         *     (`copilot/write_tools.py`), and neither is touched by this.
+         *
+         *     It clears every device, because there is one conversation and it belongs to the
+         *     person. A second device discovers it on its next load, which is the same contract as
+         *     every other turn.
+         */
+        delete: operations["clear_copilot_conversation_v1_copilot_conversation_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/dashboard": {
         parameters: {
             query?: never;
@@ -7577,6 +7670,44 @@ export interface components {
             tool: string;
         };
         /**
+         * CopilotConversationClearedOut
+         * @description `DELETE /v1/copilot/conversation` — what "start again" forgot.
+         *
+         *     A count rather than a bare 204, because it is the one number that distinguishes "your
+         *     conversation is gone" from "there was nothing there" — and because a person who
+         *     clicked Clear on a device whose thread had already been swept by the run rule should
+         *     not be told something happened that did not.
+         */
+        CopilotConversationClearedOut: {
+            /** Cleared */
+            cleared: number;
+        };
+        /**
+         * CopilotConversationOut
+         * @description `GET /v1/copilot/conversation` — one page of the live conversation, oldest first.
+         *
+         *     A conversation is a LIST, so it is paged and it has a ceiling: `limit` is bounded at
+         *     the route and the store itself caps a conversation at `transcript.MAX_STORED_TURNS`.
+         *     `has_more` says whether older turns exist BEFORE this page — the panel pages backwards
+         *     from the newest, which is the direction a chat is read.
+         *
+         *     An empty `turns` is the ordinary answer, not an error: a person who has not asked
+         *     anything this sign-in has no conversation, and neither does one whose previous run of
+         *     sessions has ended.
+         */
+        CopilotConversationOut: {
+            /**
+             * Has More
+             * @default false
+             */
+            has_more: boolean;
+            /**
+             * Turns
+             * @default []
+             */
+            turns: components["schemas"]["CopilotStoredTurnOut"][];
+        };
+        /**
          * CopilotFact
          * @description One read-only fact about the screen that is not a form control.
          */
@@ -7658,6 +7789,35 @@ export interface components {
             route: string;
             /** Title */
             title: string;
+        };
+        /**
+         * CopilotStoredTurnOut
+         * @description One turn of the stored conversation, as the panel renders it (D-540).
+         *
+         *     `content` IS THE REDACTED FORM and there is no second field beside it, which is the
+         *     one thing about this schema worth reading twice. The live panel holds two strings per
+         *     turn — what the person reads, with the screen's own digits restored, and the wire form
+         *     with the placeholders still in place — and only the second is ever stored
+         *     (`copilot/transcript.py` argues why). So a turn re-read after a reload shows
+         *     `«PHONE_1»` where the live one showed the number. That is the visible cost of not
+         *     keeping a caller's digits in a durable row, and it is the right way round.
+         *
+         *     `said_at` is an ISO-8601 instant in UTC; the browser renders it in IST, as everywhere.
+         */
+        CopilotStoredTurnOut: {
+            /** Content */
+            content: string;
+            /** Id */
+            id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Said At */
+            said_at: string;
+            /** Screen Route */
+            screen_route: string;
         };
         /**
          * CopilotTurn
@@ -15388,6 +15548,67 @@ export interface operations {
             };
         };
     };
+    load_admin_copilot_conversation_v1_admin_copilot_conversation_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConversationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    clear_admin_copilot_conversation_v1_admin_copilot_conversation_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConversationClearedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     mint_impersonation_grant_v1_admin_impersonation_grants_post: {
         parameters: {
             query?: never;
@@ -21632,6 +21853,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotConfirmOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    load_copilot_conversation_v1_copilot_conversation_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConversationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    clear_copilot_conversation_v1_copilot_conversation_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConversationClearedOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

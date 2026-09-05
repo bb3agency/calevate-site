@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiProblem, type Session } from "@/lib/api/client";
 
+import { clearConversation, loadConversation } from "./conversation";
 import { clearFilled, markFilled } from "./highlight";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
@@ -143,8 +144,29 @@ export interface CopilotConversation {
    * nothing is a valid answer to a suggestion, and the token simply stops verifying.
    */
   dismissProposal: () => void;
-  /** Forget the conversation — used when the surface underneath changes. */
+  /**
+   * Forget the conversation — the panel's "Start again", and the ONLY way a person
+   * removes one now that it is durable (D-540).
+   *
+   * IT REACHES THE SERVER. Before the transcript was stored this cleared React state and
+   * nothing else, and it had no caller at all: the dock unmounts the panel when the
+   * surface changes, so there was never anything to reset. A local-only clear now would
+   * be worse than no button — the conversation would be back on the next load, on the
+   * same device, with no explanation.
+   *
+   * The delete is fired and NOT awaited, and the local clear happens in the same tick:
+   * the click is answered immediately, and a failed delete surfaces afterwards as `error`
+   * rather than as a button that appeared to do nothing.
+   */
   reset: () => void;
+  /**
+   * True while the stored conversation is being fetched on mount.
+   *
+   * Separate from `asking`, which is a question in flight: this is the panel's own
+   * loading state, and rendering an empty transcript during it would show "no
+   * conversation" to somebody who has one.
+   */
+  loading: boolean;
 }
 
 /** The one code the server uses for the allowance ceiling; `AssistCard` reads the same. */
@@ -191,10 +213,52 @@ export function useCopilotConversation(
   const [actions, setActions] = useState<CopilotAction[]>([]);
   const [navigation, setNavigation] = useState<CopilotNavigation | null>(null);
   const [steps, setSteps] = useState<CopilotStep[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // The in-flight request, so a second question cancels the first rather than
   // interleaving two answers into one bubble.
   const inFlight = useRef<AbortController | null>(null);
+
+  // THE REALM, read once per render from the surface. It is what chooses the endpoint
+  // (`conversationPath`), and it is the same value `stream.ts` sends, so a conversation
+  // cannot be written on one realm and read on the other.
+  const realm = holder?.read().realm ?? null;
+
+  /*
+   * LOAD ON MOUNT (D-540). The panel is mounted when the launcher is opened and unmounted
+   * when the surface changes, so this runs once per opening — which is exactly when a
+   * person wants to see what they were saying.
+   *
+   * NOT a TanStack query, and the departure is worth one sentence because this console
+   * uses one for every other read. Those cache across mounts, which is precisely wrong
+   * here: the panel appends turns to LOCAL state as they stream, so a cached page would
+   * be a second, staler copy of a list that is already being mutated in place, and the
+   * two would fight on every re-open. One fetch per mount into the state that owns the
+   * list is one source of truth.
+   *
+   * A FAILURE IS SILENT, and that is not swallowing an error. The person still has a
+   * working assistant — they simply start from an empty panel — and an error banner
+   * above an empty chat explains nothing they can act on. What an OPERATOR can act on is
+   * the request itself, which is already in the API's own logs with its status.
+   */
+  useEffect(() => {
+    if (realm === null) return;
+    let live = true;
+    setLoading(true);
+    loadConversation(session, realm)
+      .then((stored) => {
+        // Only when nothing has been said yet: a person who typed a question before the
+        // load returned must not have it replaced by a page that predates it.
+        if (live) setTurns((previous) => (previous.length === 0 ? stored : previous));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [session, realm]);
 
   useEffect(
     () => () => {
@@ -207,6 +271,12 @@ export function useCopilotConversation(
   const reset = useCallback(() => {
     inFlight.current?.abort();
     inFlight.current = null;
+    // The server copy goes too (D-540). Fired before the local clear so an abort of the
+    // in-flight ask cannot race it, and its failure is reported: a person who was told
+    // their conversation was forgotten and finds it back tomorrow has been lied to.
+    if (realm !== null) {
+      void clearConversation(session, realm).catch((cause: unknown) => setError(cause));
+    }
     setTurns([]);
     setStreaming(null);
     setAsking(false);
@@ -218,7 +288,7 @@ export function useCopilotConversation(
     setNavigation(null);
     setSteps([]);
     clearFilled();
-  }, []);
+  }, [realm, session]);
 
   const dismissProposal = useCallback(() => setProposal(null), []);
   const clearNavigation = useCallback(() => setNavigation(null), []);
@@ -436,6 +506,7 @@ export function useCopilotConversation(
     clearNavigation,
     steps,
     atCeiling,
+    loading,
     ask,
     undo,
     dismissProposal,

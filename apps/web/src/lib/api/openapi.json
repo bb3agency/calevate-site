@@ -4239,6 +4239,42 @@
         "title": "CopilotConfirmOut",
         "type": "object"
       },
+      "CopilotConversationClearedOut": {
+        "additionalProperties": false,
+        "description": "`DELETE /v1/copilot/conversation` \u2014 what \"start again\" forgot.\n\nA count rather than a bare 204, because it is the one number that distinguishes \"your\nconversation is gone\" from \"there was nothing there\" \u2014 and because a person who\nclicked Clear on a device whose thread had already been swept by the run rule should\nnot be told something happened that did not.",
+        "properties": {
+          "cleared": {
+            "title": "Cleared",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cleared"
+        ],
+        "title": "CopilotConversationClearedOut",
+        "type": "object"
+      },
+      "CopilotConversationOut": {
+        "additionalProperties": false,
+        "description": "`GET /v1/copilot/conversation` \u2014 one page of the live conversation, oldest first.\n\nA conversation is a LIST, so it is paged and it has a ceiling: `limit` is bounded at\nthe route and the store itself caps a conversation at `transcript.MAX_STORED_TURNS`.\n`has_more` says whether older turns exist BEFORE this page \u2014 the panel pages backwards\nfrom the newest, which is the direction a chat is read.\n\nAn empty `turns` is the ordinary answer, not an error: a person who has not asked\nanything this sign-in has no conversation, and neither does one whose previous run of\nsessions has ended.",
+        "properties": {
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "turns": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CopilotStoredTurnOut"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "title": "CopilotConversationOut",
+        "type": "object"
+      },
       "CopilotFact": {
         "additionalProperties": false,
         "description": "One read-only fact about the screen that is not a form control.",
@@ -4412,6 +4448,45 @@
           "realm"
         ],
         "title": "CopilotScreen",
+        "type": "object"
+      },
+      "CopilotStoredTurnOut": {
+        "additionalProperties": false,
+        "description": "One turn of the stored conversation, as the panel renders it (D-540).\n\n`content` IS THE REDACTED FORM and there is no second field beside it, which is the\none thing about this schema worth reading twice. The live panel holds two strings per\nturn \u2014 what the person reads, with the screen's own digits restored, and the wire form\nwith the placeholders still in place \u2014 and only the second is ever stored\n(`copilot/transcript.py` argues why). So a turn re-read after a reload shows\n`\u00abPHONE_1\u00bb` where the live one showed the number. That is the visible cost of not\nkeeping a caller's digits in a durable row, and it is the right way round.\n\n`said_at` is an ISO-8601 instant in UTC; the browser renders it in IST, as everywhere.",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "said_at": {
+            "title": "Said At",
+            "type": "string"
+          },
+          "screen_route": {
+            "title": "Screen Route",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "screen_route",
+          "said_at"
+        ],
+        "title": "CopilotStoredTurnOut",
         "type": "object"
       },
       "CopilotTurn": {
@@ -22061,6 +22136,92 @@
         "x-calevate-permission": "copilot:admin"
       }
     },
+    "/v1/admin/copilot/conversation": {
+      "delete": {
+        "description": "Forget this operator's whole conversation. No audit row, for the client route's\nreason: what is audited is every answer and every change, not a person clearing a\npanel.",
+        "operationId": "clear_admin_copilot_conversation_v1_admin_copilot_conversation_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConversationClearedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start again \u2014 forget this operator's assistant conversation",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
+      },
+      "get": {
+        "description": "One page of this operator's live conversation (D-540).\n\n`untenanted_session`, and it is the correct one rather than a convenient one:\n`admin_copilot_conversation_turns` carries no `tenant_id` and no policy (these are the\nplatform's own rows \u2014 `db/registry.py` holds the standing justification), so there is\nno tenant to scope to and `admin_session` would widen `organizations` for no reason.\nThe `admin_user_id` predicate is the whole of the scoping, exactly as on\n`admin_copilot_memories`.\n\nThe thread is NOT scoped on the account the operator happens to be viewing. It is one\nconversation and it follows them across screens \u2014 which is the founder's decision 3\n(the screen is recorded per message) applied to a console where \"the screen\" includes\n\"whose account\". `viewing_tenant_id` is on every row, so the provenance of a turn is\nrecoverable; what is not on offer is a separate thread per client, which would change\nunderneath an operator the moment the assistant moved them.",
+        "operationId": "load_admin_copilot_conversation_v1_admin_copilot_conversation_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConversationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The operator's own conversation with the admin assistant \u2014 durable, paged",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
+      }
+    },
     "/v1/admin/impersonation-grants": {
       "post": {
         "description": "Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation \u2014 an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.\n\nSTARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not \u2014 send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.",
@@ -30820,6 +30981,92 @@
           }
         },
         "summary": "Do the change the assistant proposed \u2014 once, for the person who confirmed it",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/conversation": {
+      "delete": {
+        "description": "Forget this person's whole conversation.\n\n**NO `audit_log` ROW, AND THAT IS HARD RULE 6 RATHER THAN AN OMISSION.** An audit\nentry naming \"this person cleared their assistant conversation\" records nothing anyone\ncan act on and puts a per-person behavioural trail on the compliance chain; the rows\nit describes carry a client's staff prose and are deliberately not durable. What IS\naudited is every ANSWER (`copilot.ask`) and every CHANGE the assistant made\n(`copilot/write_tools.py`), and neither is touched by this.\n\nIt clears every device, because there is one conversation and it belongs to the\nperson. A second device discovers it on its next load, which is the same contract as\nevery other turn.",
+        "operationId": "clear_copilot_conversation_v1_copilot_conversation_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConversationClearedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start again \u2014 forget this conversation on every device",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
+      },
+      "get": {
+        "description": "The conversation you are already having with the assistant, so it survives a refresh, a\nnavigation, and a browser you closed yesterday afternoon.\n\n**It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open\nand both show the same thread \u2014 the desktop's copy simply does not know about the phone's\nnewest turn until it loads again, which is the whole of the concurrency story here:\nthere is no realtime channel and none is needed (see `load_copilot_conversation`).\n\n**It ends when your LAST session ends.** Signing out on one device does not take the\nthread away from another, but signing out of the last one does, and so does letting the\nlast one expire.\n\nTurns come back oldest first, at most `limit` of them, newest page first: pass the `id`\nof the oldest turn you hold as `before` to page backwards. `has_more` says whether\nanything older exists. `content` is the REDACTED form \u2014 a screen value that looked like a\nphone number was replaced by a placeholder before the question ever left the browser, and\nthe placeholder is what was stored.\n\nRequires `copilot:use`.",
+        "operationId": "load_copilot_conversation_v1_copilot_conversation_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConversationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The conversation you are already having \u2014 durable, per person, paged",
         "tags": [
           "copilot"
         ],

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Undo2, X } from "lucide-react";
+import { Eraser, Undo2, X } from "lucide-react";
 
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -185,14 +185,38 @@ export function CopilotPanel({
           </h2>
           <p className="truncate text-xs text-ink-faint">{surface.title}</p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close the assistant"
-          className="-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink dark:hover:bg-white/10"
-        >
-          <X aria-hidden className="h-4 w-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {/* START AGAIN (D-540), and it exists BECAUSE the conversation is now durable.
+              While the chat was React state, closing the panel was already a clear and a
+              button for it would have been a second way to do the same thing. Now the
+              thread follows a person across devices and outlives every refresh, so
+              "forget this" is the only way to end one — and it is the thing somebody
+              reaches for the moment they are about to hand their laptop to a colleague.
+
+              Shown only when there is something to forget: a control that says it will
+              do something and does nothing teaches people to distrust the ones beside
+              it. */}
+          {conversation.turns.length > 0 && (
+            <button
+              type="button"
+              onClick={conversation.reset}
+              disabled={conversation.asking}
+              aria-label="Forget this conversation and start again"
+              title="Start again"
+              className="-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink disabled:opacity-40 dark:hover:bg-white/10"
+            >
+              <Eraser aria-hidden className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close the assistant"
+            className="-mr-1 rounded-md p-1 text-ink-muted hover:bg-black/5 hover:text-ink dark:hover:bg-white/10"
+          >
+            <X aria-hidden className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
@@ -242,6 +266,15 @@ export function CopilotPanel({
         {/* `aria-live` on the region rather than on each bubble: a screen reader should
             hear the answer arrive without the transcript being re-read from the top. */}
         <div aria-live="polite" className="space-y-3">
+          {/* THE STORED CONVERSATION ARRIVING (D-540). `aria-hidden` on it: this is not
+              an answer and announcing "loading" into the same live region the answers
+              come through would put a status message in the middle of a transcript a
+              screen reader is reading back. */}
+          {conversation.loading && conversation.turns.length === 0 && (
+            <div aria-hidden>
+              <Skeleton rows={2} label="Loading your conversation…" />
+            </div>
+          )}
           {conversation.turns.map((turn, index) =>
             // The PERSON'S turn stays literal `pre-wrap`: they typed what they typed, and
             // rendering their asterisks as emphasis would edit their own words back at
