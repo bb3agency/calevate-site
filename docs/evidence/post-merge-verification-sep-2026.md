@@ -93,6 +93,63 @@ the POST reaches `…/resend`, not merely that a button exists.
 
 ## 2. OUTSTANDING — ranked by whether it breaks a real person's day
 
+### 2.0 FATAL · D-538's whole feature is unreachable, and the door that IS reachable produces the state D-538 was built to replace
+
+**Owner: whoever owns D-538. Reported, not fixed — which of two doors survives is a
+decision with a blast radius.**
+
+The founder's ask was *"the admins should be able to delete a clients business and it
+sends a respective alert also to that client"*, and D-538's answer was **close now / erase
+after 30 days / undo in between**. The API is complete and excellent:
+`GET|POST|DELETE /v1/admin/tenants/{id}/closure`, a step-up bound to the tenant with its
+own confirmation string, `notify_account_closed`, `sweep_due_erasures`, five alarm rows,
+and a database CHECK pairing the columns.
+
+**Nothing in the console calls any of the three.** A path-pattern walk of every route added
+on this branch against every template literal in `apps/web/src` (§5 has the script) returns
+three MISSes for `/closure`, and `grep -rn "closure" apps/web/src` outside the word
+*disclosure* finds only unrelated JavaScript closures. There is no `useCloseTenant`, no
+`useRestoreTenant`, no closure panel.
+
+What an operator CAN reach is `/admin/tenants/{id}/lifecycle`, which posts the older
+`POST /v1/admin/tenants/{id}/status` with `status: "churned"`. That route
+(`admin/routes.py:2908-2939`) writes `status` and an audit row and **nothing else** — no
+`closed_at`, no `erase_after`, no `closure_reason`, no notice. The CHECK is
+`closed ⇒ churned`, not the converse, so churned-without-`closed_at` is a legal row. The
+consequences, each traced to the statement that causes it:
+
+1. **The client is never told.** `notify_account_closed` is enqueued only by
+   `closure_routes.py:272,325`. The founder's "it sends a respective alert also to that
+   client via mail and number" does not happen on the only path an operator has.
+2. **No erasure is ever scheduled.** `sweep_due_erasures` selects on `erase_after`, which
+   is NULL. The account sits churned for ever — which is the DPDP §8(7) half of the
+   decision, not a cosmetic one.
+3. **The undo cannot reach it.** `closure.restore_account` updates
+   `WHERE … AND closed_at IS NOT NULL` (`tenancy/closure.py:430`) and returns early at
+   `if not current.is_closed: return current`. So `DELETE …/closure` on such an account
+   answers **200 with the unchanged record and no audit row** — a success response that
+   changed nothing, which is worse than a refusal.
+4. **The console asserts the opposite of the decision.** The lifecycle screen renders
+   *"Closed accounts cannot be reopened here … restarting the relationship means a new
+   account with its own commercial terms"*
+   (`app/admin/tenants/[tenantId]/lifecycle/page.tsx:147-162`), while
+   `admin/closure_routes.py:24` says its DELETE is *"the ONLY way back from `churned`, and
+   that is deliberate"*. Both sentences are in the tree today and they contradict each
+   other; the screen's is true only because the feature behind the other one has no button.
+
+This is "one way per problem" failing in the most expensive direction: two doors to closing
+a client, and the one with a button is the one that skips the notice, the deadline and the
+undo.
+
+**What closing it looks like** (a decision, then a small build): decide whether
+`_LIFECYCLE_FROM`'s `churned` arm should exist at all now that the closure router owns the
+act — if it should not, the status screen's close becomes a call to `POST …/closure` and
+the contradiction disappears with it; if it should, the lifecycle screen needs the closure
+panel beside it and the "cannot be reopened" sentence has to become conditional on
+`closed_at`. Either way `restore_account`'s silent 200 on a churned-but-not-closed account
+should become a named refusal, because right now it reports success for work it declined to
+do.
+
 ### 2.1 FATAL-ISH · "Never transfer outside business hours" is enforced at PUBLISH ONLY, and nothing republishes at the boundary
 
 **Owner: the handoff lane / a founder decision. Not fixed here — the fix is a design
@@ -377,17 +434,20 @@ No status is set that nothing reads; no column here is write-only.
 - **Erase-after-grace** is `_file_erasure_if_due`, and its `"blocked"` third outcome (the
   account is still commercially open) is reported rather than swallowed.
 
-### 3.9 Closure (D-538)
+### 3.9 Closure (D-538) — the API half only; see §2.0 for the half that is missing
 
-`churned` really is read by the five places the module claims — verified by grep, not by
-the docstring: `compliance/service.account_stopped_blocker:246`,
+`churned` really is read by the five places `tenancy/closure.py` claims — verified by grep,
+not by the docstring: `compliance/service.account_stopped_blocker:246`,
 `campaigns.service.launch_blockers`, the membership resolution in `core/auth.py`,
 `tenancy/lifecycle.assert_account_open:32`, and both ends of the invitation path. The
-`ck_organizations_closed_implies_churned` CHECK is what stops the two columns disagreeing.
-The four things that survive a close are stated in the module and one of them (inbound
-still answers, because nothing releases the number at the vendor) is named as a GAP rather
-than dressed as a decision — which is the right shape, and `engine.release_number` from
-D-537 is the thing that would close it.
+`ck_organizations_closed_implies_churned` CHECK is what stops the two columns disagreeing,
+`GRACE_DAYS = 30` sits inside the 35-day backup window, and `bring_erasure_forward` can
+only shorten (DPDP §8(7): the hold is lawful only as a reversal window on the client's own
+instruction). The four things that survive a close are stated in the module and the one
+that is a GAP rather than a decision — inbound still answers, because nothing releases the
+number at the vendor — is named as one.
+
+**The console half is missing entirely and the reachable substitute is wrong. §2.0.**
 
 ### 3.10 CSP enforcement + collector (D-541)
 
@@ -482,4 +542,12 @@ uv run python -c "from apps.workers import settings as s; print(s.KB_UPLOAD_SWEE
 
 # the CSP collector, driven as a browser would
 uv run python -   # OPTIONS + POST against apps.api.main:app via ASGITransport (§3.10)
+
+# EVERY NEW ROUTE vs EVERY TEMPLATE LITERAL IN THE WEB CLIENT — this is what found §2.0
+# and §1.3, and it is the cheapest instrument in this document. Diff the OpenAPI snapshot
+# against its state before the branch, turn each added path into a regex over template
+# literals (`{tenant_id}` -> `\$\{[^}]*\}`), and grep every .ts/.tsx under apps/web/src
+# except schema.d.ts. 27 routes were added; 7 had no caller. Four of those seven are
+# `docs/SURFACES.md`-declared "API SHIPPED" (the credit grant and the three trial routes,
+# a deliberate deferral); three are `/closure`, which SURFACES does not mention at all.
 ```
