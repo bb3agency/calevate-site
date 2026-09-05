@@ -215,8 +215,14 @@ def upgrade() -> None:
             name=op.f("ck_kb_uploads_one_origin"),
         ),
     )
-    op.create_index("ix_kb_uploads_tenant", TABLE, ["tenant_id"])
-    op.create_index("ix_kb_uploads_agent", TABLE, ["agent_id"])
+    # `op.f(...)` and the FULL column name, because these two indexes are DECLARED —
+    # `KbUpload.tenant_id` and `.agent_id` carry `index=True`, and SQLAlchemy's naming
+    # convention derives `ix_kb_uploads_tenant_id` from that. Hand-naming them
+    # `..._tenant` created the index the query planner wants under a name the model does
+    # not know, which `orm_schema_fidelity_test` reads as a declaration the database does
+    # not have — and which every future autogenerate would propose creating again.
+    op.create_index(op.f("ix_kb_uploads_tenant_id"), TABLE, ["tenant_id"])
+    op.create_index(op.f("ix_kb_uploads_agent_id"), TABLE, ["agent_id"])
     # The sweep's predicate: rows still owed work, oldest first. Partial, because a
     # `processed` row is the steady state and the overwhelming majority.
     op.create_index(
@@ -238,6 +244,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(f"DROP POLICY IF EXISTS {POLICY} ON {TABLE}")
     op.drop_index("ix_kb_uploads_unfinished", table_name=TABLE)
-    op.drop_index("ix_kb_uploads_agent", table_name=TABLE)
-    op.drop_index("ix_kb_uploads_tenant", table_name=TABLE)
+    op.drop_index(op.f("ix_kb_uploads_agent_id"), table_name=TABLE)
+    op.drop_index(op.f("ix_kb_uploads_tenant_id"), table_name=TABLE)
     op.drop_table(TABLE)
