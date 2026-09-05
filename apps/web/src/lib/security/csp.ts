@@ -71,6 +71,18 @@
  *   paying screen. No `'unsafe-inline'`, no `'strict-dynamic'` (an explicit host is more
  *   predictable to verify than dynamic propagation — and `'strict-dynamic'` would DISABLE
  *   the host allowlist, so the Razorpay entry would silently stop meaning anything).
+ * - `'unsafe-eval'` IN DEVELOPMENT ONLY, and it is not a weakening of the shipped policy
+ *   — it is the one thing that stops the enforce flip breaking `pnpm dev` for everyone.
+ *   READ AT SOURCE in the installed Next 15.5.21:
+ *   `node_modules/next/dist/esm/build/webpack/config/blocks/base.js:22-31` sets
+ *   `config.devtool = 'eval-source-map'` whenever `ctx.isDevelopment`, which wraps every
+ *   module in an `eval()`. Enforcing `script-src` without `'unsafe-eval'` therefore makes
+ *   a dev server serve a blank screen, and `package.json`'s `dev` script is plain
+ *   `next dev` (webpack, not `--turbopack`), so this is the path every developer takes.
+ *   It is refused in a production build twice over: the caller only asks for it when
+ *   `NODE_ENV === "development"`, and `buildContentSecurityPolicy` refuses the request
+ *   outright when `NODE_ENV === "production"` — a flag that can be passed is a flag that
+ *   will eventually be passed by mistake.
  * - `style-src 'self' 'unsafe-inline'` — Next and Tailwind inject inline `<style>`; a
  *   nonce for styles is not reliably supported and `'unsafe-inline'` on styles alone does
  *   not grant script execution. A documented, bounded tradeoff, DELIBERATELY NOT tightened
@@ -181,15 +193,23 @@ export function reportingEndpointsHeader(apiOrigin: string): string | null {
  *  env-derived origins, which the caller may pass explicitly (the tests do). */
 export function buildContentSecurityPolicy(
   nonce: string,
-  opts: { apiOrigin?: string; mediaOrigin?: string; upgradeInsecure?: boolean } = {},
+  opts: {
+    apiOrigin?: string;
+    mediaOrigin?: string;
+    upgradeInsecure?: boolean;
+    /** See `'unsafe-eval'` in the docstring. Ignored outright in a production build. */
+    devEval?: boolean;
+  } = {},
 ): string {
   const apiOrigin = opts.apiOrigin ?? apiConnectOrigin();
   const media = opts.mediaOrigin ?? mediaOrigin();
   const connect = ["'self'", apiOrigin].filter(Boolean).join(" ");
   const mediaSources = ["'self'", media].filter(Boolean).join(" ");
+  // The second of the two refusals: asking for it in production does not get it.
+  const evalSource = opts.devEval && process.env.NODE_ENV !== "production" ? " 'unsafe-eval'" : "";
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' ${RAZORPAY_CHECKOUT_ORIGIN}`,
+    `script-src 'self' 'nonce-${nonce}'${evalSource} ${RAZORPAY_CHECKOUT_ORIGIN}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CSP_HEADER_NAME,
@@ -98,6 +98,27 @@ describe("the content-security policy", () => {
     const broken = buildContentSecurityPolicy("N", { apiOrigin: "" });
     expect(broken).not.toContain("report-uri");
     expect(broken).not.toContain("report-to");
+  });
+
+  it("grants 'unsafe-eval' only when the caller asks AND the build is not production", () => {
+    // `next dev` compiles with webpack's `eval-source-map`
+    // (node_modules/next/dist/esm/build/webpack/config/blocks/base.js:22-31), so an
+    // enforced script-src without this serves every developer a blank screen. Two
+    // refusals stand between it and a shipped policy: middleware only asks in
+    // development, and the builder ignores the ask in a production build.
+    expect(csp).not.toContain("unsafe-eval");
+    const previous = process.env.NODE_ENV;
+    try {
+      vi.stubEnv("NODE_ENV", "development");
+      expect(buildContentSecurityPolicy("N", { devEval: true })).toContain(
+        "'nonce-N' 'unsafe-eval'",
+      );
+      vi.stubEnv("NODE_ENV", "production");
+      expect(buildContentSecurityPolicy("N", { devEval: true })).not.toContain("unsafe-eval");
+    } finally {
+      vi.unstubAllEnvs();
+      expect(process.env.NODE_ENV).toBe(previous);
+    }
   });
 
   it("is ENFORCING (D-541)", () => {

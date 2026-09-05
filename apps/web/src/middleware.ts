@@ -35,6 +35,11 @@ export function middleware(request: NextRequest): NextResponse {
     // Only in production: locally the dev server is plain HTTP and this directive would
     // force-upgrade every localhost request to https.
     upgradeInsecure: process.env.NODE_ENV === "production",
+    // Its mirror image. `next dev` compiles with webpack's `eval-source-map`, so an
+    // enforced script-src without `'unsafe-eval'` serves every developer a blank screen;
+    // the builder refuses the flag in a production build regardless of what is passed
+    // here. See `lib/security/csp.ts`.
+    devEval: process.env.NODE_ENV === "development",
   });
 
   const requestHeaders = new Headers(request.headers);
