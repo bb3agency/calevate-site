@@ -40,15 +40,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import memory, service, write_tools
+from apps.api.copilot import memory, service, session_run, transcript, write_tools
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.context import live_state_block, viewer_for
 from apps.api.copilot.sanitize import assert_redacted
@@ -56,9 +57,12 @@ from apps.api.copilot.schemas import (
     CopilotAskIn,
     CopilotConfirmIn,
     CopilotConfirmOut,
+    CopilotConversationClearedOut,
+    CopilotConversationOut,
     CopilotDoneEvent,
     CopilotFact,
     CopilotFillEvent,
+    CopilotStoredTurnOut,
     CopilotTextEvent,
 )
 from apps.api.core.auth import client_request_ip, requires
@@ -69,6 +73,43 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
 from apps.api.db.session import tenant_session
+
+
+def _turn_cursor(before: str | None) -> UUID | None:
+    """The `before` cursor as a uuid, or None.
+
+    A MALFORMED CURSOR IS `None`, NOT A 422. It is an opaque token this API issued, so a
+    client sending a broken one is a client with a stale page — and answering the newest
+    page is a recovery, where a validation error is a chat panel that refuses to open and
+    cannot be talked out of it. The value is a predicate on the caller's OWN rows
+    (`transcript._load_sql` scopes the sub-select on the owner too), so an invented one
+    reaches nothing.
+    """
+    if before is None:
+        return None
+    try:
+        return UUID(before)
+    except ValueError:
+        return None
+
+
+def _conversation_out(page: transcript.ConversationPage) -> CopilotConversationOut:
+    return CopilotConversationOut(
+        turns=[
+            CopilotStoredTurnOut(
+                id=str(turn.id),
+                # `role` is a CHECK-constrained column, so the cast is a type assertion
+                # rather than a trust decision — the database admits no third value.
+                role="user" if turn.role == "user" else "assistant",
+                content=turn.content,
+                screen_route=turn.screen_route,
+                said_at=turn.said_at,
+            )
+            for turn in page.turns
+        ],
+        has_more=page.has_more,
+    )
+
 
 log = get_logger(__name__)
 
@@ -376,6 +417,20 @@ async def ask_copilot(
     # before it reaches a column and is never logged.
     answer_parts: list[str] = []
 
+    # WHICH SIGN-IN RUN THIS ANSWER BELONGS TO (D-540). Read HERE, before the model call,
+    # and not inside `_record`: the transcript row has to carry the run that was current
+    # when the person ASKED, or a session that expired during a long answer would stamp
+    # the turn with a run that had already ended and the next load would delete it.
+    #
+    # One small query against the credential store per question — timestamps only, no
+    # token_hash, no session id (`copilot/session_run.py`) — which is noise beside the
+    # model round trip this route is about to make.
+    run_started_at = (
+        await session_run.current_run_start(realm="client", subject_id=principal.user_id)
+        if principal.user_id is not None
+        else None
+    )
+
     # 4. THE METER, THE AUDIT AND THE MEMORY, in ONE transaction of their own — the record
     #    of a payment that has already happened. `meter_assist` never raises, and nothing
     #    between the run and the meter may: a completed answer is money spent whether or
@@ -500,6 +555,32 @@ async def ask_copilot(
             #    never logs any of it (hard rule 6), and `remember_exchange` returns None
             #    rather than raising when there is nothing left to store.
             if principal.realm == "client" and principal.user_id is not None:
+                # 5a. THE TRANSCRIPT (D-540), before the memory and in the same
+                #     transaction, for the memory's own reason: a turn a person can
+                #     scroll must not survive a rolled-back `usage_events` row.
+                #
+                #     BEFORE rather than after, and the order is the only thing to decide
+                #     here: the transcript is what the PERSON sees and the memory is what
+                #     the MODEL sees, so if one of the two is going to be lost to a
+                #     failure between them it should be the one nobody can tell is
+                #     missing. Neither raises.
+                #
+                #     `run_started_at` is None only when the subject has no live session,
+                #     which cannot happen on a path that authenticated — it is treated as
+                #     "do not store" rather than asserted away, because the alternative is
+                #     writing a turn stamped with a run that does not exist and can
+                #     therefore never be cleared.
+                if run_started_at is not None:
+                    await transcript.append_exchange(
+                        record_session,
+                        realm=transcript.CLIENT,
+                        owner_id=principal.user_id,
+                        tenant_id=tenant_id,
+                        run_started_at=run_started_at,
+                        screen_route=payload.screen.route,
+                        question=payload.question,
+                        answer="".join(answer_parts),
+                    )
                 await memory.remember_exchange(
                     record_session,
                     tenant_id=tenant_id,
@@ -728,6 +809,133 @@ async def confirm_copilot_proposal(
         principal=principal,
         ip=client_request_ip(request),
     )
+
+
+_CONVERSATION_DESCRIPTION = """\
+The conversation you are already having with the assistant, so it survives a refresh, a
+navigation, and a browser you closed yesterday afternoon.
+
+**It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open
+and both show the same thread — the desktop's copy simply does not know about the phone's
+newest turn until it loads again, which is the whole of the concurrency story here:
+there is no realtime channel and none is needed (see `load_copilot_conversation`).
+
+**It ends when your LAST session ends.** Signing out on one device does not take the
+thread away from another, but signing out of the last one does, and so does letting the
+last one expire.
+
+Turns come back oldest first, at most `limit` of them, newest page first: pass the `id`
+of the oldest turn you hold as `before` to page backwards. `has_more` says whether
+anything older exists. `content` is the REDACTED form — a screen value that looked like a
+phone number was replaced by a placeholder before the question ever left the browser, and
+the placeholder is what was stored.
+
+Requires `copilot:use`.\
+"""
+
+
+@router.get(
+    "/copilot/conversation",
+    response_model=CopilotConversationOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="The conversation you are already having — durable, per person, paged",
+    description=_CONVERSATION_DESCRIPTION,
+)
+async def load_copilot_conversation(
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+    limit: Annotated[int, Query(ge=1, le=transcript.PAGE_MAX)] = transcript.PAGE_DEFAULT,
+    before: Annotated[str | None, Query()] = None,
+) -> CopilotConversationOut:
+    """One page of this person's live conversation.
+
+    **`copilot:use` ON A GET, AND IT IS IN `MUTATING_PERMISSIONS`, WHICH IS THE POINT.**
+    An operator inside a D-22 read-only view-as session is refused this for free, and that
+    is the correct answer rather than a side effect worked around: a client's private
+    conversation with their own assistant is not something impersonation exists to show.
+    The precedent for a GET declaring a mutating permission is `tenancy/routes.py:202`,
+    which took the same trade for the same reason.
+
+    **LOAD ON MOUNT AND APPEND LOCALLY — THERE IS NO REALTIME SYNC, DELIBERATELY.** The
+    question was asked and answered rather than assumed: what does a second device see?
+    It sees everything up to the moment it loaded, and its own turns after that. Two
+    devices used at once therefore diverge until one of them reloads, and the reason that
+    is acceptable — where it would not be for, say, a shared lead list — is that this is
+    ONE PERSON'S conversation with an assistant, and a person is not usually typing into
+    two devices simultaneously. Buying convergence would mean a socket or a poll on every
+    open panel (D-24 chose polling for changing state and this is not changing state), for
+    a case that costs a reload when it happens. What is NOT left to chance is the store:
+    both devices write to the same rows, so nothing is lost, and the second device's next
+    load shows the first device's turns in their real order.
+
+    **THE STALE RUN IS CLEARED BY THIS READ**, in this transaction, before anything is
+    returned — see `transcript.load`. That is one of the two places "their last session
+    ended" is actually observed; the other is the cron.
+    """
+    if principal.tenant_id is None or principal.user_id is None:
+        # Unreachable through `requires("copilot:use")` on the client realm, which resolves
+        # both. Raised rather than asserted because an empty page would be a LIE — "you
+        # have no conversation" — told to somebody whose conversation we simply failed to
+        # look up.
+        raise ProblemError(
+            kind="permission",
+            code="copilot_conversation_not_yours",
+            title="The assistant's conversation belongs to a person",
+            detail="This credential is not a client-realm user, so it has no conversation.",
+            remediation="Sign in to your own dashboard and open the assistant there.",
+        )
+    run_started_at = await session_run.current_run_start(
+        realm="client", subject_id=principal.user_id
+    )
+    if run_started_at is None:
+        # No live session, on a request that authenticated: only reachable if the session
+        # ended between the auth dependency and this line. Answering with the empty page
+        # is right — the conversation is over — and the next append will not resurrect it.
+        return CopilotConversationOut(turns=[], has_more=False)
+    page = await transcript.load(
+        session,
+        realm=transcript.CLIENT,
+        owner_id=principal.user_id,
+        run_started_at=run_started_at,
+        limit=limit,
+        before=_turn_cursor(before),
+    )
+    return _conversation_out(page)
+
+
+@router.delete(
+    "/copilot/conversation",
+    response_model=CopilotConversationClearedOut,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Start again — forget this conversation on every device",
+)
+async def clear_copilot_conversation(
+    session: Annotated[AsyncSession, Depends(db)],
+    principal: Principal = Depends(requires("copilot:use")),
+) -> CopilotConversationClearedOut:
+    """Forget this person's whole conversation.
+
+    **NO `audit_log` ROW, AND THAT IS HARD RULE 6 RATHER THAN AN OMISSION.** An audit
+    entry naming "this person cleared their assistant conversation" records nothing anyone
+    can act on and puts a per-person behavioural trail on the compliance chain; the rows
+    it describes carry a client's staff prose and are deliberately not durable. What IS
+    audited is every ANSWER (`copilot.ask`) and every CHANGE the assistant made
+    (`copilot/write_tools.py`), and neither is touched by this.
+
+    It clears every device, because there is one conversation and it belongs to the
+    person. A second device discovers it on its next load, which is the same contract as
+    every other turn.
+    """
+    if principal.user_id is None:
+        raise ProblemError(
+            kind="permission",
+            code="copilot_conversation_not_yours",
+            title="The assistant's conversation belongs to a person",
+            detail="This credential is not a client-realm user, so it has no conversation.",
+            remediation="Sign in to your own dashboard and open the assistant there.",
+        )
+    cleared = await transcript.clear(session, realm=transcript.CLIENT, owner_id=principal.user_id)
+    return CopilotConversationClearedOut(cleared=cleared)
 
 
 __all__ = ["router"]

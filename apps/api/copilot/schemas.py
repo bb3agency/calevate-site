@@ -471,6 +471,64 @@ class CopilotDoneEvent(BaseModel):
     metered: bool = False
 
 
+class CopilotStoredTurnOut(BaseModel):
+    """One turn of the stored conversation, as the panel renders it (D-540).
+
+    `content` IS THE REDACTED FORM and there is no second field beside it, which is the
+    one thing about this schema worth reading twice. The live panel holds two strings per
+    turn — what the person reads, with the screen's own digits restored, and the wire form
+    with the placeholders still in place — and only the second is ever stored
+    (`copilot/transcript.py` argues why). So a turn re-read after a reload shows
+    `«PHONE_1»` where the live one showed the number. That is the visible cost of not
+    keeping a caller's digits in a durable row, and it is the right way round.
+
+    `said_at` is an ISO-8601 instant in UTC; the browser renders it in IST, as everywhere.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    #: WHICH SCREEN this was said on (founder's decision 3: recorded per message, never per
+    #: thread, because the assistant can move a person between screens mid-answer — D-524).
+    screen_route: str
+    said_at: str
+
+
+class CopilotConversationOut(BaseModel):
+    """`GET /v1/copilot/conversation` — one page of the live conversation, oldest first.
+
+    A conversation is a LIST, so it is paged and it has a ceiling: `limit` is bounded at
+    the route and the store itself caps a conversation at `transcript.MAX_STORED_TURNS`.
+    `has_more` says whether older turns exist BEFORE this page — the panel pages backwards
+    from the newest, which is the direction a chat is read.
+
+    An empty `turns` is the ordinary answer, not an error: a person who has not asked
+    anything this sign-in has no conversation, and neither does one whose previous run of
+    sessions has ended.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    turns: list[CopilotStoredTurnOut] = []
+    has_more: bool = False
+
+
+class CopilotConversationClearedOut(BaseModel):
+    """`DELETE /v1/copilot/conversation` — what "start again" forgot.
+
+    A count rather than a bare 204, because it is the one number that distinguishes "your
+    conversation is gone" from "there was nothing there" — and because a person who
+    clicked Clear on a device whose thread had already been swept by the run rule should
+    not be told something happened that did not.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    cleared: int
+
+
 __all__ = [
     "MAX_FACTS",
     "MAX_FIELDS",
@@ -480,6 +538,8 @@ __all__ = [
     "CopilotAskIn",
     "CopilotConfirmIn",
     "CopilotConfirmOut",
+    "CopilotConversationClearedOut",
+    "CopilotConversationOut",
     "CopilotDoneEvent",
     "CopilotFact",
     "CopilotField",
@@ -491,6 +551,7 @@ __all__ = [
     "CopilotProposalEvent",
     "CopilotScreen",
     "CopilotStepEvent",
+    "CopilotStoredTurnOut",
     "CopilotTextEvent",
     "CopilotTurn",
     "CopilotValue",

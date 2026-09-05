@@ -249,6 +249,13 @@ TENANT_TABLES = [
     # category, and DELETEd whole by tenant erasure. NOT append-only: `distilled_at` is
     # stamped by the distillation worker, and these rows are meant to expire.
     "copilot_memories",
+    # The copilot conversation ITSELF, per tenant AND per user (migration c7e0b2a94f13,
+    # D-540) — the verbatim turns a person scrolls, as against the distillate one line up.
+    # Redacted on write through the same `copilot/memory.redacted_content`; cleared when
+    # the user's LAST session ends (`copilot/session_run.py`), expired by the `transcript`
+    # retention category on the same clock as call transcripts, and DELETEd whole by
+    # tenant erasure. NOT append-only: every one of those three is a deletion.
+    "copilot_conversation_turns",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
@@ -416,6 +423,19 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "fact about the platform; it is nullable and SET NULL on tenant delete. Content is "
         "redacted on the way in by the same `copilot/memory.redacted_content` the client "
         "table uses, and CASCADEs away with the operator's account."
+    ),
+    "admin_copilot_conversation_turns": (
+        "platform-scoped, admin realm only (D-540). The ADMIN copilot's CONVERSATION for "
+        "one OPERATOR — the admin-realm twin of `copilot_conversation_turns`, which is "
+        "tenant-scoped and whose `user_id` is a foreign key to `users`. An operator is a "
+        "row in `admin_users` and the conversation is about platform state, so there is no "
+        "tenant whose row this could be. `viewing_tenant_id` records which account was on "
+        "screen so a conversation held on one client's page is not re-read as a "
+        "conversation about the platform; it is nullable and SET NULL on tenant delete. "
+        "Content is redacted on the way in by the same `copilot/memory.redacted_content` "
+        "the client table uses, it CASCADEs away with the operator's account, and it is "
+        "cleared when that operator's last session ends — which on this realm is an "
+        "8-hour absolute bound, shorter than any retention period we publish."
     ),
     "platform_list_rates": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). The self-serve list price "
