@@ -51,6 +51,23 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "client-realm counterpart at all. A support person inside a client's account is "
         "looking at that client's screens, and none of them names a Calevate operator."
     ),
+    "/v1/admin/numbers/available": (
+        "the voice platform's own for-sale inventory (D-537) — an ops purchasing screen, "
+        "and the one list that is not about any client at all: it is what OUR vendor "
+        "account could buy, priced in the vendor's USD. There is no client-realm "
+        "counterpart to be looking at alongside it — the client-realm numbers route is "
+        "`POST /v1/numbers/purchase` and it has no GET — so a view-as session never "
+        "reaches this and loses nothing by not reaching it"
+    ),
+    "/v1/admin/numbers/tenants/{tenant_id}": (
+        "what each of one client's numbers COSTS US (D-537) — `monthly_rental_usd` is "
+        "our supplier cost basis, the same class of fact as /v1/ops/model-prices and "
+        "/v1/ops/fx-rate, and it is not a view of a client's own screen. It is entered "
+        "with an admin token for an account named in the path and it WRITES an "
+        "`admin_tenant_read` row for that reason (SEC-COMP §5, D-482 L-1); an "
+        "impersonated session is a client dashboard, which has no screen showing what "
+        "Calevate pays a vendor"
+    ),
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
     "/v1/ops/engine-latency": (
