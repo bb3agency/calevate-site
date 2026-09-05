@@ -364,6 +364,53 @@ describe("cancelling an invite the wizard already issued", () => {
     expect(screen.getByRole("button", { name: "Cancel this invite" })).toBeTruthy();
   });
 
+  it("re-sends the link the wizard issued, and says the old one has stopped working", async () => {
+    /**
+     * D-538's founder ask, verbatim: *"the invite link can be re-sent via the admin panel
+     * for a client business until that mail sets up their business"*. The route shipped
+     * with the decision and NOTHING in this console called it, so the operator staring at
+     * `invitation_already_pending` — the state where a lost mail actually shows up — could
+     * only CANCEL a live key. This asserts the POST reaches the resend path, not that a
+     * button exists.
+     */
+    await reachTheInvite({ [INVITATIONS]: MINTED });
+
+    fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
+      target: { value: "owner@sunrise.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+    await screen.findByText("Invitation sent");
+
+    const calls = stubApi({
+      [INVITATIONS]: problem(409, {
+        type: "https://calevate.tech/problems/invitation_already_pending",
+        title: "Invitation already pending",
+        detail: "There is already an unused invitation for that address.",
+      }),
+      [`POST ${REVOKE}/resend`]: {
+        id: MINTED.id,
+        email: "owner@sunrise.example",
+        delivery: "queued",
+        expires_at: "2026-08-17T09:00:00Z",
+        last_sent_at: "2026-08-14T09:00:00Z",
+        send_count: 2,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
+    await screen.findByText("There is already an unused invitation for that address.");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Send it again" }));
+
+    await waitFor(() => {
+      const sent = calls.find((c) => c.method === "POST" && c.path.endsWith("/resend"));
+      expect(sent?.path).toBe(`${REVOKE}/resend`);
+    });
+    // The rotation kills the previous link, so the screen has to say so — an operator who
+    // reads "sent again" and nothing else will tell the client to use whichever mail they
+    // find first.
+    await screen.findByText(/previous one has stopped working/);
+  });
+
   it("refuses rather than reporting an empty list when the pending read fails", async () => {
     await reachTheInvite({
       [`POST ${INVITATIONS}`]: problem(409, {
