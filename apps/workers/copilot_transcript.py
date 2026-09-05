@@ -52,6 +52,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.transition import _identifier
 
 log = get_logger(__name__)
 
@@ -67,18 +68,24 @@ WORKLIST_REASON = "copilot_transcript"
 
 _TENANTS_SQL = "SELECT tenant_id FROM retention_worklist WHERE reason = :reason ORDER BY tenant_id"
 
-#: Every turn belonging to a client-realm user with no live session. `<> ALL(:live)` and
-#: not `NOT IN`, because `NOT IN` against an EMPTY array is `true` for every row — which
-#: is the correct answer here (nobody is signed in, so every conversation is over) but is
-#: the wrong reflex to leave in a statement that deletes; `<> ALL` says the same thing and
-#: says it the same way when the array is empty.
-_SWEEP_SQL = f"""
-DELETE FROM {transcript.CLIENT.table} WHERE user_id <> ALL(:live)
-"""
 
-_ADMIN_SWEEP_SQL = f"""
-DELETE FROM {transcript.ADMIN.table} WHERE admin_user_id <> ALL(:live)
-"""
+def _sweep_sql(realm: transcript.Realm) -> str:
+    """Every turn belonging to a subject of this realm with no live session.
+
+    THE TABLE AND THE OWNER COLUMN GO THROUGH `db/transition._identifier` — the one way
+    this repo interpolates an identifier, and what `scripts/check_raw_sql` reads. Neither
+    is reachable from a request: `transcript.CLIENT` and `transcript.ADMIN` are the only
+    two `Realm` values that exist, both built from literals, and this module names them
+    directly. `copilot/transcript.Realm` carries the full trace.
+
+    `<> ALL(:live)` and not `NOT IN`, because `NOT IN` against an EMPTY array is `true`
+    for every row — which is the correct answer here (nobody is signed in, so every
+    conversation is over) but is the wrong reflex to leave in a statement that deletes.
+    `<> ALL` says the same thing and says it the same way when the array is empty.
+    """
+    table = _identifier(realm.table, "table")
+    owner = _identifier(realm.owner, "owner column")
+    return f"DELETE FROM {table} WHERE {owner} <> ALL(:live)"
 
 
 async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
@@ -118,7 +125,9 @@ async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
     for tenant_id in tenants:
         try:
             async with tenant_session(tenant_id) as session:
-                result = await session.execute(text(_SWEEP_SQL), {"live": list(live_clients)})
+                result = await session.execute(
+                    text(_sweep_sql(transcript.CLIENT)), {"live": list(live_clients)}
+                )
                 swept += int(rowcount_of(result) or 0)
         except Exception as failure:
             # A count and an exception TYPE. One tenant's failure is a line an operator can
@@ -136,7 +145,9 @@ async def sweep_ended_conversations(ctx: dict[str, Any]) -> str:
     admin_swept = 0
     try:
         async with untenanted_session() as session:
-            result = await session.execute(text(_ADMIN_SWEEP_SQL), {"live": list(live_operators)})
+            result = await session.execute(
+                text(_sweep_sql(transcript.ADMIN)), {"live": list(live_operators)}
+            )
             admin_swept = int(rowcount_of(result) or 0)
     except Exception as failure:
         log.warning(

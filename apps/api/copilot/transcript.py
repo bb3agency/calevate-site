@@ -65,6 +65,7 @@ from apps.api.copilot.memory import redacted_content
 from apps.api.copilot.schemas import CopilotConversationOut, CopilotStoredTurnOut
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.transition import _identifier
 
 #: The hard ceiling on one conversation, in turns, enforced on every append by deleting
 #: the oldest surplus. A conversation is a LIST and an unbounded one is an unbounded read,
@@ -135,7 +136,7 @@ class ConversationPage:
 
 
 @dataclass(frozen=True, slots=True)
-class _Realm:
+class Realm:
     """Which table, and whose rows. The two realms differ in nothing else.
 
     Two tables rather than one with a discriminator, for `models.AdminCopilotMemory`'s
@@ -144,6 +145,18 @@ class _Realm:
     predicate away.
     """
 
+    #: ⚠ **BOTH OF THESE ARE SPLICED INTO SQL**, so both go through
+    #: `db/transition._identifier` at every splice — the ONE way this repo interpolates an
+    #: identifier, and what `scripts/check_raw_sql` reads.
+    #:
+    #: **THEY ARE NOT REACHABLE FROM A REQUEST, AND THAT WAS TRACED RATHER THAN ASSUMED.**
+    #: `Realm` is constructed exactly twice, from string literals, in this module;
+    #: `CLIENT` and `ADMIN` are the only two values that exist. Every call site passes one
+    #: of those two constants by name (`copilot/routes.py`, `copilot/admin_routes.py`,
+    #: `apps/workers/copilot_transcript.py`), the realm is chosen by which ROUTER the
+    #: request reached rather than by anything in it, and no body, path, query or header
+    #: field of any shape reaches this type. The validator is therefore belt to that
+    #: brace: it is what keeps the property true for the next caller, and it is cheap.
     table: str
     owner: str
     #: The admin table records which account was on screen; the client table does not need
@@ -151,15 +164,15 @@ class _Realm:
     context_column: str | None
 
 
-CLIENT: Final = _Realm(table="copilot_conversation_turns", owner="user_id", context_column=None)
-ADMIN: Final = _Realm(
+CLIENT: Final = Realm(table="copilot_conversation_turns", owner="user_id", context_column=None)
+ADMIN: Final = Realm(
     table="admin_copilot_conversation_turns",
     owner="admin_user_id",
     context_column="viewing_tenant_id",
 )
 
 
-def _load_sql(realm: _Realm) -> str:
+def _load_sql(realm: Realm) -> str:
     """The tail of the current run, oldest first, one page at a time.
 
     `LIMIT :limit + 1` is how `has_more` is answered without a second COUNT: one extra row
@@ -178,35 +191,45 @@ def _load_sql(realm: _Realm) -> str:
     The owner column IS a predicate, because RLS answers "which tenant" and never "which
     person".
     """
+    table = _identifier(realm.table, "table")
+    owner = _identifier(realm.owner, "owner column")
     return f"""
     SELECT id, role, content, screen_route, created_at
-    FROM {realm.table}
-    WHERE {realm.owner} = :owner
+    FROM {table}
+    WHERE {owner} = :owner
       AND run_started_at = :run
       AND (CAST(:before AS uuid) IS NULL OR (created_at, id) < (
-            SELECT b.created_at, b.id FROM {realm.table} b
-            WHERE b.id = CAST(:before AS uuid) AND b.{realm.owner} = :owner))
+            SELECT b.created_at, b.id FROM {table} b
+            WHERE b.id = CAST(:before AS uuid) AND b.{owner} = :owner))
     ORDER BY created_at DESC, id DESC
     LIMIT :limit
     """
 
 
-def _insert_sql(realm: _Realm) -> str:
-    columns = ["id", realm.owner, "run_started_at", "role", "content", "screen_route"]
+def _insert_sql(realm: Realm) -> str:
+    table = _identifier(realm.table, "table")
+    columns = [
+        "id",
+        _identifier(realm.owner, "owner column"),
+        "run_started_at",
+        "role",
+        "content",
+        "screen_route",
+    ]
     values = [":id", ":owner", ":run", ":role", ":content", ":route"]
     if realm is CLIENT:
         columns.insert(1, "tenant_id")
         values.insert(1, ":tenant_id")
     if realm.context_column is not None:
-        columns.append(realm.context_column)
+        columns.append(_identifier(realm.context_column, "context column"))
         values.append(":context")
     return (
-        f"INSERT INTO {realm.table} ({', '.join(columns)}, created_at, updated_at) "
+        f"INSERT INTO {table} ({', '.join(columns)}, created_at, updated_at) "
         f"VALUES ({', '.join(values)}, now(), now())"
     )
 
 
-def _trim_sql(realm: _Realm) -> str:
+def _trim_sql(realm: Realm) -> str:
     """Two deletions in one statement's worth of intent, and they are different things.
 
     The first arm is the END OF A RUN: every turn of this owner that belongs to an older
@@ -219,20 +242,22 @@ def _trim_sql(realm: _Realm) -> str:
     reached the cap wants to keep talking, and a chat that stops accepting messages is a
     worse answer than one that forgets its beginning.
     """
+    table = _identifier(realm.table, "table")
+    owner = _identifier(realm.owner, "owner column")
     return f"""
-    DELETE FROM {realm.table}
-    WHERE {realm.owner} = :owner
+    DELETE FROM {table}
+    WHERE {owner} = :owner
       AND (run_started_at <> :run
            OR id IN (
-             SELECT id FROM {realm.table}
-             WHERE {realm.owner} = :owner AND run_started_at = :run
+             SELECT id FROM {table}
+             WHERE {owner} = :owner AND run_started_at = :run
              ORDER BY created_at DESC, id DESC
              OFFSET :keep))
     """
 
 
 async def _drop_stale(
-    session: AsyncSession, realm: _Realm, *, owner: UUID, run: datetime, keep: int
+    session: AsyncSession, realm: Realm, *, owner: UUID, run: datetime, keep: int
 ) -> None:
     await session.execute(text(_trim_sql(realm)), {"owner": owner, "run": run, "keep": keep})
 
@@ -240,7 +265,7 @@ async def _drop_stale(
 async def load(
     session: AsyncSession,
     *,
-    realm: _Realm,
+    realm: Realm,
     owner_id: UUID,
     run_started_at: datetime,
     limit: int = PAGE_DEFAULT,
@@ -288,7 +313,7 @@ async def load(
 async def append_exchange(
     session: AsyncSession,
     *,
-    realm: _Realm,
+    realm: Realm,
     owner_id: UUID,
     tenant_id: UUID | None,
     run_started_at: datetime,
@@ -340,14 +365,16 @@ async def append_exchange(
     return written
 
 
-async def clear(session: AsyncSession, *, realm: _Realm, owner_id: UUID) -> int:
+async def clear(session: AsyncSession, *, realm: Realm, owner_id: UUID) -> int:
     """Forget this person's whole conversation, whatever run it belongs to.
 
     The panel's own "start again", and the only path that removes a LIVE conversation.
     Returns the row count so the route can say what it did.
     """
+    table = _identifier(realm.table, "table")
+    owner = _identifier(realm.owner, "owner column")
     result = await session.execute(
-        text(f"DELETE FROM {realm.table} WHERE {realm.owner} = :owner"), {"owner": owner_id}
+        text(f"DELETE FROM {table} WHERE {owner} = :owner"), {"owner": owner_id}
     )
     return int(rowcount_of(result) or 0)
 
@@ -395,6 +422,7 @@ __all__ = [
     "PAGE_DEFAULT",
     "PAGE_MAX",
     "ConversationPage",
+    "Realm",
     "StoredTurn",
     "append_exchange",
     "clear",
