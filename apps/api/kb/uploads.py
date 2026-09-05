@@ -85,10 +85,10 @@ INGEST_KB_SOURCE_JOB: Final = "ingest_kb_source"
 MAX_UPLOADS_PAGE: Final = 200
 
 #: Filename extension -> our `SourceKind`. The client's `Content-Type` is a HINT and is
-#: recorded, never trusted: browsers send `application/octet-stream` for a `.docx` as often
-#: as not, and a hostile one can say anything. The extension decides which converter is
-#: asked, and the CONVERTER is what actually reads the bytes — so a lie here buys a
-#: conversion failure with a sentence attached, not an execution path.
+#: never trusted: browsers send `application/octet-stream` for a `.docx` as often as not,
+#: and a hostile one can say anything. The extension decides which converter is asked, and
+#: the CONVERTER is what actually reads the bytes — so a lie here buys a conversion failure
+#: with a sentence attached, not an execution path.
 _EXTENSION_KINDS: Final[dict[str, str]] = {
     "pdf": "pdf",
     "docx": "docx",
@@ -103,6 +103,47 @@ _EXTENSION_KINDS: Final[dict[str, str]] = {
     "heif": "image",
     "webp": "image",
     "avif": "image",
+}
+
+#: Filename extension -> the Content-Type WE will store the object under and WE will
+#: declare to a vendor. Our answer, never the uploader's, and that is the whole point of
+#: the table existing.
+#:
+#: ═══ WHY THE CLIENT'S OWN `Content-Type` MAY NOT BE THE STORED ONE ═══
+#:
+#: It used to be: `store_kb_object(content_type=content_type or "application/octet-stream")`
+#: put the multipart part's declared type straight onto the object, and the object is later
+#: handed to a reviewer as a PRESIGNED GET (`original_download`). An object store replays
+#: the type it was given, so a client uploading `price-list.pdf` with
+#: `Content-Type: text/html` got an HTML document served from the storage origin under a
+#: URL our own console asks a human to open — stored XSS, on a body nobody parses and
+#: therefore nobody sanitises. The extension had already been checked; the TYPE never was,
+#: and the two are separate inputs on the same request.
+#:
+#: The same column is read again by `apps/workers/kb_ingest.py` to fill Google's
+#: `Blob.mimeType` for a photograph, so an untrusted value was also the thing we ASSERTED
+#: to a vendor about bytes we had never looked at. One canonical answer closes both: the
+#: type is derived from the extension the classifier already accepted, so it is always one
+#: of ours and always agrees with the kind the converter will be asked for.
+#:
+#: The image types are spelled to match `document_ingest.OCR_IMAGE_MIME_TYPES`, which
+#: carries the vendor evidence for what that leg accepts; `image/jpg` is deliberately not
+#: emitted for `.jpg` — `image/jpeg` is the registered type (IANA media types registry) and
+#: the vendor takes both.
+_EXTENSION_CONTENT_TYPES: Final[dict[str, str]] = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "txt": "text/plain; charset=utf-8",
+    "md": "text/plain; charset=utf-8",
+    "csv": "text/csv; charset=utf-8",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "heic": "image/heic",
+    "heif": "image/heif",
+    "webp": "image/webp",
+    "avif": "image/avif",
 }
 
 #: What this deployment accepts as a FILE upload: the one kind the engine takes natively
@@ -161,6 +202,29 @@ def may_self_approve(principal: Principal) -> bool:
     return role_has(principal.role or "", "kb:write")
 
 
+def file_extension(filename: str) -> str:
+    """The lowercased extension of `filename`, or `""` when it has none.
+
+    ONE derivation, because there were three and they have to agree: the kind the
+    converter is asked for, the Content-Type the object is stored under and the suffix in
+    the object key are all read off this same character run, and a fourth copy is how one
+    of them comes to accept a spelling the others refuse.
+    """
+    return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+
+def stored_content_type(filename: str) -> str:
+    """The Content-Type this platform will store the object under and declare to a vendor.
+
+    OURS, from the extension `classify_upload` already accepted — never the multipart
+    part's own header. `_EXTENSION_CONTENT_TYPES` carries the argument. The fallback is
+    `application/octet-stream` and is unreachable for an accepted upload (every key of
+    `_EXTENSION_KINDS` is a key here, asserted by `kb_upload_content_type_test`); it is a
+    refusal to invent a type rather than a default anybody relies on.
+    """
+    return _EXTENSION_CONTENT_TYPES.get(file_extension(filename), "application/octet-stream")
+
+
 def classify_upload(*, filename: str, content_type: str | None) -> str:
     """Which kind this file is, or a 422 naming what we do accept.
 
@@ -178,7 +242,7 @@ def classify_upload(*, filename: str, content_type: str | None) -> str:
     .docx and upload it again" is a next step (quality bar: errors are part of the
     interface).
     """
-    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    extension = file_extension(filename)
     kind = _EXTENSION_KINDS.get(extension)
     if kind is not None and kind in SUPPORTED_UPLOAD_KINDS:
         return kind
@@ -303,11 +367,14 @@ async def create_upload(
         tenant_id=tenant_id,
         upload_id=upload_id,
         slot="original",
-        suffix=filename.rsplit(".", 1)[-1].lower(),
+        suffix=file_extension(filename),
     )
-    await store_kb_object(
-        key=key, data=data, content_type=content_type or "application/octet-stream"
-    )
+    # OUR type, not the uploader's — `_EXTENSION_CONTENT_TYPES` carries the argument. The
+    # client's declared `content_type` reaches this function and is deliberately used for
+    # nothing: it is a header on a request, and the object it would describe is one a
+    # reviewer opens in a browser.
+    served_type = stored_content_type(filename)
+    await store_kb_object(key=key, data=data, content_type=served_type)
 
     # A PDF is approvable NOW: the artefact a reviewer opens is the file itself. Every
     # other kind has to be READ first — there is nothing for a person to approve until the
@@ -351,7 +418,7 @@ async def create_upload(
             "fname": filename[:512],
             "bytes": len(data),
             "sha": digest,
-            "ctype": (content_type or "")[:255] or None,
+            "ctype": served_type,
             "dkey": key if native else None,
             "dsha": digest if native else None,
             "status": UPLOAD_RECEIVED,
@@ -741,10 +808,12 @@ __all__ = [
     "confirm_upload",
     "create_link",
     "create_upload",
+    "file_extension",
     "get_upload",
     "list_uploads",
     "may_self_approve",
     "original_download",
     "remove_upload",
     "safe_name",
+    "stored_content_type",
 ]
