@@ -341,6 +341,12 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # d4a9c17e6b02). Counted in ROWS rather than conversations: one row is one exchange or
     # one distilled fact, and there is no durable notion of a conversation to count.
     "copilot_memories": 0,
+    # Copilot CONVERSATION turns (migration c7e0b2a94f13, D-540) deleted on the tenant's
+    # own `transcript` clock — the founder's decision, "the same clock as call
+    # transcripts", so it shares a category rather than getting one. Counted apart from
+    # `copilot_memories` because they answer different questions: one is what the
+    # assistant still knows, the other is what a person could still scroll back to.
+    "copilot_turns": 0,
     # Caller-data vector projections forgotten on their own category's clock (D-503), and
     # the distilled facts that went with them. Counted apart from every other arm because
     # they are the only copies of a caller's words that are not readable prose — nobody
@@ -585,6 +591,13 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM caller_chunks cc
       WHERE cc.retention_category = 'transcript' AND cc.scrubbed_at IS NULL
         AND cc.occurred_at < now() - make_interval(days => r.ttl_days))
+      -- THE COPILOT CONVERSATION on the same clock (D-540). Asked in the PROBE and not
+      -- only in the arm, for the projection's reason one block up: a category the probe
+      -- reports as having no work is a category whose arms never run, so a tenant whose
+      -- call transcripts had all already expired would keep console chat for ever.
+      OR EXISTS (
+      SELECT 1 FROM copilot_conversation_turns ct
+      WHERE ct.created_at < now() - make_interval(days => r.ttl_days))
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -984,6 +997,30 @@ WHERE id IN (
 """
 
 
+# COPILOT CONVERSATION TURNS (migration c7e0b2a94f13) on the tenant's own `transcript`
+# clock — the founder's decision that a console conversation is kept no longer than a call
+# transcript, so it reuses that category rather than adding a seventh.
+#
+# A DELETE, and `action` is not read, for `_COPILOT_MEMORY_SQL`'s reason: there is no
+# anonymised form of a sentence, and a blanked turn is a bubble that still renders and
+# still says nothing. A policy row saying `anonymize` therefore deletes — which is also
+# what the `transcript` category's OWN `anonymize` does to a turn's text one arm above.
+#
+# THIS IS THE BACKSTOP, NOT THE MECHANISM. Almost every one of these rows is already gone:
+# the conversation is cleared when its owner's last session ends (`copilot/session_run.py`,
+# and `apps/workers/copilot_transcript.py` is what observes it). What reaches this arm is
+# the residue — a tenant whose sweep has been failing, a row orphaned by a clock skew — and
+# a client's published retention promise has to be true of the residue too.
+#
+# `created_at` is the clock, and nothing here ever moves it: these rows are never updated.
+_COPILOT_TURN_SQL = """
+DELETE FROM copilot_conversation_turns
+WHERE id IN (
+  SELECT id FROM copilot_conversation_turns WHERE created_at < :cutoff
+  ORDER BY created_at LIMIT :batch)
+"""
+
+
 _EXTRACTION_SQL = """
 UPDATE call_extractions
    SET data = '{}'::jsonb, moments = NULL, errors = NULL, needs_review = NULL,
@@ -1301,6 +1338,15 @@ async def _apply_one(
         # forgotten. The tombstone is what makes the forgetting durable.
         counts["caller_vectors"], deferred = await _sweep_in_batches(
             session, EXPIRE_CHUNKS_SQL, {"cutoff": cutoff, "category": category}
+        )
+        counts["deferred"] += int(deferred)
+        # THE COPILOT CONVERSATION, on this same clock (D-540) — the founder's "the same
+        # clock as call transcripts", taken literally rather than approximated with a new
+        # category. See `_COPILOT_TURN_SQL`: this is the backstop behind the session-run
+        # clearing, and it is here so a client's published transcript period is true of
+        # every transcript we hold, including the one their staff typed.
+        counts["copilot_turns"], deferred = await _sweep_in_batches(
+            session, _COPILOT_TURN_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
         return counts
@@ -1795,6 +1841,58 @@ WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
 """
 
 
+# THE COPILOT CONVERSATION, REACHED BY THE NUMBER (D-540).
+#
+# ⚠ **THIS ARM USUALLY MATCHES NOTHING, AND THAT IS THE DESIGN RATHER THAN A DEFECT.**
+# `copilot/transcript.py` puts every turn through `redact()` before it reaches a column,
+# so a caller's number is not supposed to be in there at all. What this catches is the
+# residue: a number a person typed in a shape the redactor's patterns do not recognise,
+# and a model that invented a phone-shaped string in an answer. Both are exactly the case
+# where a §12 request must still reach the row.
+#
+# A DELETE WHERE `_KB_SUBJECT_MATCH_SQL` ONLY COUNTS, and the difference is whose text it
+# is. A knowledge document is the CLIENT'S OWN business content — a price list that
+# happens to name a number — and destroying it would take away something they wrote and
+# still need. A chat turn quoting a caller has no second purpose: if it names the person
+# who asked to be forgotten, forgetting it is the whole obligation.
+#
+# Digits-only comparison on the last ten, `_KB_SUBJECT_MATCH_SQL`'s matcher verbatim, so
+# `+91 98765 43210`, `09876543210` and `9876543210` are one number. It over-matches rather
+# than under-matches by design: a false positive costs one console turn nobody will miss,
+# a false negative costs a person their erasure.
+#
+# ⚠ **WHAT IT CANNOT REACH IS A NAME**, and `copilot/transcript.py` records the same
+# limit. This request is keyed on a phone number; `redact()` recognises identifiers and
+# not proper nouns, so "what did Lakshmi's enquiry say" is unreachable by any predicate
+# here. Three things do reach it — the conversation ending with its owner's last session,
+# the `transcript` retention clock, and tenant offboarding, which deletes every row.
+#
+# ⚠ **AND THE CERTIFICATE DOES NOT SAY SO YET.** `compliance/deletion.ERASURE_LIMITATIONS`
+# is where a data principal is told what an erasure could not reach, and it carries no
+# entry for this class at all — not for these turns and not for `copilot_memories`, which
+# has had the identical limit since D-484. One entry covering both belongs there; it is
+# left out of THIS change rather than half-written, because the register is index-aligned
+# with `ERASURE_EXCEPTIONS` and a limitation is a published document, not a code comment.
+_COPILOT_TURN_SUBJECT_SQL = """
+DELETE FROM copilot_conversation_turns
+WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
+"""
+
+
+async def _erase_copilot_turns(session: AsyncSession, *, phone: str) -> int:
+    """Delete every stored copilot turn that names this number. Returns the row count.
+
+    RLS scopes it to the tenant (hard rule 1). Nothing but the count leaves — no turn id,
+    no user id and certainly no text, because this travels into a proof that is filed and
+    forwarded, and hard rule 6 does not stop being true inside a compliance artefact.
+    """
+    digits = "".join(character for character in phone if character.isdigit())[-10:]
+    if not digits:
+        return 0
+    erased = await session.execute(text(_COPILOT_TURN_SUBJECT_SQL), {"digits": digits})
+    return int(rowcount_of(erased) or 0)
+
+
 async def _search_knowledge_base(session: AsyncSession, *, phone: str) -> int:
     """How many knowledge documents mention this number. Reads; never writes.
 
@@ -2013,6 +2111,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             lead_ids=list(leads),
         )
 
+        # THE CONSOLE CONVERSATION (D-540), reached by the same number. See
+        # `_erase_copilot_turns`: it usually matches nothing, because these rows are
+        # redacted on the way in, and it exists for the residue that is exactly the case a
+        # §12 request must still reach.
+        copilot_turns_erased = await _erase_copilot_turns(session, phone=phone)
+
         # LOOKED AT, never changed — see `_search_knowledge_base` for why the erasure
         # stops at a count. Run last, so a store this request could not reach has already
         # raised and the number is never reported on an erasure that then rolled back.
@@ -2077,6 +2181,15 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     f"{RECORDING_FLOOR_DAYS}-day retention floor"
                 ),
                 "transcript_turns": "text and text_redacted replaced",
+                # IN `actions` AND NOT IN `scope`, unlike the vector counts above: `scope`
+                # is a whitelist two renderers enumerate field by field, and adding a key
+                # there is a change to a published certificate model. This number belongs
+                # in the sentence a data principal reads, and it is nearly always zero —
+                # see `_erase_copilot_turns` for why that is the healthy answer.
+                "copilot_conversation_turns": (
+                    f"{copilot_turns_erased} in-app assistant conversation turn(s) "
+                    "naming this number deleted"
+                ),
                 # THE CALLER'S OWN QUESTION, which the gap tables copied out of
                 # `transcript_turns.text_redacted` at detection time and which no other
                 # line of this certificate accounts for. Counted in the sentence rather
@@ -2562,6 +2675,14 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # reader to infer it from a count.
         memories = await session.execute(text("DELETE FROM copilot_memories"))
         counts["copilot_memories_erased"] = int(rowcount_of(memories) or 0)
+        # AND THE CONVERSATION ITSELF (D-540). Unpaged and unconditional for the line
+        # above's reasons, both of which apply unchanged — one statement over one tenant's
+        # rows with no object-store round trip, and nothing to match on, because
+        # `copilot/transcript.py` keeps IDENTIFIERS out and cannot recognise a proper
+        # noun. Offboarding is the one path that can reach a first name a staff member
+        # typed, so it destroys every row rather than matching any.
+        turns = await session.execute(text("DELETE FROM copilot_conversation_turns"))
+        counts["copilot_turns_erased"] = int(rowcount_of(turns) or 0)
         # EVERY CALLER'S VECTORS AND EVERY REMEMBERED FACT (D-503). UNCONDITIONAL, for
         # `copilot_memories`' reason one line up: when the subject is "all of them" there is
         # nothing to match on, and a predicate would leave behind exactly the rows whose
@@ -2653,6 +2774,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     "deleted: everything this account's staff asked the assistant, "
                     "everything it answered, and every fact it had learned about the "
                     "business"
+                ),
+                "copilot_conversation_turns": (
+                    f"{counts['copilot_turns_erased']} in-app assistant conversation "
+                    "turn(s) deleted: the chat panel's own history, on every device it "
+                    "was open on"
                 ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
