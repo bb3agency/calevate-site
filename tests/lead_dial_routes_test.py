@@ -921,7 +921,23 @@ async def test_staff_cannot_reach_the_recording_audio(monkeypatch: pytest.Monkey
 
     # The presigner is never reached on the staff arm — the point is that the gate
     # refuses before anything is minted — so it is stubbed only for the owner control.
-    monkeypatch.setattr("apps.workers.storage.presigned_url", lambda k, ttl_s: f"https://s3/{k}")
+    #
+    # THE STUB ASSERTS `disposition` RATHER THAN SWALLOWING IT. It was
+    # `lambda k, ttl_s: …`, and adding the keyword to the real function turned this into
+    # a `TypeError` inside the route — a 500, which is a worse failure than the one it
+    # was written to catch, and it is exactly what a `**_k` stub would have hidden. A
+    # recording is the ONE object played rather than downloaded (`crm/routes.get_
+    # recording`, `storage.presigned_url`), so the value is part of what this route
+    # promises and a stub that ignored it would let the promise be dropped silently.
+    def _presign(key: str, *, ttl_s: int, disposition: str = "attachment") -> str:
+        assert disposition == "inline", (
+            "the recording link is played in an `<audio src>`, so it must not be signed "
+            f"as a download; got {disposition!r}"
+        )
+        assert ttl_s > 0
+        return f"https://s3/{key}"
+
+    monkeypatch.setattr("apps.workers.storage.presigned_url", _presign)
 
     async with _client() as http:
         refused = await http.get(f"/v1/calls/{call_id}/recording", headers=staff_headers)
