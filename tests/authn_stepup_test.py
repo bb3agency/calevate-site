@@ -318,7 +318,7 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
             ):
                 sites += 1
                 assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
-    # 26: the twenty-five dangerous mutations, plus D-210's door —
+    # 30: the twenty-nine dangerous mutations, plus D-210's door —
     # `admin/routes.py::mint_impersonation_grant`, which is a step-up on ENTERING a
     # client account rather than on changing something. Counted the same way because the
     # census is about the pairing, not about the verb.
@@ -366,7 +366,21 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # captured for ending a relationship cannot be replayed as an erasure. Its UNDO takes
     # no step-up at all and is not on this list: it destroys nothing and is the recovery
     # path from the exact mistake the gate is guarding against.
-    assert sites == 26, f"found {sites} step-up call sites, expected 26; the census went stale"
+    #
+    # THE TWENTY-SIXTH THROUGH TWENTY-NINTH ARE PLANNED MAINTENANCE
+    # (`ops/maintenance_routes.py`, D-544): scheduling a window, amending one, calling one
+    # off and ending one. All four, because the whole surface is dangerous in both
+    # directions and in a way none of the entries above is — scheduling takes the platform
+    # away from EVERY client at a time of our choosing, and ending one early hands it back
+    # in the middle of whatever the window was opened for, which on a schema migration is
+    # the worse of the two. A stolen console session must be able to do neither.
+    #
+    # Each confirmation carries the window id EXCEPT `schedule_maintenance`, which has no
+    # target yet — the window it creates does not exist when the header is typed. The
+    # suffix is what stops a confirmation captured for the Tuesday window ending the one
+    # that replaced it, and `maintenance_confirmation` builds all four in one place so
+    # `runbooks/maintenance-window.md` and the API cannot drift apart.
+    assert sites == 30, f"found {sites} step-up call sites, expected 30; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
