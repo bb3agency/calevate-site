@@ -74,6 +74,7 @@ from apps.api.kb.models import (
     UPLOAD_PROCESSED,
     UPLOAD_PROCESSING,
     UPLOAD_RECEIVED,
+    UPLOAD_RETRYABLE,
 )
 from apps.workers.document_ocr import OcrImage, ocr_images
 from apps.workers.document_text import extract_document
@@ -511,7 +512,7 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             await session.execute(
                 text(_STALLED_SQL),
                 {
-                    "statuses": list(_RETRYABLE),
+                    "statuses": list(UPLOAD_RETRYABLE),
                     "stale": now - RETRY_STALLED_AFTER,
                     "limit": MAX_RETRIES_PER_TICK,
                 },
@@ -556,11 +557,6 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         extra={"redriven": redriven, "links": len(due), "changed": changed},
     )
     return f"redriven={redriven} links={len(due)} changed={changed}"
-
-
-#: The statuses the sweep re-drives. `kb/models.UPLOAD_RETRYABLE`, imported rather than
-#: spelled, so a status that stops being retryable stops being swept in the same edit.
-_RETRYABLE: Final = (UPLOAD_RECEIVED, UPLOAD_CONVERTING, UPLOAD_PROCESSING)
 
 
 async def _recheck_link(

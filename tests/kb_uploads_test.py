@@ -400,3 +400,58 @@ async def test_removing_an_upload_withdraws_the_vendors_copy_and_then_the_bytes(
             )
         ).scalar() == 0, "a claim on a vendor object outlived the object"
     assert s3.objects == {}, "the client's document is still in the bucket"
+
+
+# --- 7. The sweep re-drives exactly what the model says is retryable -----------------
+
+
+async def test_the_sweep_redrives_exactly_the_statuses_the_model_calls_retryable(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`UPLOAD_RETRYABLE` is the one list, and the sweep reads THAT list.
+
+    It used to hold a private copy under a comment claiming it was imported "so a status
+    that stops being retryable stops being swept in the same edit" — which was the one
+    thing the copy could not do. The two agreed on the day they were written, which is
+    the only day a duplicated constant ever agrees.
+
+    Driven off `UPLOAD_RETRYABLE` rather than off three literals for the same reason: a
+    test that spells the answer again is a third copy.
+    """
+    from apps.api.kb.models import UPLOAD_RETRYABLE, UPLOAD_STATUSES
+
+    # ONE object, not two equal ones. This is the half that fails on the duplicate: the
+    # behavioural half below passes either way for as long as the copies happen to agree,
+    # which is exactly why the copy survived being described as an import.
+    assert kb_ingest.UPLOAD_RETRYABLE is UPLOAD_RETRYABLE
+
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    by_status: dict[str, uuid.UUID] = {}
+    for status in UPLOAD_STATUSES:
+        row = await _upload_pdf(tenant_id, agent_id, name=f"Sheet {status}")
+        source_id = uuid.UUID(str(row["source_id"]))
+        by_status[status] = source_id
+        async with tenant_session(tenant_id) as session:
+            # Backdated past `RETRY_STALLED_AFTER`, which is what makes a row a candidate
+            # at all — a fresh row is one the ingest job may still be working on.
+            await session.execute(
+                text(
+                    "UPDATE kb_uploads SET ingest_status = :s, "
+                    "updated_at = now() - interval '2 hours' WHERE source_id = :sid"
+                ),
+                {"s": status, "sid": source_id},
+            )
+
+    redriven: list[uuid.UUID] = []
+
+    async def _record(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+        redriven.append(uuid.UUID(str(payload["source_id"])))
+        return "recorded"
+
+    monkeypatch.setattr(kb_ingest, "ingest_kb_source", _record)
+    await kb_ingest.sweep_kb_uploads({})
+
+    mine = {status for status, sid in by_status.items() if sid in redriven}
+    assert mine == set(UPLOAD_RETRYABLE), (
+        "the sweep re-drove " + str(sorted(mine)) + ", not " + str(sorted(UPLOAD_RETRYABLE))
+    )
