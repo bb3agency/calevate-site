@@ -113,10 +113,20 @@ def test_the_schema_carries_no_field_that_could_name_another_account() -> None:
 
 async def test_a_question_with_nothing_on_file_is_told_to_say_so() -> None:
     """T4 reaching the dashboard leg: the model is told to report the gap rather than
-    invent around it."""
+    invent around it — AND, when the answer was served from a lower tier than the router
+    asked for, what was actually searched.
+
+    The degradation used to be dropped on exactly this path, which is the one where it
+    matters most: under `compiled-facts` the corpus is the lines compiled into the agent's
+    script, and `agents/t0.py` skips a source WHOLE when it does not fit the knowledge
+    budget — so "nothing matches" said without naming the corpus can be said about a
+    published source the agent really does know.
+    """
     tenant_id = await _tenant_knowing("Fees", "A consultation costs 500 rupees.")
     try:
-        assert await _ask(tenant_id, "do you sell bicycles") == _NOTHING_PUBLISHED
+        answer = await _ask(tenant_id, "do you sell bicycles")
+        assert answer.endswith(_NOTHING_PUBLISHED)
+        assert answer.startswith(_DEGRADED_NOTE)
     finally:
         await cache.invalidate_tenant(tenant_id)
 

@@ -956,7 +956,17 @@ async def _search_knowledge(
         session, tenant_id=context.tenant_id, question=question, k=MAX_PASSAGES + 1
     )
     if result.is_empty():
-        return await _nothing_published(session)
+        # THE DEGRADATION IS DISCLOSED ON AN EMPTY ANSWER TOO, and it was not. `_DEGRADED_NOTE`
+        # was prepended only to a page of passages, so the one case where the person most
+        # needs it — "I have nothing for you" — was the one case it was dropped. It is not
+        # the same sentence as "nothing matched": under `compiled-facts` the corpus is the
+        # lines COMPILED INTO THE SCRIPT, and `agents/t0.py` skips a source WHOLE when it
+        # does not fit `KNOWLEDGE_CHAR_BUDGET` — so a long, live, published source can be
+        # absent from the only corpus this tier can see, and telling that client "nothing
+        # matches" without saying what was searched is telling them their agent does not
+        # know something it does know.
+        empty = await _nothing_published(session)
+        return f"{_DEGRADED_NOTE}\n{empty}" if result.unmet_capability is not None else empty
     lines = [
         f"- {passage.text[:MAX_PASSAGE_CHARS]} [{passage.provenance.label}]"
         for passage in result.passages[:MAX_PASSAGES]
