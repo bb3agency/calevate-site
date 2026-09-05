@@ -293,6 +293,19 @@ html:has([data-marketing-root]) body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+    /*
+     * THE DELAY HAS TO GO TOO, and it did not until the hero simulation needed it.
+     *
+     * Zeroing only the DURATION lands an animation on its end frame immediately — which
+     * is the whole design here — but a staggered entrance also carries `animation-delay`,
+     * and a delay the reset leaves alone still holds a `both`-filled element on its FIRST
+     * keyframe for the whole delay. The hero simulation stages eight steps over ~4s, so a
+     * reader who asked for no motion would have watched four seconds of blank card and
+     * called it a broken page. Zeroing the delay makes the reduced-motion rendering the
+     * finished end state, painted on the first frame, which is what this reset promises
+     * everywhere else on the page.
+     */
+    animation-delay: 0.001ms !important;
   }
 }
 
@@ -431,4 +444,55 @@ html:has([data-marketing-root]) body {
 @keyframes mk-iso-ping {
   0% { opacity: 0.45; transform: scale(0.75); }
   70%, 100% { opacity: 0; transform: scale(1.5); }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * THE HERO SIMULATION (components/marketing/heroCallSim.tsx)
+ * ---------------------------------------------------------------------------
+ *
+ * A staged entrance for the call → lead card figure, written as CSS keyframes with a
+ * per-step delay class rather than as a JavaScript timeline. Three reasons, in the order
+ * they mattered:
+ *
+ * 1. **The figure is a SERVER component and stays one.** Nothing about a scripted entrance
+ *    needs state, and a client island in the hero is the one place a bundle boundary costs
+ *    a visible delay on a low-end Android — the device this page is written for.
+ * 2. **It is finished without its bundle**, the rule the whole marketing surface follows
+ *    (`components/marketing/motion.tsx`). Every step's 100% frame is its resting state and
+ *    the fill mode is `both`, so a browser that ran the CSS and nothing else shows the
+ *    completed figure. A GSAP timeline would show an empty card if the bundle failed.
+ * 3. **Reduced motion needs no code at all**: the reset above zeroes both the duration and
+ *    the delay, so the same markup paints the end state on frame one.
+ *
+ * The animation runs ONCE (no `infinite`). A hero panel that restarts while somebody is
+ * reading the sentence beside it is a distraction rather than an illustration — the same
+ * judgement the previous figure recorded.
+ */
+[data-marketing-root] .mk-sim-step {
+  animation: mk-sim-step 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-marketing-root] .mk-sim-field {
+  animation: mk-sim-field 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* The stagger. Named classes rather than an inline `style` so the delays are readable in
+   one place and no element carries a style attribute the CSP would have to allow. */
+[data-marketing-root] .mk-d1 { animation-delay: 0.15s; }
+[data-marketing-root] .mk-d2 { animation-delay: 0.75s; }
+[data-marketing-root] .mk-d3 { animation-delay: 1.35s; }
+[data-marketing-root] .mk-d4 { animation-delay: 1.95s; }
+[data-marketing-root] .mk-d5 { animation-delay: 2.55s; }
+[data-marketing-root] .mk-d6 { animation-delay: 3s; }
+[data-marketing-root] .mk-d7 { animation-delay: 3.25s; }
+[data-marketing-root] .mk-d8 { animation-delay: 3.5s; }
+[data-marketing-root] .mk-d9 { animation-delay: 3.75s; }
+[data-marketing-root] .mk-d10 { animation-delay: 4s; }
+
+@keyframes mk-sim-step {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes mk-sim-field {
+  0% { opacity: 0; transform: translateX(10px); }
+  100% { opacity: 1; transform: translateX(0); }
 }

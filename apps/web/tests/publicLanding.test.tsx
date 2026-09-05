@@ -298,12 +298,31 @@ const CARD_TO_SEED: [string, string][] = [
 ];
 
 describe("the verticals section", () => {
+  /*
+   * READ OUT OF THE TAB PANEL, not out of "the section the heading is in".
+   *
+   * The band is now a tab widget (`components/marketing/industryTabs.tsx`), so all four
+   * panels are in the DOM at once and each carries two chip lists — the seed's field
+   * labels and the illustrative result. `closest("section")` from the heading therefore
+   * reached the whole band and swept up 35 chips from four verticals. The field list
+   * carries `data-seed-fields` for exactly this: it is the ONE list this assertion is
+   * about, and the marker says so rather than leaving the test to guess by position.
+   */
   it.each(CARD_TO_SEED)("shows %s the columns seed.py actually ships", (card, vertical) => {
-    render(<Home />);
-    const heading = screen.getByRole("heading", { name: card, level: 3 });
-    const section = heading.closest("section");
-    expect(section).not.toBeNull();
-    const chips = [...(section?.querySelectorAll("li") ?? [])].map((li) => li.textContent);
+    const { container } = render(<Home />);
+    // NOT `getByRole("heading")`: three of the four panels carry the `hidden` attribute,
+    // which is exactly what removes them from the accessibility tree — the property the
+    // tabs pattern depends on, and the reason a role query cannot see them. Every panel is
+    // in the DOM, so the panel is found by its heading's text and the field list read out
+    // of it. That the tabs themselves are reachable is asserted in the a11y sweep.
+    const panels = [...container.querySelectorAll('[role="tabpanel"]')];
+    expect(panels.length).toBe(CARD_TO_SEED.length);
+    const panel = panels.find((p) => p.querySelector("h3")?.textContent === card);
+    expect(panel, `${card} has no tab panel`).toBeDefined();
+    expect(container.querySelectorAll('[role="tab"]').length).toBe(CARD_TO_SEED.length);
+    const chips = [...(panel?.querySelectorAll("[data-seed-fields] li") ?? [])].map(
+      (li) => li.textContent,
+    );
     expect(chips).toEqual(seedLabels(vertical));
   });
 
@@ -361,7 +380,13 @@ describe("the qualification-layer section", () => {
     // Three cards, each a heading and a body — the same shape as every other card grid.
     const cards = [...(section?.querySelectorAll("h3") ?? [])];
     expect(cards).toHaveLength(3);
-    expect(container.textContent).toContain("Where your team's time goes");
+    // The band's own eyebrow. It was "Where your team's time goes" when the section was
+    // about the calculator that followed it; the redesign made it the sales-team section
+    // and moved the calculator below it, so the label follows the subject.
+    expect(container.textContent).toContain("Your sales team");
+    // And the reframe the founder called strategically important: the fear this section
+    // exists to answer is "does this replace my staff".
+    expect(text).toContain("not to automate your business");
   });
 });
 
@@ -442,10 +467,29 @@ describe("what the page promises the agent knows", () => {
   });
 });
 
+/**
+ * The FAQ's assertions are SCOPED TO `#faq`, and the scoping is the point rather than a
+ * relaxation.
+ *
+ * They used to run over every `<details>` on the page, which was correct when the FAQ was
+ * the only disclosure there. The redesign made disclosure the page's main tool for
+ * shortening without deleting — the "Learn more" on each use-case card, the four
+ * compliance invariants, the residency paragraph, the header's menu and the calculator's
+ * assumptions are all `<details>` now — and those legitimately carry no `<h3>` inside a
+ * `summary` and no `<p>` after it. What these assertions are about is the FAQ, so they say
+ * so; the two page-wide properties (native disclosure, nothing hand-rolled) are asserted
+ * page-wide below, where they still belong.
+ */
+function faqSection(container: HTMLElement): HTMLElement {
+  const faq = container.querySelector<HTMLElement>("#faq");
+  expect(faq, "the questions section did not render").not.toBeNull();
+  return faq as HTMLElement;
+}
+
 describe("the questions section", () => {
   it("answers every question it asks", () => {
     const { container } = render(<Home />);
-    const items = [...container.querySelectorAll("details")];
+    const items = [...faqSection(container).querySelectorAll("details")];
     expect(items.length).toBeGreaterThan(0);
     for (const item of items) {
       // Closed by default: an FAQ that renders open is a wall of text, and the reveal
@@ -473,7 +517,7 @@ describe("the questions section", () => {
     // same rule `Reveal` and `SmoothScroll` follow.
     const refresh = vi.spyOn(ScrollTrigger, "refresh");
     const { container } = render(<Home />);
-    const first = container.querySelector("details");
+    const first = faqSection(container).querySelector("details");
     expect(first).not.toBeNull();
     // `toggle` does not bubble, so there is no `fireEvent.toggle` helper — React attaches
     // this listener to the element itself and a plain event dispatched at it is what the
@@ -521,14 +565,16 @@ describe("the page's structure asks for one thing, once", () => {
 
     const labels = new Set(toSignup.map((a) => (a.textContent ?? "").trim()));
     labels.delete("How to get one");
-    // Two spellings, not one, and the second is measured rather than stylistic: the
-    // header shares a row with the logo and "Sign in", and `MarketingAccountNav` records
-    // that the row was 374px of content in a 320px viewport before it was tightened. The
-    // short form is a prefix of the long one, so it reads as the same offer.
+    // ONE spelling now, where there used to be two. The header carried a shortened form
+    // because the row did not fit at 320px with a five-word label in it; the founder's
+    // decision of 5 Sep 2026 replaced that label with "Get started", which fits, so the
+    // second spelling has nothing left to buy. "Create a workspace" is banned outright
+    // below: it names a noun a first-time visitor does not have and would not want.
     expect(
       [...labels].sort(),
-      "every other link to /signup must carry the SAME label — one door, one name for it",
-    ).toEqual(["Talk to us", "Talk to us about your calls"]);
+      "every link to /signup must carry the SAME label — one door, one name for it",
+    ).toEqual(["Get started"]);
+    expect(container.textContent).not.toMatch(/create a workspace/i);
 
     // And it is offered again where the reader has just done work, rather than only at the
     // top and the very bottom with the whole page in between.
@@ -590,7 +636,35 @@ describe("the page's structure asks for one thing, once", () => {
       "08",
       "09",
       "10",
+      "11",
+      "12",
+      "13",
     ]);
+  });
+
+  /**
+   * EVERY HEADER NAV ITEM SCROLLS TO A SECTION THAT REALLY EXISTS.
+   *
+   * The header gained navigation in the 5 Sep 2026 redesign, and the failure mode of a nav
+   * on a single-page site is silent: an anchor whose target was renamed or removed does
+   * nothing at all when clicked, which a visitor reads as a broken site and which no other
+   * test can see. Anchors rather than routes is itself the decision — a nav item pointing
+   * at a page nobody has built is the "route nobody mounted" defect on the surface where
+   * it costs the most.
+   */
+  it("points every navigation item at a section this page renders", () => {
+    const { container } = render(<Home />);
+    const targets = new Set(
+      [...container.querySelectorAll("main [id]")].map((el) => `#${el.id}`),
+    );
+    const navLinks = [...container.querySelectorAll('header a[href^="#"]')];
+    expect(navLinks.length).toBeGreaterThan(0);
+    for (const link of navLinks) {
+      const href = link.getAttribute("href") ?? "";
+      expect(targets, `the header links to ${href}, which this page does not render`).toContain(
+        href,
+      );
+    }
   });
 
   /**
@@ -653,8 +727,14 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
   const MARKETING_SOURCES = [
     "app/page.tsx",
     "components/marketing/roiCalculator.tsx",
-    "components/marketing/callDemo.tsx",
+    // `callDemo.tsx` is gone — the hero figure is `heroCallSim.tsx` now, and the old file
+    // was deleted rather than left beside it (CLAUDE.md: migrate, do not accumulate).
+    "components/marketing/heroCallSim.tsx",
     "components/marketing/faq.tsx",
+    "components/marketing/siteHeader.tsx",
+    "components/marketing/beforeAfter.tsx",
+    "components/marketing/leadInbox.tsx",
+    "components/marketing/industryTabs.tsx",
   ];
 
   it("every multi-column grid waits for a breakpoint", () => {
