@@ -731,3 +731,79 @@ async def test_a_vertical_where_the_write_is_refused_is_never_told_its_agents_re
     assert "The short note of what you asked about" not in markdown
     assert draft.memory_retention_days is None  # type: ignore[attr-defined]
     assert not [q for q in draft.open_questions if "BETWEEN calls" in q]  # type: ignore[attr-defined]
+
+
+# THE OTHER HALF OF THE CALL. `_handoff_paragraph` was written with D-533 and had no test
+# at all — which is the shape that matters here, because the paragraph's whole job is to
+# describe the ONE part of the call where the caller stops talking to a machine. An
+# untested section that renders empty is indistinguishable, in a passing suite, from one
+# that renders correctly: both leave a green run and a notice that under-discloses.
+
+
+async def _hand_callers_to_a_person(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET handoff_enabled = true WHERE id = :a"), {"a": agent_id}
+        )
+
+
+async def test_a_client_whose_agents_never_hand_over_says_nothing_about_it() -> None:
+    """`_memory_paragraph`'s argument applied to the transfer: a notice describing a
+    handover that cannot happen tells a caller they may be put through to a person by a
+    business that has configured nobody to put them through to."""
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+
+    draft = await _draft(tenant_id)
+
+    assert draft.handoff_agents == []  # type: ignore[attr-defined]
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    assert "When we put you through to a person" not in markdown
+    assert "The recording does not stop when you are put through" not in markdown
+
+
+async def test_handing_a_caller_to_a_person_is_disclosed_and_the_agent_named() -> None:
+    """The section appears exactly when an agent can hand over, and NAMES it — a business
+    running a receptionist that transfers and a campaign that does not is making two
+    different promises to two sets of callers."""
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _hand_callers_to_a_person(tenant_id, agent_id)
+
+    draft = await _draft(tenant_id)
+
+    assert len(draft.handoff_agents) == 1  # type: ignore[attr-defined]
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    assert "## When we put you through to a person" in markdown
+    assert draft.handoff_agents[0] in markdown  # type: ignore[attr-defined]
+
+
+async def test_the_transferred_leg_is_disclosed_as_recorded_on_the_same_clock() -> None:
+    """THE SENTENCE THE SECTION EXISTS FOR. The voice platform records the transferred leg
+    as a SEPARATE object, so a handed-over call produces two recordings of one caller. The
+    paragraph must say the recording continues, and must point at the retention list rather
+    than restating a number — a second sentence carrying its own figure is the thing that
+    goes stale when a tenant shortens their policy.
+    """
+    tenant_id, agent_id, _, _ = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _hand_callers_to_a_person(tenant_id, agent_id)
+
+    draft = await _draft(tenant_id)
+    markdown = draft.markdown  # type: ignore[attr-defined]
+    # Read against a whitespace-collapsed copy: the paragraph is hard-wrapped, so the
+    # pointer at the retention list straddles a newline in the source. Asserting on the
+    # wrapped form would pin the column width rather than the sentence.
+    flowed = " ".join(markdown.split())
+
+    assert "The recording does not stop when you are put through" in flowed
+    assert 'see "How long we keep it" below' in flowed
+    # The blank THIS paragraph used to carry is GONE, not filled in: the founder's 5 Sep
+    # 2026 decision made the transferred leg ours, on the tenant's own retention clock.
+    # Scoped to the section rather than the whole draft, because the draft legitimately
+    # carries blanks the client fills in ({{YOUR REGISTERED BUSINESS NAME}} and its
+    # address) — a document-wide assertion here would fail on those and say nothing about
+    # the one that was removed.
+    section = markdown.split("## When we put you through to a person", 1)[1].split("\n## ", 1)[0]
+    assert "{{" not in section
+    assert "NOT BY US" not in section

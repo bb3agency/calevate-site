@@ -551,6 +551,111 @@ def test_the_search_query_is_the_vendors_own_two_country_enum() -> None:
         NumberSearch(country="GB")  # type: ignore[arg-type]
 
 
+# `set_number_engine_ref` DECIDES WHETHER A PHONE RINGS, and its three decisions were
+# reached by exactly one test between them — the one where no agent is attached. The other
+# arms are the ones that cost something: recording a handle against a number that does not
+# exist, and the routing call that is the entire reason this function routes in the same
+# breath rather than waiting for the next publish (D-420's defect class).
+
+
+async def _tenant_with_agent() -> tuple[uuid.UUID, uuid.UUID]:
+    """The organisation and the agent its vertical template creates.
+
+    `_tenant()` above throws the agent away because most of this file is about numbers with
+    nothing attached. These three cases are about what happens when something IS.
+    """
+    created = await admin_service.create_organization(
+        name="Guntur Clinic",
+        slug=f"clinic-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    await accept_agreements(tenant_id)
+    return tenant_id, uuid.UUID(str(created["agent_id"]))
+
+
+async def test_recording_a_handle_for_a_number_we_do_not_hold_is_refused() -> None:
+    """A 404 and not a silent no-op. The operator is typing a handle read off the vendor's
+    console against a number id read off ours; a mistyped id that returned "nothing routed"
+    would look exactly like the ordinary no-agent-attached answer, and the handle would be
+    on file nowhere while the console said the step was done."""
+    with pytest.raises(ProblemError) as raised:
+        async with tenant_session(await _tenant()) as session:
+            await agents_service.set_number_engine_ref(
+                session, number_id=uuid7(), engine_number_ref="num_typed_against_the_wrong_row"
+            )
+    assert raised.value.status == 404
+
+
+async def test_a_handle_recorded_against_an_unpublished_agent_routes_nothing() -> None:
+    """THE ORDINARY ONBOARDING ORDER, and it must not fail. A clinic's number usually gets
+    its handle before the receptionist is published — routing an agent the engine has never
+    heard of would be a call with no ref to make it with. The handle is still stored; the
+    binding is `activate`'s job, and this is the no-op the docstring promises."""
+    tenant_id, agent_id = await _tenant_with_agent()
+    e164 = f"+9180{uuid.uuid4().int % 100000000:08d}"
+    async with tenant_session(tenant_id) as session:
+        number_id = await agents_service.provision_number(
+            session,
+            tenant_id=tenant_id,
+            e164=e164,
+            series="standard",
+            agent_id=agent_id,
+            provider="exotel",
+            purpose="reception",
+        )
+        routing = await agents_service.set_number_engine_ref(
+            session, number_id=number_id, engine_number_ref="num_before_the_agent_went_live"
+        )
+        stored = (
+            await session.execute(
+                text("SELECT engine_number_ref FROM phone_numbers WHERE id = :id"),
+                {"id": number_id},
+            )
+        ).scalar_one()
+
+    assert (routing.bound, routing.released, routing.failed) == (0, 0, 0)
+    assert stored == "num_before_the_agent_went_live", (
+        "the handle is the operator's answer and is kept whether or not it routes today"
+    )
+
+
+async def test_a_handle_recorded_against_a_live_receptionist_binds_in_the_same_call() -> None:
+    """WHAT THE FUNCTION IS FOR. An assignment that works only if somebody happens to
+    republish the agent afterwards is a screen with nothing behind it — the whole of D-420.
+    So the binding happens here, on the engine, before the operator leaves the page."""
+    tenant_id, agent_id = await _tenant_with_agent()
+    ref = f"fakeagent_num_{uuid.uuid4().hex[:8]}"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET engine_agent_ref = :r, status = 'live', "
+                "direction = 'inbound' WHERE id = :a"
+            ),
+            {"r": ref, "a": agent_id},
+        )
+    e164 = f"+9180{uuid.uuid4().int % 100000000:08d}"
+    async with tenant_session(tenant_id) as session:
+        number_id = await agents_service.provision_number(
+            session,
+            tenant_id=tenant_id,
+            e164=e164,
+            series="standard",
+            agent_id=agent_id,
+            provider="exotel",
+            purpose="reception",
+        )
+        routing = await agents_service.set_number_engine_ref(
+            session, number_id=number_id, engine_number_ref="num_from_the_vendor_console"
+        )
+
+    assert routing.bound == 1, "a live inbound agent takes the number on the engine now"
+    assert (routing.released, routing.failed) == (0, 0)
+
+
 @pytest.fixture(autouse=True)
 def _fresh_engine() -> None:
     """The fake engine holds its purchases in memory, so a stale cached instance would
