@@ -121,9 +121,7 @@ async def test_a_neighbours_row_cannot_be_written_over_either() -> None:
 
     async with tenant_session(second_tenant) as session:
         result = await session.execute(
-            text(
-                "UPDATE agent_handoff_members SET phone_e164 = '+919999999999' WHERE id = :id"
-            ),
+            text("UPDATE agent_handoff_members SET phone_e164 = '+919999999999' WHERE id = :id"),
             {"id": victim},
         )
         assert result.rowcount == 0, "a neighbour rewrote a handover destination"

@@ -154,9 +154,7 @@ async def test_a_call_back_the_caller_asked_for_out_loud_is_not_overwritten() ->
             session,
             tenant_id=tenant_id,
             call_id=call_id,
-            snapshot=_snapshot(
-                execution_id, HandoffLeg(outcome="unreached", raw_status="busy")
-            ),
+            snapshot=_snapshot(execution_id, HandoffLeg(outcome="unreached", raw_status="busy")),
         )
         row = (
             await session.execute(
@@ -247,9 +245,7 @@ async def test_settling_twice_does_not_reopen_an_ending_or_book_a_second_call_ba
         )
         count = (
             await session.execute(
-                text(
-                    "SELECT count(*) FROM scheduled_callbacks WHERE source_execution_id = :ex"
-                ),
+                text("SELECT count(*) FROM scheduled_callbacks WHERE source_execution_id = :ex"),
                 {"ex": execution_id},
             )
         ).scalar()

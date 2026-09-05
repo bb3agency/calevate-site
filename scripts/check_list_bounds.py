@@ -96,6 +96,17 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "ask for a year of failed cards."
         )
     ),
+    "PATCH /v1/admin/tenants/{tenant_id}": BoundedByConstruction(
+        by=(
+            "`changed` is a list of FIELD NAMES, not of anybody's rows — the fields this "
+            "call actually moved. Its ceiling is the number of fields the route can edit, "
+            'which the request model fixes at two (`EditTenantIn`, `extra="forbid"`), and '
+            "an unchanged save returns `[]`. A page size would be meaningless here: there "
+            "is nothing to page THROUGH, and a `limit` on it would imply the caller could "
+            "be told about fewer changes than were made, which is the one thing an audit "
+            "response must never do."
+        )
+    ),
     "GET /v1/agents/voices": BoundedByConstruction(
         by="the voice catalogue, a constant in `agents/voices.py` — not a table."
     ),
