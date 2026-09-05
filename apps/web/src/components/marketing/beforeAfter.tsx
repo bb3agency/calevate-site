@@ -18,7 +18,7 @@
  *  - every enquiry gets a first call — `apps/api/ingest/service.py` turns a web enquiry
  *    into a dial through the compliance gate, and `apps/api/campaigns/service.py` works a
  *    list; the form→dial gap is timed by
- *    `apps/api/core/alerting.py:641::record_speed_to_lead`;
+ *    `apps/api/core/alerting.py:632::record_speed_to_lead`;
  *  - it comes back sorted — the six lead statuses are a fixed enum
  *    (`apps/api/crm/schemas.py:29`) and the hot-lead alert fires off the extracted fields
  *    (`apps/workers/pipeline.py:179::HOT_LEAD_FIELD_TRIGGERS`);

@@ -211,7 +211,7 @@ const PROBLEMS: { icon: typeof PhoneMissed; title: string; body: string }[] = [
  *    whose reader also drives the console's after-hours tile);
  *  - following up: `apps/api/ingest/service.py` turns a web enquiry into a dial through
  *    the compliance gate, `apps/api/campaigns/service.py` works a pasted list, and
- *    `apps/api/core/alerting.py:641::record_speed_to_lead` times the gap;
+ *    `apps/api/core/alerting.py:632::record_speed_to_lead` times the gap;
  *  - qualifying: the six lead statuses are a fixed enum (`apps/api/crm/schemas.py:29`) and
  *    the hot-lead alert fires off the extracted fields
  *    (`apps/workers/pipeline.py:179::HOT_LEAD_FIELD_TRIGGERS`);
@@ -315,7 +315,7 @@ const FLOW: readonly string[] = [
  *     export (`apps/api/crm/routes.py:1017`);
  *  6. knowledge — T0 and nothing else (`docs/TRD.md:948`): the facts a person approves are
  *     compiled into the agent's own prompt at publish time (`apps/api/agents/t0.py`,
- *     `apps/api/kb/service.py:334`). There is no document upload — `POST /v1/kb/sources`
+ *     `apps/api/kb/service.py:437::approve_source`). There is no document upload — `POST /v1/kb/sources`
  *     takes TEXT and refuses `url`/`file` (`apps/api/kb/routes.py:44`) — so the card may
  *     not offer one, and says the better true thing instead.
  */
@@ -385,12 +385,12 @@ const CAPABILITIES: {
  * Every card is a shipped surface, per this file's rule:
  *  - the first call to every lead: `apps/api/ingest/service.py` (webhook-in → lead →
  *    compliance gate → outbound) and `apps/api/campaigns/service.py` (list campaigns); the
- *    form→dial gap is timed by `apps/api/core/alerting.py:641::record_speed_to_lead`;
+ *    form→dial gap is timed by `apps/api/core/alerting.py:632::record_speed_to_lead`;
  *  - sorted and written down: the extraction schema drives the columns
  *    (`apps/api/crm/columns.py`), the statuses are the fixed enum in
  *    `apps/api/crm/schemas.py:29`, and the hot-lead alert fires off the extracted fields
  *    (`apps/workers/pipeline.py:179`);
- *  - the funnel the owner reads it back on: `apps/api/crm/performance.py:16,46`
+ *  - the funnel the owner reads it back on: `apps/api/crm/performance.py:42,46`
  *    (Calls → Connected → Qualified, qualified = the lead moved past `new`).
  *
  * NO CONVERSION STATISTIC APPEARS HERE. The figures this play is usually sold with trace
@@ -999,10 +999,10 @@ export default function Home() {
                *
                * The three lines under it are risk reversal, and each is a shipped fact: a
                * person approves every word before an agent can answer with it
-               * (`apps/api/kb/service.py:334`, `apps/api/agents/service.py:1239`), a
+               * (`apps/api/kb/service.py:437::approve_source`, `apps/api/agents/service.py:1193`), a
                * campaign is a draft until somebody launches it
                * (`apps/api/campaigns/service.py:1199`), and pause stops the next dispatch
-               * tick (`POST /v1/campaigns/{id}/pause`, `apps/api/campaigns/routes.py:768`).
+               * tick (`POST /v1/campaigns/{id}/pause`, `apps/api/campaigns/routes.py:731`).
                */}
               <Reveal as="section" delay={0.1} className={`mt-10 ${CARD} sm:mt-12`}>
                 <h3 className="text-xl font-semibold tracking-tight text-balance text-ink sm:text-2xl">
@@ -1280,7 +1280,7 @@ export default function Home() {
                * A last panel that closes on the reader's future state rather than on one
                * more superlative. Both reassurance lines were checked against the code
                * before being written: approval before anything is answerable
-               * (`apps/api/kb/service.py:334` review states, `agents/service.py:1239`
+               * (`apps/api/kb/service.py:437::approve_source` review states, `agents/service.py:1193::publish_agent`
                * publish), and the campaign launch gate (`campaigns/service.py:1199` —
                * a campaign is a draft until a person launches it).
                */}
