@@ -154,22 +154,34 @@ async def test_a_knowledge_publish_never_lets_an_escalation_number_into_the_prom
     that is enforced in one compiler becomes untrue of the artifact.
 
     A staff mobile compiled into a system prompt is a number the agent can read out to
-    whoever asks for it; it lives in `agents.escalation_config` and nothing in
-    `agents/t0.py` reads that column. Checked at the engine's copy, which is the only
-    place that decides what the agent can say.
+    whoever asks for it. It used to live in `agents.escalation_config`; D-533 moved the
+    same ordered list to `agent_handoff_members`, where it is now DIALLED rather than
+    merely stored, and this guard is re-aimed at that table. The move is exactly the
+    moment a leak is most likely, and the premise assertion below is what keeps the
+    guard from going vacuous a second time: it fails loudly if the intake stops storing
+    a number at all, instead of passing because there is nothing to leak.
+
+    Checked at the engine's copy, which is the only place that decides what the agent
+    can say. The number reaching the engine as a TRANSFER DESTINATION is intended and is
+    not what this asserts — `handoff_applied`'s read-back owns that; what must never
+    happen is the number landing in prose the model can read aloud.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _record_intake(tenant_id, agent_id)
     await _publish_knowledge(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
 
     async with tenant_session(tenant_id) as session:
-        escalation = (
+        roster = (
             await session.execute(
-                text("SELECT escalation_config FROM agents WHERE id = :aid"), {"aid": agent_id}
+                text(
+                    "SELECT phone_e164 FROM agent_handoff_members "
+                    "WHERE agent_id = :aid ORDER BY position"
+                ),
+                {"aid": agent_id},
             )
-        ).scalar()
-    assert escalation["contacts"][0]["phone_e164"] == ESCALATION_NUMBER, (
-        "premise: the intake stored an escalation number for this agent"
+        ).scalars().all()
+    assert list(roster)[:1] == [ESCALATION_NUMBER], (
+        "premise: the intake stored an escalation number on this agent's handoff roster"
     )
 
     for version in await _versions(tenant_id, agent_id):
