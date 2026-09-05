@@ -664,3 +664,103 @@ __all__ = [
     "token_fingerprint",
     "verify_session",
 ]
+
+
+# ══ WHEN A SUBJECT'S UNBROKEN RUN OF SESSIONS BEGAN ═══════════════════════════════════
+#
+# MOVED HERE FROM `apps/api/copilot/session_run.py` (D-540 wrote it there and recorded, in
+# the module header, that it belonged in this file). D-165 reserves every statement against
+# `auth_sessions` to this package, and that module was written while a session-persistence
+# lane held it — so it was parked, with the move described, rather than a third reader of
+# the credential store being left in another package. This is that move: two SQL strings
+# and two functions, no caller change, nothing about the behaviour altered.
+#
+# WHY THE COPILOT NEEDS IT. A persisted conversation dies when its owner's LAST session
+# ends, and "ended" is not a property of one row: rotation supersedes a row and inserts its
+# successor at the same instant, so a signed-in person's history is a chain of intervals
+# with no gap. The run start is the beginning of the current unbroken island of them.
+#
+# `>=` RATHER THAN `>` IN THE COVER TEST IS LOAD-BEARING. `rotate_session` inserts the
+# successor exactly when it supersedes the predecessor, so `successor.created_at ==
+# predecessor.superseded_at`; under `>` the intervals would abut without touching, every
+# rotation would read as a NEW run, and proving a second factor would wipe the conversation
+# the person was in the middle of having.
+
+#: disagree about what "ended" means — a divergence would make the lazy check and the
+#: sweep clear conversations on different clocks.
+_INTERVALS = """
+SELECT id, subject_id, created_at,
+       LEAST(
+         COALESCE(revoked_at, 'infinity'::timestamptz),
+         COALESCE(superseded_at, 'infinity'::timestamptz),
+         idle_expires_at,
+         absolute_expires_at
+       ) AS ended_at
+FROM auth_sessions
+WHERE realm = :realm
+"""
+
+_RUN_START_SQL = f"""
+WITH s AS ({_INTERVALS} AND subject_id = :subject_id)
+SELECT max(s.created_at)
+FROM s
+WHERE EXISTS (SELECT 1 FROM s live WHERE live.ended_at > :now)
+  AND NOT EXISTS (
+    SELECT 1 FROM s p
+    WHERE (p.created_at, p.id) < (s.created_at, s.id)
+      AND p.ended_at >= s.created_at)
+"""
+
+_LIVE_SUBJECTS_SQL = f"""
+WITH s AS ({_INTERVALS})
+SELECT DISTINCT s.subject_id FROM s WHERE s.ended_at > :now
+"""
+
+
+def _instant(now: datetime | None) -> datetime:
+    return now if now is not None else datetime.now(UTC)
+
+
+async def current_run_start(
+    *, realm: str, subject_id: UUID, now: datetime | None = None
+) -> datetime | None:
+    """When this subject's current unbroken run of sessions began, or None.
+
+    `None` means "no live session right now", which is the same answer as "the run this
+    caller is holding has ended" — a caller must treat it as a clearance, never as an
+    error. It is unreachable from a request path (the request authenticated), and it is
+    the ordinary answer for the sweep.
+    """
+    async with credential_session() as session:
+        started = (
+            await session.execute(
+                text(_RUN_START_SQL),
+                {"realm": realm, "subject_id": subject_id, "now": _instant(now)},
+            )
+        ).scalar()
+    return started if isinstance(started, datetime) else None
+
+
+async def subjects_with_live_sessions(
+    *, realm: str, now: datetime | None = None
+) -> frozenset[UUID]:
+    """Every subject of this realm holding at least one live session.
+
+    THE SWEEP'S DIRECTION IS THIS WAY ROUND ON PURPOSE. The alternative — one query per
+    conversation asking "is this person still signed in" — is a credential-store round
+    trip per user per tick, and it is the shape that tempts somebody to set `app.auth` on
+    a tenant session so the two tables can be joined. Nothing outside `authn` may read
+    the credential store in the same transaction as client data, so the answer is
+    materialised here, once, and carried to the tenant statements as a plain array of ids.
+
+    Bounded by CONCURRENTLY SIGNED-IN PEOPLE rather than by rows in any table: a subject
+    with ten rotated sessions appears once, and a subject signed out appears not at all.
+    """
+    async with credential_session() as session:
+        rows = (
+            await session.execute(text(_LIVE_SUBJECTS_SQL), {"realm": realm, "now": _instant(now)})
+        ).scalars()
+        return frozenset(rows)
+
+
+__all__ = ["current_run_start", "subjects_with_live_sessions"]

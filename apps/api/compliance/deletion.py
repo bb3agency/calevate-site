@@ -395,6 +395,13 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "The billing records for these calls are retained. They are an append-only ledger "
     "of minutes and money carrying no personal data, and deleting them would silently "
     "rewrite a closed billing period.",
+    "Anything a person at the client TYPED into Calevate's assistant about this caller "
+    "is erased where it names their number, but not where it names them by NAME. The "
+    "assistant stores what was typed with phone numbers already replaced by placeholders, "
+    'and this erasure is keyed on a number — so a question such as "what did this '
+    "caller want?\" asked using the person's name is not something a number can find. "
+    "Nothing here is used to contact anyone, and the assistant's own working notes expire "
+    "on their own schedule whether or not an erasure is requested.",
     "Call rows survive with their personal fields cleared rather than being deleted, so "
     "the minutes that were billed stay countable.",
     "The voice platform that carried these calls keeps its own copy of the recording "
@@ -510,6 +517,30 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         authority=(
             "Calevate's billing ledger is append-only by design and money is never "
             "restated in place: a correction is a new entry, never a deletion."
+        ),
+    ),
+    ErasureLimitation(
+        what=(
+            "What a person at this business typed to Calevate's assistant, where they "
+            "named the caller by name rather than by number."
+        ),
+        keyword="assistant",
+        outcome="not_reachable_by_number",
+        why=(
+            "Calevate's assistant keeps what was typed to it with phone numbers already "
+            "replaced by placeholders, so this erasure — which finds records BY the "
+            "number — removes every place the number appears. It cannot find a sentence "
+            "that named the person instead, because no number appears in it to match. "
+            "None of it is used to contact anyone, and it is deleted on its own schedule "
+            "whether or not an erasure is asked for."
+        ),
+        # D-484 recorded this same limit for the assistant's distilled notes; D-540 kept
+        # the raw conversation as well, so ONE entry covers both rather than two entries
+        # describing the same gap in a document a data principal reads.
+        authority=(
+            "Calevate redacts phone numbers before anything reaches the assistant, so "
+            "the number is not stored there to be found; what remains is ordinary text "
+            "somebody wrote, and it expires on the same clock as the calls it discusses."
         ),
     ),
     ErasureLimitation(
