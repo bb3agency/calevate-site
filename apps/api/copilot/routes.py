@@ -778,8 +778,10 @@ navigation, and a browser you closed yesterday afternoon.
 
 **It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open
 and both show the same thread — the desktop's copy simply does not know about the phone's
-newest turn until it loads again, which is the whole of the concurrency story here:
-there is no realtime channel and none is needed (see `load_copilot_conversation`).
+newest turn until it reads this again, which is the whole of the concurrency story here:
+there is no realtime channel and none is needed (see `load_copilot_conversation`). The
+console re-reads it when its tab gets focus and after every exchange (D-542), so the two
+converge the moment either is looked at.
 
 **It ends when your LAST session ends.** Signing out on one device does not take the
 thread away from another, but signing out of the last one does, and so does letting the
