@@ -60,6 +60,14 @@ const REQUIRED_IN_A_DEPLOY_BUILD: Record<string, string> = {
     "leaving a view-as session and signing in as an operator would both build a bare " +
     "/admin path and 404 against the client and apex hostnames, which refuse the " +
     "operator tree by design",
+  // Added with the enforce flip (D-541). Empty does not fail loudly here either — the
+  // reader falls back to the LOCAL MinIO origin, so the deployed policy would admit
+  // `http://localhost:9000` for `media-src` and refuse the real object store. The symptom
+  // is every call recording failing to load, on every client, with nothing in any server
+  // log: a CSP refusal happens in the browser.
+  NEXT_PUBLIC_MEDIA_ORIGIN:
+    "the Content-Security-Policy would admit the local MinIO origin for media and refuse " +
+    "the real object store, so no client could play any call recording",
 };
 
 if (DEPLOY_BUILD) {
