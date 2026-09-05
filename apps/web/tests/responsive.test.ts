@@ -441,7 +441,12 @@ describe("a navigation link's tap target", () => {
     ["lib/legal/document.tsx", /href=\{`#\$\{section\.id\}`\}/],
     ["lib/legal/document.tsx", /href=\{`#\$\{sub\.id\}`\}/],
     ["lib/legal/document.tsx", /href=\{`\/legal\/\$\{other\.slug\}`\}/],
-    ["app/page.tsx", /href=\{`\/legal\/\$\{doc\.slug\}`\}/],
+    // THE FOOTER MOVED. It was inline in `app/page.tsx` when there was one marketing
+    // page; the eight of them now share `components/marketing/pageShell.tsx`, so this
+    // anchor is measured once and applies to all eight rather than to the homepage alone.
+    ["components/marketing/pageShell.tsx", /href=\{`\/legal\/\$\{doc\.slug\}`\}/],
+    // The site nav beside it, added with those pages and the same shape of target.
+    ["components/marketing/pageShell.tsx", /href=\{item\.href\}/],
   ];
 
   it("is at least 24px tall in every legal navigation list", () => {

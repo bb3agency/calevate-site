@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -41,12 +41,60 @@ import { stubApi } from "./harness";
  */
 function textOutsideCalculator(container: HTMLElement): string {
   const calc = container.querySelector("[data-roi-calculator]");
-  const full = container.textContent ?? "";
+  const full = bodyText(container);
   if (!calc) return full;
   const inside = calc.textContent ?? "";
   // The calculator's text is one contiguous run in the DOM order `textContent` walks, so
   // removing that substring leaves exactly the rest of the page.
   return full.replace(inside, "");
+}
+
+/**
+ * The page's own words: `<main>`, without the shared chrome.
+ *
+ * THE CHROME MAKES NO CLAIMS AND CANNOT. The header is a wordmark, seven page NAMES,
+ * "Sign in" and one button; the footer is those names again plus the eight legal document
+ * TITLES. A nav item reading "Pricing" is a link to a page, not a price — and the
+ * `/pricing/i` ban exists to stop a plan price appearing in the sales copy, not to stop
+ * the site having a pricing page. Scoping the claim bans to `main` is therefore narrowing
+ * them to the surface they were written for; every sentence that asserts anything is
+ * inside it. The bans that are about the PAGE rather than about a section — residency, the
+ * AI disclosure, urgency, social proof — still run over the whole container below.
+ */
+function bodyText(container: HTMLElement): string {
+  const main = container.querySelector("main");
+  expect(main, "the page rendered no <main>").not.toBeNull();
+  return main?.textContent ?? "";
+}
+
+/**
+ * Every static route the App Router will actually serve, read off disk.
+ *
+ * Route GROUPS are the reason this is a walk rather than an `existsSync`: `/auth/sign-in`
+ * is `src/app/(auth)/auth/sign-in/page.tsx`, and a naive path join reports it missing —
+ * which would be a guard that fails on a link that works, and gets deleted within a week.
+ * A `(group)` segment contributes nothing to the URL, so it is dropped.
+ *
+ * Dynamic segments are skipped: a `[slug]` route cannot be matched against a literal href
+ * without resolving the parameter, and every dynamic link in the chrome (`/legal/<slug>`)
+ * has its own guard derived from `LEGAL_DOCUMENTS`.
+ */
+function routePaths(appDir: string): Set<string> {
+  const routes = new Set<string>();
+  const walk = (dir: string, url: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith("[")) continue;
+        const segment = /^\(.*\)$/.test(entry.name) ? "" : `/${entry.name}`;
+        walk(resolve(dir, entry.name), url + segment);
+      } else if (entry.name === "page.tsx") {
+        routes.add(url === "" ? "/" : url);
+      }
+    }
+  };
+  walk(appDir, "");
+  expect(routes.size, "no routes found — the guard is looking in the wrong place").toBeGreaterThan(0);
+  return routes;
 }
 
 describe("the landing page's claims", () => {
@@ -298,12 +346,31 @@ const CARD_TO_SEED: [string, string][] = [
 ];
 
 describe("the verticals section", () => {
+  /*
+   * READ OUT OF THE TAB PANEL, not out of "the section the heading is in".
+   *
+   * The band is now a tab widget (`components/marketing/industryTabs.tsx`), so all four
+   * panels are in the DOM at once and each carries two chip lists — the seed's field
+   * labels and the illustrative result. `closest("section")` from the heading therefore
+   * reached the whole band and swept up 35 chips from four verticals. The field list
+   * carries `data-seed-fields` for exactly this: it is the ONE list this assertion is
+   * about, and the marker says so rather than leaving the test to guess by position.
+   */
   it.each(CARD_TO_SEED)("shows %s the columns seed.py actually ships", (card, vertical) => {
-    render(<Home />);
-    const heading = screen.getByRole("heading", { name: card, level: 3 });
-    const section = heading.closest("section");
-    expect(section).not.toBeNull();
-    const chips = [...(section?.querySelectorAll("li") ?? [])].map((li) => li.textContent);
+    const { container } = render(<Home />);
+    // NOT `getByRole("heading")`: three of the four panels carry the `hidden` attribute,
+    // which is exactly what removes them from the accessibility tree — the property the
+    // tabs pattern depends on, and the reason a role query cannot see them. Every panel is
+    // in the DOM, so the panel is found by its heading's text and the field list read out
+    // of it. That the tabs themselves are reachable is asserted in the a11y sweep.
+    const panels = [...container.querySelectorAll('[role="tabpanel"]')];
+    expect(panels.length).toBe(CARD_TO_SEED.length);
+    const panel = panels.find((p) => p.querySelector("h3")?.textContent === card);
+    expect(panel, `${card} has no tab panel`).toBeDefined();
+    expect(container.querySelectorAll('[role="tab"]').length).toBe(CARD_TO_SEED.length);
+    const chips = [...(panel?.querySelectorAll("[data-seed-fields] li") ?? [])].map(
+      (li) => li.textContent,
+    );
     expect(chips).toEqual(seedLabels(vertical));
   });
 
@@ -361,7 +428,13 @@ describe("the qualification-layer section", () => {
     // Three cards, each a heading and a body — the same shape as every other card grid.
     const cards = [...(section?.querySelectorAll("h3") ?? [])];
     expect(cards).toHaveLength(3);
-    expect(container.textContent).toContain("Where your team's time goes");
+    // The band's own eyebrow. It was "Where your team's time goes" when the section was
+    // about the calculator that followed it; the redesign made it the sales-team section
+    // and moved the calculator below it, so the label follows the subject.
+    expect(container.textContent).toContain("Your sales team");
+    // And the reframe the founder called strategically important: the fear this section
+    // exists to answer is "does this replace my staff".
+    expect(text).toContain("not to automate your business");
   });
 });
 
@@ -442,10 +515,29 @@ describe("what the page promises the agent knows", () => {
   });
 });
 
+/**
+ * The FAQ's assertions are SCOPED TO `#faq`, and the scoping is the point rather than a
+ * relaxation.
+ *
+ * They used to run over every `<details>` on the page, which was correct when the FAQ was
+ * the only disclosure there. The redesign made disclosure the page's main tool for
+ * shortening without deleting — the "Learn more" on each use-case card, the four
+ * compliance invariants, the residency paragraph, the header's menu and the calculator's
+ * assumptions are all `<details>` now — and those legitimately carry no `<h3>` inside a
+ * `summary` and no `<p>` after it. What these assertions are about is the FAQ, so they say
+ * so; the two page-wide properties (native disclosure, nothing hand-rolled) are asserted
+ * page-wide below, where they still belong.
+ */
+function faqSection(container: HTMLElement): HTMLElement {
+  const faq = container.querySelector<HTMLElement>("#faq");
+  expect(faq, "the questions section did not render").not.toBeNull();
+  return faq as HTMLElement;
+}
+
 describe("the questions section", () => {
   it("answers every question it asks", () => {
     const { container } = render(<Home />);
-    const items = [...container.querySelectorAll("details")];
+    const items = [...faqSection(container).querySelectorAll("details")];
     expect(items.length).toBeGreaterThan(0);
     for (const item of items) {
       // Closed by default: an FAQ that renders open is a wall of text, and the reveal
@@ -473,7 +565,7 @@ describe("the questions section", () => {
     // same rule `Reveal` and `SmoothScroll` follow.
     const refresh = vi.spyOn(ScrollTrigger, "refresh");
     const { container } = render(<Home />);
-    const first = container.querySelector("details");
+    const first = faqSection(container).querySelector("details");
     expect(first).not.toBeNull();
     // `toggle` does not bubble, so there is no `fireEvent.toggle` helper — React attaches
     // this listener to the element itself and a plain event dispatched at it is what the
@@ -521,14 +613,16 @@ describe("the page's structure asks for one thing, once", () => {
 
     const labels = new Set(toSignup.map((a) => (a.textContent ?? "").trim()));
     labels.delete("How to get one");
-    // Two spellings, not one, and the second is measured rather than stylistic: the
-    // header shares a row with the logo and "Sign in", and `MarketingAccountNav` records
-    // that the row was 374px of content in a 320px viewport before it was tightened. The
-    // short form is a prefix of the long one, so it reads as the same offer.
+    // ONE spelling now, where there used to be two. The header carried a shortened form
+    // because the row did not fit at 320px with a five-word label in it; the founder's
+    // decision of 5 Sep 2026 replaced that label with "Get started", which fits, so the
+    // second spelling has nothing left to buy. "Create a workspace" is banned outright
+    // below: it names a noun a first-time visitor does not have and would not want.
     expect(
       [...labels].sort(),
-      "every other link to /signup must carry the SAME label — one door, one name for it",
-    ).toEqual(["Talk to us", "Talk to us about your calls"]);
+      "every link to /signup must carry the SAME label — one door, one name for it",
+    ).toEqual(["Get started"]);
+    expect(container.textContent).not.toMatch(/create a workspace/i);
 
     // And it is offered again where the reader has just done work, rather than only at the
     // top and the very bottom with the whole page in between.
@@ -590,7 +684,57 @@ describe("the page's structure asks for one thing, once", () => {
       "08",
       "09",
       "10",
+      "11",
+      "12",
+      "13",
     ]);
+  });
+
+  /**
+   * EVERY NAVIGATION ITEM POINTS AT A ROUTE THAT REALLY EXISTS ON DISK.
+   *
+   * The header's items were anchors into this page for as long as the seven interior pages
+   * did not exist, and became routes in the change that built them. Both states have the
+   * same failure mode and it is silent: a link to a page nobody mounted renders perfectly,
+   * says nothing when clicked in dev, and 404s a stranger in production. It is the "route
+   * nobody mounted" defect on the surface where it costs the most.
+   *
+   * Asserted against the FILESYSTEM rather than against a list in this file, because a
+   * second list is the thing that drifts — this is the same discipline the footer's legal
+   * links follow by deriving from `LEGAL_DOCUMENTS`. It reads both directions: every nav
+   * href resolves to a `page.tsx`, and the header and footer offer the same site map.
+   */
+  it("points every navigation item at a route that exists", () => {
+    const { container } = render(<Home />);
+    const appDir = resolve(process.cwd(), "src", "app");
+    const hrefs = new Set(
+      [...container.querySelectorAll("header a[href], footer a[href]")]
+        .map((a) => a.getAttribute("href") ?? "")
+        // Only internal, non-dynamic paths. `mailto:` and `#` anchors are not routes, and
+        // `/legal/<slug>` is a dynamic segment whose own guard is the footer test below.
+        .filter((href) => href.startsWith("/") && !href.startsWith("/legal/")),
+    );
+    expect(hrefs.size).toBeGreaterThan(0);
+    const routes = routePaths(appDir);
+    for (const href of hrefs) {
+      expect(
+        routes.has(href),
+        `the site navigation links to ${href}, and no page.tsx under src/app renders it`,
+      ).toBe(true);
+    }
+    // And the two navigations agree: a page reachable from the header but not the footer
+    // (or the reverse) is a site map that depends on which end of the page you are at.
+    const inNav = (scope: string) =>
+      new Set(
+        [...container.querySelectorAll(`${scope} a[href^="/"]`)].map(
+          (a) => a.getAttribute("href") ?? "",
+        ),
+      );
+    for (const href of inNav('header nav[aria-label="Pages"]')) {
+      expect(inNav('footer nav[aria-label="Site"]'), `${href} is not in the footer`).toContain(
+        href,
+      );
+    }
   });
 
   /**
@@ -653,8 +797,14 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
   const MARKETING_SOURCES = [
     "app/page.tsx",
     "components/marketing/roiCalculator.tsx",
-    "components/marketing/callDemo.tsx",
+    // `callDemo.tsx` is gone — the hero figure is `heroCallSim.tsx` now, and the old file
+    // was deleted rather than left beside it (CLAUDE.md: migrate, do not accumulate).
+    "components/marketing/heroCallSim.tsx",
     "components/marketing/faq.tsx",
+    "components/marketing/siteHeader.tsx",
+    "components/marketing/beforeAfter.tsx",
+    "components/marketing/leadInbox.tsx",
+    "components/marketing/industryTabs.tsx",
   ];
 
   it("every multi-column grid waits for a breakpoint", () => {

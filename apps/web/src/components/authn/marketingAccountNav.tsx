@@ -44,11 +44,21 @@ const PRIMARY =
   "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white hover:bg-brand-strong sm:px-3 sm:text-sm";
 
 export interface MarketingAccountNavProps {
-  /** The signup call to action, whose wording the page owns (`SIGNUP_OPEN`). */
-  readonly signupLabel: string;
+  /**
+   * Where the header's call to action goes, and what it says.
+   *
+   * IT IS NO LONGER THE SIGNUP DOOR, and the prop is generic for that reason rather than
+   * out of taste. The founder's decision of 5 Sep 2026 makes the header CTA deliberately
+   * low-commitment — it sends a cold visitor into the page rather than at an account
+   * form, and the signup call to action lives in the hero and at the foot where the
+   * reader has been given a reason for it. `components/marketing/siteHeader.tsx` owns
+   * both values; this component owns only the row they sit in.
+   */
+  readonly ctaHref: string;
+  readonly ctaLabel: string;
 }
 
-export function MarketingAccountNav({ signupLabel }: MarketingAccountNavProps) {
+export function MarketingAccountNav({ ctaHref, ctaLabel }: MarketingAccountNavProps) {
   const { status, session } = useRealmSession(clientAuthn, "guest");
 
   // SIGNED IN ONLY WHEN THE SERVER SAID SO. `restoring` and every failure render the
@@ -59,12 +69,15 @@ export function MarketingAccountNav({ signupLabel }: MarketingAccountNavProps) {
 
   if (!signedIn) {
     return (
-      <nav className="flex items-center gap-2">
+      // NAMED, because the page now renders four navigation landmarks (this one, the
+      // header's section nav, the header's menu and the footer's legal list) and axe's
+      // `landmark-unique` rule is about a screen-reader user moving between them by name.
+      <nav aria-label="Account" className="flex items-center gap-2">
         <Link href={CLIENT_SIGN_IN_PATH} className={LINK}>
           Sign in
         </Link>
-        <Link href="/signup" className={PRIMARY}>
-          {signupLabel}
+        <Link href={ctaHref} className={PRIMARY}>
+          {ctaLabel}
           <ArrowRight aria-hidden className="h-3.5 w-3.5" />
         </Link>
       </nav>
@@ -72,7 +85,7 @@ export function MarketingAccountNav({ signupLabel }: MarketingAccountNavProps) {
   }
 
   return (
-    <nav className="flex items-center gap-2">
+    <nav aria-label="Account" className="flex items-center gap-2">
       {/* `/c`, not `/c/<slug>`: this component has a session and no slug, and the junction
           is what turns one into the other. Linking anywhere else would mean a second
           `/v1/me` read here purely to build an href.

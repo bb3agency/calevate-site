@@ -57,12 +57,8 @@
 import { useId, useMemo, useState } from "react";
 import {
   Bot,
-  Clock3,
   Filter,
   Handshake,
-  Infinity as InfinityIcon,
-  ShieldCheck,
-  Table2,
   TrendingDown,
   UserRound,
 } from "lucide-react";
@@ -273,34 +269,6 @@ function hoursFromMinutes(minutes: number): number {
   return Math.round(minutes / 60);
 }
 
-const QUALITATIVE: { icon: typeof Clock3; title: string; body: string }[] = [
-  {
-    icon: Clock3,
-    title: "Answers around the clock",
-    body: "No shift to staff for evenings, weekends or festival days — the line is picked up whenever it rings.",
-  },
-  {
-    icon: InfinityIcon,
-    title: "Takes every call at once",
-    body: "Fifty callers at 11am are fifty answered calls, not fifty in a queue behind three desks.",
-  },
-  {
-    icon: TrendingDown,
-    title: "No ramp, no attrition",
-    body: "Nothing to hire, train for six weeks, or re-hire when someone leaves. It is ready the day you switch it on.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "The rules on every dial",
-    body: "Calling hours, do-not-call scrubbing and the AI-disclosure answer are enforced on every call, not left to a person to remember.",
-  },
-  {
-    icon: Table2,
-    title: "A filled-in row every time",
-    body: "Each call lands as structured data in your leads list — the columns you chose — with the audio attached.",
-  },
-];
-
 export function RoiCalculator() {
   const [mode, setMode] = useState<Mode>("answers");
   const [callsPerDay, setCallsPerDay] = useState(USAGE.callsPerDay.default);
@@ -427,10 +395,11 @@ export function RoiCalculator() {
     >
       {/* --- Inputs -------------------------------------------------------------- */}
       <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
-        <h3 className="text-lg font-semibold text-ink">Your call volume</h3>
+        <h3 className="text-lg font-semibold text-ink">Your numbers</h3>
         <p className="mt-1.5 text-sm text-ink-muted">
-          Two numbers and how long the phone must be covered. Everything else is pre-filled
-          with local benchmarks you can adjust later if you want to.
+          Three numbers you already know. Every other assumption is pre-filled and sitting
+          under “Adjust assumptions” below — the same model either way, just not in your
+          face until you ask for it.
         </p>
         <div className="mt-6 space-y-6">
           {/* Which comparison to run. First, because it changes what every number below
@@ -485,20 +454,20 @@ export function RoiCalculator() {
             </>
           )}
 
-          {/* Coverage — the honest "always on" lever. A person works one shift; to keep a
-              line answered longer you staff more shifts, and that is where an agent that
-              answers every hour at the same price pulls ahead. Radios, not a slider: three
-              named windows a buyer recognises, keyboard-operable as one group. */}
-          <RadioCards
-            legend="Hours you need the line answered"
-            options={COVERAGE.map((c) => ({
-              id: c.hours,
-              label: c.label,
-              caption: c.caption,
-            }))}
-            value={coverageHours}
-            onChange={setCoverageHours}
-            columns={3}
+          {/* THE THIRD PRIMARY INPUT, promoted out of the assumptions disclosure.
+              The founder's decision of 5 Sep 2026 is that the everyday buyer answers three
+              questions — how many calls, how long they run, and what a telecaller costs
+              them today — and meets nothing else unless they ask for it. THE MODEL IS
+              UNCHANGED: this is the same `loadedPerAgentInr` the comparison has always been
+              driven by, in the same place in the same arithmetic. Only where it renders
+              moved, which is the whole point of the instruction. */}
+          <Control
+            label="What one telecaller costs you a month"
+            bounds={TELECALLER.loadedPerAgentInr}
+            value={loadedPerAgentInr}
+            onChange={setLoaded}
+            unit="/mo"
+            hint="Everything they cost you, not the figure in the job ad: base plus PF/ESI, incentives, a share of a supervisor, desk and power, and ramp-up."
           />
         </div>
 
@@ -508,7 +477,7 @@ export function RoiCalculator() {
               landing tests assert across all of them. */}
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
             <h3 className="text-sm font-semibold text-ink">
-              Assumptions — working days, and what a telecaller really costs
+              Adjust assumptions — hours covered, working days, and the rest of the model
             </h3>
             <span className="shrink-0 text-xs font-medium text-brand-strong group-open:hidden">
               Adjust
@@ -523,6 +492,22 @@ export function RoiCalculator() {
             comparison on your own numbers.
           </p>
           <div className="mt-6 space-y-6">
+            {/* Coverage — the honest "always on" lever, and an ASSUMPTION rather than one
+                of the three questions a buyer arrives with. A person works one shift; to
+                keep a line answered longer you staff more shifts, and that is where an
+                agent answering every hour at the same price pulls ahead. Radios, not a
+                slider: three named windows, keyboard-operable as one group. */}
+            <RadioCards
+              legend="Hours you need the line answered"
+              options={COVERAGE.map((c) => ({
+                id: c.hours,
+                label: c.label,
+                caption: c.caption,
+              }))}
+              value={coverageHours}
+              onChange={setCoverageHours}
+              columns={3}
+            />
             <Control
               label="Working days a month"
               bounds={USAGE.workingDays}
@@ -553,14 +538,6 @@ export function RoiCalculator() {
             onChange={setBase}
             unit="/mo"
             hint="The figure a job ad shows — around ₹18k–₹25k for the role."
-          />
-          <Control
-            label="Fully loaded cost"
-            bounds={TELECALLER.loadedPerAgentInr}
-            value={loadedPerAgentInr}
-            onChange={setLoaded}
-            unit="/mo"
-            hint="Base plus PF/ESI, incentives, a share of a supervisor, desk and power, and ramp-up."
           />
           <Control
             label="Yearly attrition"
@@ -897,27 +874,6 @@ export function RoiCalculator() {
             />
           </div>
         )}
-      </div>
-
-      {/* --- Qualitative wins ---------------------------------------------------- */}
-      <div className="lg:col-span-2">
-        <h3 className="text-lg font-semibold text-ink">
-          What no headcount maths captures
-        </h3>
-        <ul className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {QUALITATIVE.map(({ icon: Icon, title, body }) => (
-            <li
-              key={title}
-              className="rounded-2xl border border-line bg-surface p-5"
-            >
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                <Icon aria-hidden className="h-5 w-5" />
-              </span>
-              <h4 className="mt-4 text-[15px] font-semibold text-ink">{title}</h4>
-              <p className="mt-1.5 text-sm text-ink-muted">{body}</p>
-            </li>
-          ))}
-        </ul>
       </div>
 
       {/* --- Assumptions disclosure --------------------------------------------- */}
