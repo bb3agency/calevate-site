@@ -537,8 +537,14 @@ class PlatformMaintenanceWindow(PKMixin, Base):
     amended_notice_at: Mapped[datetime | None] = mapped_column()
     active_notice_at: Mapped[datetime | None] = mapped_column()
     ended_notice_at: Mapped[datetime | None] = mapped_column()
+    #: The operator who scheduled it. `ondelete` DECLARED, and matching the migration
+    #: exactly: alembic compares a foreign key's options as well as its columns, so a model
+    #: that omits it makes `--autogenerate` propose dropping and re-adding the constraint on
+    #: every future revision — the drift `orm_schema_fidelity_test` exists to catch.
+    #: SET NULL rather than RESTRICT because an operator leaving must not pin the history of
+    #: every window they ever scheduled; the permanent record of who did what is `audit_log`.
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("admin_users.id")
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

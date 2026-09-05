@@ -455,6 +455,12 @@ class TestRlsCoverage:
             # reason `platform_state` is — the engine is answering or it is not, for
             # everybody at once.
             "platform_engine_health",
+            # D-544: one planned outage for the whole deployment at an instant, driving
+            # the load-shed mode beside it. No tenant whose row it could be, and it holds
+            # an operator's sentence, five timestamps and a straggler COUNT — no tenant
+            # id, no call, no number. Clients read it only through the two surfaces that
+            # project it for them (the banner route and the 503 body), never the row.
+            "platform_maintenance_windows",
             "webhook_deliveries",
             # The FOURTH shape, and the one `webhook_deliveries` above is one hop short
             # of: a tenant payload held INLINE rather than by reference. `payload` on the

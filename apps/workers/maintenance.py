@@ -79,7 +79,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.ops.maintenance import (
     ADVANCE_NOTICE,
@@ -163,13 +163,22 @@ _ANSWERING_AGENTS_SQL = text(
     "ORDER BY id"
 )
 
-#: Who gets a client notice. Same recipient rule as the account-closure notice
-#: (`workers/account_closure._recipients`): the billing address plus every active owner,
-#: because a maintenance window is an account-level fact and the billing mailbox is often
-#: an accountant nobody reads daily.
-_TENANT_RECIPIENTS_SQL = text(
-    "SELECT id, name, billing_email FROM organizations "
-    "WHERE deleted_at IS NULL AND status <> 'closed' ORDER BY id"
+#: Who gets a client notice: every client who still has a portal to lose.
+#:
+#: ⚠ **READ UNDER `admin_session`, NEVER `untenanted_session`.** `organizations` carries the
+#: FORCEd tenant policy matched on `id`, so an untenanted read of it returns ZERO ROWS —
+#: not an error, not a subset: nothing. This query is what decides who is told about an
+#: outage, so on the wrong session the whole notice apparatus runs, claims its stamps,
+#: reports success and mails nobody. `app.admin` widens `USING` on this table and ONLY this
+#: table (migration b57e2f9c4a13), which is exactly what a directory read needs and is the
+#: same session `campaign_dispatch` uses for the same purpose.
+#:
+#: `churned`, not `closed`: `tenancy.models.ORG_STATUSES` is
+#: `prospect|onboarding|active|suspended|churned` and there is no `closed` member, so the
+#: predicate this replaced excluded nobody at all and quietly mailed departed clients about
+#: an outage of a dashboard they no longer have.
+_OPEN_TENANTS_SQL = text(
+    "SELECT id FROM organizations WHERE deleted_at IS NULL AND status <> 'churned' ORDER BY id"
 )
 
 
@@ -469,6 +478,18 @@ async def _resume_campaigns(window: MaintenanceWindow, budget: WalkBudget) -> in
     return resumed
 
 
+async def _open_tenants() -> list[UUID]:
+    """Every client who still has a portal to lose, on the ONE session that can see them.
+
+    Its own function and its own session for the reason `_OPEN_TENANTS_SQL` gives: the read
+    needs `app.admin`, and the write beside it (the claim plus the outbox rows) belongs on
+    the caller's transaction. Sequential rather than nested — this session closes before the
+    caller's opens — so `db/session.MAX_NESTED_CONNECTIONS` is untouched.
+    """
+    async with admin_session() as session:
+        return list((await session.execute(_OPEN_TENANTS_SQL)).scalars().all())
+
+
 async def _fan_out(session: AsyncSession, *, window: MaintenanceWindow, kind: NoticeKind) -> int:
     """Queue one notice per open client, IN THE CALLER'S TRANSACTION.
 
@@ -481,16 +502,19 @@ async def _fan_out(session: AsyncSession, *, window: MaintenanceWindow, kind: No
     Through the OUTBOX rather than a direct enqueue (BACKEND-PATTERNS §4): the promise and
     the domain write share a fate, and a Redis blip at 02:00 does not cost a client their
     notice.
+
+    THE CLAIM IS TAKEN BEFORE THE DIRECTORY IS READ, so a worker that loses the race spends
+    no read at all — and a directory read that raises rolls the claim back with it.
     """
     if not await claim_notice(session, window_id=window.id, kind=kind):
         return 0
-    rows = (await session.execute(_TENANT_RECIPIENTS_SQL)).all()
-    for row in rows:
+    tenants = await _open_tenants()
+    for tenant_id in tenants:
         await enqueue_outbox(
             session,
             job=NOTIFY_JOB,
             payload={
-                "tenant_id": str(row[0]),
+                "tenant_id": str(tenant_id),
                 "kind": kind,
                 "window_id": str(window.id),
                 "reason": window.reason,
@@ -498,7 +522,7 @@ async def _fan_out(session: AsyncSession, *, window: MaintenanceWindow, kind: No
                 "ends_at": window.ends_at.isoformat(),
             },
         )
-    return len(rows)
+    return len(tenants)
 
 
 async def maintenance_tick(ctx: dict[str, Any]) -> str:

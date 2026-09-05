@@ -68,6 +68,16 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "impersonated session is a client dashboard, which has no screen showing what "
         "Calevate pays a vendor"
     ),
+    "/v1/ops/maintenance": (
+        "the maintenance board (D-544) — the open window, what its drain is still waiting "
+        "for, and the recent history. An OPS screen and not a client view: the numbers on "
+        "it are cross-tenant (how many calls the whole platform is still holding) and the "
+        "controls beside them take the platform away from every client at once. A client "
+        "in a view-as session is looking at their own dashboard, and their view of the "
+        "same fact is a different route entirely — `GET /v1/maintenance` is `org:read`, "
+        "which D-22 admits, so a support person inside an account sees exactly the banner "
+        "the client sees. Nothing is lost by hiding this one from impersonation."
+    ),
     "/v1/copilot/conversation": (
         "ONE PERSON'S conversation with the assistant (D-540), and the exemption rests on "
         "a fact about the KEY rather than on a judgement about support. This route is "
