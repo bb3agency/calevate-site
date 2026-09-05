@@ -183,8 +183,9 @@ function Sidebar({
               mark of its own, and this is the same answer in the same amber.
 
               `<span className="block">` rather than `<p>`: `SidebarLabel` is a `<span>`
-              (it has to be — it also wraps the brand lockup inside a link), and a `<p>`
-              inside a `<span>` is invalid markup that the parser silently unnests. */}
+              (it has to be — its other call sites are inside `<a>` and `<button>`, where
+              a block-level label is the wrong element), and a `<p>` inside a `<span>` is
+              invalid markup that the parser silently unnests. */}
           <SidebarLabel isCollapsed={isCollapsed}>
             {me.error != null ? (
               <>

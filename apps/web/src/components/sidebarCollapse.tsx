@@ -101,8 +101,8 @@ import { BrandIcon } from "@/components/brand";
  *
  *   nav padding 12 + row padding 16 + half a 16px icon    = 36   (nav rows)
  *   brand row padding 18 + half a 36px mark               = 36   (brand)
- *   footer padding 8 + identity row padding 10 + half 36  = 36   (avatar / shield)
- *   footer padding 8 + button padding 20 + half a 16 icon = 36   (sign out)
+ *   footer padding 12 + identity row padding 6 + half 36  = 36   (avatar / shield)
+ *   footer padding 12 + button padding 16 + half a 16 icon = 36  (sign out)
  *   rail 72 - toggle row padding 22 - half a 28px button  = 36   (collapse toggle)
  *
  * A consequence worth having: expanded, every label in the panel starts at x=56 and the
@@ -187,12 +187,22 @@ export function SidebarLabel({
 export const SIDEBAR_ROW_CLASS =
   "mb-1 flex items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium touch:min-h-11";
 
-/** The footer that holds the identity block and the way out. */
-export const SIDEBAR_FOOTER_CLASS = "border-t border-line px-2 py-4";
+/**
+ * The footer that holds the identity block and the way out.
+ *
+ * `px-3` matches the `<nav>` above it, so every hover pill in the panel — nav row,
+ * identity row, sign-out — starts at the same x. It used to be `p-4`, which put the
+ * footer's rows 4px in from the nav's.
+ */
+export const SIDEBAR_FOOTER_CLASS = "border-t border-line px-3 py-4";
 
-/** The identity row inside that footer — 36px glyph, centred on the rail's centre line. */
+/**
+ * The identity row inside that footer. `p-1.5` inside the footer's `px-3` puts its 36px
+ * glyph's centre on 36px — the rail's centre line, the same one the brand mark and every
+ * nav icon sit on.
+ */
 export const SIDEBAR_IDENTITY_ROW_CLASS =
-  "flex items-center gap-3 overflow-hidden rounded-lg p-2.5";
+  "flex items-center gap-3 overflow-hidden rounded-lg p-1.5";
 
 /**
  * The brand block at the top of both panels, and the mobile drawer's close button.
