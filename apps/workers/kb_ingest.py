@@ -41,6 +41,7 @@ A provider that returns no usage block is NOT estimated: it alerts.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from datetime import UTC, datetime, timedelta
@@ -110,6 +111,16 @@ MAX_RETRIES_PER_TICK: Final = 25
 LINK_FETCH_TIMEOUT_S: Final = 15.0
 LINK_REDIRECT_LIMIT: Final = 3
 MAX_LINK_BYTES: Final = 2 * 1024 * 1024
+
+#: ONE deadline over the WHOLE fetch — every hop, every lookup and every byte.
+#:
+#: `LINK_FETCH_TIMEOUT_S` above is httpx's, and httpx's timeout is PER OPERATION: a server
+#: that sends one byte every fourteen seconds trips no read timeout and holds the worker
+#: for as long as it likes, and a redirect chain multiplies that by the hop budget. Same
+#: argument, same shape and the same precedent as `storage.RECORDING_FETCH_DEADLINE_S`;
+#: the number is the hop budget times the per-operation timeout, so an honest slow page
+#: still finishes and a drip does not.
+LINK_FETCH_DEADLINE_S: Final = LINK_FETCH_TIMEOUT_S * (LINK_REDIRECT_LIMIT + 1)
 
 #: What we hash to decide "has this page materially changed". Tags, scripts and styles are
 #: removed and whitespace collapsed, so a re-render, a rotated CSRF token in a form or a
@@ -571,7 +582,7 @@ async def _recheck_link(
     hand for the same reason: each hop is a NEW destination and is vetted before it is
     opened.
     """
-    fetched = await _fetch_page(url)
+    fetched = await fetch_page(url)
     async with tenant_session(tenant_id) as session:
         if fetched is None:
             # A page we could not read proves nothing about whether it changed. The clock
@@ -639,42 +650,103 @@ async def _recheck_link(
     return True
 
 
+def link_http_client() -> httpx.AsyncClient:
+    """THE SEAM. The client one page fetch is made with, as a module-level function.
+
+    A function rather than an inlined constructor for `egress_guard.resolve_addresses`'
+    reason exactly: the properties worth testing here — the byte ceiling, the hop budget,
+    the deadline — cannot be provoked against a real server in a unit test, and a test that
+    substituted `httpx.AsyncClient` globally would also be substituting it for the guard's
+    own transport check. Nothing else about the fetch moves with it: every judgement in
+    `_fetch_page` is still made there.
+
+    `follow_redirects=False` is NOT a detail this seam may lose. A vetted address is vetted
+    for the hop we make, so the `Location` is followed by hand and re-vetted — the same
+    rule `integrations.service.deliver` and `storage._fetch_recording` state.
+    """
+    return httpx.AsyncClient(timeout=LINK_FETCH_TIMEOUT_S, follow_redirects=False)
+
+
 async def _fetch_page(url: str) -> bytes | None:
     """One page, vetted at every hop and bounded in time and bytes. None if unreadable.
 
     NEVER RAISES ON A REMOTE FAILURE. A client's link pointing at a host that is down must
     not fail a sweep that has forty-nine other tenants' rows to walk.
+
+    STREAMED, AND THE CAP IS CHECKED AS THE BYTES ARRIVE. This read `response.content` and
+    then sliced it to `MAX_LINK_BYTES`, which is not a limit: by the time the number is
+    known the memory is already spent, and the number is chosen by whoever the CLIENT
+    pointed us at. `storage._fetch_recording` had the identical defect and the identical
+    fix, and this is that idiom rather than a second one. `Content-Length` is consulted
+    first so an honest oversized page costs no bytes at all, but it is a HINT — a chunked
+    response declares none and a hostile one can lie — so the running total is what
+    enforces the ceiling.
+
+    A page that is LARGER than the ceiling is refused outright rather than truncated. A
+    prefix of a document is a different document: `page_digest` over it would report a
+    change whenever anything before the cut moved and silence when everything after it
+    did, so a truncated read is a change signal that lies in both directions.
     """
     current = url
-    for _ in range(LINK_REDIRECT_LIMIT + 1):
-        try:
-            await assert_public_http_url(current, field="url")
-        except EgressRefusedError:
-            # Logged by the guard itself, with the category. Nothing further to say here
-            # and deliberately nothing about the address in this line.
-            log.warning("kb_link_egress_refused")
-            return None
-        try:
-            async with httpx.AsyncClient(
-                timeout=LINK_FETCH_TIMEOUT_S, follow_redirects=False
-            ) as client:
-                response = await client.get(current, headers={"Accept": "text/html,text/*"})
-        except httpx.HTTPError as failure:
-            log.info("kb_link_fetch_failed", extra={"reason": type(failure).__name__})
-            return None
-        if response.is_redirect:
-            location = response.headers.get("location")
-            if not location:
+    async with link_http_client() as client:
+        for _hop in range(LINK_REDIRECT_LIMIT + 1):
+            try:
+                vetted = await assert_public_http_url(current, field="url")
+            except EgressRefusedError:
+                # Logged by the guard itself, with the category. Nothing further to say
+                # here and deliberately nothing about the address in this line.
+                log.warning("kb_link_egress_refused")
                 return None
-            current = str(httpx.URL(current).join(location))
-            continue
-        if response.status_code >= 400:
-            log.info("kb_link_fetch_status", extra={"status": response.status_code})
-            return None
-        body = response.content[:MAX_LINK_BYTES]
-        return body
+            try:
+                # `vetted.url`, not `current`: what was judged is what is requested.
+                async with client.stream(
+                    "GET", vetted.url, headers={"Accept": "text/html,text/*"}
+                ) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location:
+                            return None
+                        current = str(httpx.URL(vetted.url).join(location))
+                        continue
+                    if response.status_code >= 400:
+                        log.info("kb_link_fetch_status", extra={"status": response.status_code})
+                        return None
+                    declared = response.headers.get("content-length")
+                    if (
+                        declared is not None
+                        and declared.isdigit()
+                        and int(declared) > MAX_LINK_BYTES
+                    ):
+                        log.info("kb_link_too_large", extra={"declared": int(declared)})
+                        return None
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > MAX_LINK_BYTES:
+                            log.info("kb_link_too_large", extra={"declared": None})
+                            return None
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+            except httpx.HTTPError as failure:
+                log.info("kb_link_fetch_failed", extra={"reason": type(failure).__name__})
+                return None
     log.info("kb_link_redirect_limit")
     return None
+
+
+async def fetch_page(url: str) -> bytes | None:
+    """`_fetch_page` under ONE deadline covering the whole chain. The only caller's door.
+
+    Separate from `_fetch_page` so the deadline wraps hops, lookups and bytes together
+    rather than each hop separately — a bound a redirect chain walks straight past.
+    """
+    try:
+        async with asyncio.timeout(LINK_FETCH_DEADLINE_S):
+            return await _fetch_page(url)
+    except TimeoutError:
+        log.info("kb_link_fetch_deadline")
+        return None
 
 
 __all__ = [
@@ -682,7 +754,9 @@ __all__ = [
     "RESCRAPE_AFTER",
     "RETRY_STALLED_AFTER",
     "SWEEP_MINUTES",
+    "fetch_page",
     "ingest_kb_source",
+    "link_http_client",
     "page_digest",
     "sweep_kb_uploads",
 ]
