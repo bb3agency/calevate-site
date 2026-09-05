@@ -38,10 +38,58 @@ PAGE which then makes its own same-origin call, so the cookie is never needed on
 cross-site navigation itself. Taking `Strict` costs nothing here and removes the entire
 class of top-level-navigation CSRF.
 
-`Max-Age` is deliberately ABSENT, making this a session cookie. The authority on when the
-session ends is the ROW (`idle_expires_at` / `absolute_expires_at`), and a `Max-Age` would
-be a second, client-controlled, unenforceable copy of that fact which the browser could
-disagree with. `sessions.py` already argues that the row is the session.
+`Max-Age` — **PRESENT ON THE CLIENT REALM, ABSENT ON THE ADMIN REALM (D-539), AND THIS
+PARAGRAPH USED TO SAY IT WAS ABSENT ON BOTH.** The old argument was that a `Max-Age` would
+be "a second, client-controlled, unenforceable copy" of the row's expiry. That is right
+about one failure and silent about the opposite one, which is the one a person actually
+reported:
+
+  * **The browser must not be able to END a session.** Unchanged, and nothing below
+    weakens it: `verify_session` re-reads the row on every request, and an expired,
+    superseded or revoked row is refused whatever the browser presents. A cookie the
+    browser keeps for longer than the row lives buys its holder nothing.
+  * **The browser must not DISCARD a still-valid credential either.** A cookie with no
+    `Max-Age` dies when the browser session does, and on a phone that is not "when the
+    person is finished" — iOS and Android reclaim backgrounded tabs, and the cookie goes
+    with them. So a client whose row is good for fourteen days was signed out by closing
+    a tab. `Max-Age` is the ONLY lever that exists for that, and it is not a second
+    authority as long as it is derived from the row rather than chosen: it is bounded by
+    `absolute_expires_at`, so the two cannot disagree in the dangerous direction — the row
+    can always end the session EARLIER (idle timeout, revocation, reuse detection) and the
+    cookie can never outlive the bound the row was born with.
+
+**IT DOES NOT SLIDE WITH THE IDLE WINDOW, AND THAT IS THE DELIBERATE PART.** The row's
+`idle_expires_at` slides on every verification (`sessions._verify_within`), but
+`absolute_expires_at` is fixed at issue and CARRIED FORWARD unchanged by `rotate_session`.
+The cookie is pinned to that fixed instant, so every re-issue of the same session hands the
+browser a SHORTER `Max-Age` converging on one moment. Sliding it with the idle window
+instead would be the thing the old paragraph feared: a lifetime the client controls, which
+could outrun the absolute bound and leave a cookie alive after the only clock that can stop
+it has stopped.
+
+**THE TWO REALMS GET DIFFERENT ANSWERS, because their risk is different and their evidence
+is different.** The client realm is a business owner on a phone with a 14-day absolute
+bound and a 12-hour idle window: persisting is the fix, and the idle window is what bounds
+a cookie left on a shared device — an abandoned browser stops being a credential twelve
+hours later whether or not the cookie is still on disk. The ADMIN realm is 30 minutes idle
+and 8 hours absolute, holds operator powers over every tenant, and is used on a laptop. A
+persistent cookie there could survive at most the remainder of one shift, which is not a
+usability problem anybody reported, and it would put an operator credential on disk across
+a browser restart on whatever machine is to hand. So `admin` stays a session cookie. The
+split is data (`COOKIE_PERSISTENCE`), not a conditional at a call site.
+
+**WHAT THE BROWSER ACTUALLY GUARANTEES: LESS THAN THE HEADER ASKS FOR, AND THE PRODUCT IS
+CORRECT EITHER WAY.** `Max-Age` is a request. Reported (web search, 5 Sep 2026, secondary
+sources only — `webkit.org`, `datatracker.ietf.org`, `developer.mozilla.org` and
+`developer.chrome.com` are ALL egress-blocked from this container, so none of this is
+VERIFIED-VENDOR-DOCS and it must not be restated as fact): Safari's ITP caps first-party
+cookies set from `document.cookie` at 7 days and server-set `Set-Cookie` cookies are not
+capped that way, and Chrome since 104 rewrites any expiry beyond 400 days down to 400.
+Neither bound is load-bearing here — ours is `HttpOnly`, so script CANNOT have set it, and
+14 days is far under 400 — but the design does not depend on being right about that: if a
+browser ignores or shortens the `Max-Age`, the person is asked to sign in sooner than the
+row would have required, which is exactly today's behaviour and is the safe direction. No
+code branch anywhere reads the cookie's lifetime; the row remains the only clock.
 
 ═══ TWO COOKIE NAMES, AND WHAT THAT IS AND IS NOT ═══
 
@@ -91,6 +139,7 @@ paragraph above stays true of the whole API on the day cookies authenticate the 
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Final
 
 from fastapi import Request, Response
@@ -116,11 +165,24 @@ COOKIE_NAMES: Final[dict[str, str]] = {
 #: means neither has to be configured.
 _INSECURE_PREFIX_STRIP: Final = "__Host-"
 
+#: Does this realm's cookie SURVIVE the browser closing? (D-539.)
+#:
+#: Data rather than a conditional at the call site, for the reason `REALM_TIMEOUTS` is:
+#: the two realms differ, and the difference is a posture that should be readable in one
+#: place and assertable in one test. The argument for each answer is in the module
+#: docstring, under `Max-Age`. `tests/authn_cookie_persistence_test.py` asserts the map
+#: covers exactly `AUTHN_REALMS`, so a third realm cannot arrive without a decision.
+COOKIE_PERSISTENCE: Final[dict[str, bool]] = {"admin": False, "client": True}
+
+
+def _refuse_unknown_realm(realm: str) -> None:
+    if realm not in AUTHN_REALMS:
+        raise ValueError(f"{realm!r} is not an authentication realm")
+
 
 def cookie_name(realm: str, *, secure: bool = True) -> str:
     """The cookie this realm's session lives in."""
-    if realm not in AUTHN_REALMS:
-        raise ValueError(f"{realm!r} is not an authentication realm")
+    _refuse_unknown_realm(realm)
     name = COOKIE_NAMES[realm]
     return name if secure else name.removeprefix(_INSECURE_PREFIX_STRIP)
 
@@ -194,9 +256,48 @@ def read_token(request: Request, realm: str) -> str | None:
     return token or None
 
 
-def set_session_cookie(response: Response, *, realm: str, token: str, request: Request) -> None:
-    """Attach a freshly issued session token."""
+def session_cookie_max_age(
+    realm: str, *, absolute_expires_at: datetime, now: datetime | None = None
+) -> int | None:
+    """How long the browser is asked to keep this realm's cookie, or `None` for "until it closes".
+
+    DERIVED FROM THE ROW, never chosen. The whole reason a `Max-Age` is defensible here is
+    that this function has no number of its own to disagree with `absolute_expires_at`: it
+    reports the distance to that instant and nothing else. See the module docstring.
+
+    `None` for a realm `COOKIE_PERSISTENCE` says does not persist — a session cookie, as
+    before.
+
+    A non-positive result is returned AS ZERO rather than clamped up. Zero tells the
+    browser to drop the cookie immediately, which is the truth: the row it names is already
+    past its absolute bound and `verify_session` will refuse the token on the next request
+    anyway. Clamping to one second would hand out a credential we know is dead; raising
+    would turn a clock skew into a failed sign-in.
+    """
+    _refuse_unknown_realm(realm)
+    if not COOKIE_PERSISTENCE[realm]:
+        return None
+    at = now or datetime.now(UTC)
+    return max(0, int((absolute_expires_at - at).total_seconds()))
+
+
+def set_session_cookie(
+    response: Response,
+    *,
+    realm: str,
+    token: str,
+    request: Request,
+    absolute_expires_at: datetime,
+    now: datetime | None = None,
+) -> None:
+    """Attach a freshly issued session token.
+
+    `absolute_expires_at` is REQUIRED and comes from the row that was just written
+    (`sessions.IssuedSession`), so there is no call site that can set this cookie without
+    the bound it must not outlive.
+    """
     secure = _is_secure(request)
+    max_age = session_cookie_max_age(realm, absolute_expires_at=absolute_expires_at, now=now)
     response.set_cookie(
         key=cookie_name(realm, secure=secure),
         value=token,
@@ -204,7 +305,9 @@ def set_session_cookie(response: Response, *, realm: str, token: str, request: R
         secure=secure,
         samesite="strict",
         path="/",
-        # No `max_age`/`expires`: the row is the authority. See the module docstring.
+        # `None` leaves the header without `Max-Age` — a browser-session cookie, which is
+        # what the admin realm still gets. See the module docstring for both halves.
+        max_age=max_age,
     )
 
 
@@ -408,11 +511,13 @@ def _cross_site() -> ProblemError:
 
 __all__ = [
     "COOKIE_NAMES",
+    "COOKIE_PERSISTENCE",
     "clear_session_cookie",
     "cookie_name",
     "cross_site_refusal",
     "enforce_same_origin",
     "read_token",
+    "session_cookie_max_age",
     "session_cookie_present",
     "session_cookie_value",
     "set_session_cookie",

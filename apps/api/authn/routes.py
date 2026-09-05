@@ -324,7 +324,17 @@ async def _authenticated(request: Request, realm: str) -> VerifiedSession:
 
 
 def _set_cookie(response: Response, request: Request, realm: str, issued: IssuedSession) -> None:
-    set_session_cookie(response, realm=realm, token=issued.token, request=request)
+    """THE one place this realm's cookie is written, and it is handed the whole
+    `IssuedSession` rather than the token so the cookie's lifetime is bounded by the row's
+    own absolute expiry (D-539) — see `authn/cookies.py` on why that is not a second
+    authority."""
+    set_session_cookie(
+        response,
+        realm=realm,
+        token=issued.token,
+        request=request,
+        absolute_expires_at=issued.absolute_expires_at,
+    )
 
 
 # ─────────────────────────── the router factory ──────────────────────────────
@@ -703,6 +713,7 @@ async def accept_invitation_with_password(
         realm=invitations.INVITE_REALM,
         token=accepted.session.token,
         request=request,
+        absolute_expires_at=accepted.session.absolute_expires_at,
     )
     return InviteAcceptWithPasswordOut(
         tenant_id=accepted.tenant_id, slug=accepted.slug, role=accepted.role
