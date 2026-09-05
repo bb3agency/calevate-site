@@ -48,7 +48,7 @@ tell somebody they have ten leads when they have forty-seven.
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
@@ -836,6 +836,42 @@ _DEGRADED_NOTE = (
 )
 
 
+#: How many opaque sources the empty-answer sentence will name before it stops. A refusal is
+#: prose a model reads back to a person, and a list of forty file names is not a sentence.
+_MAX_NAMED_SOURCES: Final = 5
+
+
+def _sources_this_tool_cannot_read(sources: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The names of LIVE sources whose content neither retrieval tier can see.
+
+    A published source with ZERO `kb_documents` rows is a PDF or a scraped link (D-534):
+    `workers/kb_ingest.ingest_kb_source` extracts text for every other kind and deliberately
+    not for those two — a PDF *is* the object the engine is handed, so the artefact a
+    reviewer approved and the one an agent answers from are the same bytes, and a link is
+    scraped by the engine itself. Neither leaves us any text, and BOTH retrieval tiers are
+    built from `kb_documents` (T0 through `kb.service.active_knowledge`'s join, T3 through
+    `kb/service._PROJECT_SQL`'s), so neither can match a word of them.
+
+    THE FIX IS THE SENTENCE, NOT A WIDER TOOL. Making this reachable would mean extracting a
+    PDF into chunks, which changes what `agents/t0.py` compiles into the agent's PROMPT and
+    what a reviewer is shown — a voice-path decision with its own token budget (PROMPT-GUIDE
+    §2), not something a dashboard read tool may take on its own. What this tool owes the
+    client meanwhile is the truth: `_NOTHING_PUBLISHED` tells them to add a price list they
+    uploaded this morning, which sends them to do work that is already done and teaches them
+    the assistant is wrong about their own account.
+
+    `chunks` comes from `list_sources`, which is the Knowledge screen's own reader — so what
+    the assistant calls unreadable is derived from the same row the client is looking at.
+    """
+    return [
+        str(source["name"])[:80]
+        for source in sources
+        if source["published_at"] is not None
+        and source["is_active"]
+        and not source["chunks"]
+    ][:_MAX_NAMED_SOURCES]
+
+
 async def _nothing_published(session: AsyncSession) -> str:
     """Which of the THREE empty knowledge bases this is.
 
@@ -865,6 +901,20 @@ async def _nothing_published(session: AsyncSession) -> str:
             "is published, so the agents cannot use any of it yet"
             + (f" — {waiting} is waiting for approval" if waiting else "")
             + ". That is a step outstanding on our side, not a gap in what they wrote."
+        )
+    opaque = _sources_this_tool_cannot_read(sources)
+    if opaque:
+        # THE FOURTH EMPTY KNOWLEDGE BASE, and the only one where the honest answer is
+        # about US. See `_sources_this_tool_cannot_read`.
+        return (
+            "Nothing in the text this account has published matches that — but "
+            f"{len(opaque)} live source(s) hold their content as a file or a web page we "
+            "do not keep the text of, so this search could not look inside them: "
+            f"{', '.join(opaque)}. The agent CAN still answer from them on a call. Say "
+            "exactly that, name them, and do NOT suggest adding them again — they are "
+            "already live. To make one searchable here as well, its content can be pasted "
+            "or re-uploaded as a text, Word, spreadsheet or image file on the Knowledge "
+            "screen."
         )
     return _NOTHING_PUBLISHED
 
