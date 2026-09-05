@@ -25,10 +25,10 @@ import httpx
 import pytest
 from apps.api.core.settings import get_settings
 from apps.workers import document_ocr
+from calevate_shared.engine import DOCUMENT_OCR_MODEL
 from apps.workers.document_ocr import (
     MAX_SOURCE_OCR_COST_USD,
     NO_TEXT_SENTINEL,
-    OCR_MODEL,
     OcrImage,
     _legibility_reason,
     estimated_page_cost_usd,
@@ -99,7 +99,7 @@ async def test_ocr_output_always_asks_a_human_to_confirm_it() -> None:
         out = await ocr_images([_image()], client=client)
     assert out.needs_confirmation is True
     assert out.provenance == "ocr"
-    assert out.model == OCR_MODEL
+    assert out.model == DOCUMENT_OCR_MODEL
 
 
 @pytest.mark.parametrize(
@@ -170,7 +170,7 @@ async def test_the_image_travels_as_a_data_uri_beside_the_transcription_prompt()
     async with client:
         await ocr_images([_image()], client=client)
     body = json.loads(seen[0].content)
-    assert body["model"] == OCR_MODEL
+    assert body["model"] == DOCUMENT_OCR_MODEL
     # One right answer on the page: this is transcription, not composition.
     assert body["temperature"] == 0
     parts = body["messages"][0]["content"]
@@ -244,10 +244,10 @@ async def test_an_image_type_the_vendor_does_not_document_is_refused() -> None:
 
 def test_one_source_of_ocr_stays_inside_its_stated_cost_bound() -> None:
     """THE COST BOUND, ASSERTED RATHER THAN ASSUMED. Raising `MAX_OCR_IMAGES`, or moving
-    `OCR_MODEL` to something an order of magnitude dearer, fails here instead of turning
+    `DOCUMENT_OCR_MODEL` to something an order of magnitude dearer, fails here instead of turning
     up on an invoice. The prices come from `LLM_MODELS`, so they cannot drift from the
     catalogue this repository already keeps."""
-    per_page = estimated_page_cost_usd(OCR_MODEL)
+    per_page = estimated_page_cost_usd(DOCUMENT_OCR_MODEL)
     assert Decimal(0) < per_page < Decimal("0.01")
     assert per_page * MAX_OCR_IMAGES <= MAX_SOURCE_OCR_COST_USD
 
@@ -287,7 +287,7 @@ def test_the_leg_is_the_one_verified_google_endpoint_and_dialect(
     dialect `chat.py` already carries a verified credential header for."""
     leg = ocr_leg()
     assert leg.dialect == "google"
-    assert leg.wire_model == OCR_MODEL
+    assert leg.wire_model == DOCUMENT_OCR_MODEL
     assert leg.url.endswith("/chat/completions")
     assert "generativelanguage.googleapis.com" in leg.url
 

@@ -1052,6 +1052,28 @@ LlmModelName = AzureOpenAIModel | OpenAIDirectModel | GoogleDirectModel
 #: local run and every conformance fixture do today.
 PLATFORM_DEFAULT_LLM_MODEL: Final[LlmModelName] = "gemini-2.5-flash-lite"
 
+#: The model that READS PHOTOGRAPHS for the knowledge-base upload path (`apps/workers/
+#: document_ocr.py`).
+#:
+#: Named here rather than at the worker for `SARVAM_DEFAULT_LLM`'s reason, which
+#: `tests/sarvam_model_identifier_test.py` enforces: a model identifier lives in the
+#: catalogue that declares the `Literal` and prices it, and every call site READS IT BACK.
+#: A literal spelled at the worker is a second source of truth that drifts the day the
+#: catalogue id changes, on a leg where a stale id is a silent 404.
+#:
+#: **`gemini-2.5-flash` AND NOT THE PLATFORM DEFAULT ABOVE**, which is the cheaper sibling
+#: and would be the reflex choice. Reading unfamiliar script off a photograph taken by hand
+#: in a shop is a perception task at the hard end of what a small model does; at Google's
+#: published rates a page is a fraction of a rupee on EITHER model, so the saving is
+#: rounding and the risk is a client's price list transcribed wrongly. When the cheaper leg
+#: buys nothing measurable, buy the accuracy.
+#:
+#: It is not a `Settings` knob: a per-deployment OCR model is a variable nobody would tune
+#: and one more thing that could differ between two installations debugging the same
+#: complaint. It is offerability-gated instead (`document_ocr.ocr_leg`), which is the live
+#: half — and the same Google key and attested price the default above waits on.
+DOCUMENT_OCR_MODEL: Final[LlmModelName] = "gemini-2.5-flash"
+
 
 @dataclass(frozen=True, slots=True)
 class LlmPrice:

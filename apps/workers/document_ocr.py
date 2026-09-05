@@ -110,7 +110,11 @@ from calevate_shared.document_ingest import (
     OcrUnavailableError,
     OcrUnusableError,
 )
-from calevate_shared.engine import LLM_MODELS, google_openai_compat_base_url
+from calevate_shared.engine import (
+    DOCUMENT_OCR_MODEL,
+    LLM_MODELS,
+    google_openai_compat_base_url,
+)
 
 from apps.api.agents.llm_models import unofferable_reason
 from apps.api.core.logging import get_logger
@@ -119,21 +123,14 @@ from apps.workers import chat
 
 log = get_logger(__name__)
 
-#: The model that reads the photographs.
+#: The model that reads the photographs, read back from the catalogue that declares it.
 #:
-#: `gemini-2.5-flash` AND NOT THE PLATFORM DEFAULT `-flash-lite`, which is the cheaper
-#: sibling and would be the reflex choice. Reading unfamiliar script off a photograph
-#: taken by hand in a shop is a perception task at the hard end of what a small model
-#: does, and the difference in what it costs us is decided by `estimated_page_cost_usd`:
-#: at Google's
-#: published rates a page is a fraction of a rupee on EITHER model, so the saving is
-#: rounding and the risk is a client's price list transcribed wrongly. When the cheaper
-#: leg buys nothing measurable, buy the accuracy.
-#:
-#: It is not a `Settings` knob: a per-deployment OCR model is a variable nobody would tune
-#: and one more thing that could differ between two installations debugging the same
-#: complaint. It is offerability-gated instead (`ocr_leg`), which is the live half.
-OCR_MODEL: Final = "gemini-2.5-flash"
+#: NOT SPELLED HERE. `calevate_shared.engine.DOCUMENT_OCR_MODEL` carries both the id and the
+#: argument for choosing the dearer of the two 2.5 flash models, for the reason
+#: `tests/sarvam_model_identifier_test.py` states over every model identifier in this tree:
+#: a literal at the call site is a second source of truth that drifts the day the catalogue
+#: id changes, on a leg where a stale id is a silent 404. Re-exported under the module's own
+#: vocabulary is deliberately NOT done — one name, one home.
 
 #: One image, one call. The alternative — all of a document's pages in one request — is
 #: cheaper by one round trip and is refused, because the founder's rule is per-IMAGE
@@ -213,7 +210,7 @@ def ocr_leg() -> chat.ChatLeg:
     that ran without the attestation would deliver work it cannot bill, which is an
     UNMETERED cost and not a free one.
     """
-    reason = unofferable_reason(OCR_MODEL)
+    reason = unofferable_reason(DOCUMENT_OCR_MODEL)
     if reason is not None:
         raise OcrUnavailableError(reason=reason)
     api_key = get_settings().gemini_api_key
@@ -224,7 +221,7 @@ def ocr_leg() -> chat.ChatLeg:
     return chat.ChatLeg(
         url=f"{google_openai_compat_base_url()}/chat/completions",
         api_key=api_key,
-        wire_model=OCR_MODEL,
+        wire_model=DOCUMENT_OCR_MODEL,
         dialect="google",
     )
 
@@ -287,7 +284,7 @@ async def ocr_images(
             "images": len(images),
             "kept": len(pages),
             "discarded": len(discarded),
-            "model": OCR_MODEL,
+            "model": DOCUMENT_OCR_MODEL,
         },
     )
 
@@ -313,11 +310,11 @@ async def ocr_images(
         # and staff's are reviewed, and neither of those asks "did the machine read this
         # right".)
         needs_confirmation=True,
-        model=OCR_MODEL,
+        model=DOCUMENT_OCR_MODEL,
         # `None` where the provider told us nothing, which throughout this repository
         # means "we do not know what this cost" and never "it was free". The caller owns
         # the ledger: `usage_events` with our `unit_cost_paid`, priced through
-        # `billing/rates.llm_inr_per_ktok(OCR_MODEL)` (NUMERIC INR, hard rule 7), which
+        # `billing/rates.llm_inr_per_ktok(DOCUMENT_OCR_MODEL)` (NUMERIC INR, hard rule 7), which
         # raises unless an operator has attested the Google price.
         prompt_tokens=prompt_tokens if usage_seen else None,
         output_tokens=output_tokens if usage_seen else None,
@@ -363,7 +360,7 @@ async def _transcribe(
     except httpx.HTTPStatusError as failure:
         log.warning(
             "document_ocr_provider_error",
-            extra={"status": failure.response.status_code, "model": OCR_MODEL},
+            extra={"status": failure.response.status_code, "model": DOCUMENT_OCR_MODEL},
         )
         return "", f"provider_rejected_{failure.response.status_code}", None
     except httpx.HTTPError as failure:
@@ -424,8 +421,8 @@ _TRANSCRIPT_TOKENS: Final = Decimal(1_500)
 #: What ONE knowledge source's OCR may cost us, in USD, at catalogue list prices.
 #:
 #: **THE BOUND IS ASSERTED, NOT ASSUMED.** `tests/document_ocr_test.py` multiplies
-#: `estimated_page_cost_usd(OCR_MODEL)` by `MAX_OCR_IMAGES` and fails against this
-#: number — so raising the page cap, or swapping `OCR_MODEL` for something an order of
+#: `estimated_page_cost_usd(DOCUMENT_OCR_MODEL)` by `MAX_OCR_IMAGES` and fails against this
+#: number — so raising the page cap, or swapping `DOCUMENT_OCR_MODEL` for something an order of
 #: magnitude dearer, turns CI red instead of turning up on an invoice. 12 cents is
 #: roughly ten rupees, which is the size of thing a client uploads without anyone
 #: needing to think about it; a source that would cost more than that is a product

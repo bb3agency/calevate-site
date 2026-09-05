@@ -318,6 +318,17 @@ ALLOWED_THIRD_PARTY: frozenset[str] = frozenset(
         "jwt",
         "cryptography",
         "cffi",
+        # NOT OURS, AND NOT AVOIDABLE. `starlette.requests` imports `starlette.
+        # formparsers` at module scope, which imports `python_multipart` at module scope
+        # the moment the package is present in the environment — so this appeared here on
+        # the day the KB upload lane added the dependency for `apps/api`'s ONE multipart
+        # route, without voice-runtime importing anything new. It is not on this service's
+        # hot path: nothing here declares a `Form` or `File` parameter, and every webhook
+        # body is read as bytes. Removing it from the boot graph would mean removing it
+        # from the venv, which is a change to a different service's dependencies for no
+        # measured gain (~46KB of pure Python). Pinned and vetted at `apps/api/pyproject.
+        # toml:38-55` (hard rule 9), which is what this list is asking about.
+        "python_multipart",
         # Interpreter/venv furniture, not dependencies.
         "sitecustomize",
         "cython_runtime",
