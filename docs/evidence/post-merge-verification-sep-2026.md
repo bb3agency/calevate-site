@@ -29,6 +29,7 @@ recorded below.
 | 2 | The drift sweep's `not_applied` sentence named four properties and omitted the fifth, so the one drift a roster can produce reported the wrong cause | `apps/api/agents/publishing.py::_drift_of` | `93fad36` |
 | 3 | A constant defined twice under a comment claiming it was imported; the original had NO reader | `apps/workers/kb_ingest.py` / `apps/api/kb/models.UPLOAD_RETRYABLE` | `7e033e0` |
 | 4 | D-538's invitation-resend route had **no caller anywhere in the console** — the founder's verbatim ask was served by an endpoint an operator could not reach | `apps/web/src/lib/api/admin.ts`, `apps/web/src/app/admin/new/page.tsx` | `66e4d25` |
+| 5 | A guard grepped file TEXT, so a docstring CITING the resolver seam read as a bypass and turned the suite red | `tests/egress_guard_test.py` | `7e3991d` |
 
 ### 1.1 The drift sentence (`93fad36`)
 
@@ -65,6 +66,22 @@ identity (`kb_ingest.UPLOAD_RETRYABLE is UPLOAD_RETRYABLE`, which is what fails 
 duplicate) and the behaviour, driven off `UPLOAD_RETRYABLE` so a third copy cannot creep
 into the test either. It also proves `conversion_unavailable` and `error` are NOT swept.
 Verified red without the fix.
+
+### 1.4 The guard that could not tell a call from a comment (`7e3991d`)
+
+`test_the_resolver_seam_is_substituted_by_tests_and_by_nothing_that_ships` asserted
+`"resolve_addresses" in path.read_text()` over `apps/`. `workers/kb_ingest.link_http_client`
+explains its own seam by citing `egress_guard.resolve_addresses`' reason for existing —
+which is the opposite of a bypass — and the guard failed on it.
+
+**Bisected, not assumed**: `git log -S"resolve_addresses" -- apps/workers/kb_ingest.py`
+returns exactly one commit, `511c0f0` ("kb links: the page a stranger serves is bounded as
+it arrives"), thirty commits before this pass touched that file, and the match is a
+docstring line at `kb_ingest.py:652`, not a reference.
+
+It now walks the AST for a `Name`, an `Attribute` or an import of that name, and pins its
+own discrimination with four cases so a future narrowing cannot quietly stop it biting.
+Same defect class CLAUDE.md already records against coverage's exclude regex.
 
 ### 1.3 The invite resend with no button (`66e4d25`)
 
@@ -329,6 +346,23 @@ dropped afterwards.
 | `pnpm -C apps/web lint` | 0 errors (1 pre-existing unused-import warning in `tests/spend.test.tsx`) |
 | `pnpm -C apps/web gen:api` regenerated into a temp copy | **`schema.d.ts` is byte-identical to `openapi.json`** — no stale frontend contract |
 | `tests/absent_tenant_answer_test.py`, `edge_route_policy_test.py`, `rate_limit_census_test.py`, `loadshed_exemption_test.py` | 61 passed — every new route is in the 404 census, the edge policy and the rate-limit census |
+
+**The full suite: `uv run pytest -q` — 8769 passed, 2 failed, 16 skipped, 2 xfailed
+(28m18s), run against the shared migrated+seeded database.** Both failures were reproduced
+standalone and attributed rather than waved through:
+
+- `tests/egress_guard_test.py::test_the_resolver_seam_is_substituted_by_tests_and_by_nothing_that_ships`
+  — **fixed here**, §1.4.
+- `tests/admin_read_audit_test.py::test_every_admin_realm_mutation_writes_an_audit_row` —
+  **the copilot lane's, reported not fixed.** `DELETE /v1/admin/copilot/conversation`
+  (`apps/api/copilot/admin_routes.py:616`) writes no audit row, and the route's own
+  docstring gives the ground: *"No audit row, for the client route's reason: what is
+  audited is every answer and every change, not a person clearing a panel."* The decision
+  is theirs and is already argued; what is missing is the one line in the guard's own
+  census, `_NOT_AN_AUDITED_MUTATION` in `tests/admin_read_audit_test.py`, which is exactly
+  what the assertion message asks for. Not taken here because ratifying which admin
+  mutation escapes SEC-COMP §5 is a compliance judgement about somebody else's feature.
+  **CI is red until that line lands.**
 
 `make coverage-ratchet` was deliberately NOT run (the founder runs it once at the end; a
 concurrent run poisons it). `make db-reset` was deliberately NOT run.
