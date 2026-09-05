@@ -1562,6 +1562,53 @@ const CLIENT_SCREENS: Screen[] = [
           chunks: 2,
         },
       ],
+      // `GET /v1/agents/{id}/handoff`, which the Handover panel reads (D-533). Its
+      // absence is why this screen's sweep scanned a `ProblemNotice` instead of the
+      // screen — the same defect the ops-config fixture had, caught by the same
+      // `assertScreenRendered`, which is the whole reason that assertion exists.
+      //
+      // ENABLED WITH A MEMBER ON DUTY, deliberately: that is the state with the most
+      // markup — the roster row, the duty pill, the spoken line and one attempt — and
+      // the disabled state is a subset of it. An empty roster would leave the panel's
+      // real controls unswept while still turning the test green.
+      "/v1/agents/agent-1/handoff": {
+        agent_id: "agent-1",
+        enabled: true,
+        published: true,
+        trigger: "when the caller asks for a person",
+        effective_trigger: "when the caller asks for a person",
+        spoken_line: "Let me put you through to someone now.",
+        on_duty_member_id: "member-1",
+        unavailable_reason: null,
+        remediation: null,
+        members: [
+          {
+            id: "member-1",
+            label: "Reception desk",
+            // A destination is somebody's personal mobile (hard rule 6). This is the
+            // documentation range reserved by TRAI for examples, so a fixture can never
+            // be mistaken for a real number if it escapes into a log.
+            phone_e164: "+919000000000",
+            position: 1,
+            active: true,
+            on_duty: true,
+            hours: null,
+            note: null,
+          },
+        ],
+        recent: [
+          {
+            id: "attempt-1",
+            member: "Reception desk",
+            outcome: "connected",
+            explanation: "The caller asked for a person and Reception desk answered.",
+            started_at: "2026-09-05T04:30:00Z",
+            duration_s: 84,
+            callback_id: null,
+            second_recording_at_platform: true,
+          },
+        ],
+      },
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",
