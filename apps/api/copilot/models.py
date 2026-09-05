@@ -1,4 +1,10 @@
-"""`copilot_memories` — the one table this package owns (migration `d4a9c17e6b02`).
+"""The tables this package owns: the distilled memories and the durable transcript.
+
+`copilot_memories` / `admin_copilot_memories` (migration `d4a9c17e6b02`, `f2c81a4d05e7`)
+hold DISTILLED facts; `copilot_conversation_turns` / `admin_copilot_conversation_turns`
+(migration `c7e0b2a94f13`, D-540) hold the verbatim conversation. Two stores rather than
+one because the reads have nothing in common: recall budgets a handful of rows into a
+prompt, a transcript is a page a person scrolls.
 
 The migration is the schema of record and carries the reasoning; this file exists so
 `Base.metadata` is complete, because `alembic/env.py` autogenerates against it and a
@@ -184,10 +190,98 @@ class AdminCopilotMemory(PKMixin, TimestampMixin, Base):
     )
 
 
+#: The roles a stored turn may carry, closed. Rendered into
+#: `ck_copilot_conversation_turns_role_enum` and its admin twin.
+TURN_ROLES: Final[tuple[str, ...]] = ("user", "assistant")
+
+
+class _ConversationTurnColumns:
+    """The columns both realms' transcripts share (migration `c7e0b2a94f13`, D-540).
+
+    A mixin rather than one table with a realm discriminator, for
+    `AdminCopilotMemory`'s reason: `Principal.user_id` is a `users.id` on one realm and an
+    `admin_users.id` on the other, and two id spaces behind one column is a cross-realm
+    read one forgotten predicate away.
+    """
+
+    #: WHICH SIGN-IN RUN this turn belongs to — the instant the user's current unbroken
+    #: run of sessions began (`copilot/session_run.py`). It IS the conversation's
+    #: lifetime: a turn from an older run is deleted before it is read. A plain instant
+    #: and not a FK to `auth_sessions`, because a session row dies on every rotation.
+    run_started_at: Mapped[datetime] = mapped_column(nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    #: Already through `workers.redaction.redact` before it gets here — the wire form,
+    #: never the display form with the digits restored. See the migration.
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The screen this turn was said on (founder's decision 3: per message, not per
+    #: thread). NOT NULL, unlike `CopilotMemory.screen_route`: every turn has a screen.
+    screen_route: Mapped[str] = mapped_column(String(200), nullable=False)
+
+
+class CopilotConversationTurn(_ConversationTurnColumns, PKMixin, TimestampMixin, Base):
+    """One thing said in a client-realm copilot conversation."""
+
+    __tablename__ = "copilot_conversation_turns"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="role_enum"),
+        CheckConstraint("length(btrim(content)) > 0", name="content_not_blank"),
+        CheckConstraint(f"length(content) <= {MAX_CONTENT_CHARS}", name="content_cap"),
+        Index(
+            "ix_copilot_conversation_turns_tenant_user_seq",
+            "tenant_id",
+            "user_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: CASCADE, for `CopilotMemory.user_id`'s reason.
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class AdminCopilotConversationTurn(_ConversationTurnColumns, PKMixin, TimestampMixin, Base):
+    """One thing said in an ADMIN-realm copilot conversation (D-540).
+
+    NO `tenant_id` AND NO RLS POLICY, exactly as `AdminCopilotMemory`: these rows are the
+    platform's own. `viewing_tenant_id` records which account was on screen, and is
+    context rather than ownership. No retention category either — there is no tenant
+    whose policy could name it, and its clock is the admin realm's 8-hour absolute
+    session bound, shorter than any period we publish.
+    """
+
+    __tablename__ = "admin_copilot_conversation_turns"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="role_enum"),
+        CheckConstraint("length(btrim(content)) > 0", name="content_not_blank"),
+        CheckConstraint(f"length(content) <= {MAX_CONTENT_CHARS}", name="content_cap"),
+        Index(
+            "ix_admin_copilot_conversation_turns_user_seq",
+            "admin_user_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    admin_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="CASCADE"), nullable=False
+    )
+    viewing_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+
+
 __all__ = [
     "MAX_CONTENT_CHARS",
     "MEMORY_KINDS",
     "SEARCH_CONFIG",
+    "TURN_ROLES",
+    "AdminCopilotConversationTurn",
     "AdminCopilotMemory",
+    "CopilotConversationTurn",
     "CopilotMemory",
 ]
