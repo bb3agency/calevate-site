@@ -972,18 +972,30 @@ class TenantTrial(PKMixin, TimestampMixin, Base):
     #: THE EARLIEST INSTANT A NON-CONVERTING CLIENT'S PERSONAL DATA MAY BE ERASED — the
     #: grace period the founder sets, stamped when the trial ends so it is a FACT about
     #: this trial rather than a setting that could move under a client who is already in
-    #: the window. NULL while the trial is open, and NULL FOR EVER once it converted: a
-    #: client who bought keeps their leads, calls and transcripts, because that is the
-    #: value they just built and one of those callers may be waiting for a call back.
+    #: the window. STAMPED PROVISIONALLY AT START as `ends_at + grace` — not NULL, as this
+    #: comment used to say — and that provisional value is what carries the agreed grace:
+    #: `end_trial` re-derives the period from `erase_after - ends_at`, so a trial stopped
+    #: three days early still gets the grace agreed on the day it opened rather than
+    #: whatever the setting says now. Re-frozen at `ended_at + grace` when it ends without
+    #: a sale, and NULL FOR EVER once it converted: a client who bought keeps their leads,
+    #: calls and transcripts, because that is the value they just built and one of those
+    #: callers may be waiting for a call back.
     erase_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Stamped when the sweep has FILED the tenant erasure (`compliance/tenant_erasure.py`),
     #: which is what makes the sweep idempotent — the erasure itself is executed and
     #: certified by the machinery that already exists, and nothing here erases anything.
     erasure_filed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    #: The operator who started it. SET NULL rather than RESTRICT: a person leaving must
-    #: not pin a client's trial history, and the durable record of who did it is the
-    #: `audit_log` row written in the same transaction.
-    started_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    #: The operator who started it. An `admin_users.id`, NOT a `users.id`: the only route
+    #: that writes it is admin-realm, so `Principal.user_id` there is an operator, and the
+    #: original FK to `users` (a71f3c9e5d84) could not be satisfied by any actor able to
+    #: reach the route — every trial start raised a `ForeignKeyViolation` until b2f74a19d3c8
+    #: repointed it onto the pattern `organizations.closed_by` already used.
+    #: SET NULL rather than RESTRICT: a person leaving must not pin a client's trial
+    #: history, and the durable record of who did it is the `audit_log` row written in the
+    #: same transaction.
+    started_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL")
+    )
 
 
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

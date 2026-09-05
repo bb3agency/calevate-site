@@ -179,8 +179,11 @@ class TrialOut(Strict):
     ended_at: datetime | None
     ended_reason: str | None
     #: The earliest instant this client's personal data may be erased, for a trial that
-    #: ended WITHOUT them buying. NULL while it runs, and NULL FOR EVER once it converted —
-    #: a client who bought keeps their leads, calls and transcripts, which is the value they
+    #: ended WITHOUT them buying. While the trial runs this is the PROVISIONAL date built
+    #: from the grace agreed at the start (`ends_at + grace`) rather than NULL, which is
+    #: what lets that agreed grace survive an early stop; it is re-frozen at
+    #: `ended_at + grace` when the trial ends, and cleared FOR EVER once it converted — a
+    #: client who bought keeps their leads, calls and transcripts, which is the value they
     #: just built.
     erase_after: datetime | None
     #: Set once the tenant erasure has been FILED (`compliance/tenant_erasure.py` does the

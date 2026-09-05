@@ -213,8 +213,10 @@ class TrialState:
     #: WHO put this client on a trial. Published on the operator's read, because "who
     #: agreed to carry this account for a month" is the first question asked about a trial
     #: nobody remembers, and the `audit_log` row — the durable record — is not on the screen
-    #: an operator is looking at. NULL once that person's user row is removed (`SET NULL`):
-    #: a leaver must not pin a client's trial history, and the audit row survives them.
+    #: an operator is looking at. An `admin_users.id`: this is written from an admin-realm
+    #: principal, and the FK said `users.id` until b2f74a19d3c8, which made every start a
+    #: 500. NULL once that person's operator row is removed (`SET NULL`): a leaver must not
+    #: pin a client's trial history, and the audit row survives them.
     started_by: UUID | None
 
     def is_active(self, *, at: datetime) -> bool:
@@ -396,9 +398,13 @@ async def start_trial(
     surface as a 500: an operator who clicks twice must be told the client is already on a
     trial and when it ends, which is the answer they were actually looking for.
 
-    `erasure_grace_days` is carried, not applied: it becomes `erase_after` only if the trial
-    ends WITHOUT the client converting, and it is frozen onto the row at that moment (see
-    `end_trial`) so it cannot move under a client already inside their window.
+    `erasure_grace_days` IS WRITTEN NOW, as `ends_at + grace`, and that is the point rather
+    than an eager side effect: `end_trial` re-derives the agreed period from
+    `erase_after - ends_at`, so a trial stopped early keeps the grace agreed on the day it
+    opened instead of picking up whatever the setting has since become. It only ever
+    ERASES if the trial ends without the client converting — a sale clears the column —
+    and it is re-frozen against `ended_at` at that moment (see `end_trial`) so it cannot
+    move under a client already inside their window.
     """
     now = at or datetime.now(UTC)
     if not MIN_TRIAL_DAYS <= days <= MAX_TRIAL_DAYS:
