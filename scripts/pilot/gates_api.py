@@ -50,7 +50,7 @@ from calevate_shared.engine import (
     ExecutionListing,
     ExecutionSnapshot,
     ModelConfig,
-    NumberSpec,
+    NumberSearch,
     VoiceEngine,
 )
 from calevate_shared.events import CallEvent
@@ -386,9 +386,25 @@ async def run_gate_2(ctx: GateContext) -> GateRun:
         "that the vendor dropped our prompt."
     )
 
+    # --- the number step, WHICH IS TWO CALLS AND ONLY ONE OF THEM IS FREE (D-537) ------
+    #
+    # THIS USED TO CALL `provision_number` DIRECTLY AND MUST NOT. Two things changed under
+    # it. The port grew `search_numbers`, because the vendor's buy takes an exact E.164
+    # that only their search can supply (`buy.md:54-77`) — so a bare `NumberSpec` with no
+    # `e164` is now refused by the adapter itself (`number_not_chosen`), and this gate was
+    # scoring that refusal as a vendor defect. And `provision_number` is IMPLEMENTED now,
+    # which turns the old line into a live gate that BUYS A NUMBER and starts a monthly
+    # rental every time an operator runs it — with no flag, no cap and no way to undo the
+    # first month. `GateContext` budgets exactly one dangerous act (`spend_a_call`), it is
+    # about calls, and inventing a second budget is not this fix's job.
+    #
+    # So the half that is free is EXERCISED and the half that spends is NOT RUN, with the
+    # ground recorded. That is the honest report and it is not a weakening: the search is
+    # the half gate 2's "via API only, no dashboard" claim actually turned on — an
+    # operator who cannot enumerate inventory over the API is back in the dashboard before
+    # the buy is even reachable.
     try:
-        await ctx.engine.provision_number(NumberSpec(series="standard", purpose="pilot"))
-        checks.append(passed("attach_number", "provision_number returned a number"))
+        offers = await ctx.engine.search_numbers(NumberSearch(country="IN"))
     except ProblemError as exc:
         if exc.code in _NO_CAPABILITY_CODES:
             checks.append(
@@ -400,19 +416,39 @@ async def run_gate_2(ctx: GateContext) -> GateRun:
                 )
             )
             findings.append(
-                "ADAPTER GAP: `BolnaEngine.provision_number` raises "
-                "`engine_capability_unverified` (Model B — the client buys the connection "
-                "on their own carrier account and this product buys none), "
-                "so gate 2's 'attach number' step cannot be executed through the adapter "
-                "at all. The number must be attached by hand in the dashboard before the "
-                "run, and gate 2 can never report a full PASS until either the adapter "
-                "implements it or OPERATIONS §2 records that this step is out of scope "
-                "for an API-only claim."
+                "ADAPTER GAP: this engine's `search_numbers` raises "
+                f"`{exc.code}`, so gate 2's 'attach number' step cannot be executed "
+                "through the adapter at all. The number must be attached by hand in the "
+                "dashboard before the run, and gate 2 can never report a full PASS until "
+                "either the adapter implements it or OPERATIONS §2 records that this step "
+                "is out of scope for an API-only claim."
             )
         else:
-            checks.append(failed("attach_number", f"provision_number failed: {_engine_error(exc)}"))
+            checks.append(failed("attach_number", f"search_numbers failed: {_engine_error(exc)}"))
     except Exception as exc:
-        checks.append(failed("attach_number", f"provision_number failed: {_engine_error(exc)}"))
+        checks.append(failed("attach_number", f"search_numbers failed: {_engine_error(exc)}"))
+    else:
+        # The COUNT only. An offer is a live E.164 the vendor is selling and a result file
+        # is committed (hard rule 6 governs the numbers we dial; this one is nobody's yet,
+        # and printing it still puts a real telephone number in a repository).
+        checks.append(
+            not_run(
+                "attach_number",
+                f"search_numbers returned {len(offers)} offer(s) over the API, so "
+                "enumeration needs no dashboard. THE BUY IS NOT RUN: `provision_number` "
+                "would purchase one of them and start a monthly rental, and this harness "
+                "budgets one dangerous act (a call) and has no flag for spending money.",
+            )
+        )
+        findings.append(
+            "GATE 2'S NUMBER STEP IS DELIBERATELY HALF-RUN. `search_numbers` is read-only "
+            "and was exercised; `provision_number` is implemented and was NOT called, "
+            "because a run of this harness must not leave a recurring charge behind. What "
+            "closes it is an operator buying one number by hand through "
+            "`POST /v1/admin/numbers/tenants/{tenant_id}/buy` and attesting the result — "
+            "the API path is the same one, so what stays unproven is the vendor's "
+            "behaviour on the buy, not our ability to reach it (OPERATIONS §2 gate 25b)."
+        )
 
     # --- POST /call -----------------------------------------------------------
     handle: str | None = None
