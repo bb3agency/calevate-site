@@ -3,20 +3,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { use, useState } from "react";
-import {
-  Bell,
-  Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
-  X,
-} from "lucide-react";
-
-import { BrandIcon } from "@/components/brand";
+import { Bell, Menu } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
 import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { NavDrawer } from "@/components/navDrawer";
+import {
+  SIDEBAR_FOOTER_CLASS,
+  SIDEBAR_IDENTITY_ROW_CLASS,
+  SIDEBAR_ROW_CLASS,
+  SidebarBrand,
+  SidebarCollapseToggle,
+  SidebarGroupHeading,
+  SidebarLabel,
+  sidebarFadeClass,
+  sidebarPanelClass,
+  useSidebarCollapse,
+} from "@/components/sidebarCollapse";
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { OfflineBanner } from "@/components/offline";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
@@ -71,7 +75,7 @@ function Sidebar({
   const pathname = usePathname();
   const { href, session } = useClientRealm();
   const me = useMe(session);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const { isCollapsed, toggle } = useSidebarCollapse();
   // THE OUTSTANDING COUNT, injected rather than fetched inside `navigation()`, which is a
   // pure function the a11y sweep and `currentNavItem` walk without a provider. The number
   // is the SERVER's `outstanding_documents` and never a length computed here — the same
@@ -99,25 +103,31 @@ function Sidebar({
         onClick={onClose}
         title={isCollapsed ? item.label : undefined}
         aria-current={active ? "page" : undefined}
-        // `touch:min-h-11`: these are the console's primary navigation and the most-tapped
-        // controls in the drawer, and `py-2` left them 36px tall — under the 44px finger
-        // target, with only 4px of gap to the next one.
-        className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors touch:min-h-11 ${
+        // Geometry (padding, the 44px finger target, the clip that keeps a collapsing row
+        // from pushing its icon off centre) is `SIDEBAR_ROW_CLASS`, shared with the admin
+        // shell so the two consoles' rows cannot drift apart or animate differently.
+        className={`${SIDEBAR_ROW_CLASS} transition-colors ${
           active
             ? "bg-brand-soft text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright"
             : "text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
-        } ${isCollapsed ? "justify-center" : ""}`}
+        }`}
       >
         <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`} />
-        {!isCollapsed && <span className="flex-1 truncate">{item.label}</span>}
+        {/* MOUNTED IN BOTH STATES, faded and clipped rather than removed — see
+            `components/sidebarCollapse.tsx`. It used to be `{!isCollapsed && …}`, which
+            both popped (the label vanished a frame before anything moved) and took all 21
+            destination names out of the accessibility tree for a collapsed reader. */}
+        <SidebarLabel isCollapsed={isCollapsed}>{item.label}</SidebarLabel>
         {/* Zero renders as NO badge rather than a "0", which reads like an unread marker
             — the bell's rule in `TopHeader`, applied here so the two cannot drift. While
             the read is in flight or has failed, `badge` is `undefined` and nothing
             renders: the sidebar does not get to claim there is nothing outstanding. */}
-        {!isCollapsed && item.badge !== undefined && item.badge > 0 && (
+        {item.badge !== undefined && item.badge > 0 && (
           <span
             aria-label={`${item.badge} outstanding`}
-            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white"
+            className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white ${sidebarFadeClass(
+              isCollapsed,
+            )}`}
           >
             {item.badge > 99 ? "99+" : item.badge}
           </span>
@@ -131,69 +141,26 @@ function Sidebar({
       isOpen={isMobileOpen}
       onClose={onClose}
       label="Navigation"
-      // `w-[255px]` in BOTH arms: `isCollapsed` is a desktop-only control, but it is
-      // component state that SURVIVES a resize, so a collapsed sidebar carried the
-      // mobile drawer into `lg:w-[72px]` with no base width at all — below `lg` the
-      // panel then shrink-wrapped its content instead of being a 255px drawer. The
-      // collapse is a desktop affordance; the drawer width is not its to change.
-      className={isCollapsed ? "w-[255px] lg:w-[72px]" : "w-[255px]"}
+      // Width, the width TRANSITION, and the rule that the mobile drawer keeps a base
+      // width of its own whatever `isCollapsed` holds — all one expression, shared with
+      // the admin shell. See `components/sidebarCollapse.tsx`.
+      className={sidebarPanelClass(isCollapsed)}
     >
-      <div className={`flex items-center p-5 ${isCollapsed ? "lg:justify-center lg:px-3" : "justify-between gap-3"}`}>
-        <div className="flex items-center gap-3 overflow-hidden">
-          {/* The chip is gone with the glyph — the mark is green ink, not a white icon. */}
-          <BrandIcon size={36} />
-          {/* `sr-only` rather than unmounted when collapsed: see the admin shell. */}
-          <span className={isCollapsed ? "sr-only" : "whitespace-nowrap"}>
-            <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
-              Calevate
-            </span>
-            <span className="block text-[11px] font-medium text-ink-muted">AI agents</span>
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close navigation"
-          className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
-        >
-          <X className="h-5 w-5" />
-        </button>
-        {!isCollapsed && (
-          <button
-            type="button"
-            onClick={() => setIsCollapsed(true)}
-            aria-label="Collapse sidebar"
-            className="hidden shrink-0 items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 lg:flex dark:hover:bg-white/5"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+      <SidebarBrand
+        isCollapsed={isCollapsed}
+        onClose={onClose}
+        title="Calevate"
+        subtitle="AI agents"
+      />
 
-      {isCollapsed && (
-        <div className="hidden justify-center pb-2 lg:flex">
-          <button
-            type="button"
-            onClick={() => setIsCollapsed(false)}
-            aria-label="Expand sidebar"
-            className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 dark:hover:bg-white/5"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+      <SidebarCollapseToggle isCollapsed={isCollapsed} onToggle={toggle} />
 
       <nav className="custom-scrollbar relative flex-1 overflow-y-auto px-3 py-4">
         {groups.map((group) => (
           <div key={group.heading ?? "main"} className="mb-6">
-            {group.heading &&
-              (isCollapsed ? (
-                <div className="mx-2 mb-3 h-px bg-line" />
-              ) : (
-                <h3 className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
-                  {group.heading}
-                </h3>
-              ))}
+            {group.heading && (
+              <SidebarGroupHeading isCollapsed={isCollapsed}>{group.heading}</SidebarGroupHeading>
+            )}
             {group.items.map(renderItem)}
           </div>
         ))}
@@ -205,35 +172,40 @@ function Sidebar({
           console an operator can also be impersonating into is worse than useless —
           it is the one place the screen must not be vague about whose account this
           is. */}
-      <div className="border-t border-line p-4">
-        <div className={`flex items-center rounded-lg p-2 ${isCollapsed ? "justify-center" : "gap-3"}`}>
+      <div className={SIDEBAR_FOOTER_CLASS}>
+        <div className={SIDEBAR_IDENTITY_ROW_CLASS}>
           <Avatar name={me.data?.organization?.name ?? null} />
-          {!isCollapsed &&
-            /* `—` is an honest absence marker while the read is in flight and a
-               PERMANENT, unexplained one after it fails: two dashes where the account
-               name should be, on the one place in the shell that says whose account this
-               is, and no way to tell "still loading" from "we lost the API". `TopHeader`
-               and the admin shell's `HeldCount` both solved this by giving the failure a
-               mark of its own, and this is the same answer in the same amber. */
-            (me.error != null ? (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-amber-700 dark:text-amber-400">
+          {/* `—` is an honest absence marker while the read is in flight and a
+              PERMANENT, unexplained one after it fails: two dashes where the account
+              name should be, on the one place in the shell that says whose account this
+              is, and no way to tell "still loading" from "we lost the API". `TopHeader`
+              and the admin shell's `HeldCount` both solved this by giving the failure a
+              mark of its own, and this is the same answer in the same amber.
+
+              `<span className="block">` rather than `<p>`: `SidebarLabel` is a `<span>`
+              (it has to be — it also wraps the brand lockup inside a link), and a `<p>`
+              inside a `<span>` is invalid markup that the parser silently unnests. */}
+          <SidebarLabel isCollapsed={isCollapsed}>
+            {me.error != null ? (
+              <>
+                <span className="block truncate text-sm font-semibold text-amber-700 dark:text-amber-400">
                   Account not read
-                </p>
-                <p className="truncate text-xs text-ink-muted">
+                </span>
+                <span className="block truncate text-xs text-ink-muted">
                   Reload to see whose account this is
-                </p>
-              </div>
+                </span>
+              </>
             ) : (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-ink">
+              <>
+                <span className="block truncate text-sm font-semibold text-ink">
                   {me.data?.organization?.name ?? "—"}
-                </p>
-                <p className="truncate text-xs capitalize text-ink-muted">
+                </span>
+                <span className="block truncate text-xs capitalize text-ink-muted">
                   {me.data?.role ?? "—"}
-                </p>
-              </div>
-            ))}
+                </span>
+              </>
+            )}
+          </SidebarLabel>
         </div>
         {/* One control for BOTH client roles. The owner and the staff member see the same
             shell with different nav groups, so a role-specific sign-out would be two
