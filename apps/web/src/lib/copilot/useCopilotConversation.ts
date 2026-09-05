@@ -254,7 +254,7 @@ export function useCopilotConversation(
   const realm = holder?.read().realm ?? null;
 
   /*
-   * WHAT IS ON SCREEN = THE SERVER'S PAGE + WHAT THIS DEVICE HAS SAID SINCE (D-541).
+   * WHAT IS ON SCREEN = THE SERVER'S PAGE + WHAT THIS DEVICE HAS SAID SINCE (D-542).
    *
    * The stored conversation was a single fetch on mount into `useState`, and this file
    * argued for that: a cache "would be a second, staler copy of a list that is already

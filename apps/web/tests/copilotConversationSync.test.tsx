@@ -22,7 +22,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 /**
- * MULTI-DEVICE, THE FOUNDER'S ANSWER (D-541): *refresh when you return to the tab*.
+ * MULTI-DEVICE, THE FOUNDER'S ANSWER (D-542): *refresh when you return to the tab*.
  *
  * Not live push. What has to be true is three things, and each is one test here: coming
  * back to the tab shows what the other device said; a refetch NEVER lands while an answer
