@@ -167,6 +167,13 @@ def _media_type(raw: str | None) -> str:
         "answered 204 whatever it is sent. Nothing is stored: a report becomes a "
         "redacted log line and, at most once per fingerprint per 15 minutes, an alarm."
     ),
+    # OUT OF THE SCHEMA on purpose. The OpenAPI document is the contract the TypeScript
+    # client is generated from (`pnpm -C apps/web gen:api`), and nothing in our own code
+    # calls this — the caller is the browser's reporting agent, which was told where to
+    # post by the `report-uri`/`report-to` directives and reads no schema. A generated
+    # `postReportsV1Csp()` sitting in the client would be an invitation to call it from
+    # application code, which is the one thing that must never happen: a report is
+    # telemetry the browser emits, not an action a screen takes.
     include_in_schema=False,
 )
 async def receive_csp_report(request: Request) -> Response:

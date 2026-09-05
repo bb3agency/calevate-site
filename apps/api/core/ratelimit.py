@@ -236,7 +236,12 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/auth/**", "auth"),
     Rule("/hooks/v1/ingest/**", "webhook_ingest"),
     Rule("/hooks/v1/razorpay", "webhook_payment"),
-    Rule("/reports/v1/csp", "csp_report", _m("POST")),
+    # No method set, deliberately: this is a FAMILY rule (like `/hooks/v1/razorpay`
+    # above) and not a cost weight over one. `tests/rate_limit_census_test` reads
+    # `Rule.methods` as the structural difference between the two, and a cost weight is
+    # required to be tighter than the family beneath it — there is no family beneath this
+    # path, because `/reports` is its own top-level surface.
+    Rule("/reports/v1/csp", "csp_report"),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),

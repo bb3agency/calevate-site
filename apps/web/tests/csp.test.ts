@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   CSP_HEADER_NAME,
+  CSP_REPORT_PATH,
   apiConnectOrigin,
   buildContentSecurityPolicy,
+  mediaOrigin,
+  reportingEndpointsHeader,
 } from "@/lib/security/csp";
 
 describe("the content-security policy", () => {
-  const csp = buildContentSecurityPolicy("TESTNONCE", { apiOrigin: "https://api.calevate.tech" });
+  const csp = buildContentSecurityPolicy("TESTNONCE", {
+    apiOrigin: "https://api.calevate.tech",
+    mediaOrigin: "https://store.calevate.tech",
+  });
 
   it("carries the per-request nonce in script-src and forbids inline script", () => {
     expect(csp).toContain("script-src 'self' 'nonce-TESTNONCE' https://checkout.razorpay.com");
@@ -51,8 +57,53 @@ describe("the content-security policy", () => {
     );
   });
 
-  it("ships report-only until a real session confirms no violations", () => {
-    // Guards the deliberate staged rollout: enforce is a one-line flip of this constant.
-    expect(CSP_HEADER_NAME).toBe("Content-Security-Policy-Report-Only");
+  it("admits the object store for media, because the recording player is cross-origin", () => {
+    // THE ONE THING THE PRE-FLIP AUDIT FOUND (D-541). `<audio src>` is `media-src`, which
+    // falls back to `default-src 'self'` when it is not declared, and the src is a
+    // presigned URL on the OBJECT STORE's origin — so without this every call recording
+    // is refused, silently, for every client.
+    expect(csp).toContain("media-src 'self' https://store.calevate.tech");
+  });
+
+  it("fails closed to 'self' for media on a malformed object store origin", () => {
+    expect(
+      buildContentSecurityPolicy("N", { apiOrigin: "", mediaOrigin: mediaOrigin("not a url") }),
+    ).toContain("media-src 'self';");
+  });
+
+  it("points violations at the collector, by both mechanisms", () => {
+    // `report-uri` is deprecated and is still the only one some browsers implement;
+    // `report-to` is what current Chromium-family browsers use and it IGNORES report-uri
+    // when present, so nothing is double-reported. Emitting one loses half the audience.
+    expect(csp).toContain(`report-uri https://api.calevate.tech${CSP_REPORT_PATH}`);
+    expect(csp).toContain("report-to csp");
+    expect(reportingEndpointsHeader("https://api.calevate.tech")).toBe(
+      `csp="https://api.calevate.tech${CSP_REPORT_PATH}"`,
+    );
+  });
+
+  it("drops report-to (never report-uri) when the collector is not https", () => {
+    // The Reporting API ignores a non-secure endpoint, and a `report-to` group resolving
+    // to nothing would suppress the `report-uri` a Chromium browser would have honoured.
+    // Local dev is http, and must keep the one mechanism that works there.
+    const local = buildContentSecurityPolicy("N", { apiOrigin: "http://localhost:8000" });
+    expect(local).toContain("report-uri http://localhost:8000/reports/v1/csp");
+    expect(local).not.toContain("report-to");
+    expect(reportingEndpointsHeader("http://localhost:8000")).toBeNull();
+  });
+
+  it("emits no reporting directive at all when the api origin is unusable", () => {
+    // Reporting to a relative path would post to the Next server, which serves no such
+    // route: fail closed to no reporting rather than to a 404 loop.
+    const broken = buildContentSecurityPolicy("N", { apiOrigin: "" });
+    expect(broken).not.toContain("report-uri");
+    expect(broken).not.toContain("report-to");
+  });
+
+  it("is ENFORCING (D-541)", () => {
+    // It was report-only with no collector and no report directive, so the staged
+    // rollout's exit condition — "once a real session shows no violations" — could never
+    // be evaluated by anybody. The flip rests on the audit in the module docstring.
+    expect(CSP_HEADER_NAME).toBe("Content-Security-Policy");
   });
 });
