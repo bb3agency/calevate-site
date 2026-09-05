@@ -25,7 +25,6 @@ import httpx
 import pytest
 from apps.api.core.settings import get_settings
 from apps.workers import document_ocr
-from calevate_shared.engine import DOCUMENT_OCR_MODEL
 from apps.workers.document_ocr import (
     MAX_SOURCE_OCR_COST_USD,
     NO_TEXT_SENTINEL,
@@ -42,6 +41,7 @@ from calevate_shared.document_ingest import (
     OcrUnavailableError,
     OcrUnusableError,
 )
+from calevate_shared.engine import DOCUMENT_OCR_MODEL
 
 _JPEG = b"\xff\xd8\xff\xe0 pretend this is a photograph of a menu"
 

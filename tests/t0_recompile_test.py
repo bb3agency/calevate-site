@@ -172,14 +172,18 @@ async def test_a_knowledge_publish_never_lets_an_escalation_number_into_the_prom
 
     async with tenant_session(tenant_id) as session:
         roster = (
-            await session.execute(
-                text(
-                    "SELECT phone_e164 FROM agent_handoff_members "
-                    "WHERE agent_id = :aid ORDER BY position"
-                ),
-                {"aid": agent_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT phone_e164 FROM agent_handoff_members "
+                        "WHERE agent_id = :aid ORDER BY position"
+                    ),
+                    {"aid": agent_id},
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert list(roster)[:1] == [ESCALATION_NUMBER], (
         "premise: the intake stored an escalation number on this agent's handoff roster"
     )
