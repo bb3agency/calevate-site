@@ -74,8 +74,13 @@ crm, analytics, billing, kb, integrations, compliance, audit.
     authenticator app, no shared secret, no recovery codes (D-170; the trade is in
     AUTH-MIGRATION §2.3 and §7). Passwords are Argon2id with a KEK-derived pepper.
   - **Session lifetimes are enforced on the ROW, per realm** (`authn/sessions.REALM_TIMEOUTS`):
-    admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute. The cookie carries
-    no `max_age` — the row is the authority, so a revoke bites immediately.
+    admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute. **The row is the
+    authority either way, so a revoke bites immediately** — `verify_session` re-reads it on
+    every request. The COOKIE is a browser-session cookie on the admin realm and, since
+    D-539, carries a `max_age` on the client realm derived from that row's own
+    `absolute_expires_at` (`cookies.session_cookie_max_age`) so a fourteen-day session is
+    no longer ended by closing a tab. It can never ask for more time than the row has left,
+    and it does not slide with the idle window.
 - **Storage:** R2/Spaces, SSE encryption, presigned URLs (5 min for everything except a
   call recording, whose link is sized to the recording per D-153 and capped at
   `RECORDING_LINK_CEILING_S` — the widest credential window this platform opens, so it

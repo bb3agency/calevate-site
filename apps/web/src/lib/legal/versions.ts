@@ -149,6 +149,11 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
     revisions: [
       { revision: "1", material: true },
       { revision: "2", material: false },
+      // D-539. The client session cookie now carries a lifetime bounded by its own
+      // session row, so it survives a browser close; revision 2 said it did not. A
+      // correction to a factual description in a non-blocking notice — nobody accepted
+      // anything that this changes — so `material: false`.
+      { revision: "3", material: false },
     ],
     effectiveDate: "2026-09-02",
   },

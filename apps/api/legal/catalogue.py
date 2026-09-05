@@ -407,6 +407,16 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "banner came off. Non-material — nothing anybody agreed to changed "
                 "meaning, and the review-state flip re-demands the set on its own.",
             ),
+            Revision(
+                "3",
+                False,
+                "The client session cookie's stated lifetime was corrected (D-539). It "
+                "now lasts until the session row's own final expiry rather than until "
+                "the browser closes, so it survives a phone putting the tab to sleep; "
+                "the operator cookie is unchanged and still ends with the browser. "
+                "Non-material — a factual description in a notice nobody accepts, and "
+                "the server-side bounds it describes (12h/14d, 30min/8h) did not move.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

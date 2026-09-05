@@ -134,10 +134,12 @@ export const COOKIE_NOTICE: LegalDocument = {
                 "account identifier. It is HttpOnly, so no script on the page can read " +
                 "it; Secure, so it is never sent over plain HTTP; SameSite=Strict, so it " +
                 "is not sent on a request another site started.",
-              "It is a session cookie and carries no expiry date of its own, so your " +
-                "browser drops it when you close it. Our server is the authority: a " +
-                "client session ends after 12 hours of inactivity, and after 14 days no " +
-                "matter how active you are.",
+              "It is set to last until your session's own final expiry and no longer, " +
+                "so it survives closing your browser or your phone putting the tab to " +
+                "sleep. Our server is the authority and can end it sooner: a client " +
+                "session ends after 12 hours of inactivity, and after 14 days no matter " +
+                "how active you are. Signing out ends it immediately on our server, so " +
+                "the cookie stops working whether or not your browser still has it.",
             ],
             [
               "__Host-calevate_admin_session",
@@ -145,9 +147,10 @@ export const COOKIE_NOTICE: LegalDocument = {
               "Exactly the same cookie for the operator console, under a different name. " +
                 "The two are separate cookies backed by separate session logic, so being " +
                 "signed in to one grants nothing in the other.",
-              "Also a session cookie. Our server ends an operator session after 30 " +
-                "minutes of inactivity, and after 8 hours regardless — shorter than a " +
-                "client session, deliberately.",
+              "This one carries no expiry date of its own, so your browser drops it " +
+                "when you close it — deliberately shorter-lived than the client cookie, " +
+                "because it opens an operator console. Our server ends an operator " +
+                "session after 30 minutes of inactivity, and after 8 hours regardless.",
             ],
           ],
         },
