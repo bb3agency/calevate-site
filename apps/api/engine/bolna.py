@@ -5306,6 +5306,14 @@ class BolnaEngine:
             # `engine_extracted` is a flat field->value map. See `flatten_extracted_data`.
             engine_extracted=flatten_extracted_data(payload.get("extracted_data")),
             latency=latency,
+            # THE HUMAN LEG (D-533). Read on every snapshot path for `latency`'s reason: a
+            # listing row carries no `transfer_call_data` and `_handoff_leg` answers None
+            # for it, so reading here costs a dict lookup and cannot be forgotten on the
+            # path that does carry it. Everything downstream of a handover hangs off this
+            # one assignment — `pipeline._copy_recordings` fetches the second recording
+            # through it, `workers/handoff` settles the attempt from it, and the retention
+            # clock and the erasure reach the audio only because it was copied.
+            handoff=_handoff_leg(payload),
             engine="bolna",
         )
 

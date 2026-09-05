@@ -540,14 +540,22 @@ def test_a_call_that_is_not_completed_has_no_billable_instant() -> None:
     assert _engine()._snapshot(_payload(status="in-progress")).billable_ready_at is None
 
 
-# --- 4. a second call leg the adapter does not carry --------------------------
+# --- 4. the second call leg, and what may cross out of it ---------------------
 #
-# `BOLNA_CAPABILITIES.transfer=False` describes what OUR publish path configures. The
-# vendor's Transfer Call built-in is enabled from the agent's Tools tab — a console toggle
-# — so an agent we published can grow a transfer leg without a deploy, and the vendor then
-# returns `transfer_call_data`: a second leg with its own `recording_url` and its own
-# `cost` (OAS `TransferCallData`). `_snapshot` reads neither. These pin the alarm that
-# makes that loud instead of silent, and the hard-rule-6 bound on what it may say.
+# The vendor returns `transfer_call_data` for an execution that handed the caller to a
+# human: a second leg with its own `recording_url` and its own `cost` (OAS
+# `TransferCallData`).
+#
+# **THESE USED TO PIN AN ALARM AND THE ALARM IS GONE, WHICH IS WHY THEY ARE RE-AIMED
+# RATHER THAN DELETED.** `_snapshot` read neither field, so a transfer leg was a second
+# recording of the same caller outside our retention clock and our erasure — and the
+# adapter PAGED (`engine_transfer_leg_unhandled`). D-533 made the leg first class
+# (`HandoffLeg`) and the founder's 5 Sep 2026 decision made its recording ours, so the
+# condition the alarm named is fixed and an alarm whose condition is fixed teaches an
+# operator to ignore the family. What these two now pin is what replaced it: the leg is
+# CARRIED rather than dropped, and hard rule 6 still bounds what crosses — the vendor's
+# two E.164 numbers reach neither our model nor a log line, which is the half of the old
+# assertion that never stopped mattering.
 
 
 @pytest.fixture
@@ -579,39 +587,71 @@ def _transfer_leg(**over: object) -> dict[str, object]:
     }
 
 
-def test_an_execution_with_a_transfer_leg_pages(
+def test_an_execution_with_a_transfer_leg_is_carried_not_dropped(
     _fresh_alerts: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """THE DEFECT THIS ALARM EXISTS FOR. A second recording of the same caller that our
-    retention policy never sees and a DPDP erasure can never reach, plus a cost hard rule 7
-    never meters — arriving because somebody flipped a toggle in the vendor's console."""
+    """THE DEFECT THE OLD ALARM EXISTED FOR, asserted at its fix instead of at its warning.
+
+    A second recording of the same caller that our retention policy never sees and a DPDP
+    erasure can never reach, plus a cost hard rule 7 never meters. Every one of those is
+    now answered by a FIELD: the outcome, the duration, the handle to the audio the
+    pipeline copies into our own bucket, and the fact that a cost was stated (gate 46c).
+    A leg that arrives and is silently dropped is still the defect — it is just caught by
+    this equality now rather than by a page.
+    """
     with caplog.at_level("ERROR"):
         snapshot = _engine()._snapshot(_payload(transfer_call_data=_transfer_leg()))
 
-    assert [str(r.get("code")) for r in _alert_records(caplog)] == ["engine_transfer_leg_unhandled"]
+    assert _alert_records(caplog) == [], (
+        "the leg is handled, so it must not also page — an alarm whose condition is fixed "
+        "is one an operator learns to mute"
+    )
+    leg = snapshot.handoff
+    assert leg is not None, "the human leg was dropped on the floor again"
+    assert leg.outcome == "connected" and leg.raw_status == "completed"
+    assert leg.duration_s == 42, "the vendor sends this as a string holding a number"
+    assert leg.recording_present is True
+    assert leg.recording_url == _transfer_leg()["recording_url"], (
+        "without the handle the pipeline cannot copy the audio, and the retention clock "
+        "and the erasure path never reach it (the founder's 5 Sep 2026 decision)"
+    )
+    assert leg.cost_reported is True, "gate 46c — that a cost was stated is what we record"
     assert snapshot.recording_url is None, (
-        "non-vacuity: the alarm must fire BECAUSE the leg's recording is dropped, so the "
-        "snapshot must still be carrying only the main leg's (absent) recording"
+        "non-vacuity: the FIRST leg's recording is absent on this payload, so a "
+        "`recording_url` here would mean the transfer leg's audio had been read into the "
+        "field that carries the main recording"
     )
 
 
-def test_the_transfer_alarm_names_no_phone_number_and_no_recording(
+def test_the_transfer_leg_carries_no_phone_number_anywhere(
     _fresh_alerts: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Hard rule 6. `TransferCallData` carries two E.164 numbers and a URL that resolves to
-    caller audio; an alarm that pastes them into the log turns a compliance warning into a
-    compliance breach. The alarm may say WHICH execution and WHAT is at stake, nothing more.
-    """
-    leg = _transfer_leg()
-    with caplog.at_level("ERROR"):
-        _engine()._snapshot(_payload(transfer_call_data=leg))
+    """Hard rule 6, which outlived the alarm it used to be asserted of.
 
-    detail = str(_alert_records(caplog)[0].get("detail"))
-    for forbidden in (leg["to_number"], leg["from_number"], leg["recording_url"]):
-        assert str(forbidden) not in detail, f"{forbidden!r} must never reach a log line"
-    assert "exec-abc123" in str(_alert_records(caplog)[0].get("engine_call_id")), (
-        "the id is the whole point — an operator has to know which execution to open"
-    )
+    `TransferCallData` carries two E.164 numbers beside the recording. Neither may cross:
+    the destination is ALREADY ours — we chose it and stored which roster member it was —
+    so re-importing it would put a staff member's personal mobile on a second path with no
+    reader, and `from_number` is the caller's. Asserted of the whole serialized leg rather
+    than of one field, because "we did not add a field for it" is a property of today's
+    model and this is a property of the contract.
+
+    The recording URL is deliberately NOT in the forbidden set any more (the founder's
+    5 Sep 2026 decision): it is a handle our own pipeline fetches, and the test above pins
+    that it is carried. It still may not reach a LOG line, which is what caplog holds here.
+    """
+    raw = _transfer_leg()
+    with caplog.at_level("INFO"):
+        snapshot = _engine()._snapshot(_payload(transfer_call_data=raw))
+
+    leg = snapshot.handoff
+    assert leg is not None, "premise: this payload has a human leg to inspect"
+    carried = leg.model_dump_json()
+    for forbidden in (raw["to_number"], raw["from_number"]):
+        assert str(forbidden) not in carried, f"{forbidden!r} must never cross into our model"
+
+    logged = " ".join(str(record.__dict__) for record in caplog.records)
+    for forbidden in (raw["to_number"], raw["from_number"], raw["recording_url"]):
+        assert str(forbidden) not in logged, f"{forbidden!r} must never reach a log line"
 
 
 def test_an_ordinary_execution_is_silent(
