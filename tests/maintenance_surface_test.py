@@ -34,6 +34,7 @@ from apps.api.campaigns.service import (
     resume_campaigns_after_maintenance,
 )
 from apps.api.compliance.service import MAINTENANCE_DRAIN_RULE, PERSON_LEVEL_REFUSALS
+from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import (
     ALWAYS_ALLOWED_PATHS,
     ALWAYS_ALLOWED_PREFIXES,
@@ -46,10 +47,13 @@ from apps.api.core.middleware import (
     _retry_after_s,
     _shed_problem,
 )
+from apps.api.core.platform_config import FIELD_APPLIES, LIVE, managed_fields
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from apps.api.ops.maintenance import claim_notice, read_window, schedule_window
 from apps.api.ops.maintenance_routes import maintenance_confirmation
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
 
@@ -415,3 +419,193 @@ async def test_a_campaign_cancelled_during_the_window_is_not_dragged_back() -> N
                 text("DELETE FROM platform_maintenance_windows WHERE id = :id"),
                 {"id": window_id},
             )
+
+
+# ------------------------------------------------- 5. publishing waits for the window
+
+
+async def _publishable_tenant() -> tuple[uuid.UUID, uuid.UUID]:
+    """A tenant whose agent can actually be published — agreements accepted, script written."""
+    from apps.api.admin import service as admin_service
+    from apps.api.agents import prompts
+    from tests.conftest import accept_agreements
+
+    created = await admin_service.create_organization(
+        name="Publish Clinic",
+        slug=f"pub-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email="owner@example.test",
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id, agent_id = created["id"], created["agent_id"]
+    await accept_agreements(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET direction = 'inbound' WHERE id = :a"), {"a": agent_id}
+        )
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="[IDENTITY]\nYou are the receptionist for Publish Clinic.\n",
+            notes=None,
+            created_by=None,
+        )
+    return tenant_id, agent_id
+
+
+async def _window(state: str) -> uuid.UUID:
+    window_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_maintenance_windows "
+                "(id, reason, starts_at, ends_at, state) VALUES "
+                "(:id, 'Upgrading the telephony stack. Nothing is deleted.', "
+                "now(), now() + interval '1 hour', :state)"
+            ),
+            {"id": window_id, "state": state},
+        )
+    return window_id
+
+
+async def _drop_window(window_id: uuid.UUID) -> None:
+    async with untenanted_session() as session:
+        await session.execute(
+            text("DELETE FROM platform_maintenance_windows WHERE id = :id"), {"id": window_id}
+        )
+
+
+@pytest.mark.parametrize("state", ["draining", "active"])
+async def test_publishing_is_refused_while_a_window_is_open(state: str) -> None:
+    """THE GAP D-544 SHIPPED WITH, CLOSED AT THE ENGINE WRITE.
+
+    Eleven call sites reach `publish_agent` — a call-cap change, a voice change, a T0
+    recompile, a prompt rollback, `activate_agent`, the ops intake flow — and every one of
+    them republishes the agent to the vendor as its last act. During a window that
+    OVERWRITES the maintenance script `_speak_maintenance` put there, so one client's
+    callers quietly get ordinary service, booking appointments over a platform whose
+    database is being worked on, while every screen reports the window as active.
+
+    The refusal is client-facing, so it is asserted as a SENTENCE and not only as a code:
+    the operator's own reason, an end time, and the two reassurances that stop this
+    becoming a support call.
+    """
+    from apps.api.agents.service import publish_agent
+
+    tenant_id, agent_id = await _publishable_tenant()
+    window_id = await _window(state)
+    try:
+        async with tenant_session(tenant_id) as session:
+            with pytest.raises(ProblemError) as refused:
+                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        problem = refused.value
+        assert problem.code == "platform_maintenance"
+        assert problem.status == 409
+        assert "Upgrading the telephony stack" in problem.detail, (
+            "the client got a generic error instead of the operator's own sentence"
+        )
+        assert "IST" in problem.detail, "the refusal does not say when they can try again"
+        assert "keep answering calls" in problem.detail
+        assert problem.remediation is not None
+    finally:
+        await _drop_window(window_id)
+
+
+async def test_publishing_is_allowed_while_a_window_is_only_scheduled() -> None:
+    """THE CONTROL, and the half that would be wrong to get wrong in the other direction.
+
+    During `scheduled` the platform is running normally, nothing has been overridden on the
+    engine, and there is nothing for a publish to damage. Refusing then would take the
+    console away from clients for the whole notice period — which is not maintenance, it is
+    a longer outage.
+    """
+    from apps.api.agents.service import publish_agent
+
+    tenant_id, agent_id = await _publishable_tenant()
+    window_id = await _window("scheduled")
+    try:
+        async with tenant_session(tenant_id) as session:
+            ref = await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        assert ref, "a scheduled window blocked a publish it has no business blocking"
+    finally:
+        await _drop_window(window_id)
+
+
+# ------------------------------------------------- 6. the notice period is a dial
+
+
+async def test_the_notice_lead_is_bounded_at_both_ends() -> None:
+    """A LEAD AN OPERATOR SET TO SOMETHING SILLY IS REFUSED BY THE FIELD.
+
+    Zero is not a shorter notice, it is NO notice — the advance mail would go out at or
+    after the window opened, which is the surprise outage this feature exists to prevent,
+    wearing a setting. And a lead longer than `MAX_LEAD_TIME` would announce every window
+    the instant it was created, turning the dial into "always announce immediately" with no
+    error anywhere; the 720-hour ceiling is comfortably inside that.
+    """
+    from calevate_shared.config import Settings
+
+    for silly in (0, -1, 100_000):
+        with pytest.raises(ValidationError):
+            Settings(maintenance_notice_lead_hours=silly)  # type: ignore[call-arg]
+    assert Settings().maintenance_notice_lead_hours == 24, "the default moved"
+    # And it is a managed, classified, LIVE setting rather than a constant — the console
+    # may edit it and the next tick reads it.
+    assert FIELD_APPLIES["maintenance_notice_lead_hours"].applies == LIVE
+    assert "maintenance_notice_lead_hours" in managed_fields()
+
+
+async def test_changing_the_lead_cannot_un_announce_an_announced_window() -> None:
+    """THE PROPERTY THAT MAKES `live` HONEST WITH NO CAVEAT.
+
+    The announcement is a CLAIM on a row, not a value recomputed from the setting: a mail
+    that has been sent cannot be retracted by shortening the lead, and lengthening it cannot
+    make an announced window announce a second time. What the dial decides is exactly one
+    thing — when a window that has NOT been announced becomes due.
+    """
+    now = datetime.now(UTC)
+    async with untenanted_session() as session:
+        window = await schedule_window(
+            session,
+            reason="A window announced under one lead and read under another.",
+            starts_at=now + timedelta(hours=6),
+            ends_at=now + timedelta(hours=7),
+            actor_id=None,
+        )
+    try:
+        async with untenanted_session() as session:
+            assert await claim_notice(session, window_id=window.id, kind="advance")
+        # Whatever the lead becomes, the claim is taken and cannot be taken again.
+        async with untenanted_session() as session:
+            assert await claim_notice(session, window_id=window.id, kind="advance") is False
+            after = await read_window(session, window.id)
+        assert after.advance_notice_at is not None
+    finally:
+        async with untenanted_session() as session:
+            await session.execute(text("DELETE FROM platform_maintenance_windows"))
+
+
+async def test_a_window_scheduled_inside_the_lead_is_recorded_as_short_notice() -> None:
+    """SCHEDULING INSIDE THE NOTICE PERIOD IS ALLOWED AND RECORDED, never silently
+    tolerated. An emergency window at two hours' notice is a real need, and refusing it
+    would push an operator to drop the platform-wide lead (degrading every future window)
+    or to skip the window entirely (the state this replaces). So it is allowed, and
+    `ops.maintenance_scheduled` carries the verdict AND the lead it was measured against."""
+    now = datetime.now(UTC)
+    async with untenanted_session() as session:
+        window = await schedule_window(
+            session,
+            reason="An emergency window at two hours' notice.",
+            starts_at=now + timedelta(hours=2),
+            ends_at=now + timedelta(hours=3),
+            actor_id=None,
+        )
+    try:
+        assert window.short_notice(timedelta(hours=24)) is True
+        # ...and a window scheduled outside the lead is not.
+        assert window.short_notice(timedelta(hours=1)) is False
+    finally:
+        async with untenanted_session() as session:
+            await session.execute(text("DELETE FROM platform_maintenance_windows"))

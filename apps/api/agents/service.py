@@ -81,6 +81,7 @@ from typing import Any, NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
 from calevate_shared.call_script import substitute_variables
+from calevate_shared.calling_window import IST
 from calevate_shared.engine import (
     LLM_MODELS,
     SARVAM_DEFAULT_STT,
@@ -138,6 +139,7 @@ from apps.api.engine import engine_capabilities, get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.legal.service import assert_agreements_accepted
+from apps.api.ops.maintenance import read_open_window
 from apps.api.tenancy.lifecycle import assert_account_open
 
 # THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS, imported rather than
@@ -1269,6 +1271,79 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # agent at the vendor with nothing pointing at it. `suspended` is deliberately allowed
     # through — see the predicate, which argues why a billing stop is not an access stop.
     await assert_account_open(session, tenant_id=tenant_id)
+
+    # AND THE PLATFORM MUST NOT BE IN A MAINTENANCE WINDOW (D-544).
+    #
+    # ═══ WHY IT IS HERE, IN THE ONE FUNCTION, AND NOT ON THE PUBLISH ROUTE ═══
+    #
+    # Eleven call sites reach this function and not one of them is only "publish": a call
+    # cap change, a voice change, a disclosure toggle, a T0 recompile, a prompt rollback,
+    # a script apply, `activate_agent`, `update_agent`, the LLM default writer and the ops
+    # intake flow all republish the agent as their last act, because that is how a column
+    # becomes a fact at the vendor. They therefore all do the SAME THING to the engine, and
+    # during a window that thing is destructive in a way none of their authors could see:
+    # `workers/maintenance._speak_maintenance` has replaced this agent's greeting and prompt
+    # with the maintenance message, and a publish overwrites them with the agent's real
+    # script. The result is one client's callers quietly getting ordinary service — booking
+    # appointments, being promised call-backs — over a platform whose database is being
+    # worked on, with every screen reporting the window as active.
+    #
+    # So the refusal belongs where the engine write is, which is here. A route-level guard
+    # would have covered one of the eleven.
+    #
+    # ═══ WHICH STATES REFUSE, AND WHICH DELIBERATELY DO NOT ═══
+    #
+    # `draining` and `active` refuse; `scheduled` does not. During `scheduled` the platform
+    # is running normally, nothing has been overridden, and there is nothing for a publish
+    # to damage — refusing then would take the console away from clients for the whole
+    # notice period, which is not maintenance, it is a longer outage.
+    #
+    # `accepting_new_work` is the predicate rather than the load-shed mode, for the reason
+    # the dial gate gives: the two-state model means DRAINING refuses while `mode` is still
+    # `normal`, and reading the mode here would leave the whole drain unguarded — which is
+    # precisely the interval `_speak_maintenance` runs in.
+    #
+    # ═══ AND THE WINDOW'S OWN RESTORE IS NOT CAUGHT BY THIS ═══
+    #
+    # `workers/maintenance._restore_scripts` republishes every live agent through this
+    # function at the END of a window — and by then `complete_window` has committed, so no
+    # window is open and `accepting_new_work` is true. That is guaranteed by ordering rather
+    # than by an exemption (`_complete` transitions first, restores second), which is the
+    # safer of the two: an exemption would be a hole somebody could later widen.
+    #
+    # READ ON THE CALLER'S SESSION, AND NOT THROUGH `get_platform_status`. The cached
+    # status carries the same three facts and reaching for it here was the first attempt;
+    # `scripts/check_session_nesting` refused it, correctly. That read falls through to
+    # `untenanted_session`, and three of this function's callers are already two sessions
+    # deep (`set_disclosure_posture`, `set_caller_memory`, `apply_to_live` — each a route
+    # holding `Depends(db)`), so a third connection puts the whole chain past the pool's
+    # overflow: under saturation every task at that depth waits for a connection only
+    # another task at that depth can release.
+    #
+    # `platform_maintenance_windows` carries no RLS (it is platform state — see
+    # `db/registry.RLS_EXEMPT_TENANT_COLUMNS`), so the tenant session already in hand can
+    # read it. One query on an open connection, never stale, and no new connection at all —
+    # the same argument `ops/service.read_halt_state` makes for reading the halt on the
+    # caller's session rather than through the hot-path cache.
+    window = await read_open_window(session)
+    if window is not None and window.state in ("draining", "active"):
+        raise ProblemError(
+            kind="business_rule",
+            code="platform_maintenance",
+            title="Calevate is in a maintenance window",
+            # THE OPERATOR'S OWN SENTENCE AND THE WINDOW'S OWN END, never a generic error:
+            # this is read by a client who pressed Publish, and "try again later" with no
+            # later in it is the refusal that generates a support call.
+            detail=(
+                f"{window.reason} Publishing an agent changes what it says to callers, so "
+                f"it has to wait until the window closes (about "
+                f"{window.ends_at.astimezone(UTC) + IST:%H:%M} IST). Nothing you have "
+                "saved is lost — your changes are still here and will publish afterwards. "
+                "Your agents keep answering calls throughout."
+            ),
+            status=409,
+            remediation="Publish again once the maintenance window has finished.",
+        )
 
     engine = get_engine()
     # SECOND, and still before the lock and the vendor (D-281). Publishing IS

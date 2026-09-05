@@ -56,6 +56,7 @@ from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.maintenance import (
     MaintenanceWindow,
+    advance_notice_lead,
     amend_window,
     cancel_window,
     list_windows,
@@ -206,6 +207,12 @@ class MaintenanceBoardOut(BaseModel):
 
     current: MaintenanceWindowOut | None
     history: list[MaintenanceWindowOut]
+    #: How many hours ahead clients are told, as the operator has set it
+    #: (`Settings.maintenance_notice_lead_hours`). ON THE BOARD rather than in the
+    #: console's copy, because the console's copy said "24 hours" and the number is now a
+    #: dial — a screen stating a lead the platform is not using is the stale-constant
+    #: defect one surface closer to the person acting on it.
+    notice_lead_hours: int
 
 
 class ClientMaintenanceOut(BaseModel):
@@ -318,6 +325,7 @@ async def read_maintenance(
     return MaintenanceBoardOut(
         current=_out(current) if current else None,
         history=[_out(window) for window in await list_windows(session, limit=limit)],
+        notice_lead_hours=int(advance_notice_lead().total_seconds() // 3600),
     )
 
 
@@ -337,6 +345,7 @@ async def create_maintenance(
     x_confirm_action: ConfirmAction = None,
 ) -> MaintenanceWindowOut:
     step_up.require(x_confirm_action, maintenance_confirmation("schedule_maintenance"))
+    lead = advance_notice_lead()
     window = await schedule_window(
         session,
         reason=payload.reason,
@@ -360,6 +369,13 @@ async def create_maintenance(
             "ends_at": window.ends_at.isoformat(),
             "max_drain_minutes": window.max_drain_minutes,
             "reason": window.reason,
+            # SCHEDULING INSIDE THE NOTICE PERIOD IS ALLOWED AND RECORDED, never silently
+            # tolerated — `MaintenanceWindow.short_notice` argues why refusing it would be
+            # worse. Both halves are written: the verdict, and the lead it was measured
+            # against, because the setting is a dial and the number in force at the time is
+            # the only thing that makes the verdict re-checkable later.
+            "short_notice": window.short_notice(lead),
+            "notice_lead_hours": int(lead.total_seconds() // 3600),
         },
     )
     await _nudge()
@@ -381,9 +397,18 @@ async def amend_maintenance(
     principal: MaintenanceOperator,
     x_confirm_action: ConfirmAction = None,
 ) -> MaintenanceWindowOut:
-    """Move the end, rewrite the reason, extend the drain — and, before it is announced,
-    move the start. `ops/maintenance.amend_window` owns which of those an announced window
-    may still take, and refuses the rest by name."""
+    """Move the start, move the end, rewrite the reason, extend the drain.
+
+    A `scheduled` window may be moved whether or not clients have been told: the
+    commitment is kept by RE-ANNOUNCING rather than by freezing, and `amend_window`'s
+    docstring carries the founder's decision and the reasoning. A window that has BEGUN is
+    not rescheduled — that half is refused by name.
+
+    TWO AUDIT ACTIONS, not one. A move (`ops.maintenance_moved`) and a re-wording
+    (`ops.maintenance_amended`) are asked about differently afterwards — "when did this
+    window change time" must not be a full-text hunt through a generic action — and both
+    carry the times on BOTH sides.
+    """
     if payload.model_dump(exclude_none=True) == {}:
         raise ProblemError(
             kind="validation",
@@ -392,6 +417,13 @@ async def amend_maintenance(
             detail="Change at least one of the start, the end, the reason or the drain bound.",
         )
     step_up.require(x_confirm_action, maintenance_confirmation("amend_maintenance", window_id))
+    # READ BEFORE THE WRITE, for the audit and only for the audit. "Who moved the window,
+    # when, and FROM WHAT" is the question asked afterwards, and the answer is not
+    # reconstructible from the amended row alone — a summary carrying only the new time
+    # records that something changed without recording what it was. The read costs one
+    # primary-key lookup on a session the handler is already holding, and it is not a
+    # check-then-write: `amend_window` re-reads and validates on its own.
+    before = await read_window(session, window_id)
     window = await amend_window(
         session,
         window_id=window_id,
@@ -400,18 +432,28 @@ async def amend_maintenance(
         ends_at=payload.ends_at,
         max_drain_minutes=payload.max_drain_minutes,
     )
+    moved = window.starts_at != before.starts_at or window.ends_at != before.ends_at
     await write_audit(
         session,
-        action="ops.maintenance_amended",
+        action="ops.maintenance_moved" if moved else "ops.maintenance_amended",
         actor=principal,
         object_type="platform_maintenance_window",
         object_id=str(window.id),
         ip=client_request_ip(request),
         summary={
             "changed": sorted(payload.model_dump(exclude_none=True)),
+            # BOTH TIMES, BOTH SIDES. `audit_log` has no summary column — the sanitised
+            # summary goes to the log stream keyed by the entry id (`compliance/audit.py`)
+            # — so this is the only place the pair survives, and the pair is the record.
+            "from_starts_at": before.starts_at.isoformat(),
+            "from_ends_at": before.ends_at.isoformat(),
             "starts_at": window.starts_at.isoformat(),
             "ends_at": window.ends_at.isoformat(),
             "reason": window.reason,
+            # Whether clients had already been told. A move before the announcement is
+            # bookkeeping; a move after it costs every client a second email and is the
+            # one an operator may be asked about.
+            "announced": before.announced,
         },
     )
     await _nudge()

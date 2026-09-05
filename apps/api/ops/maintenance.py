@@ -56,26 +56,32 @@ moving.
 
 ═══ WHAT AN ANNOUNCED WINDOW MAY STILL BECOME ═══
 
-A window clients have been TOLD about is a commitment, and the rule this module enforces
-is that the commitment is the START:
+A window clients have been TOLD about is a commitment, and **the commitment is kept by
+RE-ANNOUNCING, not by freezing** (the founder's decision, reversing this module's first
+rule):
 
-* before `advance_notice_at` is stamped, everything is editable — nobody has been told
-  anything, so there is nothing to break;
-* once it is stamped, `starts_at` is FROZEN. Moving it earlier takes away notice a client
-  has already planned around ("we will not run the Tuesday campaign, they are down at
-  9"), and moving it later is the same lie in the other direction — the client who
-  rescheduled their morning around 9 is the one who loses. Cancel and re-schedule, which
-  is two audited actions and reads honestly to everybody;
-* `ends_at`, `reason` and the drain bound stay editable throughout, because those are the
-  facts an operator LEARNS during the work, and a window that cannot be extended is a
-  window operators lie about instead;
-* **every amendment after the announcement re-announces.** `amended_notice_at` is cleared
-  by the amendment and re-stamped by the tick that mails it, so the client's last message
-  about this window always describes the window as it now is. An amendment nobody hears is
-  worse than no amendment.
+* a `scheduled` window may be moved — start, end, wording, drain bound — announced or not.
+  The first version of this refused to move an announced START and told the operator to
+  cancel and re-schedule. That was two audited actions producing three client emails for
+  one change of mind, and it made the honest thing (moving a window by an hour) more
+  expensive than the dishonest one (leaving it wrong);
+* **every client-visible change to an announced window re-announces.** `amend_window`
+  CLEARS `amended_notice_at`, the tick claims it and mails everybody the window as it now
+  is. So the last message a client holds about a window always describes the window that
+  is actually going to happen — which is the property "frozen" was reaching for, obtained
+  by telling people rather than by refusing;
+* **a window that has BEGUN is not rescheduled.** `draining` and `active` have already
+  paused the campaigns and changed what agents say; their start is history and there is no
+  coherent meaning to moving it. The verb from those states is END, which puts everything
+  back. That half of the original rule stands.
 
-Once `draining` or `active` the start is history and cannot be edited at all; the verbs
-left are extend, amend the wording, and end early.
+⚠ **N MOVES DO NOT ALWAYS MEAN N EMAILS, AND THAT IS THE DESIGN.** The claim is a stamp,
+so each move re-opens it and the next tick sends one notice describing the state AFTER
+that move. Two moves either side of a tick send two notices; two moves inside the same
+fifteen seconds send ONE, naming the final time. The second is strictly better than the
+alternative — a client does not need a correction to a correction they never received —
+and what is guaranteed is the part that matters: **no move ever goes unannounced, and no
+notice ever describes a state the window has already left.**
 
 ═══ WHY THE STATE MACHINE IS CAS AND NOTHING ELSE ═══
 
@@ -105,13 +111,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
-from apps.api.ops.models import (
-    ADVANCE_NOTICE_HOURS,
-    DEFAULT_MAX_DRAIN_MINUTES,
-    MAINTENANCE_OPEN_STATES,
-)
+from apps.api.ops.models import DEFAULT_MAX_DRAIN_MINUTES, MAINTENANCE_OPEN_STATES
 
 log = get_logger(__name__)
 
@@ -128,9 +131,25 @@ NOTICE_COLUMNS: Final[Mapping[str, str]] = {
 }
 NoticeKind = Literal["advance", "amended", "active", "ended"]
 
-#: How far ahead of a window the advance notice goes out. Re-exported from the model so the
-#: schedule validator, the tick and the console read one number.
-ADVANCE_NOTICE = timedelta(hours=ADVANCE_NOTICE_HOURS)
+
+def advance_notice_lead() -> timedelta:
+    """How far ahead of a window clients are told, as the OPERATOR has set it.
+
+    A function rather than a constant because the founder made it a dial: it is
+    `Settings.maintenance_notice_lead_hours`, managed from the ops console, classified
+    `live` in `core/platform_config.FIELD_APPLIES`, and bounded 1..720 hours at the field
+    (a zero lead is not a shorter notice, it is no notice; a lead longer than
+    `MAX_LEAD_TIME` would announce every window the instant it was created).
+
+    ⚠ **CHANGING IT CANNOT RE-NOTIFY OR UN-NOTIFY AN ANNOUNCED WINDOW.** The announcement
+    is a CLAIM on a row — `advance_notice_at`, stamped once by a CAS — not a value
+    recomputed from this setting on every tick. Shortening the lead cannot retract a mail
+    that has been sent; lengthening it cannot make an announced window announce again. The
+    one thing this decides is when a window that has NOT been announced becomes due, which
+    is why `FIELD_APPLIES` can honestly classify it `live` with no caveat.
+    """
+    return timedelta(hours=get_settings().maintenance_notice_lead_hours)
+
 
 #: The shortest window an operator may schedule. Not a nicety: `starts_at` in the past
 #: would open a window the tick drains on its next pass with no notice sent at all, and
@@ -181,6 +200,31 @@ class MaintenanceWindow:
     active_notice_at: datetime | None
     ended_notice_at: datetime | None
     created_at: datetime
+
+    def short_notice(self, lead: timedelta) -> bool:
+        """Was this window scheduled closer than the configured notice period?
+
+        ═══ SCHEDULING INSIDE THE LEAD IS ALLOWED, AND ANNOUNCES IMMEDIATELY ═══
+
+        The decision, made explicitly rather than left to fall out of the tick's
+        arithmetic. `_tick_scheduled` announces as soon as `now >= starts_at - lead`, so a
+        window scheduled two hours out under a 24-hour lead is already past that instant
+        and its advance notice goes on the next tick — clients get two hours' notice
+        instead of a day.
+
+        REFUSING IT WAS THE ALTERNATIVE AND IT IS WORSE, in the way that matters: an
+        emergency window at two hours' notice is a real and ordinary need, and an API that
+        refused it would push an operator to drop the platform-wide lead setting to two
+        hours (which quietly degrades every future window) or to skip the window and take
+        the platform down with no notice at all (which is the state this feature exists to
+        replace). A control that people route around is worse than no control.
+
+        So it is allowed and RECORDED: `ops.maintenance_scheduled` carries `short_notice`
+        and the lead in force, so "why did they only get two hours" has an answer
+        afterwards, and the console shows the configured lead beside the form so the
+        operator knows before they press it.
+        """
+        return self.starts_at - self.created_at < lead
 
     @property
     def announced(self) -> bool:
@@ -415,32 +459,23 @@ async def amend_window(
             detail=f"The window is {window.state} and can no longer be edited.",
             status=409,
         )
-    if starts_at is not None and starts_at != window.starts_at:
-        if window.state != "scheduled":
-            raise ProblemError(
-                kind="business_rule",
-                code="maintenance_started",
-                title="The window has already begun",
-                detail=(
-                    "This window is already draining or active, so its start time is "
-                    "history. Extend the end time or end it early instead."
-                ),
-                status=409,
-            )
-        if window.announced:
-            raise ProblemError(
-                kind="business_rule",
-                code="maintenance_start_announced",
-                title="Clients have already been told when this starts",
-                detail=(
-                    "The advance notice for this window has gone out, so its start time "
-                    "is fixed. Cancel it and schedule a new one — that way every client "
-                    "hears the cancellation and the new time, instead of quietly "
-                    "planning around a time that moved."
-                ),
-                status=409,
-                remediation="Cancel this window and schedule a replacement.",
-            )
+    # A WINDOW THAT HAS BEGUN IS NOT RESCHEDULED. The start of a draining or active window
+    # is history — the campaigns are already paused and the agents are already saying
+    # something else — and there is no coherent meaning to moving it. The verb for "not at
+    # this time after all" from those states is END (`complete_window`), which puts
+    # everything back. A `scheduled` window moves freely, announced or not; the commitment
+    # is kept by re-announcing, which the module docstring argues.
+    if starts_at is not None and starts_at != window.starts_at and window.state != "scheduled":
+        raise ProblemError(
+            kind="business_rule",
+            code="maintenance_started",
+            title="The window has already begun",
+            detail=(
+                "This window is already draining or active, so its start time is "
+                "history. Extend the end time or end it early instead."
+            ),
+            status=409,
+        )
     new_start = starts_at or window.starts_at
     new_end = ends_at or window.ends_at
     if new_end <= new_start:
@@ -701,7 +736,6 @@ async def claim_notice(session: AsyncSession, *, window_id: UUID, kind: NoticeKi
 
 
 __all__ = [
-    "ADVANCE_NOTICE",
     "MAX_LEAD_TIME",
     "MIN_WINDOW",
     "NOTICE_COLUMNS",
@@ -710,6 +744,7 @@ __all__ = [
     "MaintenanceWindow",
     "NoticeKind",
     "activate",
+    "advance_notice_lead",
     "amend_window",
     "begin_drain",
     "cancel_window",

@@ -66,7 +66,7 @@ describe("the operator's screen", () => {
     // numbers will force it and break a live call." Both counts and the deadline have to
     // be on the screen before any button is.
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: DRAINING, history: [DRAINING] },
+      "/v1/ops/maintenance": { current: DRAINING, history: [DRAINING], notice_lead_hours: 24 },
     });
     expect(await view.findByText("What the drain is waiting for")).toBeTruthy();
     expect(screen.getByText("Calls still up")).toBeTruthy();
@@ -82,7 +82,7 @@ describe("the operator's screen", () => {
       in_flight: { calls: 0, jobs: 0, tenants_unreached: 4, complete: false, measured_at: null },
     };
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: truncated, history: [] },
+      "/v1/ops/maintenance": { current: truncated, history: [], notice_lead_hours: 24 },
     });
     // Two zeros on the screen must NOT read as "drained": the caveat is what stops an
     // operator concluding the platform is idle from a walk that gave up early.
@@ -106,7 +106,7 @@ describe("the operator's screen", () => {
       },
     };
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: forced, history: [forced] },
+      "/v1/ops/maintenance": { current: forced, history: [forced], notice_lead_hours: 24 },
     });
     expect(await view.findByText("What was still running when it activated")).toBeTruthy();
     expect(view.container.textContent).toContain(
@@ -120,7 +120,7 @@ describe("the operator's screen", () => {
     // this surface's refusals as noise, so it is not rendered.
     const active = { ...DRAINING, state: "active" as const, in_flight: null };
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: active, history: [] },
+      "/v1/ops/maintenance": { current: active, history: [], notice_lead_hours: 24 },
     });
     expect(await view.findByText("End now and reopen the portals")).toBeTruthy();
     expect(screen.queryByText("Call it off")).toBeNull();
@@ -138,7 +138,7 @@ describe("the operator's screen", () => {
 
   it("sends the amendment as only the fields that moved, with the bound confirmation", async () => {
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: DRAINING, history: [] },
+      "/v1/ops/maintenance": { current: DRAINING, history: [], notice_lead_hours: 24 },
       [`/v1/ops/maintenance/${DRAINING.id}`]: { ...DRAINING, max_drain_minutes: 40 },
     });
     await view.findByText("Change it");
@@ -154,6 +154,50 @@ describe("the operator's screen", () => {
         `amend_maintenance:${DRAINING.id}`,
       );
     });
+  });
+});
+
+describe("moving an announced window", () => {
+  it("offers the start on a scheduled window and warns that clients hear about it", async () => {
+    // THE FOUNDER'S REVERSAL, ON THE SCREEN. The first version froze the start of an
+    // announced window and told the operator to cancel and re-schedule. Now it moves, and
+    // the console says what that costs — a second email to everybody — rather than either
+    // hiding the input or letting the operator find out afterwards.
+    const scheduled = {
+      ...DRAINING,
+      state: "scheduled" as const,
+      in_flight: null,
+      drain_deadline_at: null,
+      announced: true,
+    };
+    const view = renderAdminPage(<MaintenancePage />, {
+      "/v1/ops/maintenance": { current: scheduled, history: [], notice_lead_hours: 24 },
+    });
+    expect(await view.findByText("Clients have already been told about this window")).toBeTruthy();
+    expect(screen.getByText("Opens at")).toBeTruthy();
+  });
+
+  it("does not offer the start on a window that has begun", async () => {
+    // A draining window's start is history and the API refuses it by name. An input
+    // rendered to fail teaches an operator to read this surface's refusals as noise.
+    const view = renderAdminPage(<MaintenancePage />, {
+      "/v1/ops/maintenance": { current: DRAINING, history: [], notice_lead_hours: 24 },
+    });
+    await view.findByText("Change it");
+    expect(screen.queryByText("Opens at")).toBeNull();
+    expect(screen.getByText("Ends at")).toBeTruthy();
+  });
+
+  it("states the CONFIGURED notice period, not a number baked into the copy", async () => {
+    // The hint said "Clients are emailed 24 hours ahead" and the lead is now a dial. A
+    // screen stating a rule the platform does not follow is the stale-constant defect one
+    // surface closer to the person acting on it.
+    const view = renderAdminPage(<MaintenancePage />, {
+      "/v1/ops/maintenance": { current: null, history: [], notice_lead_hours: 6 },
+    });
+    expect(await view.findByText("Schedule it")).toBeTruthy();
+    expect(view.container.textContent).toContain("Clients are emailed 6 hours ahead");
+    expect(view.container.textContent).not.toContain("24 hours ahead");
   });
 });
 

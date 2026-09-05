@@ -245,15 +245,50 @@ async def test_the_recorded_probe_is_what_the_console_reads() -> None:
 # --------------------------------------------------------------- announced = committed
 
 
-async def test_an_announced_window_may_not_have_its_start_moved() -> None:
-    """A window clients have been told about is a commitment, and the commitment is the
-    START. Moving it in either direction breaks somebody's plan: earlier takes away notice
-    they arranged their morning around, later strands the client who rescheduled. The
-    honest verb is cancel-and-reschedule, which every client hears."""
+async def test_an_announced_window_may_be_moved_and_re_announces() -> None:
+    """THE COMMITMENT IS KEPT BY TELLING PEOPLE, NOT BY REFUSING (the founder's decision).
+
+    This module's first rule froze the start of an announced window and told the operator
+    to cancel and re-schedule. That was two audited actions producing three client emails
+    for one change of mind, and it made the honest thing — moving a window by an hour —
+    more expensive than the dishonest one, which is leaving it wrong.
+
+    So a `scheduled` window moves, announced or not, and the move CLEARS the amendment
+    claim so the tick mails everybody the window as it now is.
+    """
     window_id = await _schedule()
     try:
         async with untenanted_session() as session:
             assert await claim_notice(session, window_id=window_id, kind="advance")
+            announced = await read_window(session, window_id)
+        # The advance claim settles the amendment slot with it, so nothing is outstanding.
+        assert announced.amended_notice_at is not None
+
+        moved_to = datetime.now(UTC) + timedelta(hours=3)
+        async with untenanted_session() as session:
+            window = await amend_window(
+                session,
+                window_id=window_id,
+                starts_at=moved_to,
+                ends_at=moved_to + timedelta(hours=1),
+            )
+        assert abs((window.starts_at - moved_to).total_seconds()) < 1
+        assert window.advance_notice_at is not None, "the original announcement was retracted"
+        assert window.amended_notice_at is None, (
+            "clients were told a time that has since moved and nothing will correct it"
+        )
+    finally:
+        await _clear_windows()
+
+
+async def test_a_window_that_has_begun_is_never_rescheduled() -> None:
+    """The half of the original rule that stands. A draining or active window has already
+    paused the campaigns and changed what agents say — its start is history, and there is
+    no coherent meaning to moving it. The verb from those states is END."""
+    window_id = await _schedule()
+    try:
+        async with untenanted_session() as session:
+            await begin_drain(session, window_id=window_id, max_drain_minutes=15)
         async with untenanted_session() as session:
             with pytest.raises(Exception) as refused:
                 await amend_window(
@@ -261,22 +296,64 @@ async def test_an_announced_window_may_not_have_its_start_moved() -> None:
                     window_id=window_id,
                     starts_at=datetime.now(UTC) + timedelta(hours=3),
                 )
-        assert "maintenance_start_announced" in str(refused.value)
+        assert "maintenance_started" in str(refused.value)
+        # ...while the END is still movable from the same state, which is what an operator
+        # whose work is running long actually needs.
+        async with untenanted_session() as session:
+            extended = await amend_window(
+                session, window_id=window_id, ends_at=datetime.now(UTC) + timedelta(hours=9)
+            )
+        assert extended.state == "draining"
     finally:
         await _clear_windows()
 
 
-async def test_an_unannounced_window_may_still_be_moved_freely() -> None:
-    """The control on the test above: before anybody has been told, there is nothing to
-    break, so an operator fixing a typo in a start time is not made to cancel."""
+async def test_two_moves_owe_two_notices_when_a_tick_runs_between_them() -> None:
+    """N MOVES, N CLAIMS — and the coalescing case, stated rather than discovered.
+
+    The claim is a stamp, so each move re-opens it and the next tick sends one notice
+    describing the state AFTER that move. Two moves either side of a tick therefore owe two
+    notices; two moves inside the same fifteen seconds owe ONE, naming the final time.
+
+    The second is deliberate and is better than the alternative — a client does not need a
+    correction to a correction they never received. What is guaranteed, and what this
+    asserts, is that no move ever goes unannounced and no notice ever describes a state the
+    window has already left.
+    """
     window_id = await _schedule()
     try:
-        moved = datetime.now(UTC) + timedelta(hours=5)
         async with untenanted_session() as session:
-            window = await amend_window(
-                session, window_id=window_id, starts_at=moved, ends_at=moved + timedelta(hours=1)
+            await claim_notice(session, window_id=window_id, kind="advance")
+
+        # MOVE ONE, then the tick's claim: one notice owed, one taken.
+        async with untenanted_session() as session:
+            await amend_window(
+                session, window_id=window_id, ends_at=datetime.now(UTC) + timedelta(hours=4)
             )
-        assert abs((window.starts_at - moved).total_seconds()) < 1
+        async with untenanted_session() as session:
+            assert await claim_notice(session, window_id=window_id, kind="amended") is True
+            assert await claim_notice(session, window_id=window_id, kind="amended") is False
+
+        # MOVE TWO: the claim re-opens, so a second notice is owed.
+        async with untenanted_session() as session:
+            await amend_window(
+                session, window_id=window_id, ends_at=datetime.now(UTC) + timedelta(hours=5)
+            )
+        async with untenanted_session() as session:
+            assert await claim_notice(session, window_id=window_id, kind="amended") is True
+
+        # TWO MOVES WITH NO TICK BETWEEN THEM: still ONE claim, and the row it will be
+        # read from carries the FINAL time — never the intermediate one.
+        final = datetime.now(UTC) + timedelta(hours=7)
+        async with untenanted_session() as session:
+            await amend_window(
+                session, window_id=window_id, ends_at=datetime.now(UTC) + timedelta(hours=6)
+            )
+            await amend_window(session, window_id=window_id, ends_at=final)
+        async with untenanted_session() as session:
+            assert await claim_notice(session, window_id=window_id, kind="amended") is True
+            window = await read_window(session, window_id)
+        assert abs((window.ends_at - final).total_seconds()) < 1
     finally:
         await _clear_windows()
 

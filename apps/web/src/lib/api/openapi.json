@@ -12345,11 +12345,16 @@
             },
             "title": "History",
             "type": "array"
+          },
+          "notice_lead_hours": {
+            "title": "Notice Lead Hours",
+            "type": "integer"
           }
         },
         "required": [
           "current",
-          "history"
+          "history",
+          "notice_lead_hours"
         ],
         "title": "MaintenanceBoardOut",
         "type": "object"
@@ -35226,7 +35231,7 @@
     },
     "/v1/ops/maintenance/{window_id}": {
       "patch": {
-        "description": "Move the end, rewrite the reason, extend the drain \u2014 and, before it is announced,\nmove the start. `ops/maintenance.amend_window` owns which of those an announced window\nmay still take, and refuses the rest by name.",
+        "description": "Move the start, move the end, rewrite the reason, extend the drain.\n\nA `scheduled` window may be moved whether or not clients have been told: the\ncommitment is kept by RE-ANNOUNCING rather than by freezing, and `amend_window`'s\ndocstring carries the founder's decision and the reasoning. A window that has BEGUN is\nnot rescheduled \u2014 that half is refused by name.\n\nTWO AUDIT ACTIONS, not one. A move (`ops.maintenance_moved`) and a re-wording\n(`ops.maintenance_amended`) are asked about differently afterwards \u2014 \"when did this\nwindow change time\" must not be a full-text hunt through a generic action \u2014 and both\ncarry the times on BOTH sides.",
         "operationId": "amend_maintenance_v1_ops_maintenance__window_id__patch",
         "parameters": [
           {
@@ -35293,7 +35298,7 @@
     },
     "/v1/ops/maintenance/{window_id}/cancel": {
       "post": {
-        "description": "`scheduled | draining -> cancelled`.\n\nAn ACTIVE window cannot be cancelled \u2014 the verb for that is `/end`, and the difference\nis not pedantry: an active window has already shut the client surface and there is\nrestoration work owed. `cancel_window` argues it.",
+        "description": "`scheduled -> cancelled`. A window that has BEGUN is ended, not cancelled.\n\nThe difference is not pedantry and `cancel_window` argues it in full: a cancellation\nmeans nothing happened, and the moment a window starts draining it has paused every\nrunning campaign in the fleet and rewritten what every live inbound agent says. That\nwork is put back by exactly one terminal state \u2014 `completed` \u2014 so `draining` and\n`active` are reached through `/end`, and the refusal below names it.",
         "operationId": "cancel_maintenance_v1_ops_maintenance__window_id__cancel_post",
         "parameters": [
           {

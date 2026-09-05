@@ -1264,6 +1264,26 @@ class Settings(BaseSettings):
     # channels) minus inbound_reserve. Values come from engine verification item 8.
     inbound_reserve_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
+    #: How far ahead of a planned maintenance window clients are told about it, in HOURS
+    #: (D-544, and the founder's decision that this is an operator's dial rather than a
+    #: constant).
+    #:
+    #: **24 IS THE DEFAULT AND IT IS THE PROMISE WE HAVE ALREADY MADE**: the Terms say we
+    #: give "reasonable notice of planned maintenance where we can"
+    #: (`apps/web/src/lib/legal/terms.ts`), and a day is long enough that a client who
+    #: builds a calling list every morning sees the banner before they build tomorrow's.
+    #:
+    #: **BOUNDED AT BOTH ENDS, AND NEITHER BOUND IS DECORATION.** `ge=1`: zero or negative
+    #: is not a shorter notice, it is NO notice — the advance mail would go out at or after
+    #: the window opened, which is the surprise outage this whole feature exists to prevent,
+    #: dressed as a setting. `le=720` (30 days): the ceiling is the one that bites quietly.
+    #: The tick announces a window as soon as `now >= starts_at - lead`, so a lead longer
+    #: than the furthest a window may be scheduled (`ops/maintenance.MAX_LEAD_TIME`, 90
+    #: days) would announce EVERY window the moment it is created — turning the setting
+    #: into "always announce immediately" with no error anywhere. 30 days is comfortably
+    #: inside that and comfortably beyond any notice period a client would ask for.
+    maintenance_notice_lead_hours: int = Field(default=24, ge=1, le=720)
+
     # Self-serve list price per calling minute, INR (the single-tier voice decision,
     # superseding D-34/D-35/D-36's ₹6). One number for the whole motion — there is one
     # voice quality now (Sarvam Bulbul v3), so there is one client rate — and it exists

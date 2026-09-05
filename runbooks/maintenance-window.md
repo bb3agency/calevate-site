@@ -40,11 +40,22 @@ Admin console → Ops → Maintenance. You need three things and a fourth is opt
 * **drain bound** (default 15 minutes) — how long the platform waits for in-flight work
   before going active anyway. See §3.
 
-Clients are emailed 24 hours ahead. **Once that notice has gone out the start time is
-frozen** — you may still move the end, rewrite the reason and change the drain bound, and
-any client-visible change re-mails everybody. To move the start, cancel and re-schedule:
-that way every client hears the cancellation and the new time instead of quietly planning
-around a time that moved.
+Clients are emailed **`MAINTENANCE_NOTICE_LEAD_HOURS` hours ahead** — a platform setting,
+default 24, editable in Platform configuration, classified `live` so the next tick uses the
+new value with no restart. The schedule form shows the number in force.
+
+**Scheduling closer than the lead is allowed.** An emergency window at two hours' notice is
+a real need; the advance mail simply goes out on the next tick and the audit row records
+`short_notice` with the lead it was measured against. Refusing it would push you to drop
+the platform-wide lead (degrading every future window) or to skip the window entirely.
+
+**An announced window can still be MOVED — start and end — while it is `scheduled`.** Every
+client who got the announcement gets an amendment naming the new time. Move it rather than
+leaving it wrong: a client holding an old time is worse than a second email. Changing the
+lead setting afterwards never re-notifies or un-notifies a window that has already been
+announced.
+
+A window that has BEGUN is not rescheduled: its start is history and the verb is End.
 
 **The end can be moved WHILE the window is running, and that is the amendment you will
 actually make.** If the work is going long, extend `ends_at` rather than letting it
@@ -101,21 +112,32 @@ window is over.
 Read the ops engine-drift panel, find the named agents, and republish each from its own
 screen. `sweep_engine_drift` will also report them against our record.
 
-## 6. The one gap in the caller message, named
+## 6. Publishing an agent is refused while a window is open
 
 The maintenance script is pushed to every live answering agent on TWO edges: when the
 window starts draining, and again when it goes active. It is not re-pushed on every tick —
 that would be a vendor round trip per agent every fifteen seconds for the length of the
-window.
+window — so an agent published mid-window would otherwise keep its ordinary script and its
+callers would get ordinary service over a platform being worked on.
 
-So an agent **published between those two edges** keeps its ordinary script for the rest
-of the window. The portal is still open while draining, so a client can do this. Its
-callers then get ordinary service over a platform that is being worked on.
+**So a publish is refused while a window is `draining` or `active`**, at
+`agents/service.publish_agent` — the one function that writes an agent to the engine.
+Eleven paths reach it and every one of them would overwrite the maintenance script: a call
+cap change, a voice change, a disclosure toggle, a T0 recompile, a prompt rollback, a
+script apply, activating an agent, editing one, the LLM default writer, and the ops intake
+flow that onboards a new client.
 
-It needs a client publishing an agent inside a window measured in minutes, and the outcome
-is the state this feature is an improvement on rather than a regression. If it ever bites,
-the fix is to refuse a publish while a window is open — a product decision about a screen
-a client is looking at, not a tuning change.
+`scheduled` does **not** refuse: the platform is running normally, nothing has been
+overridden, and blocking publishes for the whole notice period is not maintenance, it is a
+longer outage.
+
+The client sees the operator's own reason and the window's end, with the two things that
+stop it becoming a support call: their changes are saved and will publish afterwards, and
+their agents keep answering calls throughout. **If a client rings about it, the answer is
+"wait for the window, then press Publish again" — there is nothing to recover.**
+
+The window's own restore is not caught by this: `complete_window` commits before
+`_restore_scripts` runs, so no window is open by then.
 
 ## 7. If the engine cannot carry the message
 

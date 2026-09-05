@@ -82,11 +82,11 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.ops.maintenance import (
-    ADVANCE_NOTICE,
     InFlight,
     MaintenanceWindow,
     NoticeKind,
     activate,
+    advance_notice_lead,
     begin_drain,
     claim_notice,
     complete_window,
@@ -328,21 +328,19 @@ async def _speak_maintenance(window: MaintenanceWindow, budget: WalkBudget) -> E
     theirs: a failure is counted and the walk continues; the alert carries the count and
     `sweep_engine_drift` scores every live agent against our record independently.
 
-    ⚠ **IT RUNS ON THE TWO EDGES, NOT ON EVERY TICK, AND THAT LEAVES ONE NAMED GAP.** The
-    override is applied when the window starts DRAINING and again when it goes ACTIVE — two
-    passes, so a vendor blip on the first is usually cleared by the second. It is NOT
-    re-applied on every fifteen-second tick, because that is O(agents) vendor round trips
-    per tick for the length of the window and a large fleet would spend the whole drain
-    talking to the engine.
+    **IT RUNS ON THE TWO EDGES, NOT ON EVERY TICK.** The override is applied when the
+    window starts DRAINING and again when it goes ACTIVE — two passes, so a vendor blip on
+    the first is usually cleared by the second. It is NOT re-applied on every fifteen-second
+    tick, because that is O(agents) vendor round trips per tick for the length of the window
+    and a large fleet would spend the whole drain talking to the engine.
 
-    The gap that leaves: an agent PUBLISHED between the two edges — the portal is still
-    open while draining, so a client can — reaches the engine with its ordinary script and
-    keeps it for the rest of the window. Its callers get ordinary service over a platform
-    that is being worked on. Judged acceptable rather than papered over: it needs a client
-    publishing an agent inside a window measured in minutes, and the cost is the state this
-    whole feature is an improvement ON. `runbooks/maintenance-window.md` §6 records it, and
-    the fix if it ever bites is to refuse a publish while a window is open — which is a
-    product decision about a screen a client is looking at, not a line in this function.
+    **THE GAP THAT USED TO LEAVE IS CLOSED AT THE OTHER END.** An agent published between
+    the two edges — the portal is still open while draining, so a client can reach it —
+    would have arrived with its ordinary script and kept it for the rest of the window.
+    `agents/service.publish_agent` now REFUSES while a window is draining or active, which
+    is the right place for it: eleven paths reach that function and every one of them writes
+    the agent to the engine, so a guard on the publish route would have covered one. See its
+    own argument at the raise site, and `runbooks/maintenance-window.md` §6.
     """
     engine = get_engine()
     if not engine.capabilities.has("script_override"):
@@ -567,7 +565,7 @@ async def _tick_scheduled(window: MaintenanceWindow, *, now: datetime, budget: W
     """Announce it when it is close enough; open it when its time comes."""
     if now < window.starts_at:
         sent = 0
-        if now >= window.starts_at - ADVANCE_NOTICE:
+        if now >= window.starts_at - advance_notice_lead():
             async with untenanted_session() as session:
                 sent = await _fan_out(session, window=window, kind="advance")
         return f"scheduled notices={sent}"

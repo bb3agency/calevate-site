@@ -2506,6 +2506,7 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/ops/maintenance": {
         current: MAINTENANCE_WINDOW,
         history: [MAINTENANCE_WINDOW],
+        notice_lead_hours: 24,
       },
     },
   },

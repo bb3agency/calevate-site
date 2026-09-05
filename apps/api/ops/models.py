@@ -428,12 +428,6 @@ class PlatformDashboardDataUse(Base):
 #: is a schema migration (wait) or a config push (do not).
 DEFAULT_MAX_DRAIN_MINUTES = 15
 
-#: How far ahead of `starts_at` clients are told (D-544). Twenty-four hours is the notice
-#: period `apps/web/src/lib/legal/terms.ts` already promises ("reasonable notice of planned
-#: maintenance where we can"), and it is long enough that a client who dials a campaign
-#: every morning sees the banner before they build tomorrow's list.
-ADVANCE_NOTICE_HOURS = 24
-
 #: The lifecycle of one window. Read `ops/maintenance.py` for the transitions; this tuple
 #: is the DATABASE's copy of the same vocabulary and is interpolated into the CHECK below.
 #:
@@ -553,7 +547,6 @@ class PlatformMaintenanceWindow(PKMixin, Base):
 
 
 __all__ = [
-    "ADVANCE_NOTICE_HOURS",
     "DEFAULT_MAX_DRAIN_MINUTES",
     "FX_RATE",
     "MAINTENANCE_OPEN_STATES",

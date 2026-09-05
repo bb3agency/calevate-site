@@ -153,8 +153,13 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
   const cancel = useCancelMaintenance();
   const end = useEndMaintenance();
   const [reason, setReason] = useState(current.reason);
+  const [startsAt, setStartsAt] = useState(toLocalInput(current.starts_at));
   const [endsAt, setEndsAt] = useState(toLocalInput(current.ends_at));
   const [drain, setDrain] = useState(String(current.max_drain_minutes));
+  // A window that has BEGUN is not rescheduled — its start is history and the API refuses
+  // it by name. A `scheduled` one moves freely, announced or not: the commitment is kept
+  // by re-announcing, not by freezing.
+  const movable = current.state === "scheduled";
 
   return (
     <Card>
@@ -223,7 +228,34 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
               it re-notifies every client.
             </span>
           </label>
+          {current.announced && (
+            <NoticeBox
+              tone="neutral"
+              icon={<CalendarClock className="h-5 w-5" />}
+              title="Clients have already been told about this window"
+            >
+              <p className="mt-1">
+                Changing the time or the wording emails every client again with the window
+                as it now is. That is the point — a client holding an old time is worse than
+                a second email — but it is not a silent edit.
+              </p>
+            </NoticeBox>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
+            {movable && (
+              <label className="block">
+                <span className={FIELD_LABEL}>Opens at</span>
+                <input
+                  type="datetime-local"
+                  value={startsAt}
+                  onChange={(event) => setStartsAt(event.target.value)}
+                  className={FIELD}
+                />
+                <span className={FIELD_HINT}>
+                  Movable until the window opens. After that it is history — end it instead.
+                </span>
+              </label>
+            )}
             <label className="block">
               <span className={FIELD_LABEL}>Ends at</span>
               <input
@@ -260,6 +292,13 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
             onClick={() =>
               amend.mutate({
                 windowId: current.id,
+                // The start is sent only from a state that can take it, and only when it
+                // moved — the API refuses a start change on a window that has begun, and a
+                // form that sent one unchanged would turn every save into that refusal.
+                startsAt:
+                  !movable || startsAt === toLocalInput(current.starts_at)
+                    ? undefined
+                    : (fromLocalInput(startsAt) ?? undefined),
                 // ONLY WHAT MOVED. Each field is compared in the representation the INPUT
                 // holds, not against the ISO string on the row: the two differ by
                 // formatting after one round trip through `datetime-local`, so comparing
@@ -327,7 +366,7 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
   );
 }
 
-function ScheduleForm() {
+function ScheduleForm({ leadHours }: { leadHours: number }) {
   const schedule = useScheduleMaintenance();
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
@@ -351,7 +390,13 @@ function ScheduleForm() {
               className={FIELD}
             />
             <span className={FIELD_HINT}>
-              Clients are emailed 24 hours ahead. Once that has gone out this time is fixed.
+              {/* THE CONFIGURED LEAD, FROM THE SERVER. This said "24 hours" and "once that
+                  has gone out this time is fixed" — the first is now a dial an operator
+                  sets and the second is no longer true, so both halves were a screen
+                  stating a rule the platform does not follow. */}
+              Clients are emailed {leadHours} {leadHours === 1 ? "hour" : "hours"} ahead
+              (set in Platform configuration). Scheduling closer than that is allowed — they
+              simply get less notice, and it is recorded.
             </span>
           </label>
           <label className="block">
@@ -466,7 +511,7 @@ export default function MaintenancePage() {
               is refused.
             </p>
           </NoticeBox>
-          <ScheduleForm />
+          <ScheduleForm leadHours={board.data.notice_lead_hours} />
         </>
       )}
 

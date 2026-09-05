@@ -5602,9 +5602,17 @@ export interface paths {
         head?: never;
         /**
          * Amend an open window (step-up confirmed, audited)
-         * @description Move the end, rewrite the reason, extend the drain — and, before it is announced,
-         *     move the start. `ops/maintenance.amend_window` owns which of those an announced window
-         *     may still take, and refuses the rest by name.
+         * @description Move the start, move the end, rewrite the reason, extend the drain.
+         *
+         *     A `scheduled` window may be moved whether or not clients have been told: the
+         *     commitment is kept by RE-ANNOUNCING rather than by freezing, and `amend_window`'s
+         *     docstring carries the founder's decision and the reasoning. A window that has BEGUN is
+         *     not rescheduled — that half is refused by name.
+         *
+         *     TWO AUDIT ACTIONS, not one. A move (`ops.maintenance_moved`) and a re-wording
+         *     (`ops.maintenance_amended`) are asked about differently afterwards — "when did this
+         *     window change time" must not be a full-text hunt through a generic action — and both
+         *     carry the times on BOTH sides.
          */
         patch: operations["amend_maintenance_v1_ops_maintenance__window_id__patch"];
         trace?: never;
@@ -5620,11 +5628,13 @@ export interface paths {
         put?: never;
         /**
          * Call off a window that has not finished (step-up confirmed, audited)
-         * @description `scheduled | draining -> cancelled`.
+         * @description `scheduled -> cancelled`. A window that has BEGUN is ended, not cancelled.
          *
-         *     An ACTIVE window cannot be cancelled — the verb for that is `/end`, and the difference
-         *     is not pedantry: an active window has already shut the client surface and there is
-         *     restoration work owed. `cancel_window` argues it.
+         *     The difference is not pedantry and `cancel_window` argues it in full: a cancellation
+         *     means nothing happened, and the moment a window starts draining it has paused every
+         *     running campaign in the fleet and rewritten what every live inbound agent says. That
+         *     work is put back by exactly one terminal state — `completed` — so `draining` and
+         *     `active` are reached through `/end`, and the refusal below names it.
          */
         post: operations["cancel_maintenance_v1_ops_maintenance__window_id__cancel_post"];
         delete?: never;
@@ -11464,6 +11474,8 @@ export interface components {
             current: components["schemas"]["MaintenanceWindowOut"] | null;
             /** History */
             history: components["schemas"]["MaintenanceWindowOut"][];
+            /** Notice Lead Hours */
+            notice_lead_hours: number;
         };
         /** MaintenanceScheduleIn */
         MaintenanceScheduleIn: {

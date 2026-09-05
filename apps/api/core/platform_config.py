@@ -395,6 +395,19 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "notifications_from": AppliesRule(LIVE),
     "notifications_reply_to": AppliesRule(LIVE),
     "alerts_email": AppliesRule(LIVE),  # core/alerting, per alert
+    # HOW FAR AHEAD CLIENTS ARE TOLD ABOUT A MAINTENANCE WINDOW (D-544). `live`, and
+    # checked rather than assumed: `workers/maintenance._advance_lead()` calls
+    # `get_settings()` on the tick that uses it — every fifteen seconds — so the next tick
+    # after a console change reads the new value with no restart.
+    #
+    # **CHANGING IT NEVER RE-NOTIFIES OR UN-NOTIFIES A WINDOW THAT HAS ALREADY BEEN
+    # ANNOUNCED**, which is why there is no caveat here and why `live` is honest rather
+    # than merely true. The announcement is a CLAIM on a row (`advance_notice_at`, stamped
+    # once by a CAS), not a value recomputed from the setting: shortening the lead cannot
+    # retract a mail that has been sent, and lengthening it cannot make an announced window
+    # announce again. What the setting decides is exactly one thing — when a window that
+    # has NOT yet been announced becomes due.
+    "maintenance_notice_lead_hours": AppliesRule(LIVE),
     # workers/tls_expiry reads it inside the daily cron, so the next run uses the new
     # value with no restart.
     "tls_origin_address": AppliesRule(LIVE),
