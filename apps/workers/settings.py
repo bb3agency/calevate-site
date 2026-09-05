@@ -295,7 +295,7 @@ CRON_JOBS = [
     # tick that finds the work already done does nothing and says so.
     cron(
         traced_job(maintenance_tick),
-        second=MAINTENANCE_TICK_SECONDS,
+        second=set(MAINTENANCE_TICK_SECONDS),
         run_at_startup=True,
         max_tries=WORKER_MAX_TRIES,
     ),

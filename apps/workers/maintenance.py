@@ -61,6 +61,7 @@ from typing import Any
 from uuid import UUID
 
 from arq import Retry
+from calevate_shared.calling_window import IST
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_DIRECTIVE,
     DisclosurePosture,
@@ -75,7 +76,7 @@ from apps.api.campaigns.service import (
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
-from apps.api.core.loadshed import get_platform_status, set_platform_status
+from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
@@ -279,10 +280,30 @@ def _maintenance_greeting(window: MaintenanceWindow, posture: DisclosurePosture)
 
 
 def _ist(instant: datetime) -> str:
-    """An instant in IST, as a person says it. UTC in the database, IST at the edge."""
-    from apps.api.compliance.service import IST
+    """An instant in IST, as a person says it. UTC in the database, IST at the edge.
 
-    return instant.astimezone(IST).strftime("%H:%M on %d %b")
+    `calevate_shared.calling_window.IST` is a `timedelta`, not a `tzinfo` — the repo's
+    convention is to ADD it and read the result naively (`ist_now`, `as_ist`), because
+    India has no DST and a fixed offset needs no zone database in a module that imports
+    only the standard library. Followed here rather than reaching for `ZoneInfo`, which
+    would be a second spelling of the one offset this product cares about.
+    """
+    return (instant.astimezone(UTC) + IST).strftime("%H:%M on %d %b")
+
+
+def _restore_mode(stored: str | None) -> LoadShedMode:
+    """The load-shed mode to put back when a window ends.
+
+    The column is plain text (it is written from a value read at activation time), so it
+    is narrowed here rather than trusted. Anything unrecognised — and `maintenance` itself,
+    which would end a window by re-entering it — becomes `normal`: the only safe default
+    when the record of what to restore is unreadable is the mode that serves clients.
+    """
+    modes: tuple[LoadShedMode, ...] = ("normal", "reduced", "emergency")
+    for mode in modes:
+        if stored == mode:
+            return mode
+    return "normal"
 
 
 async def _speak_maintenance(window: MaintenanceWindow, budget: WalkBudget) -> EngineScriptOutcome:
@@ -550,7 +571,7 @@ async def _tick_draining(window: MaintenanceWindow, *, now: datetime, budget: Wa
     # The mode to put back at the end, read immediately before the write that stores it.
     # A window that opened during a `reduced` shed must not end by declaring the platform
     # healthy — the shed is somebody else's decision and has its own reason.
-    restore_mode = (await get_platform_status(force_refresh=True)).mode
+    restore_mode: LoadShedMode = (await get_platform_status(force_refresh=True)).mode
     async with untenanted_session() as session:
         if not await activate(
             session,
@@ -622,7 +643,7 @@ async def _tick_active(window: MaintenanceWindow, *, now: datetime, budget: Walk
     # before the fleet work starts, because the fleet work is minutes of vendor round
     # trips and none of it is a reason to keep anybody locked out. `restore_load_shed_mode`
     # and not a hard `normal`: see `_tick_draining`.
-    await set_platform_status(mode=window.restore_load_shed_mode or "normal", actor_id=None)
+    await set_platform_status(mode=_restore_mode(window.restore_load_shed_mode), actor_id=None)
     resumed = await _resume_campaigns(window, budget)
     voice = await _restore_scripts(budget)
     _alert_engine_outcome(window, voice, edge="completed")

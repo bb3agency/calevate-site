@@ -47,6 +47,7 @@ from apps.api.campaigns.service import CAMPAIGN_STOPPED_RULE, CAMPAIGN_WINDOW_CL
 from apps.api.compliance import service as gate_module
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
+    MAINTENANCE_DRAIN_RULE,
     PERSON_LEVEL_REFUSALS,
     dial_refusal_for_agent_status,
 )
@@ -81,6 +82,13 @@ GATE = REPO_ROOT / "apps" / "api" / "compliance" / "service.py"
 #: now completed by `campaign_dispatch._settle_finished_campaign` BEFORE either gate runs.
 TRANSIENT_REFUSALS: dict[str, str] = {
     BIG_RED_SWITCH_RULE: "an operator turns the platform halt off",
+    MAINTENANCE_DRAIN_RULE: (
+        "the maintenance window closes — by its own end time, or when an operator ends it "
+        "early. It is a fact about the CLOCK, and settling on it would be the founder's "
+        '"a campaign must come back where it was" failing silently: every contact refused '
+        "during the drain would be terminally done and the campaign would auto-complete "
+        "having never rung them"
+    ),
     "calling_hours": "the clock reaches the permitted window",
     "no_credits": "the account is topped up",
     "spend_cap": "the cap is raised or the period rolls over",

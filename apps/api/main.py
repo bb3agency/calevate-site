@@ -143,6 +143,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
     from apps.api.ops.fx_routes import router as ops_fx_router
+    from apps.api.ops.maintenance_routes import client_router as client_maintenance_router
+    from apps.api.ops.maintenance_routes import router as ops_maintenance_router
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.routes import router as ops_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
@@ -368,6 +370,16 @@ def _mount_routers(application: FastAPI) -> None:
     # Platform configuration (PLATFORM-CONFIG §7). Its own router beside the ops
     # switchboard, and its own permission: `ops:manage` is the incident surface, this is
     # change management, and the two are held by different people on purpose.
+    # PLANNED MAINTENANCE (D-544). Its own `/v1/ops/maintenance` prefix under the ops
+    # tree, which is what keeps it reachable while the platform is shut: `/v1/ops` is in
+    # `loadshed.ALWAYS_ALLOWED_PREFIXES`, so the surface that ENDS a maintenance window is
+    # never shed by the maintenance window.
+    application.include_router(ops_maintenance_router)
+    # The client half — one read, behind `org:read`, that the console's banner polls while
+    # a window is scheduled or draining. Deliberately NOT exempt from shedding: during an
+    # ACTIVE window it answers the same 503 as every other client route, and that refusal
+    # is what the lockout page renders from.
+    application.include_router(client_maintenance_router)
     application.include_router(ops_config_router)
     # Credentials — its OWN permission (`platform:secrets`), held by fewer people than
     # anything else on this list. No route on it returns plaintext (§7).

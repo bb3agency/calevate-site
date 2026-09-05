@@ -3340,6 +3340,62 @@
         "title": "ClientHealthOut",
         "type": "object"
       },
+      "ClientMaintenanceOut": {
+        "additionalProperties": false,
+        "description": "What a CLIENT is told about a window, and the fields are the whole disclosure rule.\n\nThree facts and no more: is one coming or here, when does it end, and why. Deliberately\nabsent: the drain counts (how many other clients are on a call is not this client's\nbusiness), the straggler list, `forced`, who scheduled it, and the window id \u2014 none of\nwhich a client can act on and all of which are operational detail about other people's\naccounts.\n\n`state` is narrowed to the three a client can be in the presence of. A `completed` or\n`cancelled` window is answered as no window at all, because \"there was one and it is\nover\" is a banner nobody needs and a client would read as current.",
+        "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "state": {
+            "enum": [
+              "none",
+              "scheduled",
+              "draining",
+              "active"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "ClientMaintenanceOut",
+        "type": "object"
+      },
       "CloseIn": {
         "additionalProperties": false,
         "properties": {
@@ -8776,6 +8832,49 @@
         "title": "ImpersonationGrantOut",
         "type": "object"
       },
+      "InFlightOut": {
+        "additionalProperties": false,
+        "description": "What the drain is still waiting for, as the console renders it.\n\n`measured_at` is not decoration. These numbers are taken by the worker tick, not by\nthis request (`PlatformMaintenanceWindow.in_flight` says why), so the screen has to be\nable to say how old they are \u2014 an operator deciding whether to force a window on\nnumbers of unknown age is exactly the mistake the founder's \"an operator staring at a\nspinner with no numbers will force it\" is about.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "jobs": {
+            "title": "Jobs",
+            "type": "integer"
+          },
+          "measured_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At"
+          },
+          "tenants_unreached": {
+            "title": "Tenants Unreached",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calls",
+          "jobs",
+          "tenants_unreached",
+          "complete",
+          "measured_at"
+        ],
+        "title": "InFlightOut",
+        "type": "object"
+      },
       "IngestAckOut": {
         "additionalProperties": false,
         "description": "What the SENDER is told about one delivery: ids and verdicts, never the lead.\n\nDeclared rather than `dict[str, Any]`, and this is the response on this router where\nthat matters most: the handler holds the sender's ENTIRE payload in scope, and an\nuntyped return is one `**payload` away from echoing a customer's name and number back\nover a channel authenticated by a secret that gets pasted into form vendors. An\nuntyped return is not a shape `scripts/check_redaction_exposure.py` judges safe \u2014 it\ninspects response MODELS, so it is a shape the guardrail cannot see at all (D-71).\n\n**On a `duplicate` every other field is null**, because THIS delivery decided\nnothing. The first one made the lead and the dial; re-deriving what it did from an\ninbox row that does not record it would be a claim we cannot back, and `dispatched:\nfalse` next to `status: duplicate` reads as \"nobody was called\", which is the one\nthing it must not be allowed to mean.",
@@ -12167,6 +12266,260 @@
           "phone"
         ],
         "title": "LookupConsentIn",
+        "type": "object"
+      },
+      "MaintenanceAmendIn": {
+        "additionalProperties": false,
+        "description": "A PATCH body: whichever fields moved, and nothing else.\n\nEvery field optional for `DisclosureIn`'s reason \u2014 a screen with four inputs sends the\none that changed, and a body that could only send all four would make extending a\nwindow a read-modify-write race against an operator rewriting its reason. The service\ndecides which of them an ANNOUNCED window may still take.",
+        "properties": {
+          "ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "max_drain_minutes": {
+            "anyOf": [
+              {
+                "maximum": 240.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Drain Minutes"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          }
+        },
+        "title": "MaintenanceAmendIn",
+        "type": "object"
+      },
+      "MaintenanceBoardOut": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaintenanceWindowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/MaintenanceWindowOut"
+            },
+            "title": "History",
+            "type": "array"
+          }
+        },
+        "required": [
+          "current",
+          "history"
+        ],
+        "title": "MaintenanceBoardOut",
+        "type": "object"
+      },
+      "MaintenanceScheduleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "max_drain_minutes": {
+            "default": 15,
+            "maximum": 240.0,
+            "minimum": 1.0,
+            "title": "Max Drain Minutes",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "reason"
+        ],
+        "title": "MaintenanceScheduleIn",
+        "type": "object"
+      },
+      "MaintenanceWindowOut": {
+        "additionalProperties": false,
+        "properties": {
+          "activated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          },
+          "announced": {
+            "title": "Announced",
+            "type": "boolean"
+          },
+          "cancelled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled At"
+          },
+          "drain_deadline_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drain Deadline At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "forced": {
+            "title": "Forced",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "in_flight": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InFlightOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_drain_minutes": {
+            "title": "Max Drain Minutes",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "scheduled",
+              "draining",
+              "active",
+              "completed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stragglers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InFlightOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "reason",
+          "starts_at",
+          "ends_at",
+          "state",
+          "max_drain_minutes",
+          "drain_deadline_at",
+          "activated_at",
+          "forced",
+          "stragglers",
+          "in_flight",
+          "ended_at",
+          "cancelled_at",
+          "announced"
+        ],
+        "title": "MaintenanceWindowOut",
         "type": "object"
       },
       "MarginOut": {
@@ -33995,6 +34348,35 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/maintenance": {
+      "get": {
+        "description": "The banner's source, and the only maintenance fact a client is given by name.\n\n\u2550\u2550\u2550 WHY THIS EXISTS AT ALL, GIVEN THE 503 CARRIES THE SAME WORDS \u2550\u2550\u2550\n\nThe 503 answers a client who is ALREADY locked out. This answers the one who is not\nyet: the console shows a banner for a window that is `scheduled` or `draining`, which\nare precisely the states in which nothing is shed and no 503 is produced. Without it a\nclient's first notice would be the door closing.\n\n\u2550\u2550\u2550 IT IS SHED DURING THE WINDOW, AND THAT IS CORRECT \u2550\u2550\u2550\n\n`maintenance` sheds reads, `/v1/maintenance` is not exempt, and so during an ACTIVE\nwindow this route answers the same 503 as everything else \u2014 carrying the reason, the\n`Retry-After` and the `platform_maintenance` code. The console renders the lockout page\nfrom that refusal. Exempting it would be a second way to learn the same fact, and the\n503 is the one that reaches every screen rather than the one screen that thought to ask.\n\n`org:read` because every client role holds it: the banner is not a privilege.",
+        "operationId": "my_maintenance_v1_maintenance_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientMaintenanceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Is Calevate about to go down, or down now?",
+        "tags": [
+          "maintenance"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/me": {
       "get": {
         "description": "`requires(\"org:read\")`, not `current_any`: the declaration in `openapi_extra`\nabove and the dependency here must name the same permission.\n\nNothing about who gets in changes \u2014 `requires()` defaults to `realm=\"any\"` and so\nresolves the identical principal, `org:read` is not in `MUTATING_PERMISSIONS` so an\nimpersonating admin is still admitted (D-22), and every role the DB enums allow\nholds `org:read`. What changes is that the route now enforces what it advertises,\nwhich is the property `assert_policy_registry_complete` checks at boot and\n`tests/authz_audit_test.py` asserts for every route at once. A declaration with no\nlock behind it reads as protected in the OpenAPI schema and the generated TS\nclient; this was the last route where that was true.",
@@ -34743,6 +35125,284 @@
           "ops"
         ],
         "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/maintenance": {
+      "get": {
+        "description": "The open window, if any, and the recent ones.\n\n`current` is read separately rather than filtered out of `history` because they answer\ndifferent questions and the second is bounded: an operator opening this screen during a\nwindow must see it whether or not it is inside the newest `limit` rows.",
+        "operationId": "read_maintenance_v1_ops_maintenance_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceBoardOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Read Maintenance",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "operationId": "create_maintenance_v1_ops_maintenance_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaintenanceScheduleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceWindowOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Schedule a maintenance window (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/maintenance/{window_id}": {
+      "patch": {
+        "description": "Move the end, rewrite the reason, extend the drain \u2014 and, before it is announced,\nmove the start. `ops/maintenance.amend_window` owns which of those an announced window\nmay still take, and refuses the rest by name.",
+        "operationId": "amend_maintenance_v1_ops_maintenance__window_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "window_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Window Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaintenanceAmendIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceWindowOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Amend an open window (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/maintenance/{window_id}/cancel": {
+      "post": {
+        "description": "`scheduled | draining -> cancelled`.\n\nAn ACTIVE window cannot be cancelled \u2014 the verb for that is `/end`, and the difference\nis not pedantry: an active window has already shut the client surface and there is\nrestoration work owed. `cancel_window` argues it.",
+        "operationId": "cancel_maintenance_v1_ops_maintenance__window_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "window_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Window Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceWindowOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Call off a window that has not finished (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/maintenance/{window_id}/end": {
+      "post": {
+        "description": "Finish now: set `ends_at` to this instant and let the actuator complete it.\n\n\u2550\u2550\u2550 WHY THIS MOVES A TIMESTAMP RATHER THAN CALLING `complete_window` \u2550\u2550\u2550\n\nBecause completion is not one write. It restores the load-shed mode, resumes every\ncampaign this window paused and republishes every live answering agent \u2014 minutes of\nfleet walk and vendor round trips, which cannot run in a request. If this handler\ntransitioned the row itself, the window would read `completed` while the platform was\nstill shut and every campaign still paused, and the tick would find nothing to act on.\n\nMoving `ends_at` puts the window into exactly the state the scheduled path produces at\nits natural end, so ONE code path does the completion and there is no second one to get\nsubtly different. The operator waits about a second.",
+        "operationId": "end_maintenance_v1_ops_maintenance__window_id__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "window_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Window Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceWindowOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End a window early and give clients their portal back (step-up confirmed)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/ops/model-prices": {

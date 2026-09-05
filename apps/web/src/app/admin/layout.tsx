@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import {
+  CalendarClock,
   Building2,
   ClipboardCheck,
   Coins,
@@ -228,6 +229,23 @@ const NAV: NavGroup[] = [
         permission: "platform:config",
         action: "change platform configuration or install vendor credentials",
         hideUnlessAllowed: true,
+      },
+      {
+        // PLANNED MAINTENANCE. Its own entry rather than a panel on Operations, for the
+        // reason the two rows below have theirs — discovery under pressure. An operator
+        // about to take the platform down is following `runbooks/maintenance-window.md`,
+        // and the screen they need shows a DRAIN that is counting down; burying it in a
+        // page of platform switches is how somebody ends up forcing a window because they
+        // could not find the numbers. The longest-match title rule below means
+        // `/admin/ops/maintenance` keeps this name instead of inheriting "Operations".
+        //
+        // `ops:manage` is the permission every route on the surface carries
+        // (`apps/api/ops/maintenance_routes.py`).
+        href: "/admin/ops/maintenance",
+        label: "Planned maintenance",
+        icon: CalendarClock,
+        permission: "ops:manage",
+        action: "schedule or end a platform maintenance window",
       },
       {
         // Its own entry rather than a panel on Operations, and the reason is discovery

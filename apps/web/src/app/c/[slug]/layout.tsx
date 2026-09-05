@@ -22,6 +22,7 @@ import {
   useSidebarCollapse,
 } from "@/components/sidebarCollapse";
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
+import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
 import { clientAuthn, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
@@ -420,6 +421,11 @@ export default function ClientRealmLayout({
                   the whole window rather than about this screen — and it renders nothing at
                   all while online, so a connected user pays no DOM for it. */}
               <OfflineBanner />
+              {/* BELOW the offline strip and above everything else, for the same reason
+                  that one is where it is: it is a statement about the whole window rather
+                  than about this screen. It renders nothing at all when no window is
+                  scheduled, which is every ordinary day. */}
+              <MaintenanceBanner />
               <ViewAsBanner slug={slug} />
               <TopHeader slug={slug} onMenuToggle={() => setIsMobileOpen(true)} />
               {/* `tabIndex={-1}` is what makes `SkipLink` actually skip: following a
@@ -431,7 +437,15 @@ export default function ClientRealmLayout({
                 tabIndex={-1}
                 className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
               >
-                <div className="mx-auto max-w-[1280px]">{children}</div>
+                {/* THE DOOR. Inside the shell, so a locked-out client sees their own
+                    console with a message in it rather than a bare error page — and
+                    wrapping `children` rather than the layout, so the sidebar, the header
+                    and the skip link all survive the window. It renders `children`
+                    untouched unless the platform has actually refused us with a
+                    maintenance 503. */}
+                <div className="mx-auto max-w-[1280px]">
+                  <MaintenanceGate>{children}</MaintenanceGate>
+                </div>
               </main>
             </div>
             {/* The screen assistant. INSIDE `ClientRealmProvider`, because it reads the

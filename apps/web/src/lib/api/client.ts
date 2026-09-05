@@ -50,8 +50,23 @@ export class ApiProblem extends Error {
    */
   readonly fields?: { field: string; rule: string; message: string; label?: string }[];
   readonly traceId?: string;
+  /**
+   * `Retry-After` in SECONDS, when the response carried one (RFC 9110 §10.2.3's
+   * delay-seconds form, which is the only form this API emits).
+   *
+   * A HEADER, not a body field, and it is read here because that is the one place every
+   * refusal in this app passes through. Two screens need it and both need it for the same
+   * reason — it is the server's own count, taken on the server's clock: the maintenance
+   * lockout page says when the platform comes back, and a rate-limited form says when to
+   * try again. Computing either from a browser clock would be wrong by whatever the
+   * viewer's laptop is wrong by.
+   *
+   * `undefined` whenever the header is absent, unparseable, or the HTTP-date form — a
+   * screen with no number says "shortly" rather than rendering `NaN`.
+   */
+  readonly retryAfterSeconds?: number;
 
-  constructor(status: number, body: Record<string, unknown>) {
+  constructor(status: number, body: Record<string, unknown>, retryAfterSeconds?: number) {
     // `??` alone was not enough and the gap only opened in production: `??` falls
     // through `null`/`undefined` and NOT through `""`, so a body carrying an empty
     // `detail` — which is what `problemFrom`'s fallback produced over HTTP/2, see below
@@ -69,6 +84,7 @@ export class ApiProblem extends Error {
     this.remediation = text(body.remediation);
     this.fields = body.fields as ApiProblem["fields"];
     this.traceId = text(body.trace_id);
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -676,7 +692,26 @@ export async function problemFrom(response: Response): Promise<ApiProblem> {
   } catch {
     problem = transportProblem(response.status);
   }
-  return new ApiProblem(response.status, problem);
+  return new ApiProblem(response.status, problem, retryAfterSeconds(response));
+}
+
+/**
+ * The `Retry-After` header as a whole number of seconds, or `undefined`.
+ *
+ * Only the delay-seconds form is parsed. RFC 9110 §10.2.3 also allows an HTTP-date, and
+ * this API emits neither that nor a fractional value anywhere (`core/middleware.py`,
+ * `authn/throttle.py`, `tenancy/signup.py` all send integers) — so parsing the date form
+ * would be code exercising nothing, and guessing at an unparseable value would be worse
+ * than admitting the header said nothing this app understands.
+ *
+ * The header must be on the CORS allow-list to be readable cross-origin at all; it is
+ * (`core/middleware.py`'s `expose_headers`).
+ */
+function retryAfterSeconds(response: Response): number | undefined {
+  const raw = response.headers.get("Retry-After");
+  if (raw === null) return undefined;
+  const seconds = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
 }
 
 /**

@@ -62,6 +62,7 @@ import ClientRealmLayout from "@/app/c/[slug]/layout";
 import DashboardPage from "@/app/c/[slug]/page";
 import PerformancePage from "@/app/c/[slug]/performance/page";
 import QualityPage from "@/app/c/[slug]/quality/page";
+import MaintenancePage from "@/app/admin/ops/maintenance/page";
 import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
@@ -2411,6 +2412,30 @@ const CLIENT_SCREENS: Screen[] = [
   },
 ];
 
+/** A window mid-drain: the state with the most controls on the screen. */
+const MAINTENANCE_WINDOW = {
+  id: "0199a0b0-0000-7000-8000-0000000000ff",
+  reason: "Upgrading the telephony stack. Nothing is deleted.",
+  starts_at: "2026-09-06T20:30:00Z",
+  ends_at: "2026-09-06T21:30:00Z",
+  state: "draining" as const,
+  max_drain_minutes: 15,
+  drain_deadline_at: "2026-09-06T20:45:00Z",
+  activated_at: null,
+  forced: false,
+  stragglers: null,
+  in_flight: {
+    calls: 2,
+    jobs: 0,
+    tenants_unreached: 0,
+    complete: true,
+    measured_at: "2026-09-06T20:31:00Z",
+  },
+  ended_at: null,
+  cancelled_at: null,
+  announced: true,
+};
+
 const ADMIN_SCREENS: Screen[] = [
   {
     file: "admin/layout.tsx",
@@ -2467,6 +2492,22 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <HeldAccountsPage />,
     routes: { "/v1/admin/compliance/holds": [HELD_TENANT] },
+  },
+  {
+    // PLANNED MAINTENANCE. Swept in the state an operator opens it in most often — a
+    // window already DRAINING — because that is the state with the most on the screen:
+    // the live counts, the deadline, the amendment form and both stop buttons. An
+    // idle-board fixture would sweep the schedule form and none of the controls that
+    // matter under pressure.
+    file: "admin/ops/maintenance/page.tsx",
+    realm: "admin",
+    element: () => <MaintenancePage />,
+    routes: {
+      "/v1/ops/maintenance": {
+        current: MAINTENANCE_WINDOW,
+        history: [MAINTENANCE_WINDOW],
+      },
+    },
   },
   {
     file: "admin/qa-sampling/page.tsx",

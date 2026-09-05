@@ -5220,6 +5220,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Is Calevate about to go down, or down now?
+         * @description The banner's source, and the only maintenance fact a client is given by name.
+         *
+         *     ═══ WHY THIS EXISTS AT ALL, GIVEN THE 503 CARRIES THE SAME WORDS ═══
+         *
+         *     The 503 answers a client who is ALREADY locked out. This answers the one who is not
+         *     yet: the console shows a banner for a window that is `scheduled` or `draining`, which
+         *     are precisely the states in which nothing is shed and no 503 is produced. Without it a
+         *     client's first notice would be the door closing.
+         *
+         *     ═══ IT IS SHED DURING THE WINDOW, AND THAT IS CORRECT ═══
+         *
+         *     `maintenance` sheds reads, `/v1/maintenance` is not exempt, and so during an ACTIVE
+         *     window this route answers the same 503 as everything else — carrying the reason, the
+         *     `Retry-After` and the `platform_maintenance` code. The console renders the lockout page
+         *     from that refusal. Exempting it would be a second way to learn the same fact, and the
+         *     503 is the one that reaches every screen rather than the one screen that thought to ask.
+         *
+         *     `org:read` because every client role holds it: the banner is not a privilege.
+         */
+        get: operations["my_maintenance_v1_maintenance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/me": {
         parameters: {
             query?: never;
@@ -5519,6 +5556,109 @@ export interface paths {
         get: operations["read_fx_rate_v1_ops_fx_rate_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Maintenance
+         * @description The open window, if any, and the recent ones.
+         *
+         *     `current` is read separately rather than filtered out of `history` because they answer
+         *     different questions and the second is bounded: an operator opening this screen during a
+         *     window must see it whether or not it is inside the newest `limit` rows.
+         */
+        get: operations["read_maintenance_v1_ops_maintenance_get"];
+        put?: never;
+        /** Schedule a maintenance window (step-up confirmed, audited) */
+        post: operations["create_maintenance_v1_ops_maintenance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/maintenance/{window_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Amend an open window (step-up confirmed, audited)
+         * @description Move the end, rewrite the reason, extend the drain — and, before it is announced,
+         *     move the start. `ops/maintenance.amend_window` owns which of those an announced window
+         *     may still take, and refuses the rest by name.
+         */
+        patch: operations["amend_maintenance_v1_ops_maintenance__window_id__patch"];
+        trace?: never;
+    };
+    "/v1/ops/maintenance/{window_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Call off a window that has not finished (step-up confirmed, audited)
+         * @description `scheduled | draining -> cancelled`.
+         *
+         *     An ACTIVE window cannot be cancelled — the verb for that is `/end`, and the difference
+         *     is not pedantry: an active window has already shut the client surface and there is
+         *     restoration work owed. `cancel_window` argues it.
+         */
+        post: operations["cancel_maintenance_v1_ops_maintenance__window_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/maintenance/{window_id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a window early and give clients their portal back (step-up confirmed)
+         * @description Finish now: set `ends_at` to this instant and let the actuator complete it.
+         *
+         *     ═══ WHY THIS MOVES A TIMESTAMP RATHER THAN CALLING `complete_window` ═══
+         *
+         *     Because completion is not one write. It restores the load-shed mode, resumes every
+         *     campaign this window paused and republishes every live answering agent — minutes of
+         *     fleet walk and vendor round trips, which cannot run in a request. If this handler
+         *     transitioned the row itself, the window would read `completed` while the platform was
+         *     still shut and every campaign still paused, and the tick would find nothing to act on.
+         *
+         *     Moving `ends_at` puts the window into exactly the state the scheduled path produces at
+         *     its natural end, so ONE code path does the completion and there is no second one to get
+         *     subtly different. The operator waits about a second.
+         */
+        post: operations["end_maintenance_v1_ops_maintenance__window_id__end_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7339,6 +7479,33 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * ClientMaintenanceOut
+         * @description What a CLIENT is told about a window, and the fields are the whole disclosure rule.
+         *
+         *     Three facts and no more: is one coming or here, when does it end, and why. Deliberately
+         *     absent: the drain counts (how many other clients are on a call is not this client's
+         *     business), the straggler list, `forced`, who scheduled it, and the window id — none of
+         *     which a client can act on and all of which are operational detail about other people's
+         *     accounts.
+         *
+         *     `state` is narrowed to the three a client can be in the presence of. A `completed` or
+         *     `cancelled` window is answered as no window at all, because "there was one and it is
+         *     over" is a banner nobody needs and a client would read as current.
+         */
+        ClientMaintenanceOut: {
+            /** Ends At */
+            ends_at?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "none" | "scheduled" | "draining" | "active";
         };
         /** CloseIn */
         CloseIn: {
@@ -9727,6 +9894,28 @@ export interface components {
             slug: string;
         };
         /**
+         * InFlightOut
+         * @description What the drain is still waiting for, as the console renders it.
+         *
+         *     `measured_at` is not decoration. These numbers are taken by the worker tick, not by
+         *     this request (`PlatformMaintenanceWindow.in_flight` says why), so the screen has to be
+         *     able to say how old they are — an operator deciding whether to force a window on
+         *     numbers of unknown age is exactly the mistake the founder's "an operator staring at a
+         *     spinner with no numbers will force it" is about.
+         */
+        InFlightOut: {
+            /** Calls */
+            calls: number;
+            /** Complete */
+            complete: boolean;
+            /** Jobs */
+            jobs: number;
+            /** Measured At */
+            measured_at: string | null;
+            /** Tenants Unreached */
+            tenants_unreached: number;
+        };
+        /**
          * IngestAckOut
          * @description What the SENDER is told about one delivery: ids and verdicts, never the lead.
          *
@@ -11250,6 +11439,92 @@ export interface components {
         LookupConsentIn: {
             /** Phone */
             phone: string;
+        };
+        /**
+         * MaintenanceAmendIn
+         * @description A PATCH body: whichever fields moved, and nothing else.
+         *
+         *     Every field optional for `DisclosureIn`'s reason — a screen with four inputs sends the
+         *     one that changed, and a body that could only send all four would make extending a
+         *     window a read-modify-write race against an operator rewriting its reason. The service
+         *     decides which of them an ANNOUNCED window may still take.
+         */
+        MaintenanceAmendIn: {
+            /** Ends At */
+            ends_at?: string | null;
+            /** Max Drain Minutes */
+            max_drain_minutes?: number | null;
+            /** Reason */
+            reason?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+        };
+        /** MaintenanceBoardOut */
+        MaintenanceBoardOut: {
+            current: components["schemas"]["MaintenanceWindowOut"] | null;
+            /** History */
+            history: components["schemas"]["MaintenanceWindowOut"][];
+        };
+        /** MaintenanceScheduleIn */
+        MaintenanceScheduleIn: {
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /**
+             * Max Drain Minutes
+             * @default 15
+             */
+            max_drain_minutes: number;
+            /** Reason */
+            reason: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+        };
+        /** MaintenanceWindowOut */
+        MaintenanceWindowOut: {
+            /** Activated At */
+            activated_at: string | null;
+            /** Announced */
+            announced: boolean;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Drain Deadline At */
+            drain_deadline_at: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Forced */
+            forced: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            in_flight: components["schemas"]["InFlightOut"] | null;
+            /** Max Drain Minutes */
+            max_drain_minutes: number;
+            /** Reason */
+            reason: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "scheduled" | "draining" | "active" | "completed" | "cancelled";
+            stragglers: components["schemas"]["InFlightOut"] | null;
         };
         /**
          * MarginOut
@@ -23934,6 +24209,35 @@ export interface operations {
             };
         };
     };
+    my_maintenance_v1_maintenance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientMaintenanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     me_v1_me_get: {
         parameters: {
             query?: never;
@@ -24436,6 +24740,175 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FxRateOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_maintenance_v1_ops_maintenance_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceBoardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_maintenance_v1_ops_maintenance_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaintenanceScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindowOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    amend_maintenance_v1_ops_maintenance__window_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                window_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaintenanceAmendIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindowOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_maintenance_v1_ops_maintenance__window_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                window_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindowOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    end_maintenance_v1_ops_maintenance__window_id__end_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                window_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindowOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

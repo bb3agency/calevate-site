@@ -1369,9 +1369,7 @@ async def set_campaign_status(
     )
 
 
-async def pause_campaigns_for_maintenance(
-    session: AsyncSession, *, window_id: UUID
-) -> list[UUID]:
+async def pause_campaigns_for_maintenance(session: AsyncSession, *, window_id: UUID) -> list[UUID]:
     """Stop this tenant's running campaigns for the duration of a maintenance window.
 
     Returns the campaigns THIS call stopped, so the caller can audit one row each.
@@ -1706,12 +1704,12 @@ __all__ = [
     "dispatch_blockers",
     "launch_blockers",
     "launch_campaign",
-    "pause_campaigns_for_maintenance",
-    "resume_campaigns_after_maintenance",
     "launch_refusal_for_agent_status",
     "list_campaigns",
+    "pause_campaigns_for_maintenance",
     "record_dlt_registration",
     "register_dlt_template",
+    "resume_campaigns_after_maintenance",
     "set_campaign_status",
     "set_template_status",
 ]
