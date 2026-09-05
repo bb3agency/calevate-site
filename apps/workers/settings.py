@@ -98,6 +98,10 @@ from apps.workers.caller_memory_distil import (
 )
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
+from apps.workers.copilot_transcript import (
+    TRANSCRIPT_SWEEP_MINUTE,
+    sweep_ended_conversations,
+)
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
     ERASURE_PROBE_MINUTE,
@@ -298,6 +302,30 @@ CRON_JOBS = [
     cron(
         traced_job(distil_copilot_memories),
         minute={DISTILL_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE COPILOT CONVERSATION ENDING WITH ITS OWNER'S LAST SESSION (D-540, migration
+    # c7e0b2a94f13). Hourly at :17, clear of the poller (:00/:10/...), the stall report
+    # (:05/:35), reconciliation (:15/:45) and the distiller (:25).
+    #
+    # A CRON AND NOT AN ENQUEUE for a different reason from its neighbour above: there is
+    # nothing to enqueue FROM. A session ends because a timestamp passed — no request runs,
+    # no row is written, nothing fires — so an event-driven design here would be correct
+    # for sign-out and silently wrong for the case that actually happens most, which is a
+    # closed tab. `copilot/transcript.py` observes the same fact lazily on the person's
+    # next request; this is what observes it for the person who never makes one.
+    #
+    # HOURLY IS THE RESOLUTION OF THE PROMISE, and it is bounded on both sides: a person
+    # who returns inside the hour has their dead thread cleared by the lazy check before
+    # they see a word of it, so the only thing this cadence decides is how long a
+    # conversation nobody is reading stays on disk.
+    #
+    # NO MODEL CALL AND NO SPEND: two credential reads and one statement per tenant.
+    # `max_tries` explicit for its neighbours' reason, and retrying is safe because the
+    # job is a set of DELETEs whose predicate is re-derived from live state each time.
+    cron(
+        traced_job(sweep_ended_conversations),
+        minute={TRANSCRIPT_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # CROSS-CALL MEMORY: what a finished call taught us about the PERSON who rang (D-513).
